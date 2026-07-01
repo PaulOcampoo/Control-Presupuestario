@@ -5,7 +5,7 @@
   "main": "server/index.js",
   "scripts": {
     "start": "node server/index.js",
-    "dev": "node server/index.js"
+    "dev": "node --env-file=.env server/index.js"
   },
   "license": "UNLICENSED",
   "engines": {

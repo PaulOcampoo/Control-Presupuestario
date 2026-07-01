@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#0f172a" />
+  <title>Control Presupuestal de Obra</title>
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <link rel="icon" href="/icons/icon-192.png" />
+  <link rel="apple-touch-icon" href="/icons/icon-192.png" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div id="app">
+    <header class="topbar">
+      <button id="btnMenu" class="icon-btn" aria-label="Menú">☰</button>
+      <div class="topbar-title">
+        <strong>Control Presupuestal</strong>
+        <span id="projectName" class="muted">Selecciona un presupuesto</span>
+      </div>
+      <button id="btnSync" class="icon-btn" aria-label="Sincronizar" title="Sincronizar datos">↺</button>
+      <button id="btnUpload" class="icon-btn" aria-label="Cargar presupuesto" title="Cargar presupuesto">＋</button>
+    </header>
+
+    <nav id="tabs" class="tabs">
+      <button class="tab active" data-view="resumen">Resumen</button>
+      <button class="tab" data-view="insumos">Insumos</button>
+      <button class="tab" data-view="requisiciones">Requisiciones</button>
+      <button class="tab" data-view="avance">Avance</button>
+      <button class="tab" data-view="programa">Programa</button>
+    </nav>
+
+    <main id="view"></main>
+  </div>
+
+  <!-- Drawer: lista de presupuestos -->
+  <div id="drawer" class="drawer">
+    <div class="drawer-header">
+      <strong>Presupuestos cargados</strong>
+      <button id="btnCloseDrawer" class="icon-btn">✕</button>
+    </div>
+    <div id="projectList" class="project-list"></div>
+    <button id="btnUploadDrawer" class="btn btn-primary full">+ Cargar nuevo presupuesto (.xlsx)</button>
+  </div>
+  <div id="drawerOverlay" class="overlay"></div>
+
+  <!-- Modal genérico -->
+  <div id="modalOverlay" class="overlay"></div>
+  <div id="modal" class="modal"></div>
+
+  <input type="file" id="fileInput" accept=".xlsx" hidden />
+
+  <div id="toast" class="toast"></div>
+
+  <script src="/vendor/chart.umd.min.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>

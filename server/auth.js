@@ -62,6 +62,20 @@ function allow(...puestos) {
   };
 }
 
+// Restringe el acceso a la obra (proyecto) cargada por requireProject: el
+// admin siempre pasa; el resto solo si tiene una fila en usuario_proyectos
+// para ese project_id. Debe ir después de requireProject en la cadena.
+async function verificarAccesoObra(req, res, next) {
+  if (req.user.puesto === 'admin') return next();
+  const projectId = req.project ? req.project.id : Number(req.params.id);
+  const { rows } = await db.pool.query(
+    'SELECT 1 FROM usuario_proyectos WHERE usuario_id = $1 AND project_id = $2',
+    [req.user.id, projectId]
+  );
+  if (!rows.length) return res.status(403).json({ error: 'No tienes acceso a esta obra' });
+  next();
+}
+
 // Crea el primer usuario administrador si la tabla de usuarios está vacía,
 // para poder entrar la primera vez y dar de alta al resto desde la app.
 async function ensureBootstrapAdmin() {
@@ -87,5 +101,6 @@ module.exports = {
   signToken,
   requireAuth,
   allow,
+  verificarAccesoObra,
   ensureBootstrapAdmin,
 };

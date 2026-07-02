@@ -1937,11 +1937,19 @@ function paintUsuariosList(usuarios) {
   });
 }
 
-function openUsuarioModal(usuario) {
+async function openUsuarioModal(usuario) {
   const isEdit = !!usuario;
+  const [allProjects, assigned] = await Promise.all([
+    api('/projects'),
+    isEdit ? api(`/usuarios/${usuario.id}/proyectos`) : Promise.resolve([]),
+  ]);
+  const assignedIds = new Set(assigned.map((p) => p.id));
+
   const puestoOptions = Object.keys(PUESTO_LABELS)
     .map((p) => `<option value="${p}" ${usuario && usuario.puesto === p ? 'selected' : ''}>${esc(PUESTO_LABELS[p])}</option>`)
     .join('');
+  const puestoInicial = usuario ? usuario.puesto : 'residente';
+
   openModal(`
     <h3>${isEdit ? 'Editar usuario' : 'Nuevo usuario'}</h3>
     <div class="field"><label>Nombre completo *</label><input id="uNombre" value="${isEdit ? esc(usuario.nombre) : ''}" /></div>
@@ -1960,11 +1968,25 @@ function openUsuarioModal(usuario) {
         <input id="uActivo" type="checkbox" style="width:auto" ${usuario.activo ? 'checked' : ''} /> Cuenta activa
       </label>
     </div>` : ''}
+    <div class="field" id="uProyectosField" style="${puestoInicial === 'admin' ? 'display:none' : ''}">
+      <label>Obras asignadas</label>
+      <p class="muted" style="font-size:0.76rem;margin:0 0 6px">Solo verá y podrá operar en las obras marcadas aquí.</p>
+      ${allProjects.length ? `
+      <div id="uProyectosList" style="display:flex;flex-direction:column;gap:8px;max-height:180px;overflow-y:auto">
+        ${allProjects.map((p) => `
+          <label style="display:flex;align-items:center;gap:8px;font-weight:400;font-size:0.88rem">
+            <input type="checkbox" value="${p.id}" style="width:auto" ${assignedIds.has(p.id) ? 'checked' : ''} /> ${esc(p.nombre)}
+          </label>`).join('')}
+      </div>` : '<p class="muted">No hay obras cargadas todavía.</p>'}
+    </div>
     <div class="modal-actions">
       <button class="btn" id="btnCancelUsuario">Cerrar</button>
       <button class="btn btn-primary" id="btnSaveUsuario">${isEdit ? 'Guardar cambios' : 'Crear usuario'}</button>
     </div>
   `);
+  $('#uPuesto').addEventListener('change', (e) => {
+    $('#uProyectosField').style.display = e.target.value === 'admin' ? 'none' : '';
+  });
   $('#btnCancelUsuario').addEventListener('click', closeModal);
   $('#btnSaveUsuario').addEventListener('click', async () => {
     const nombre = $('#uNombre').value.trim();
@@ -1977,14 +1999,20 @@ function openUsuarioModal(usuario) {
     const btn = $('#btnSaveUsuario');
     btn.disabled = true;
     try {
+      let targetId = usuario ? usuario.id : null;
       if (isEdit) {
         const body = { nombre, puesto, activo: $('#uActivo').checked };
         if (password) body.password = password;
         await api(`/usuarios/${usuario.id}`, { method: 'PUT', body });
         toast('Usuario actualizado', 'success');
       } else {
-        await api('/usuarios', { method: 'POST', body: { nombre, usuario: $('#uUsuario').value.trim(), password, puesto } });
+        const created = await api('/usuarios', { method: 'POST', body: { nombre, usuario: $('#uUsuario').value.trim(), password, puesto } });
+        targetId = created.id;
         toast('Usuario creado', 'success');
+      }
+      if (puesto !== 'admin') {
+        const projectIds = $$('#uProyectosList input[type="checkbox"]:checked').map((cb) => Number(cb.value));
+        await api(`/usuarios/${targetId}/proyectos`, { method: 'PUT', body: { project_ids: projectIds } });
       }
       closeModal();
       renderView();

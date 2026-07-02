@@ -165,6 +165,16 @@ const SCHEMA = `
     activo BOOLEAN NOT NULL DEFAULT true,
     creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW()
   );
+
+  CREATE TABLE IF NOT EXISTS usuario_proyectos (
+    id SERIAL PRIMARY KEY,
+    usuario_id INTEGER NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+    project_id INTEGER NOT NULL REFERENCES proyectos(id) ON DELETE CASCADE,
+    asignado_en TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (usuario_id, project_id)
+  );
+  CREATE INDEX IF NOT EXISTS idx_usuario_proyectos_usuario ON usuario_proyectos(usuario_id);
+  CREATE INDEX IF NOT EXISTS idx_usuario_proyectos_project ON usuario_proyectos(project_id);
 `;
 
 async function initSchema() {

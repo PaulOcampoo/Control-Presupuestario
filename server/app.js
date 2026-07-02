@@ -10,6 +10,7 @@ const db = require('./db');
 const { parseWorkbook } = require('./parser');
 const { ingest } = require('./ingest');
 const { generatePlanning } = require('./planning');
+const auth = require('./auth');
 
 const app = express();
 
@@ -44,9 +45,108 @@ function metaToObject(rows) {
 }
 
 // ---------------------------------------------------------------------------
+// Autenticación (pública) — a partir de aquí, todo /api/* exige sesión
+// ---------------------------------------------------------------------------
+app.post('/api/auth/login', h(async (req, res) => {
+  const { usuario, password } = req.body || {};
+  if (!usuario?.trim() || !password) {
+    return res.status(400).json({ error: 'Indica usuario y contraseña' });
+  }
+  const { rows } = await db.pool.query(
+    'SELECT * FROM usuarios WHERE usuario = $1 AND activo = true',
+    [usuario.trim()]
+  );
+  const user = rows[0];
+  if (!user || !(await auth.verifyPassword(password, user.password_hash))) {
+    return res.status(401).json({ error: 'Usuario o contraseña incorrectos' });
+  }
+  const token = auth.signToken(user);
+  res.json({
+    token,
+    user: { id: user.id, nombre: user.nombre, usuario: user.usuario, puesto: user.puesto },
+    tabs: auth.PERMISSIONS[user.puesto] ? auth.PERMISSIONS[user.puesto].tabs : [],
+  });
+}));
+
+app.use('/api', auth.requireAuth);
+
+app.get('/api/auth/me', h(async (req, res) => {
+  const { rows } = await db.pool.query(
+    'SELECT id, nombre, usuario, puesto FROM usuarios WHERE id = $1 AND activo = true',
+    [req.user.id]
+  );
+  if (!rows[0]) return res.status(401).json({ error: 'Sesión inválida' });
+  res.json({
+    user: rows[0],
+    tabs: auth.PERMISSIONS[rows[0].puesto] ? auth.PERMISSIONS[rows[0].puesto].tabs : [],
+  });
+}));
+
+// ---------------------------------------------------------------------------
+// Usuarios (solo admin)
+// ---------------------------------------------------------------------------
+app.get('/api/usuarios', h(auth.allow()), h(async (_req, res) => {
+  const { rows } = await db.pool.query(
+    'SELECT id, nombre, usuario, puesto, activo, creado_en FROM usuarios ORDER BY id'
+  );
+  res.json(rows);
+}));
+
+app.post('/api/usuarios', h(auth.allow()), h(async (req, res) => {
+  const { nombre, usuario, password, puesto } = req.body || {};
+  if (!nombre?.trim() || !usuario?.trim() || !password || !auth.isValidPuesto(puesto)) {
+    return res.status(400).json({ error: 'Indica nombre, usuario, contraseña y un puesto válido' });
+  }
+  if (password.length < 6) return res.status(400).json({ error: 'La contraseña debe tener al menos 6 caracteres' });
+  try {
+    const hash = await auth.hashPassword(password);
+    const { rows } = await db.pool.query(
+      'INSERT INTO usuarios (nombre, usuario, password_hash, puesto) VALUES ($1,$2,$3,$4) RETURNING id, nombre, usuario, puesto, activo, creado_en',
+      [nombre.trim(), usuario.trim(), hash, puesto]
+    );
+    res.status(201).json(rows[0]);
+  } catch (err) {
+    if (err.code === '23505') return res.status(409).json({ error: 'Ese nombre de usuario ya existe' });
+    throw err;
+  }
+}));
+
+app.put('/api/usuarios/:id', h(auth.allow()), h(async (req, res) => {
+  const id = Number(req.params.id);
+  const { nombre, puesto, activo, password } = req.body || {};
+  if (puesto != null && !auth.isValidPuesto(puesto)) {
+    return res.status(400).json({ error: 'Puesto inválido' });
+  }
+  if (password != null && password.length < 6) {
+    return res.status(400).json({ error: 'La contraseña debe tener al menos 6 caracteres' });
+  }
+  const passwordHash = password ? await auth.hashPassword(password) : null;
+  const { rows } = await db.pool.query(
+    `UPDATE usuarios SET
+       nombre = COALESCE($1, nombre),
+       puesto = COALESCE($2, puesto),
+       activo = COALESCE($3, activo),
+       password_hash = COALESCE($4, password_hash)
+     WHERE id = $5
+     RETURNING id, nombre, usuario, puesto, activo, creado_en`,
+    [nombre?.trim() || null, puesto || null, activo != null ? Boolean(activo) : null, passwordHash, id]
+  );
+  if (!rows[0]) return res.status(404).json({ error: 'Usuario no encontrado' });
+  res.json(rows[0]);
+}));
+
+app.delete('/api/usuarios/:id', h(auth.allow()), h(async (req, res) => {
+  const id = Number(req.params.id);
+  if (id === req.user.id) return res.status(400).json({ error: 'No puedes eliminar tu propia cuenta' });
+  const { rowCount } = await db.pool.query('DELETE FROM usuarios WHERE id = $1', [id]);
+  if (rowCount === 0) return res.status(404).json({ error: 'Usuario no encontrado' });
+  res.json({ ok: true });
+}));
+
+// ---------------------------------------------------------------------------
 // Proyectos
 // ---------------------------------------------------------------------------
-app.get('/api/projects', h(async (_req, res) => {
+app.get('/api/projects', h(auth.allow('residente', 'cabo')), h(async (_req, res) => {
   const projects = await db.listProjects();
   const rows = await Promise.all(projects.map(async (p) => {
     const { rows: metaRows } = await db.pool.query(
@@ -73,7 +173,7 @@ app.get('/api/projects', h(async (_req, res) => {
   res.json(rows);
 }));
 
-app.post('/api/projects', upload.single('archivo'), h(async (req, res) => {
+app.post('/api/projects', h(auth.allow()), upload.single('archivo'), h(async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'Sube un archivo .xlsx de presupuesto' });
   const tmpPath = req.file.path;
   try {
@@ -101,18 +201,18 @@ app.post('/api/projects', upload.single('archivo'), h(async (req, res) => {
   }
 }));
 
-app.get('/api/projects/:id', h(requireProject), h(async (req, res) => {
+app.get('/api/projects/:id', h(auth.allow('residente', 'cabo')), h(requireProject), h(async (req, res) => {
   const { rows } = await db.pool.query('SELECT clave, valor FROM meta WHERE project_id = $1', [req.project.id]);
   const meta = metaToObject(rows);
   res.json({ id: req.project.id, nombre: req.project.nombre, archivo_original: req.project.archivo_original, meta });
 }));
 
-app.delete('/api/projects/:id', h(requireProject), h(async (req, res) => {
+app.delete('/api/projects/:id', h(auth.allow()), h(requireProject), h(async (req, res) => {
   await db.deleteProject(req.project.id);
   res.json({ ok: true });
 }));
 
-app.put('/api/projects/:id/fechas-obra', h(requireProject), h(async (req, res) => {
+app.put('/api/projects/:id/fechas-obra', h(auth.allow()), h(requireProject), h(async (req, res) => {
   const { inicio_obra, fin_obra } = req.body || {};
   if (!inicio_obra || !fin_obra) {
     return res.status(400).json({ error: 'Debes indicar fecha de inicio y fecha de fin de obra' });
@@ -180,7 +280,7 @@ app.put('/api/projects/:id/fechas-obra', h(requireProject), h(async (req, res) =
 // ---------------------------------------------------------------------------
 // Conceptos
 // ---------------------------------------------------------------------------
-app.get('/api/projects/:id/conceptos', h(requireProject), h(async (req, res) => {
+app.get('/api/projects/:id/conceptos', h(auth.allow('residente', 'cabo')), h(requireProject), h(async (req, res) => {
   const { rows } = await db.pool.query('SELECT * FROM conceptos WHERE project_id = $1 ORDER BY orden', [req.project.id]);
   res.json(rows);
 }));
@@ -188,7 +288,7 @@ app.get('/api/projects/:id/conceptos', h(requireProject), h(async (req, res) => 
 // ---------------------------------------------------------------------------
 // Insumos
 // ---------------------------------------------------------------------------
-app.get('/api/projects/:id/insumos', h(requireProject), h(async (req, res) => {
+app.get('/api/projects/:id/insumos', h(auth.allow('residente')), h(requireProject), h(async (req, res) => {
   const pid = req.project.id;
   const { categoria, q } = req.query;
 
@@ -227,7 +327,7 @@ app.get('/api/projects/:id/insumos', h(requireProject), h(async (req, res) => {
   }));
 }));
 
-app.get('/api/projects/:id/insumos/categorias', h(requireProject), h(async (req, res) => {
+app.get('/api/projects/:id/insumos/categorias', h(auth.allow('residente')), h(requireProject), h(async (req, res) => {
   const { rows } = await db.pool.query(
     'SELECT DISTINCT categoria FROM insumos WHERE project_id = $1 AND categoria IS NOT NULL ORDER BY categoria',
     [req.project.id]
@@ -282,7 +382,7 @@ async function computeAlertsAndTotals(projectId, items, ignoreRequisicionId = nu
   return out;
 }
 
-app.get('/api/projects/:id/requisiciones', h(requireProject), h(async (req, res) => {
+app.get('/api/projects/:id/requisiciones', h(auth.allow('residente')), h(requireProject), h(async (req, res) => {
   const { rows: reqs } = await db.pool.query(
     'SELECT * FROM requisiciones WHERE project_id = $1 ORDER BY id DESC',
     [req.project.id]
@@ -300,7 +400,7 @@ app.get('/api/projects/:id/requisiciones', h(requireProject), h(async (req, res)
   res.json(withTotals);
 }));
 
-app.get('/api/projects/:id/requisiciones/:reqId', h(requireProject), h(async (req, res) => {
+app.get('/api/projects/:id/requisiciones/:reqId', h(auth.allow('residente')), h(requireProject), h(async (req, res) => {
   const { rows: reqRows } = await db.pool.query(
     'SELECT * FROM requisiciones WHERE id = $1 AND project_id = $2',
     [Number(req.params.reqId), req.project.id]
@@ -317,7 +417,7 @@ app.get('/api/projects/:id/requisiciones/:reqId', h(requireProject), h(async (re
   res.json({ ...reqRows[0], items });
 }));
 
-app.post('/api/projects/:id/requisiciones', h(requireProject), h(async (req, res) => {
+app.post('/api/projects/:id/requisiciones', h(auth.allow('residente')), h(requireProject), h(async (req, res) => {
   const pid = req.project.id;
   const { folio, fecha, observaciones, items } = req.body || {};
   if (!Array.isArray(items) || items.length === 0) {
@@ -348,7 +448,7 @@ app.post('/api/projects/:id/requisiciones', h(requireProject), h(async (req, res
   }
 }));
 
-app.put('/api/projects/:id/requisiciones/:reqId', h(requireProject), h(async (req, res) => {
+app.put('/api/projects/:id/requisiciones/:reqId', h(auth.allow('residente')), h(requireProject), h(async (req, res) => {
   const pid = req.project.id;
   const reqId = Number(req.params.reqId);
   const { rows: existRows } = await db.pool.query(
@@ -388,7 +488,7 @@ app.put('/api/projects/:id/requisiciones/:reqId', h(requireProject), h(async (re
   }
 }));
 
-app.put('/api/projects/:id/requisiciones/:reqId/estado', h(requireProject), h(async (req, res) => {
+app.put('/api/projects/:id/requisiciones/:reqId/estado', h(auth.allow('residente')), h(requireProject), h(async (req, res) => {
   const { estado } = req.body || {};
   if (!['borrador', 'enviada', 'autorizada', 'cancelada'].includes(estado)) {
     return res.status(400).json({ error: 'Estado inválido' });
@@ -402,7 +502,7 @@ app.put('/api/projects/:id/requisiciones/:reqId/estado', h(requireProject), h(as
   res.json({ ok: true });
 }));
 
-app.delete('/api/projects/:id/requisiciones/:reqId', h(requireProject), h(async (req, res) => {
+app.delete('/api/projects/:id/requisiciones/:reqId', h(auth.allow('residente')), h(requireProject), h(async (req, res) => {
   const { rowCount } = await db.pool.query(
     'DELETE FROM requisiciones WHERE id = $1 AND project_id = $2',
     [Number(req.params.reqId), req.project.id]
@@ -411,7 +511,7 @@ app.delete('/api/projects/:id/requisiciones/:reqId', h(requireProject), h(async 
   res.json({ ok: true });
 }));
 
-app.post('/api/projects/:id/requisiciones/preview', h(requireProject), h(async (req, res) => {
+app.post('/api/projects/:id/requisiciones/preview', h(auth.allow('residente')), h(requireProject), h(async (req, res) => {
   const { items, ignore_requisicion_id } = req.body || {};
   if (!Array.isArray(items)) return res.status(400).json({ error: 'items debe ser un arreglo' });
   try {
@@ -429,7 +529,7 @@ app.post('/api/projects/:id/requisiciones/preview', h(requireProject), h(async (
 // ---------------------------------------------------------------------------
 // Programa de ejecución
 // ---------------------------------------------------------------------------
-app.get('/api/projects/:id/programa', h(requireProject), h(async (req, res) => {
+app.get('/api/projects/:id/programa', h(auth.allow()), h(requireProject), h(async (req, res) => {
   const { rows } = await db.pool.query(`
     SELECT pe.id, pe.codigo, pe.concepto, pe.grupo, pe.fecha_inicio, pe.fecha_fin,
            pe.duracion_dias, pe.importe, pe.peso_pct, pe.orden,
@@ -453,7 +553,7 @@ app.get('/api/projects/:id/programa', h(requireProject), h(async (req, res) => {
   res.json(rows);
 }));
 
-app.put('/api/projects/:id/programa/:itemId', h(requireProject), h(async (req, res) => {
+app.put('/api/projects/:id/programa/:itemId', h(auth.allow()), h(requireProject), h(async (req, res) => {
   const pid = req.project.id;
   const itemId = Number(req.params.itemId);
   const { rows: existRows } = await db.pool.query(
@@ -488,7 +588,7 @@ app.put('/api/projects/:id/programa/:itemId', h(requireProject), h(async (req, r
 // ---------------------------------------------------------------------------
 // Avances semanales
 // ---------------------------------------------------------------------------
-app.get('/api/projects/:id/avances', h(requireProject), h(async (req, res) => {
+app.get('/api/projects/:id/avances', h(auth.allow('residente')), h(requireProject), h(async (req, res) => {
   const { rows } = await db.pool.query(
     'SELECT * FROM avances_semanales WHERE project_id = $1 ORDER BY semana',
     [req.project.id]
@@ -496,7 +596,7 @@ app.get('/api/projects/:id/avances', h(requireProject), h(async (req, res) => {
   res.json(rows);
 }));
 
-app.put('/api/projects/:id/avances/:semana', h(requireProject), h(async (req, res) => {
+app.put('/api/projects/:id/avances/:semana', h(auth.allow('residente')), h(requireProject), h(async (req, res) => {
   const pid = req.project.id;
   const semana = Number(req.params.semana);
   const { rows: existRows } = await db.pool.query(
@@ -528,7 +628,7 @@ async function presupuestoTotalDe(projectId) {
   return rows[0] ? rows[0].importe : 0;
 }
 
-app.get('/api/projects/:id/avances/:semana/conceptos', h(requireProject), h(async (req, res) => {
+app.get('/api/projects/:id/avances/:semana/conceptos', h(auth.allow('residente')), h(requireProject), h(async (req, res) => {
   const pid = req.project.id;
   const semana = Number(req.params.semana);
   const { rows: existRows } = await db.pool.query(
@@ -577,7 +677,7 @@ app.get('/api/projects/:id/avances/:semana/conceptos', h(requireProject), h(asyn
   res.json({ semana, items });
 }));
 
-app.put('/api/projects/:id/avances/:semana/conceptos', h(requireProject), h(async (req, res) => {
+app.put('/api/projects/:id/avances/:semana/conceptos', h(auth.allow('residente')), h(requireProject), h(async (req, res) => {
   const pid = req.project.id;
   const semana = Number(req.params.semana);
   const { rows: existRows } = await db.pool.query(
@@ -635,7 +735,7 @@ app.put('/api/projects/:id/avances/:semana/conceptos', h(requireProject), h(asyn
 // ---------------------------------------------------------------------------
 // Resumen / dashboard
 // ---------------------------------------------------------------------------
-app.get('/api/projects/:id/resumen', h(requireProject), h(async (req, res) => {
+app.get('/api/projects/:id/resumen', h(auth.allow()), h(requireProject), h(async (req, res) => {
   const pid = req.project.id;
   const { rows: metaRows } = await db.pool.query('SELECT clave, valor FROM meta WHERE project_id = $1', [pid]);
   const meta = metaToObject(metaRows);
@@ -698,7 +798,7 @@ app.get('/api/projects/:id/resumen', h(requireProject), h(async (req, res) => {
 // ---------------------------------------------------------------------------
 // Destajistas (piecework workers)
 // ---------------------------------------------------------------------------
-app.get('/api/projects/:id/destajistas', h(requireProject), h(async (req, res) => {
+app.get('/api/projects/:id/destajistas', h(auth.allow('residente', 'cabo')), h(requireProject), h(async (req, res) => {
   const pid = req.project.id;
   const { rows: dests } = await db.pool.query(
     'SELECT * FROM destajistas WHERE project_id = $1 ORDER BY orden, id',
@@ -729,7 +829,7 @@ app.get('/api/projects/:id/destajistas', h(requireProject), h(async (req, res) =
   res.json(result);
 }));
 
-app.post('/api/projects/:id/destajistas', h(requireProject), h(async (req, res) => {
+app.post('/api/projects/:id/destajistas', h(auth.allow('residente')), h(requireProject), h(async (req, res) => {
   const { nombre, telefono } = req.body || {};
   if (!nombre?.trim()) return res.status(400).json({ error: 'El nombre del destajista es requerido' });
   const { rows } = await db.pool.query(
@@ -739,7 +839,7 @@ app.post('/api/projects/:id/destajistas', h(requireProject), h(async (req, res) 
   res.status(201).json(rows[0]);
 }));
 
-app.put('/api/projects/:id/destajistas/:destId', h(requireProject), h(async (req, res) => {
+app.put('/api/projects/:id/destajistas/:destId', h(auth.allow('residente')), h(requireProject), h(async (req, res) => {
   const { nombre, telefono } = req.body || {};
   if (!nombre?.trim()) return res.status(400).json({ error: 'El nombre del destajista es requerido' });
   const { rows } = await db.pool.query(
@@ -750,7 +850,7 @@ app.put('/api/projects/:id/destajistas/:destId', h(requireProject), h(async (req
   res.json(rows[0]);
 }));
 
-app.delete('/api/projects/:id/destajistas/:destId', h(requireProject), h(async (req, res) => {
+app.delete('/api/projects/:id/destajistas/:destId', h(auth.allow('residente')), h(requireProject), h(async (req, res) => {
   const { rowCount } = await db.pool.query(
     'DELETE FROM destajistas WHERE id = $1 AND project_id = $2',
     [Number(req.params.destId), req.project.id]
@@ -759,7 +859,7 @@ app.delete('/api/projects/:id/destajistas/:destId', h(requireProject), h(async (
   res.json({ ok: true });
 }));
 
-app.post('/api/projects/:id/destajistas/:destId/items', h(requireProject), h(async (req, res) => {
+app.post('/api/projects/:id/destajistas/:destId/items', h(auth.allow('residente')), h(requireProject), h(async (req, res) => {
   const pid = req.project.id;
   const destId = Number(req.params.destId);
   const { rows: destRows } = await db.pool.query(
@@ -789,7 +889,7 @@ app.post('/api/projects/:id/destajistas/:destId/items', h(requireProject), h(asy
   res.status(201).json(rows[0]);
 }));
 
-app.put('/api/projects/:id/destajistas/:destId/items/:itemId', h(requireProject), h(async (req, res) => {
+app.put('/api/projects/:id/destajistas/:destId/items/:itemId', h(auth.allow('residente')), h(requireProject), h(async (req, res) => {
   const pid = req.project.id;
   const itemId = Number(req.params.itemId);
   const { cantidad_asignada, precio_destajo } = req.body || {};
@@ -809,7 +909,7 @@ app.put('/api/projects/:id/destajistas/:destId/items/:itemId', h(requireProject)
   res.json(rows[0]);
 }));
 
-app.delete('/api/projects/:id/destajistas/:destId/items/:itemId', h(requireProject), h(async (req, res) => {
+app.delete('/api/projects/:id/destajistas/:destId/items/:itemId', h(auth.allow('residente')), h(requireProject), h(async (req, res) => {
   const { rowCount } = await db.pool.query(
     'DELETE FROM destajo_items WHERE id = $1 AND project_id = $2',
     [Number(req.params.itemId), req.project.id]
@@ -823,7 +923,7 @@ app.delete('/api/projects/:id/destajistas/:destId/items/:itemId', h(requireProje
 // (avances_semanales) para que el avance de cada destajista se capture en
 // los mismos periodos que el resto del proyecto.
 // ---------------------------------------------------------------------------
-app.get('/api/projects/:id/destajistas/:destId/avance', h(requireProject), h(async (req, res) => {
+app.get('/api/projects/:id/destajistas/:destId/avance', h(auth.allow('residente', 'cabo')), h(requireProject), h(async (req, res) => {
   const pid = req.project.id;
   const destId = Number(req.params.destId);
   const { rows: destRows } = await db.pool.query(
@@ -865,7 +965,7 @@ app.get('/api/projects/:id/destajistas/:destId/avance', h(requireProject), h(asy
   res.json({ destajista_id: destId, total_asignado: totalAsignado, semanas: result });
 }));
 
-app.get('/api/projects/:id/destajistas/:destId/avance/:semana', h(requireProject), h(async (req, res) => {
+app.get('/api/projects/:id/destajistas/:destId/avance/:semana', h(auth.allow('residente', 'cabo')), h(requireProject), h(async (req, res) => {
   const pid = req.project.id;
   const destId = Number(req.params.destId);
   const semana = Number(req.params.semana);
@@ -897,7 +997,7 @@ app.get('/api/projects/:id/destajistas/:destId/avance/:semana', h(requireProject
   res.json({ semana, destajista: destRows[0], periodo: semRows[0], items });
 }));
 
-app.put('/api/projects/:id/destajistas/:destId/avance/:semana', h(requireProject), h(async (req, res) => {
+app.put('/api/projects/:id/destajistas/:destId/avance/:semana', h(auth.allow('residente', 'cabo')), h(requireProject), h(async (req, res) => {
   const pid = req.project.id;
   const destId = Number(req.params.destId);
   const semana = Number(req.params.semana);

@@ -2,11 +2,13 @@
 
 const os = require('os');
 const { initSchema } = require('./db');
+const { ensureBootstrapAdmin } = require('./auth');
 const app = require('./app');
 
 const PORT = process.env.PORT || 3000;
 
 initSchema()
+  .then(() => ensureBootstrapAdmin())
   .then(() => {
     app.listen(PORT, () => {
       const nets = os.networkInterfaces();

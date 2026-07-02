@@ -4,12 +4,18 @@
  * Control Presupuestal de Obra — SPA (vanilla JS, mobile-first PWA)
  * ========================================================================= */
 
+const TOKEN_KEY = 'cp_token';
+const PUESTO_LABELS = { admin: 'Administrador', residente: 'Residente', cabo: 'Cabo' };
+
 const state = {
   projects: [],
   projectId: null,
   view: 'resumen',
   cache: {},     // per-project cached API responses
   charts: {},    // active Chart.js instances (destroyed on re-render)
+  token: null,
+  user: null,        // { id, nombre, usuario, puesto }
+  allowedTabs: [],
 };
 
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -30,13 +36,19 @@ const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&':
 // API helper
 // ---------------------------------------------------------------------------
 async function api(path, opts = {}) {
+  const headers = opts.body && !(opts.body instanceof FormData) ? { 'Content-Type': 'application/json' } : {};
+  if (state.token) headers.Authorization = `Bearer ${state.token}`;
   const res = await fetch(`/api${path}`, {
-    headers: opts.body && !(opts.body instanceof FormData) ? { 'Content-Type': 'application/json' } : undefined,
     ...opts,
+    headers,
     body: opts.body && !(opts.body instanceof FormData) ? JSON.stringify(opts.body) : opts.body,
   });
   let data = null;
   try { data = await res.json(); } catch { /* no body */ }
+  if (res.status === 401 && path !== '/auth/login') {
+    handleSessionExpired();
+    throw new Error((data && data.error) || 'Sesión expirada');
+  }
   if (!res.ok) throw new Error((data && data.error) || `Error ${res.status}`);
   return data;
 }
@@ -48,6 +60,126 @@ function toast(msg, kind = '') {
   clearTimeout(toast._t);
   toast._t = setTimeout(() => { el.className = 'toast'; }, 3600);
 }
+
+// ---------------------------------------------------------------------------
+// Autenticación: pantalla de login que filtra el acceso por puesto. El token
+// se guarda en localStorage; cada puesto ve solo sus pestañas permitidas.
+// ---------------------------------------------------------------------------
+function showLoginScreen() {
+  $('#app').style.display = 'none';
+  $('#loginScreen').style.display = 'flex';
+  $('#loginUsuario').focus();
+}
+function showApp() {
+  $('#loginScreen').style.display = 'none';
+  $('#app').style.display = '';
+}
+
+function isAdmin() { return !!state.user && state.user.puesto === 'admin'; }
+function canManageDestajo() { return !!state.user && (state.user.puesto === 'admin' || state.user.puesto === 'residente'); }
+
+function applySession(user, tabs) {
+  state.user = user;
+  state.allowedTabs = tabs;
+  $$('.tab').forEach((tab) => {
+    tab.style.display = tabs.includes(tab.dataset.view) ? '' : 'none';
+  });
+  const isAdmin = user.puesto === 'admin';
+  $('#btnUpload').style.display = isAdmin ? '' : 'none';
+  $('#btnUploadDrawer').style.display = isAdmin ? '' : 'none';
+  renderDrawerAccount();
+  state.view = tabs[0] || 'resumen';
+  $$('.tab').forEach((t) => t.classList.toggle('active', t.dataset.view === state.view));
+}
+
+function renderDrawerAccount() {
+  const box = $('#drawerAccount');
+  if (!state.user) { box.innerHTML = ''; return; }
+  box.innerHTML = `
+    <div class="who">
+      <strong>${esc(state.user.nombre)}</strong>
+      <span>${esc(PUESTO_LABELS[state.user.puesto] || state.user.puesto)}</span>
+    </div>
+    <button class="btn small" id="btnLogoutDrawer">Salir</button>
+  `;
+  $('#btnLogoutDrawer').addEventListener('click', logout);
+}
+
+function handleSessionExpired() {
+  if (!state.token) return; // already logged out, avoid duplicate toasts
+  state.token = null;
+  localStorage.removeItem(TOKEN_KEY);
+  state.user = null;
+  state.projects = [];
+  state.projectId = null;
+  state.cache = {};
+  closeDrawer();
+  closeModal();
+  showLoginScreen();
+  toast('Tu sesión expiró, inicia sesión de nuevo', 'danger');
+}
+
+async function bootApp() {
+  showApp();
+  destroyCharts();
+  try {
+    await refreshProjectList();
+    if (state.projects.length) selectProject(state.projects[0].id);
+    else renderView();
+  } catch (err) {
+    $('#view').innerHTML = `<div class="alert-box danger">⚠️ No se pudo conectar con el servidor: ${esc(err.message)}</div>`;
+  }
+}
+
+async function tryRestoreSession() {
+  const token = localStorage.getItem(TOKEN_KEY);
+  if (!token) { showLoginScreen(); return; }
+  state.token = token;
+  try {
+    const data = await api('/auth/me');
+    applySession(data.user, data.tabs);
+    await bootApp();
+  } catch (err) {
+    // handleSessionExpired ya se disparó desde api() en un 401
+    if (state.token) { state.token = null; localStorage.removeItem(TOKEN_KEY); showLoginScreen(); }
+  }
+}
+
+async function logout() {
+  state.token = null;
+  localStorage.removeItem(TOKEN_KEY);
+  state.user = null;
+  state.projects = [];
+  state.projectId = null;
+  state.cache = {};
+  closeDrawer();
+  showLoginScreen();
+}
+
+$('#btnLogout').addEventListener('click', logout);
+
+$('#loginForm').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  const usuario = $('#loginUsuario').value.trim();
+  const password = $('#loginPassword').value;
+  const errBox = $('#loginError');
+  errBox.style.display = 'none';
+  const btn = $('#btnLogin');
+  btn.disabled = true; btn.textContent = 'Entrando…';
+  try {
+    const data = await api('/auth/login', { method: 'POST', body: { usuario, password } });
+    state.token = data.token;
+    localStorage.setItem(TOKEN_KEY, data.token);
+    applySession(data.user, data.tabs);
+    $('#loginPassword').value = '';
+    await bootApp();
+  } catch (err) {
+    errBox.textContent = err.message;
+    errBox.style.display = '';
+  } finally {
+    btn.disabled = false; btn.textContent = 'Entrar';
+  }
+});
 
 // ---------------------------------------------------------------------------
 // Modal helpers
@@ -90,7 +222,7 @@ function renderProjectList() {
       <span class="pname">${esc(p.nombre)}</span>
       <span class="pmeta">${esc(p.lugar || '')}${p.lugar ? ' · ' : ''}${fmtMoney(p.total_sin_iva)}</span>
       <span class="pmeta">${fmtDate(p.inicio_obra)} → ${fmtDate(p.fin_obra)}</span>
-      <div class="pactions"><button class="btn small btn-danger" data-del="${p.id}">Eliminar</button></div>
+      ${isAdmin() ? `<div class="pactions"><button class="btn small btn-danger" data-del="${p.id}">Eliminar</button></div>` : ''}
     </div>
   `).join('');
 
@@ -179,15 +311,20 @@ function destroyCharts() {
 async function renderView() {
   destroyCharts();
   const view = $('#view');
+  if (state.view === 'usuarios') {
+    try { await renderUsuarios(view); } catch (err) { view.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`; }
+    syncFab();
+    return;
+  }
   if (!state.projectId) {
     view.innerHTML = `
       <div class="empty-state">
         <div class="big">🏗️</div>
         <p>No hay un presupuesto seleccionado.</p>
         <p>Carga un archivo Excel de presupuesto (.xlsx) y la app generará automáticamente su catálogo de insumos, alertas de requisición, avances y programa de ejecución — con su propia base de datos independiente.</p>
-        <button class="btn btn-primary" id="emptyUploadBtn">+ Cargar presupuesto</button>
+        ${state.user && state.user.puesto === 'admin' ? '<button class="btn btn-primary" id="emptyUploadBtn">+ Cargar presupuesto</button>' : ''}
       </div>`;
-    $('#emptyUploadBtn').addEventListener('click', promptUpload);
+    $('#emptyUploadBtn')?.addEventListener('click', promptUpload);
     return;
   }
   view.innerHTML = '<div class="spinner"></div>';
@@ -1163,20 +1300,22 @@ async function renderDestajo(view) {
       <div class="kpi accent"><div class="label">Total asignado</div><div class="value">${fmtMoney(totalAsig)}</div></div>
       <div class="kpi green"><div class="label">Total ganado</div><div class="value">${fmtMoney(totalGanado)}</div></div>
     </div>` : ''}
+    ${canManageDestajo() ? `
     <div class="section-actions">
       <button class="btn btn-primary" id="btnNuevoDest">+ Nuevo destajista</button>
-    </div>
+    </div>` : ''}
     ${destajistas.length === 0 ? `
       <div class="empty-state">
         <div class="big">👷</div>
         <p>No hay destajistas registrados.</p>
-        <p>Agrega trabajadores y asígnales los conceptos que ejecutarán a destajo.<br>
-           Si tu Excel tenía una hoja llamada "Destajo" o "Destajistas", se importó automáticamente al cargar el presupuesto.</p>
+        <p>${canManageDestajo()
+          ? 'Agrega trabajadores y asígnales los conceptos que ejecutarán a destajo.<br>Si tu Excel tenía una hoja llamada "Destajo" o "Destajistas", se importó automáticamente al cargar el presupuesto.'
+          : 'Aún no hay destajistas registrados en este presupuesto.'}</p>
       </div>
     ` : destajistas.map((d) => renderDestajistaCard(d)).join('')}
   `;
 
-  $('#btnNuevoDest').addEventListener('click', () => openNuevoDestajistaModal());
+  $('#btnNuevoDest')?.addEventListener('click', () => openNuevoDestajistaModal());
 
   $$('[data-edit-dest]', view).forEach((btn) => {
     btn.addEventListener('click', () => {
@@ -1248,10 +1387,11 @@ function renderDestajistaCard(d) {
         <strong style="font-size:1rem">${esc(d.nombre)}</strong>
         ${d.telefono ? `<div class="muted" style="font-size:0.8rem">📞 ${esc(d.telefono)}</div>` : ''}
       </div>
+      ${canManageDestajo() ? `
       <div class="row" style="gap:6px;flex-wrap:nowrap">
         <button class="btn small" data-edit-dest="${d.id}" title="Editar destajista">✏️ Editar</button>
         <button class="btn small btn-danger" data-del-dest="${d.id}">Eliminar</button>
-      </div>
+      </div>` : ''}
     </div>
     <div class="row" style="gap:14px;margin:6px 0;flex-wrap:wrap;font-size:0.84rem">
       <span class="muted">${d.items.length} actividad${d.items.length !== 1 ? 'es' : ''}</span>
@@ -1261,9 +1401,10 @@ function renderDestajistaCard(d) {
     </div>
     <div class="progress-bar" style="margin-bottom:8px"><span style="width:${Math.min(100, pct)}%"></span></div>
     ${renderDestajistaItems(d)}
+    ${canManageDestajo() ? `
     <div class="row" style="margin-top:8px">
       <button class="btn small" data-add-item="${d.id}">+ Agregar actividad</button>
-    </div>
+    </div>` : ''}
     <button class="collapse-toggle" style="margin-top:12px" data-toggle-semanal="${d.id}">
       <span>📅 Avance semanal (periodos del programa de obra)</span>
       <span class="chev">▾</span>
@@ -1453,6 +1594,7 @@ function renderDestajistaItems(d) {
   if (!d.items.length) {
     return `<p class="muted" style="font-size:0.82rem;margin:4px 0 0">Sin actividades asignadas aún.</p>`;
   }
+  const canManage = canManageDestajo();
   return `
     <div class="table-scroll">
       <table>
@@ -1463,7 +1605,7 @@ function renderDestajistaItems(d) {
             <th class="num">P.U. destajo</th>
             <th class="num">Ejecutado acum.</th>
             <th class="num">Ganado</th>
-            <th></th>
+            ${canManage ? '<th></th>' : ''}
           </tr>
         </thead>
         <tbody>
@@ -1480,25 +1622,30 @@ function renderDestajistaItems(d) {
               `}
             </td>
             <td class="num">
+              ${canManage ? `
               <input type="number" min="0" step="0.01" style="width:72px;text-align:right"
                 value="${it.cantidad_asignada}"
                 data-save-item data-item-id="${it.id}" data-dest-id="${d.id}" data-field="cantidad_asignada" />
+              ` : fmtNum(it.cantidad_asignada, 2)}
             </td>
             <td class="num">
+              ${canManage ? `
               <input type="number" min="0" step="0.01" style="width:80px;text-align:right"
                 value="${it.precio_destajo}"
                 data-save-item data-item-id="${it.id}" data-dest-id="${d.id}" data-field="precio_destajo" />
+              ` : fmtMoney(it.precio_destajo)}
             </td>
             <td class="num">${fmtNum(it.cantidad_ejecutada, 2)} ${esc(it.unidad || '')}</td>
             <td class="num" style="color:var(--green)">${fmtMoney(it.cantidad_ejecutada * it.precio_destajo)}</td>
+            ${canManage ? `
             <td>
               <button class="btn small btn-ghost" data-del-item data-item-id="${it.id}" data-dest-id="${d.id}" title="Eliminar">✕</button>
-            </td>
+            </td>` : ''}
           </tr>`).join('')}
           <tr style="font-weight:600;border-top:1px solid var(--border)">
             <td colspan="4" style="text-align:right;color:var(--muted);padding-right:8px">Total ganado:</td>
             <td class="num" style="color:var(--green)">${fmtMoney(d.total_ganado)}</td>
-            <td></td>
+            ${canManage ? '<td></td>' : ''}
           </tr>
         </tbody>
       </table>
@@ -1723,6 +1870,131 @@ function openPostUploadModal(result) {
   });
 }
 
+// =========================================================================
+// VISTA: Usuarios (solo Administrador) — alta, edición y baja de cuentas
+// =========================================================================
+async function renderUsuarios(view) {
+  if (!isAdmin()) {
+    view.innerHTML = '<div class="alert-box danger">⚠️ No tienes permiso para ver esta sección.</div>';
+    return;
+  }
+  const usuarios = await api('/usuarios');
+
+  view.innerHTML = `
+    <h2 class="section-title">Usuarios</h2>
+    <p class="muted">Cuentas del equipo y su puesto. El puesto determina qué pestañas y acciones puede usar cada quien.</p>
+    <div class="section-actions">
+      <button class="btn btn-primary" id="btnNuevoUsuario">+ Nuevo usuario</button>
+    </div>
+    <div id="usuariosList"></div>
+  `;
+  $('#btnNuevoUsuario').addEventListener('click', () => openUsuarioModal(null));
+  paintUsuariosList(usuarios);
+}
+
+function paintUsuariosList(usuarios) {
+  const list = $('#usuariosList');
+  if (!usuarios.length) {
+    list.innerHTML = '<div class="empty-state">No hay usuarios registrados.</div>';
+    return;
+  }
+  list.innerHTML = usuarios.map((u) => `
+    <div class="card">
+      <div class="row between">
+        <div>
+          <strong>${esc(u.nombre)}</strong>
+          <div class="muted" style="font-size:0.8rem">@${esc(u.usuario)}</div>
+        </div>
+        <div class="row" style="gap:6px;flex-wrap:nowrap">
+          <span class="badge ${u.puesto === 'admin' ? 'green' : 'muted'}">${esc(PUESTO_LABELS[u.puesto] || u.puesto)}</span>
+          ${!u.activo ? '<span class="badge red">Inactivo</span>' : ''}
+        </div>
+      </div>
+      <div class="row end" style="margin-top:8px;gap:8px">
+        <button class="btn small" data-edit-user="${u.id}">Editar</button>
+        ${u.id !== state.user.id ? `<button class="btn small btn-danger" data-del-user="${u.id}">Eliminar</button>` : ''}
+      </div>
+    </div>
+  `).join('');
+
+  $$('[data-edit-user]', list).forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const u = usuarios.find((x) => x.id === Number(btn.dataset.editUser));
+      if (u) openUsuarioModal(u);
+    });
+  });
+  $$('[data-del-user]', list).forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const u = usuarios.find((x) => x.id === Number(btn.dataset.delUser));
+      if (!u) return;
+      if (!confirm(`¿Eliminar la cuenta de "${u.nombre}"? Esta acción no se puede deshacer.`)) return;
+      try {
+        await api(`/usuarios/${u.id}`, { method: 'DELETE' });
+        toast('Usuario eliminado', 'success');
+        renderView();
+      } catch (err) { toast(err.message, 'danger'); }
+    });
+  });
+}
+
+function openUsuarioModal(usuario) {
+  const isEdit = !!usuario;
+  const puestoOptions = Object.keys(PUESTO_LABELS)
+    .map((p) => `<option value="${p}" ${usuario && usuario.puesto === p ? 'selected' : ''}>${esc(PUESTO_LABELS[p])}</option>`)
+    .join('');
+  openModal(`
+    <h3>${isEdit ? 'Editar usuario' : 'Nuevo usuario'}</h3>
+    <div class="field"><label>Nombre completo *</label><input id="uNombre" value="${isEdit ? esc(usuario.nombre) : ''}" /></div>
+    <div class="field">
+      <label>Usuario (para iniciar sesión) *</label>
+      <input id="uUsuario" autocomplete="off" value="${isEdit ? esc(usuario.usuario) : ''}" ${isEdit ? 'disabled' : ''} />
+    </div>
+    <div class="field"><label>Puesto *</label><select id="uPuesto">${puestoOptions}</select></div>
+    <div class="field">
+      <label>${isEdit ? 'Nueva contraseña (déjalo vacío para no cambiarla)' : 'Contraseña *'}</label>
+      <input id="uPassword" type="password" autocomplete="new-password" placeholder="Mínimo 6 caracteres" />
+    </div>
+    ${isEdit ? `
+    <div class="field">
+      <label style="display:flex;align-items:center;gap:8px;margin-top:14px">
+        <input id="uActivo" type="checkbox" style="width:auto" ${usuario.activo ? 'checked' : ''} /> Cuenta activa
+      </label>
+    </div>` : ''}
+    <div class="modal-actions">
+      <button class="btn" id="btnCancelUsuario">Cerrar</button>
+      <button class="btn btn-primary" id="btnSaveUsuario">${isEdit ? 'Guardar cambios' : 'Crear usuario'}</button>
+    </div>
+  `);
+  $('#btnCancelUsuario').addEventListener('click', closeModal);
+  $('#btnSaveUsuario').addEventListener('click', async () => {
+    const nombre = $('#uNombre').value.trim();
+    const puesto = $('#uPuesto').value;
+    const password = $('#uPassword').value;
+    if (!nombre) { toast('Escribe el nombre completo', 'danger'); return; }
+    if (!isEdit && !$('#uUsuario').value.trim()) { toast('Escribe el usuario de acceso', 'danger'); return; }
+    if (!isEdit && !password) { toast('Escribe una contraseña', 'danger'); return; }
+    if (password && password.length < 6) { toast('La contraseña debe tener al menos 6 caracteres', 'danger'); return; }
+    const btn = $('#btnSaveUsuario');
+    btn.disabled = true;
+    try {
+      if (isEdit) {
+        const body = { nombre, puesto, activo: $('#uActivo').checked };
+        if (password) body.password = password;
+        await api(`/usuarios/${usuario.id}`, { method: 'PUT', body });
+        toast('Usuario actualizado', 'success');
+      } else {
+        await api('/usuarios', { method: 'POST', body: { nombre, usuario: $('#uUsuario').value.trim(), password, puesto } });
+        toast('Usuario creado', 'success');
+      }
+      closeModal();
+      renderView();
+    } catch (err) {
+      toast(err.message, 'danger');
+      btn.disabled = false;
+    }
+  });
+}
+
 // ---------------------------------------------------------------------------
 // FAB: contextual quick-action depending on the active view
 // ---------------------------------------------------------------------------
@@ -1732,19 +2004,21 @@ fab.textContent = '+';
 fab.style.display = 'none';
 document.body.appendChild(fab);
 fab.addEventListener('click', () => {
+  const isAdmin = state.user && state.user.puesto === 'admin';
   if (state.view === 'requisiciones') {
     if (getDraft().length) openDraftModal();
     else { $('.tab[data-view="insumos"]').click(); toast('Agrega insumos desde el catálogo primero', ''); }
   } else if (state.view === 'insumos') {
     if (getDraft().length) { $('.tab[data-view="requisiciones"]').click(); }
   } else if (state.view === 'destajo') {
-    openNuevoDestajistaModal();
-  } else {
+    if (isAdmin || (state.user && state.user.puesto === 'residente')) openNuevoDestajistaModal();
+  } else if (isAdmin) {
     promptUpload();
   }
 });
 function syncFab() {
-  fab.style.display = state.projectId ? 'flex' : 'none';
+  const hasAction = ['requisiciones', 'insumos', 'destajo'].includes(state.view);
+  fab.style.display = state.view !== 'usuarios' && state.projectId && (hasAction || isAdmin()) ? 'flex' : 'none';
   if (state.view === 'requisiciones' || state.view === 'insumos') fab.textContent = '🧾';
   else if (state.view === 'destajo') fab.textContent = '👷';
   else fab.textContent = '+';
@@ -1783,12 +2057,4 @@ if ('serviceWorker' in navigator) {
 // ---------------------------------------------------------------------------
 // Boot
 // ---------------------------------------------------------------------------
-(async function init() {
-  try {
-    await refreshProjectList();
-    if (state.projects.length) selectProject(state.projects[0].id);
-    else renderView();
-  } catch (err) {
-    $('#view').innerHTML = `<div class="alert-box danger">⚠️ No se pudo conectar con el servidor: ${esc(err.message)}</div>`;
-  }
-})();
+tryRestoreSession();

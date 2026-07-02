@@ -155,6 +155,16 @@ const SCHEMA = `
     UNIQUE (semana, destajo_item_id)
   );
   CREATE INDEX IF NOT EXISTS idx_avance_destajo_item ON avance_destajo(destajo_item_id);
+
+  CREATE TABLE IF NOT EXISTS usuarios (
+    id SERIAL PRIMARY KEY,
+    nombre TEXT NOT NULL,
+    usuario TEXT NOT NULL UNIQUE,
+    password_hash TEXT NOT NULL,
+    puesto TEXT NOT NULL,
+    activo BOOLEAN NOT NULL DEFAULT true,
+    creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
 `;
 
 async function initSchema() {

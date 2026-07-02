@@ -13,7 +13,20 @@
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
-  <div id="app">
+  <!-- Pantalla de login: filtra el acceso por usuario y puesto -->
+  <div id="loginScreen" class="login-screen">
+    <form id="loginForm" class="login-card">
+      <div class="login-logo">🏗️</div>
+      <h1>Control Presupuestal</h1>
+      <p class="muted">Inicia sesión con tu cuenta de la constructora</p>
+      <div class="field"><label>Usuario</label><input id="loginUsuario" autocomplete="username" required /></div>
+      <div class="field"><label>Contraseña</label><input id="loginPassword" type="password" autocomplete="current-password" required /></div>
+      <div id="loginError" class="alert-box danger" style="display:none"></div>
+      <button type="submit" class="btn btn-primary full" id="btnLogin">Entrar</button>
+    </form>
+  </div>
+
+  <div id="app" style="display:none">
     <header class="topbar">
       <button id="btnMenu" class="icon-btn" aria-label="Menú">☰</button>
       <div class="topbar-title">
@@ -22,15 +35,17 @@
       </div>
       <button id="btnSync" class="icon-btn" aria-label="Sincronizar" title="Sincronizar datos">↺</button>
       <button id="btnUpload" class="icon-btn" aria-label="Cargar presupuesto" title="Cargar presupuesto">＋</button>
+      <button id="btnLogout" class="icon-btn" aria-label="Cerrar sesión" title="Cerrar sesión">🚪</button>
     </header>
 
     <nav id="tabs" class="tabs">
-      <button class="tab active" data-view="resumen">Resumen</button>
+      <button class="tab" data-view="resumen">Resumen</button>
       <button class="tab" data-view="insumos">Insumos</button>
       <button class="tab" data-view="requisiciones">Requisiciones</button>
       <button class="tab" data-view="avance">Avance</button>
       <button class="tab" data-view="programa">Programa</button>
       <button class="tab" data-view="destajo">Destajo</button>
+      <button class="tab" data-view="usuarios">Usuarios</button>
     </nav>
 
     <main id="view"></main>
@@ -38,6 +53,7 @@
 
   <!-- Drawer: lista de presupuestos -->
   <div id="drawer" class="drawer">
+    <div id="drawerAccount" class="drawer-account"></div>
     <div class="drawer-header">
       <strong>Presupuestos cargados</strong>
       <button id="btnCloseDrawer" class="icon-btn">✕</button>

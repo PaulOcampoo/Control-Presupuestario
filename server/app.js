@@ -705,10 +705,18 @@ app.get('/api/projects/:id/destajistas', h(requireProject), h(async (req, res) =
     [pid]
   );
   const result = await Promise.all(dests.map(async (d) => {
-    const { rows: items } = await db.pool.query(
-      'SELECT * FROM destajo_items WHERE destajista_id = $1 ORDER BY orden, id',
-      [d.id]
-    );
+    const { rows: items } = await db.pool.query(`
+      SELECT di.*,
+             c.grupo AS partida_grupo,
+             c.codigo AS partida_codigo,
+             c.concepto AS partida_concepto,
+             c.cantidad AS partida_cantidad_presupuesto,
+             c.precio_unitario AS partida_precio_unitario
+      FROM destajo_items di
+      LEFT JOIN conceptos c ON c.id = di.concepto_id
+      WHERE di.destajista_id = $1
+      ORDER BY di.orden, di.id
+    `, [d.id]);
     const totalAsignado = items.reduce((s, i) => s + (Number(i.cantidad_asignada) * Number(i.precio_destajo)), 0);
     const totalGanado = items.reduce((s, i) => s + (Number(i.cantidad_ejecutada) * Number(i.precio_destajo)), 0);
     const pctAvance = totalAsignado > 0 ? Math.min(100, (totalGanado / totalAsignado) * 100) : 0;

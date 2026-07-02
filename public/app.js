@@ -1296,6 +1296,11 @@ function renderDestajistaItems(d) {
               <div style="font-size:0.84rem;font-weight:600">${esc(it.concepto)}</div>
               ${it.codigo ? `<div class="code muted">${esc(it.codigo)}</div>` : ''}
               ${it.unidad ? `<div class="muted" style="font-size:0.72rem">${esc(it.unidad)}</div>` : ''}
+              ${it.concepto_id ? `
+                <div class="badge muted" style="margin-top:4px;font-size:0.68rem">📋 Partida: ${esc(it.partida_grupo || 'Sin grupo')}</div>
+              ` : `
+                <div class="muted" style="margin-top:4px;font-size:0.68rem;font-style:italic">Actividad manual — sin partida del presupuesto</div>
+              `}
             </td>
             <td class="num">
               <input type="number" min="0" step="0.01" style="width:72px;text-align:right"
@@ -1405,6 +1410,7 @@ async function openAgregarItemModal(destId, destajistas) {
       <div class="project-item" data-pick="${c.id}" style="cursor:pointer">
         <span class="pname">${esc(c.concepto)}</span>
         <span class="pmeta">${esc(c.codigo || '')} · ${esc(c.unidad || '')} · ${fmtNum(c.cantidad, 2)} · ${fmtMoney(c.precio_unitario)}/u</span>
+        <span class="pmeta">📋 Partida: ${esc(c.grupo || 'Sin grupo')}</span>
       </div>`).join('') || '<p class="muted" style="padding:6px">Sin resultados</p>';
 
     $$('[data-pick]', results).forEach((row) => {

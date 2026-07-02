@@ -706,14 +706,18 @@ app.get('/api/projects/:id/destajistas', h(requireProject), h(async (req, res) =
   );
   const result = await Promise.all(dests.map(async (d) => {
     const { rows: items } = await db.pool.query(`
-      SELECT di.*,
+      SELECT di.id, di.project_id, di.destajista_id, di.concepto_id, di.codigo, di.concepto, di.unidad,
+             di.cantidad_asignada, di.precio_destajo, di.orden,
              c.grupo AS partida_grupo,
              c.codigo AS partida_codigo,
              c.concepto AS partida_concepto,
              c.cantidad AS partida_cantidad_presupuesto,
-             c.precio_unitario AS partida_precio_unitario
+             c.precio_unitario AS partida_precio_unitario,
+             COALESCE(ad.total, 0) AS cantidad_ejecutada
       FROM destajo_items di
       LEFT JOIN conceptos c ON c.id = di.concepto_id
+      LEFT JOIN (SELECT destajo_item_id, SUM(cantidad_ejecutada) AS total FROM avance_destajo GROUP BY destajo_item_id) ad
+        ON ad.destajo_item_id = di.id
       WHERE di.destajista_id = $1
       ORDER BY di.orden, di.id
     `, [d.id]);
@@ -733,6 +737,17 @@ app.post('/api/projects/:id/destajistas', h(requireProject), h(async (req, res) 
     [req.project.id, nombre.trim(), telefono?.trim() || null]
   );
   res.status(201).json(rows[0]);
+}));
+
+app.put('/api/projects/:id/destajistas/:destId', h(requireProject), h(async (req, res) => {
+  const { nombre, telefono } = req.body || {};
+  if (!nombre?.trim()) return res.status(400).json({ error: 'El nombre del destajista es requerido' });
+  const { rows } = await db.pool.query(
+    'UPDATE destajistas SET nombre = $1, telefono = $2 WHERE id = $3 AND project_id = $4 RETURNING *',
+    [nombre.trim(), telefono?.trim() || null, Number(req.params.destId), req.project.id]
+  );
+  if (!rows[0]) return res.status(404).json({ error: 'Destajista no encontrado' });
+  res.json(rows[0]);
 }));
 
 app.delete('/api/projects/:id/destajistas/:destId', h(requireProject), h(async (req, res) => {
@@ -777,18 +792,16 @@ app.post('/api/projects/:id/destajistas/:destId/items', h(requireProject), h(asy
 app.put('/api/projects/:id/destajistas/:destId/items/:itemId', h(requireProject), h(async (req, res) => {
   const pid = req.project.id;
   const itemId = Number(req.params.itemId);
-  const { cantidad_ejecutada, cantidad_asignada, precio_destajo } = req.body || {};
+  const { cantidad_asignada, precio_destajo } = req.body || {};
   const { rows } = await db.pool.query(
     `UPDATE destajo_items
-     SET cantidad_ejecutada = COALESCE($1, cantidad_ejecutada),
-         cantidad_asignada  = COALESCE($2, cantidad_asignada),
-         precio_destajo     = COALESCE($3, precio_destajo)
-     WHERE id = $4 AND project_id = $5
+     SET cantidad_asignada = COALESCE($1, cantidad_asignada),
+         precio_destajo    = COALESCE($2, precio_destajo)
+     WHERE id = $3 AND project_id = $4
      RETURNING *`,
     [
-      cantidad_ejecutada != null ? Math.max(0, Number(cantidad_ejecutada)) : null,
-      cantidad_asignada  != null ? Math.max(0, Number(cantidad_asignada))  : null,
-      precio_destajo     != null ? Math.max(0, Number(precio_destajo))     : null,
+      cantidad_asignada != null ? Math.max(0, Number(cantidad_asignada)) : null,
+      precio_destajo    != null ? Math.max(0, Number(precio_destajo))    : null,
       itemId, pid,
     ]
   );
@@ -803,6 +816,123 @@ app.delete('/api/projects/:id/destajistas/:destId/items/:itemId', h(requireProje
   );
   if (rowCount === 0) return res.status(404).json({ error: 'Actividad no encontrada' });
   res.json({ ok: true });
+}));
+
+// ---------------------------------------------------------------------------
+// Avance de destajo por periodo — usa las mismas semanas del programa de obra
+// (avances_semanales) para que el avance de cada destajista se capture en
+// los mismos periodos que el resto del proyecto.
+// ---------------------------------------------------------------------------
+app.get('/api/projects/:id/destajistas/:destId/avance', h(requireProject), h(async (req, res) => {
+  const pid = req.project.id;
+  const destId = Number(req.params.destId);
+  const { rows: destRows } = await db.pool.query(
+    'SELECT id, nombre FROM destajistas WHERE id = $1 AND project_id = $2',
+    [destId, pid]
+  );
+  if (!destRows[0]) return res.status(404).json({ error: 'Destajista no encontrado' });
+
+  const { rows: totalRows } = await db.pool.query(
+    'SELECT COALESCE(SUM(cantidad_asignada * precio_destajo), 0) AS total FROM destajo_items WHERE destajista_id = $1',
+    [destId]
+  );
+  const totalAsignado = Number(totalRows[0].total);
+
+  const { rows: semanas } = await db.pool.query(`
+    SELECT av.semana, av.fecha_inicio, av.fecha_fin,
+           COALESCE(SUM(ad.cantidad_ejecutada * di.precio_destajo), 0) AS ganado_periodo
+    FROM avances_semanales av
+    LEFT JOIN destajo_items di ON di.destajista_id = $2
+    LEFT JOIN avance_destajo ad ON ad.destajo_item_id = di.id AND ad.semana = av.semana
+    WHERE av.project_id = $1
+    GROUP BY av.semana, av.fecha_inicio, av.fecha_fin
+    ORDER BY av.semana
+  `, [pid, destId]);
+
+  let acumulado = 0;
+  const result = semanas.map((s) => {
+    acumulado += Number(s.ganado_periodo);
+    return {
+      semana: s.semana,
+      fecha_inicio: s.fecha_inicio,
+      fecha_fin: s.fecha_fin,
+      ganado_periodo: Number(s.ganado_periodo),
+      ganado_acumulado: acumulado,
+      pct_acumulado: totalAsignado > 0 ? Math.min(100, (acumulado / totalAsignado) * 100) : 0,
+    };
+  });
+
+  res.json({ destajista_id: destId, total_asignado: totalAsignado, semanas: result });
+}));
+
+app.get('/api/projects/:id/destajistas/:destId/avance/:semana', h(requireProject), h(async (req, res) => {
+  const pid = req.project.id;
+  const destId = Number(req.params.destId);
+  const semana = Number(req.params.semana);
+  const { rows: destRows } = await db.pool.query(
+    'SELECT id, nombre FROM destajistas WHERE id = $1 AND project_id = $2',
+    [destId, pid]
+  );
+  if (!destRows[0]) return res.status(404).json({ error: 'Destajista no encontrado' });
+  const { rows: semRows } = await db.pool.query(
+    'SELECT id, fecha_inicio, fecha_fin FROM avances_semanales WHERE project_id = $1 AND semana = $2',
+    [pid, semana]
+  );
+  if (!semRows[0]) return res.status(404).json({ error: 'Semana no encontrada' });
+
+  const { rows: items } = await db.pool.query(`
+    SELECT di.id AS destajo_item_id, di.codigo, di.concepto, di.unidad, di.cantidad_asignada, di.precio_destajo,
+           COALESCE(prev.total, 0) AS cantidad_acumulada_previa,
+           cur.cantidad_ejecutada AS cantidad_ejecutada_periodo
+    FROM destajo_items di
+    LEFT JOIN (
+      SELECT destajo_item_id, SUM(cantidad_ejecutada) AS total
+      FROM avance_destajo WHERE semana < $2 GROUP BY destajo_item_id
+    ) prev ON prev.destajo_item_id = di.id
+    LEFT JOIN avance_destajo cur ON cur.destajo_item_id = di.id AND cur.semana = $2
+    WHERE di.destajista_id = $1
+    ORDER BY di.orden, di.id
+  `, [destId, semana]);
+
+  res.json({ semana, destajista: destRows[0], periodo: semRows[0], items });
+}));
+
+app.put('/api/projects/:id/destajistas/:destId/avance/:semana', h(requireProject), h(async (req, res) => {
+  const pid = req.project.id;
+  const destId = Number(req.params.destId);
+  const semana = Number(req.params.semana);
+  const { rows: destRows } = await db.pool.query(
+    'SELECT id FROM destajistas WHERE id = $1 AND project_id = $2',
+    [destId, pid]
+  );
+  if (!destRows[0]) return res.status(404).json({ error: 'Destajista no encontrado' });
+  const { rows: semRows } = await db.pool.query(
+    'SELECT id FROM avances_semanales WHERE project_id = $1 AND semana = $2',
+    [pid, semana]
+  );
+  if (!semRows[0]) return res.status(404).json({ error: 'Semana no encontrada' });
+
+  const { items } = req.body || {};
+  if (!Array.isArray(items)) return res.status(400).json({ error: 'items debe ser un arreglo' });
+
+  const { rows: validRows } = await db.pool.query('SELECT id FROM destajo_items WHERE destajista_id = $1', [destId]);
+  const validIds = new Set(validRows.map((r) => r.id));
+
+  await db.withTransaction(async (client) => {
+    for (const it of items) {
+      const itemId = Number(it.destajo_item_id);
+      if (!validIds.has(itemId)) continue;
+      const cantidad = it.cantidad_ejecutada == null || it.cantidad_ejecutada === ''
+        ? 0 : Math.max(0, Number(it.cantidad_ejecutada));
+      await client.query(`
+        INSERT INTO avance_destajo (semana, destajo_item_id, cantidad_ejecutada)
+        VALUES ($1, $2, $3)
+        ON CONFLICT (semana, destajo_item_id) DO UPDATE SET cantidad_ejecutada = EXCLUDED.cantidad_ejecutada, actualizado_en = NOW()
+      `, [semana, itemId, cantidad]);
+    }
+  });
+
+  res.json({ ok: true, semana });
 }));
 
 // ---------------------------------------------------------------------------

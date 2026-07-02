@@ -1156,6 +1156,7 @@ async function renderDestajo(view) {
 
   view.innerHTML = `
     <h2 class="section-title">Control de Destajo</h2>
+    <p class="muted">El avance de cada destajista se captura por semana, usando los mismos periodos del programa de obra — igual que en la pestaña Avance.</p>
     ${destajistas.length ? `
     <div class="kpi-grid" style="margin-bottom:4px">
       <div class="kpi"><div class="label">Destajistas</div><div class="value">${destajistas.length}</div></div>
@@ -1172,33 +1173,17 @@ async function renderDestajo(view) {
         <p>Agrega trabajadores y asígnales los conceptos que ejecutarán a destajo.<br>
            Si tu Excel tenía una hoja llamada "Destajo" o "Destajistas", se importó automáticamente al cargar el presupuesto.</p>
       </div>
-    ` : destajistas.map((d) => {
-      const pct = Math.round(d.pct_avance || 0);
-      return `
-      <div class="card" style="margin-bottom:12px">
-        <div class="row between">
-          <div>
-            <strong style="font-size:1rem">${esc(d.nombre)}</strong>
-            ${d.telefono ? `<div class="muted" style="font-size:0.8rem">📞 ${esc(d.telefono)}</div>` : ''}
-          </div>
-          <button class="btn small btn-danger" data-del-dest="${d.id}">Eliminar</button>
-        </div>
-        <div class="row" style="gap:14px;margin:6px 0;flex-wrap:wrap;font-size:0.84rem">
-          <span class="muted">${d.items.length} actividad${d.items.length !== 1 ? 'es' : ''}</span>
-          <span>Asig: ${fmtMoney(d.total_asignado)}</span>
-          <span style="color:var(--green)">Ganado: <span data-dest-ganado="${d.id}">${fmtMoney(d.total_ganado)}</span></span>
-          <span class="badge ${pct >= 100 ? 'green' : 'yellow'}">${pct}%</span>
-        </div>
-        <div class="progress-bar" style="margin-bottom:8px"><span style="width:${Math.min(100, pct)}%"></span></div>
-        ${renderDestajistaItems(d)}
-        <div style="margin-top:8px">
-          <button class="btn small" data-add-item="${d.id}">+ Agregar actividad</button>
-        </div>
-      </div>`;
-    }).join('')}
+    ` : destajistas.map((d) => renderDestajistaCard(d)).join('')}
   `;
 
   $('#btnNuevoDest').addEventListener('click', () => openNuevoDestajistaModal());
+
+  $$('[data-edit-dest]', view).forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const d = destajistas.find((x) => x.id === Number(btn.dataset.editDest));
+      if (d) openEditDestajistaModal(d);
+    });
+  });
 
   $$('[data-del-dest]', view).forEach((btn) => {
     btn.addEventListener('click', async () => {
@@ -1230,30 +1215,8 @@ async function renderDestajo(view) {
           method: 'PUT',
           body: { [field]: value },
         });
-        this.style.outline = '2px solid var(--green)';
-        setTimeout(() => { this.style.outline = ''; }, 1000);
-        // Update ganado cell in the same row
-        const row = this.closest('tr');
-        if (row) {
-          const execInp = row.querySelector('[data-field="cantidad_ejecutada"]');
-          const puInp = row.querySelector('[data-field="precio_destajo"]');
-          const exec = Math.max(0, Number(execInp?.value) || 0);
-          const pu = Math.max(0, Number(puInp?.value) || 0);
-          const ganadoCell = row.querySelector('[data-ganado-cell]');
-          if (ganadoCell) ganadoCell.textContent = fmtMoney(exec * pu);
-          // Update card total
-          let cardGanado = 0;
-          const card = this.closest('.card');
-          if (card) {
-            card.querySelectorAll('tr[data-item-row]').forEach((tr) => {
-              const e = tr.querySelector('[data-field="cantidad_ejecutada"]');
-              const p = tr.querySelector('[data-field="precio_destajo"]');
-              if (e && p) cardGanado += Math.max(0, Number(e.value) || 0) * Math.max(0, Number(p.value) || 0);
-            });
-            const cardTotalEl = card.querySelector(`[data-dest-ganado="${destId}"]`);
-            if (cardTotalEl) cardTotalEl.textContent = fmtMoney(cardGanado);
-          }
-        }
+        toast('Actividad actualizada', 'success');
+        renderView();
       } catch (err) { toast(err.message, 'danger'); }
     });
   });
@@ -1270,6 +1233,220 @@ async function renderDestajo(view) {
       } catch (err) { toast(err.message, 'danger'); }
     });
   });
+
+  $$('[data-toggle-semanal]', view).forEach((btn) => {
+    btn.addEventListener('click', () => toggleDestajoSemanal(btn, destajistas));
+  });
+}
+
+function renderDestajistaCard(d) {
+  const pct = Math.round(d.pct_avance || 0);
+  return `
+  <div class="card" style="margin-bottom:12px" data-dest-card="${d.id}">
+    <div class="row between">
+      <div>
+        <strong style="font-size:1rem">${esc(d.nombre)}</strong>
+        ${d.telefono ? `<div class="muted" style="font-size:0.8rem">📞 ${esc(d.telefono)}</div>` : ''}
+      </div>
+      <div class="row" style="gap:6px;flex-wrap:nowrap">
+        <button class="btn small" data-edit-dest="${d.id}" title="Editar destajista">✏️ Editar</button>
+        <button class="btn small btn-danger" data-del-dest="${d.id}">Eliminar</button>
+      </div>
+    </div>
+    <div class="row" style="gap:14px;margin:6px 0;flex-wrap:wrap;font-size:0.84rem">
+      <span class="muted">${d.items.length} actividad${d.items.length !== 1 ? 'es' : ''}</span>
+      <span>Asig: ${fmtMoney(d.total_asignado)}</span>
+      <span style="color:var(--green)">Ganado: ${fmtMoney(d.total_ganado)}</span>
+      <span class="badge ${pct >= 100 ? 'green' : 'yellow'}">${pct}%</span>
+    </div>
+    <div class="progress-bar" style="margin-bottom:8px"><span style="width:${Math.min(100, pct)}%"></span></div>
+    ${renderDestajistaItems(d)}
+    <div class="row" style="margin-top:8px">
+      <button class="btn small" data-add-item="${d.id}">+ Agregar actividad</button>
+    </div>
+    <button class="collapse-toggle" style="margin-top:12px" data-toggle-semanal="${d.id}">
+      <span>📅 Avance semanal (periodos del programa de obra)</span>
+      <span class="chev">▾</span>
+    </button>
+    <div class="collapse-body" id="semanalBody-${d.id}"></div>
+  </div>`;
+}
+
+async function toggleDestajoSemanal(btn, destajistas) {
+  const destId = Number(btn.dataset.toggleSemanal);
+  const body = document.getElementById(`semanalBody-${destId}`);
+  const isOpen = btn.classList.toggle('open');
+  body.classList.toggle('open', isOpen);
+  if (!isOpen || body.dataset.loaded) return;
+  body.dataset.loaded = '1';
+  body.innerHTML = '<div class="spinner"></div>';
+  try {
+    const data = await api(`/projects/${state.projectId}/destajistas/${destId}/avance`);
+    if (!data.semanas.length) {
+      body.innerHTML = '<p class="muted" style="padding:10px 4px">El proyecto no tiene periodos de programa de obra generados (faltan las fechas de inicio/fin de obra).</p>';
+      return;
+    }
+    const dest = destajistas.find((d) => d.id === destId);
+    body.innerHTML = `
+      <div class="card" style="margin:10px 0 0;background:var(--panel-2)">
+        <div class="chart-wrap" style="height:220px"><canvas id="chartDestajo${destId}"></canvas></div>
+      </div>
+      <div class="table-scroll" style="margin-top:8px">
+        <table>
+          <thead><tr><th>Semana</th><th>Periodo</th><th class="num">Ganado del periodo</th><th class="num">Acumulado</th><th class="num">% Avance</th><th></th></tr></thead>
+          <tbody id="semanalTbody${destId}"></tbody>
+        </table>
+      </div>
+    `;
+    paintDestajoSemanaChart(destId, data.semanas);
+    paintDestajoSemanaTable(destId, data.semanas, dest ? dest.nombre : '');
+  } catch (err) {
+    body.innerHTML = `<div class="alert-box danger">⚠ ${esc(err.message)}</div>`;
+  }
+}
+
+function paintDestajoSemanaChart(destId, semanas) {
+  const canvas = document.getElementById(`chartDestajo${destId}`);
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const key = `destajo_${destId}`;
+  if (state.charts[key]) state.charts[key].destroy();
+  state.charts[key] = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: semanas.map((s) => `S${s.semana}`),
+      datasets: [{
+        label: '% avance acumulado',
+        data: semanas.map((s) => s.pct_acumulado),
+        borderColor: '#22c55e', backgroundColor: 'rgba(34,197,94,0.14)', tension: 0.25, fill: true,
+      }],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      scales: {
+        x: { ticks: { color: '#94a3b8', maxRotation: 0, autoSkip: true, font: { size: 10 } }, grid: { color: '#334155' } },
+        y: { min: 0, max: 100, ticks: { color: '#94a3b8', callback: (v) => `${v}%` }, grid: { color: '#334155' } },
+      },
+      plugins: { legend: { display: false } },
+    },
+  });
+}
+
+function paintDestajoSemanaTable(destId, semanas, nombre) {
+  const tbody = document.getElementById(`semanalTbody${destId}`);
+  if (!tbody) return;
+  tbody.innerHTML = semanas.map((s) => `
+    <tr>
+      <td>${s.semana}</td>
+      <td>${fmtDate(s.fecha_inicio)} – ${fmtDate(s.fecha_fin)}</td>
+      <td class="num">${fmtMoney(s.ganado_periodo)}</td>
+      <td class="num">${fmtMoney(s.ganado_acumulado)}</td>
+      <td class="num">${fmtPct(s.pct_acumulado)}</td>
+      <td><button class="btn small btn-primary" data-capturar-semana="${s.semana}" data-dest-id="${destId}">Capturar</button></td>
+    </tr>
+  `).join('');
+  $$('[data-capturar-semana]', tbody).forEach((btn) => {
+    btn.addEventListener('click', () => openDestajoSemanaModal(Number(btn.dataset.destId), Number(btn.dataset.capturarSemana), nombre));
+  });
+}
+
+async function openDestajoSemanaModal(destId, semana, nombre) {
+  openModal(`
+    <h3>Avance de destajo — Semana ${semana}</h3>
+    <p class="muted">${esc(nombre)}<br>Anota la cantidad realmente ejecutada de cada actividad durante este periodo
+      (no acumulada — solo lo avanzado en esta semana). El % de avance se calcula automáticamente.</p>
+    <div id="destAvcList"><div class="spinner"></div></div>
+    <div class="card" id="destAvcSummary" style="display:none">
+      <div class="card-row"><span class="k">Ganado acumulado a la fecha</span><span class="v" id="destAvcImporte">—</span></div>
+      <div class="card-row"><span class="k">% de avance (se guardará así)</span><span class="v" id="destAvcPct">—</span></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" id="btnCancelDestAvc">Cerrar</button>
+      <button class="btn btn-primary" id="btnSaveDestAvc">Guardar avance</button>
+    </div>
+  `);
+  $('#btnCancelDestAvc').addEventListener('click', closeModal);
+
+  let items = [];
+  let totalAsignado = 0;
+  try {
+    const [data, todos] = await Promise.all([
+      api(`/projects/${state.projectId}/destajistas/${destId}/avance/${semana}`),
+      api(`/projects/${state.projectId}/destajistas`),
+    ]);
+    items = data.items;
+    const dest = todos.find((d) => d.id === destId);
+    totalAsignado = dest ? dest.total_asignado : 0;
+  } catch (err) {
+    $('#destAvcList').innerHTML = `<div class="alert-box danger">⚠ ${esc(err.message)}</div>`;
+    return;
+  }
+
+  if (!items.length) {
+    $('#destAvcList').innerHTML = '<p class="muted">Este destajista no tiene actividades asignadas.</p>';
+    return;
+  }
+
+  $('#destAvcList').innerHTML = items.map((it) => `
+    <div class="req-item-row">
+      <div style="font-weight:600;font-size:0.86rem">${esc(it.concepto)}</div>
+      <div class="code muted">${esc(it.codigo || '')} · asig: ${fmtNum(it.cantidad_asignada, 3)} ${esc(it.unidad || '')} a ${fmtMoney(it.precio_destajo)}/u</div>
+      <div class="qty-row" style="margin-top:6px">
+        <div>
+          <label>Acumulado previo</label>
+          <div class="muted" style="font-size:0.84rem;padding:10px 0">${fmtNum(it.cantidad_acumulada_previa, 3)} ${esc(it.unidad || '')}</div>
+        </div>
+        <div>
+          <label>Ejecutado este periodo</label>
+          <input type="number" min="0" step="0.01" data-destajo-cantidad="${it.destajo_item_id}"
+                 data-precio="${it.precio_destajo}" data-prev="${it.cantidad_acumulada_previa}"
+                 value="${it.cantidad_ejecutada_periodo ?? ''}" />
+        </div>
+        <div class="muted" data-acum-out style="font-size:0.74rem;text-align:right;align-self:end;line-height:1.3"></div>
+      </div>
+    </div>
+  `).join('');
+
+  const updateRowOutput = (inp) => {
+    const prev = Number(inp.dataset.prev) || 0;
+    const cantidad = inp.value === '' ? 0 : Math.max(0, Number(inp.value));
+    const acumActual = prev + cantidad;
+    const out = inp.closest('.qty-row').querySelector('[data-acum-out]');
+    if (out) out.innerHTML = `acum: ${fmtNum(acumActual, 3)}`;
+    return acumActual;
+  };
+
+  const recalc = () => {
+    let ganado = 0;
+    $$('[data-destajo-cantidad]').forEach((inp) => {
+      const acumActual = updateRowOutput(inp);
+      ganado += acumActual * (Number(inp.dataset.precio) || 0);
+    });
+    $('#destAvcImporte').textContent = fmtMoney(ganado);
+    $('#destAvcPct').textContent = totalAsignado ? fmtPct(Math.min(100, (ganado / totalAsignado) * 100)) : '—';
+  };
+
+  $('#destAvcSummary').style.display = '';
+  recalc();
+  $$('[data-destajo-cantidad]').forEach((inp) => inp.addEventListener('input', recalc));
+
+  $('#btnSaveDestAvc').addEventListener('click', async () => {
+    const btn = $('#btnSaveDestAvc');
+    const payloadItems = $$('[data-destajo-cantidad]').map((inp) => ({
+      destajo_item_id: Number(inp.dataset.destajoCantidad),
+      cantidad_ejecutada: inp.value === '' ? 0 : Math.max(0, Number(inp.value)),
+    }));
+    btn.disabled = true; btn.textContent = 'Guardando…';
+    try {
+      await api(`/projects/${state.projectId}/destajistas/${destId}/avance/${semana}`, { method: 'PUT', body: { items: payloadItems } });
+      closeModal();
+      toast(`Avance de destajo de la semana ${semana} guardado`, 'success');
+      renderView();
+    } catch (err) {
+      toast(err.message, 'danger');
+      btn.disabled = false; btn.textContent = 'Guardar avance';
+    }
+  });
 }
 
 function renderDestajistaItems(d) {
@@ -1283,8 +1460,8 @@ function renderDestajistaItems(d) {
           <tr>
             <th>Actividad</th>
             <th class="num">Asig.</th>
-            <th class="num">Ejec.</th>
             <th class="num">P.U. destajo</th>
+            <th class="num">Ejecutado acum.</th>
             <th class="num">Ganado</th>
             <th></th>
           </tr>
@@ -1308,28 +1485,25 @@ function renderDestajistaItems(d) {
                 data-save-item data-item-id="${it.id}" data-dest-id="${d.id}" data-field="cantidad_asignada" />
             </td>
             <td class="num">
-              <input type="number" min="0" step="0.01" style="width:72px;text-align:right"
-                value="${it.cantidad_ejecutada}"
-                data-save-item data-item-id="${it.id}" data-dest-id="${d.id}" data-field="cantidad_ejecutada" />
-            </td>
-            <td class="num">
               <input type="number" min="0" step="0.01" style="width:80px;text-align:right"
                 value="${it.precio_destajo}"
                 data-save-item data-item-id="${it.id}" data-dest-id="${d.id}" data-field="precio_destajo" />
             </td>
-            <td class="num" data-ganado-cell style="color:var(--green)">${fmtMoney(it.cantidad_ejecutada * it.precio_destajo)}</td>
+            <td class="num">${fmtNum(it.cantidad_ejecutada, 2)} ${esc(it.unidad || '')}</td>
+            <td class="num" style="color:var(--green)">${fmtMoney(it.cantidad_ejecutada * it.precio_destajo)}</td>
             <td>
               <button class="btn small btn-ghost" data-del-item data-item-id="${it.id}" data-dest-id="${d.id}" title="Eliminar">✕</button>
             </td>
           </tr>`).join('')}
           <tr style="font-weight:600;border-top:1px solid var(--border)">
             <td colspan="4" style="text-align:right;color:var(--muted);padding-right:8px">Total ganado:</td>
-            <td class="num" style="color:var(--green)" data-dest-ganado="${d.id}">${fmtMoney(d.total_ganado)}</td>
+            <td class="num" style="color:var(--green)">${fmtMoney(d.total_ganado)}</td>
             <td></td>
           </tr>
         </tbody>
       </table>
-    </div>`;
+    </div>
+    <p class="muted" style="font-size:0.72rem;margin:6px 0 0">El acumulado ejecutado se registra con "Capturar" en el avance semanal de abajo — igual que en la pestaña Avance.</p>`;
 }
 
 function openNuevoDestajistaModal() {
@@ -1364,6 +1538,38 @@ function openNuevoDestajistaModal() {
   });
 }
 
+function openEditDestajistaModal(dest) {
+  openModal(`
+    <h3>Editar destajista</h3>
+    <div class="field"><label>Nombre *</label><input id="destNombre" value="${esc(dest.nombre)}" /></div>
+    <div class="field"><label>Teléfono (opcional)</label><input id="destTel" type="tel" placeholder="55 1234 5678" value="${esc(dest.telefono || '')}" /></div>
+    <div class="modal-actions">
+      <button class="btn" id="btnCancelDest">Cerrar</button>
+      <button class="btn btn-primary" id="btnSaveDest">Guardar cambios</button>
+    </div>
+  `);
+  $('#destNombre').focus();
+  $('#btnCancelDest').addEventListener('click', closeModal);
+  $('#btnSaveDest').addEventListener('click', async () => {
+    const nombre = $('#destNombre').value.trim();
+    if (!nombre) { toast('Escribe el nombre del destajista', 'danger'); return; }
+    const btn = $('#btnSaveDest');
+    btn.disabled = true;
+    try {
+      await api(`/projects/${state.projectId}/destajistas/${dest.id}`, {
+        method: 'PUT',
+        body: { nombre, telefono: $('#destTel').value.trim() || null },
+      });
+      closeModal();
+      toast('Destajista actualizado', 'success');
+      renderView();
+    } catch (err) {
+      toast(err.message, 'danger');
+      btn.disabled = false;
+    }
+  });
+}
+
 async function openAgregarItemModal(destId, destajistas) {
   const dest = destajistas.find((d) => d.id === destId);
   if (!dest) return;
@@ -1378,8 +1584,12 @@ async function openAgregarItemModal(destId, destajistas) {
     <h3>Agregar actividad — ${esc(dest.nombre)}</h3>
     <div class="field">
       <label>Buscar en catálogo de conceptos</label>
-      <input id="buscarConcepto" placeholder="Código o descripción…" autocomplete="off" />
-      <div id="resultadosConcepto" class="project-list" style="max-height:140px;overflow-y:auto;gap:4px;margin-top:4px"></div>
+      <div class="search-bar-fancy" id="conceptoSearchWrap">
+        <span class="search-icon">🔍</span>
+        <input id="buscarConcepto" placeholder="Escribe código o descripción…" autocomplete="off" />
+        <button type="button" class="search-clear" id="btnClearConceptoSearch" title="Limpiar búsqueda">✕</button>
+      </div>
+      <div id="resultadosConcepto" class="project-list search-results-fancy" style="max-height:160px;overflow-y:auto;gap:4px;margin-top:6px"></div>
     </div>
     <div class="field"><label>Concepto *</label><input id="itemConcepto" placeholder="Ej. Excavación en tierra" /></div>
     <div class="row" style="gap:8px">
@@ -1397,29 +1607,34 @@ async function openAgregarItemModal(destId, destajistas) {
   `);
 
   let selConceptoId = null;
+  const searchWrap = $('#conceptoSearchWrap');
+  const searchInput = $('#buscarConcepto');
+  const searchResults = $('#resultadosConcepto');
 
-  $('#buscarConcepto').addEventListener('input', (e) => {
-    const q = e.target.value.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
-    const results = $('#resultadosConcepto');
-    if (!q) { results.innerHTML = ''; return; }
+  function runConceptoSearch(raw) {
+    const q = raw.trim();
+    searchWrap.classList.toggle('has-value', !!q);
+    if (!q) { searchResults.innerHTML = ''; return; }
+    const norm = q.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
     const matches = allConceptos.filter((c) => {
       const hay = (c.concepto + ' ' + (c.codigo || '')).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
-      return hay.includes(q);
+      return hay.includes(norm);
     }).slice(0, 6);
-    results.innerHTML = matches.map((c) => `
-      <div class="project-item" data-pick="${c.id}" style="cursor:pointer">
+    searchResults.innerHTML = matches.map((c) => `
+      <div class="project-item search-result-item" data-pick="${c.id}" style="cursor:pointer">
         <span class="pname">${esc(c.concepto)}</span>
         <span class="pmeta">${esc(c.codigo || '')} · ${esc(c.unidad || '')} · ${fmtNum(c.cantidad, 2)} · ${fmtMoney(c.precio_unitario)}/u</span>
         <span class="pmeta">📋 Partida: ${esc(c.grupo || 'Sin grupo')}</span>
-      </div>`).join('') || '<p class="muted" style="padding:6px">Sin resultados</p>';
+      </div>`).join('') || `<p class="muted" style="padding:6px">Sin resultados para "${esc(q)}"</p>`;
 
-    $$('[data-pick]', results).forEach((row) => {
+    $$('[data-pick]', searchResults).forEach((row) => {
       row.addEventListener('click', () => {
         const c = allConceptos.find((x) => x.id === Number(row.dataset.pick));
         if (!c) return;
         selConceptoId = c.id;
-        $('#buscarConcepto').value = `${c.codigo ? c.codigo + ' · ' : ''}${c.concepto}`;
-        results.innerHTML = '';
+        searchInput.value = `${c.codigo ? c.codigo + ' · ' : ''}${c.concepto}`;
+        searchWrap.classList.add('has-value');
+        searchResults.innerHTML = '';
         $('#itemConcepto').value = c.concepto;
         $('#itemCodigo').value = c.codigo || '';
         $('#itemUnidad').value = c.unidad || '';
@@ -1427,6 +1642,14 @@ async function openAgregarItemModal(destId, destajistas) {
         if (!$('#itemPU').value) $('#itemPU').value = c.precio_unitario;
       });
     });
+  }
+
+  searchInput.addEventListener('input', (e) => runConceptoSearch(e.target.value));
+  $('#btnClearConceptoSearch').addEventListener('click', () => {
+    searchInput.value = '';
+    searchWrap.classList.remove('has-value');
+    searchResults.innerHTML = '';
+    searchInput.focus();
   });
 
   $('#btnCancelItem').addEventListener('click', closeModal);

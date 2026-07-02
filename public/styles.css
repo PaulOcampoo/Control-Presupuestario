@@ -256,6 +256,54 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 
 .section-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
 
+/* Barra de búsqueda interactiva (con ícono, glow al enfocar y botón de limpiar) */
+.search-bar-fancy { position: relative; margin-bottom: 6px; }
+.search-bar-fancy .search-icon {
+  position: absolute; left: 12px; top: 50%; transform: translateY(-50%);
+  color: var(--muted); font-size: 0.92rem; pointer-events: none; transition: color 0.15s;
+}
+.search-bar-fancy input {
+  padding-left: 34px; padding-right: 34px;
+  transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
+}
+.search-bar-fancy input:focus {
+  border-color: var(--accent); outline: none;
+  box-shadow: 0 0 0 3px rgba(56,189,248,0.18);
+  background: var(--panel);
+}
+.search-bar-fancy:focus-within .search-icon { color: var(--accent); }
+.search-bar-fancy .search-clear {
+  position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+  width: 24px; height: 24px; border-radius: 50%; border: none;
+  background: var(--panel-2); color: var(--muted); font-size: 0.76rem; cursor: pointer;
+  display: none; align-items: center; justify-content: center; line-height: 1;
+}
+.search-bar-fancy.has-value .search-clear { display: flex; }
+.search-bar-fancy .search-clear:hover { background: var(--border); color: var(--text); }
+.search-bar-fancy .search-clear:active { transform: translateY(-50%) scale(0.9); }
+
+@keyframes fadeSlideIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
+.search-results-fancy { animation: fadeSlideIn 0.15s ease; }
+.search-result-item {
+  transition: background 0.12s, border-color 0.12s, transform 0.08s;
+  border-left: 2px solid transparent;
+}
+.search-result-item:hover, .search-result-item:active {
+  background: var(--panel-2); border-left-color: var(--accent);
+}
+.search-result-item:active { transform: scale(0.99); }
+
+/* Sección colapsable (avance semanal por destajista) */
+.collapse-toggle {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  width: 100%; background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px;
+  padding: 10px 12px; cursor: pointer; color: var(--text); font-size: 0.86rem; font-weight: 600;
+}
+.collapse-toggle .chev { transition: transform 0.2s ease; color: var(--muted); }
+.collapse-toggle.open .chev { transform: rotate(180deg); }
+.collapse-body { overflow: hidden; max-height: 0; transition: max-height 0.25s ease; }
+.collapse-body.open { max-height: 4000px; }
+
 ::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 8px; }
 

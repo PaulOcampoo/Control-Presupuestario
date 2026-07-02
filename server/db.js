@@ -145,6 +145,16 @@ const SCHEMA = `
     orden INTEGER DEFAULT 0
   );
   CREATE INDEX IF NOT EXISTS idx_destajo_items_destajista ON destajo_items(destajista_id);
+
+  CREATE TABLE IF NOT EXISTS avance_destajo (
+    id SERIAL PRIMARY KEY,
+    semana INTEGER NOT NULL,
+    destajo_item_id INTEGER NOT NULL REFERENCES destajo_items(id) ON DELETE CASCADE,
+    cantidad_ejecutada DOUBLE PRECISION DEFAULT 0,
+    actualizado_en TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (semana, destajo_item_id)
+  );
+  CREATE INDEX IF NOT EXISTS idx_avance_destajo_item ON avance_destajo(destajo_item_id);
 `;
 
 async function initSchema() {

@@ -175,6 +175,41 @@ const SCHEMA = `
   );
   CREATE INDEX IF NOT EXISTS idx_usuario_proyectos_usuario ON usuario_proyectos(usuario_id);
   CREATE INDEX IF NOT EXISTS idx_usuario_proyectos_project ON usuario_proyectos(project_id);
+
+  CREATE TABLE IF NOT EXISTS proveedores (
+    id SERIAL PRIMARY KEY,
+    nombre TEXT NOT NULL,
+    contacto TEXT,
+    telefono TEXT,
+    email TEXT,
+    rfc TEXT,
+    activo INTEGER DEFAULT 1,
+    creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
+
+  CREATE TABLE IF NOT EXISTS ordenes_compra (
+    id SERIAL PRIMARY KEY,
+    project_id INTEGER NOT NULL REFERENCES proyectos(id) ON DELETE CASCADE,
+    requisicion_id INTEGER NOT NULL REFERENCES requisiciones(id),
+    proveedor_id INTEGER NOT NULL REFERENCES proveedores(id),
+    folio TEXT,
+    fecha DATE NOT NULL DEFAULT CURRENT_DATE,
+    estado TEXT NOT NULL DEFAULT 'borrador',
+    observaciones TEXT,
+    creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
+  CREATE INDEX IF NOT EXISTS idx_oc_project ON ordenes_compra(project_id);
+  CREATE INDEX IF NOT EXISTS idx_oc_requisicion ON ordenes_compra(requisicion_id);
+
+  CREATE TABLE IF NOT EXISTS orden_compra_items (
+    id SERIAL PRIMARY KEY,
+    orden_compra_id INTEGER NOT NULL REFERENCES ordenes_compra(id) ON DELETE CASCADE,
+    requisicion_item_id INTEGER NOT NULL REFERENCES requisicion_items(id),
+    cantidad_ordenada DOUBLE PRECISION DEFAULT 0,
+    precio_unitario DOUBLE PRECISION DEFAULT 0,
+    importe DOUBLE PRECISION DEFAULT 0
+  );
+  CREATE INDEX IF NOT EXISTS idx_ocitems_oc ON orden_compra_items(orden_compra_id);
 `;
 
 async function initSchema() {

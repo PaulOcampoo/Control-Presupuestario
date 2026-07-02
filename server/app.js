@@ -191,6 +191,50 @@ app.put('/api/usuarios/:id/proyectos', h(auth.allow()), h(async (req, res) => {
 }));
 
 // ---------------------------------------------------------------------------
+// Proveedores (catálogo global — no depende de project_id ni de obra)
+// ---------------------------------------------------------------------------
+app.get('/api/proveedores', h(auth.allow('residente', 'cabo')), h(async (req, res) => {
+  const activo = req.query.activo === 'false' ? 0 : 1;
+  const { rows } = await db.pool.query(
+    'SELECT * FROM proveedores WHERE activo = $1 ORDER BY nombre', [activo]
+  );
+  res.json(rows);
+}));
+
+app.post('/api/proveedores', h(auth.allow()), h(async (req, res) => {
+  const { nombre, contacto, telefono, email, rfc } = req.body || {};
+  if (!nombre?.trim()) return res.status(400).json({ error: 'El nombre del proveedor es requerido' });
+  const { rows } = await db.pool.query(
+    `INSERT INTO proveedores (nombre, contacto, telefono, email, rfc) VALUES ($1,$2,$3,$4,$5) RETURNING *`,
+    [nombre.trim(), contacto?.trim() || null, telefono?.trim() || null, email?.trim() || null, rfc?.trim() || null]
+  );
+  res.status(201).json(rows[0]);
+}));
+
+app.put('/api/proveedores/:id', h(auth.allow()), h(async (req, res) => {
+  const id = Number(req.params.id);
+  const { nombre, contacto, telefono, email, rfc } = req.body || {};
+  if (!nombre?.trim()) return res.status(400).json({ error: 'El nombre del proveedor es requerido' });
+  const { rows } = await db.pool.query(
+    `UPDATE proveedores SET nombre = $1, contacto = $2, telefono = $3, email = $4, rfc = $5 WHERE id = $6 RETURNING *`,
+    [nombre.trim(), contacto?.trim() || null, telefono?.trim() || null, email?.trim() || null, rfc?.trim() || null, id]
+  );
+  if (!rows[0]) return res.status(404).json({ error: 'Proveedor no encontrado' });
+  res.json(rows[0]);
+}));
+
+app.put('/api/proveedores/:id/estado', h(auth.allow()), h(async (req, res) => {
+  const id = Number(req.params.id);
+  const { activo } = req.body || {};
+  const { rows } = await db.pool.query(
+    'UPDATE proveedores SET activo = $1 WHERE id = $2 RETURNING *',
+    [activo ? 1 : 0, id]
+  );
+  if (!rows[0]) return res.status(404).json({ error: 'Proveedor no encontrado' });
+  res.json(rows[0]);
+}));
+
+// ---------------------------------------------------------------------------
 // Proyectos
 // ---------------------------------------------------------------------------
 app.get('/api/projects', h(auth.allow('residente', 'cabo')), h(async (req, res) => {
@@ -578,6 +622,156 @@ app.post('/api/projects/:id/requisiciones/preview', h(auth.allow('residente')), 
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
+}));
+
+// ---------------------------------------------------------------------------
+// Órdenes de compra — generadas a partir de una requisición 'autorizada'.
+// Una requisición puede tener varias OCs (compra dividida entre proveedores
+// o para ordenar en distintos momentos); el sobre-orden de un item solo
+// genera una alerta, no bloquea, igual que alerta_cantidad/alerta_precio.
+// ---------------------------------------------------------------------------
+app.get('/api/projects/:id/ordenes', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  const { rows: ordenes } = await db.pool.query(`
+    SELECT oc.*, pv.nombre AS proveedor_nombre, r.folio AS requisicion_folio
+    FROM ordenes_compra oc
+    JOIN proveedores pv ON pv.id = oc.proveedor_id
+    JOIN requisiciones r ON r.id = oc.requisicion_id
+    WHERE oc.project_id = $1
+    ORDER BY oc.id DESC
+  `, [req.project.id]);
+  const withTotals = await Promise.all(ordenes.map(async (o) => {
+    const { rows } = await db.pool.query(`
+      SELECT COUNT(*) AS num_items, COALESCE(SUM(importe), 0) AS importe_total
+      FROM orden_compra_items WHERE orden_compra_id = $1
+    `, [o.id]);
+    return { ...o, ...rows[0] };
+  }));
+  res.json(withTotals);
+}));
+
+app.get('/api/projects/:id/ordenes/:ocId', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  const { rows: ocRows } = await db.pool.query(`
+    SELECT oc.*, pv.nombre AS proveedor_nombre, pv.contacto AS proveedor_contacto, pv.telefono AS proveedor_telefono,
+           r.folio AS requisicion_folio
+    FROM ordenes_compra oc
+    JOIN proveedores pv ON pv.id = oc.proveedor_id
+    JOIN requisiciones r ON r.id = oc.requisicion_id
+    WHERE oc.id = $1 AND oc.project_id = $2
+  `, [Number(req.params.ocId), req.project.id]);
+  if (!ocRows[0]) return res.status(404).json({ error: 'Orden de compra no encontrada' });
+  const { rows: items } = await db.pool.query(`
+    SELECT oci.*, i.codigo AS insumo_codigo, i.concepto AS insumo_concepto, i.unidad,
+           ri.cantidad_solicitada
+    FROM orden_compra_items oci
+    JOIN requisicion_items ri ON ri.id = oci.requisicion_item_id
+    JOIN insumos i ON i.id = ri.insumo_id
+    WHERE oci.orden_compra_id = $1
+    ORDER BY oci.id
+  `, [ocRows[0].id]);
+  res.json({ ...ocRows[0], items });
+}));
+
+app.post('/api/projects/:id/requisiciones/:reqId/ordenes', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  const pid = req.project.id;
+  const reqId = Number(req.params.reqId);
+  const { proveedor_id, folio, fecha, observaciones, items } = req.body || {};
+
+  const { rows: reqRows } = await db.pool.query(
+    'SELECT * FROM requisiciones WHERE id = $1 AND project_id = $2', [reqId, pid]
+  );
+  if (!reqRows[0]) return res.status(404).json({ error: 'Requisición no encontrada' });
+  if (reqRows[0].estado !== 'autorizada') {
+    return res.status(400).json({ error: 'Solo se pueden generar órdenes de compra de requisiciones en estado "autorizada"' });
+  }
+  if (!proveedor_id) return res.status(400).json({ error: 'Selecciona un proveedor' });
+  if (!Array.isArray(items) || items.length === 0) {
+    return res.status(400).json({ error: 'La orden de compra debe incluir al menos un insumo' });
+  }
+
+  const { rows: reqItems } = await db.pool.query(
+    'SELECT * FROM requisicion_items WHERE requisicion_id = $1', [reqId]
+  );
+  const reqItemsMap = new Map(reqItems.map((it) => [it.id, it]));
+  for (const it of items) {
+    if (!reqItemsMap.has(Number(it.requisicion_item_id))) {
+      return res.status(400).json({ error: `El item ${it.requisicion_item_id} no pertenece a esta requisición` });
+    }
+  }
+
+  // Acumulado ya ordenado por item en OCs previas no canceladas de esta misma
+  // requisición — permite compra dividida y solo advierte si se pasa de lo solicitado.
+  const { rows: acumRows } = await db.pool.query(`
+    SELECT oci.requisicion_item_id, COALESCE(SUM(oci.cantidad_ordenada), 0) AS acumulado
+    FROM orden_compra_items oci
+    JOIN ordenes_compra oc ON oc.id = oci.orden_compra_id
+    WHERE oc.requisicion_id = $1 AND oc.estado != 'cancelada'
+    GROUP BY oci.requisicion_item_id
+  `, [reqId]);
+  const acumMap = new Map(acumRows.map((r) => [r.requisicion_item_id, Number(r.acumulado)]));
+
+  const computed = items.map((it) => {
+    const reqItem = reqItemsMap.get(Number(it.requisicion_item_id));
+    const cantidad = Math.max(0, Number(it.cantidad_ordenada) || 0);
+    const precio = Math.max(0, Number(it.precio_unitario) || 0);
+    const acumuladoPrevio = acumMap.get(reqItem.id) || 0;
+    return {
+      requisicion_item_id: reqItem.id,
+      cantidad_ordenada: cantidad,
+      precio_unitario: precio,
+      importe: Number((cantidad * precio).toFixed(2)),
+      alerta_sobre_orden: (acumuladoPrevio + cantidad) > reqItem.cantidad_solicitada,
+    };
+  });
+
+  const created = await db.withTransaction(async (client) => {
+    const { rows } = await client.query(
+      `INSERT INTO ordenes_compra (project_id, requisicion_id, proveedor_id, folio, fecha, observaciones)
+       VALUES ($1,$2,$3,$4,COALESCE($5::date, CURRENT_DATE),$6) RETURNING *`,
+      [pid, reqId, Number(proveedor_id), folio || null, fecha || null, observaciones || null]
+    );
+    const ocId = rows[0].id;
+    for (const c of computed) {
+      await client.query(
+        `INSERT INTO orden_compra_items (orden_compra_id, requisicion_item_id, cantidad_ordenada, precio_unitario, importe)
+         VALUES ($1,$2,$3,$4,$5)`,
+        [ocId, c.requisicion_item_id, c.cantidad_ordenada, c.precio_unitario, c.importe]
+      );
+    }
+    return rows[0];
+  });
+
+  res.status(201).json({
+    ...created,
+    items: computed,
+    importe_total: Number(computed.reduce((s, c) => s + c.importe, 0).toFixed(2)),
+    tiene_alertas: computed.some((c) => c.alerta_sobre_orden),
+  });
+}));
+
+app.put('/api/projects/:id/ordenes/:ocId/estado', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  const { estado } = req.body || {};
+  if (!['borrador', 'enviada', 'confirmada', 'cancelada'].includes(estado)) {
+    return res.status(400).json({ error: 'Estado inválido. Los estados de recepción se controlan automáticamente.' });
+  }
+  const { rowCount } = await db.pool.query(
+    'UPDATE ordenes_compra SET estado = $1 WHERE id = $2 AND project_id = $3',
+    [estado, Number(req.params.ocId), req.project.id]
+  );
+  if (rowCount === 0) return res.status(404).json({ error: 'Orden de compra no encontrada' });
+  res.json({ ok: true });
+}));
+
+app.delete('/api/projects/:id/ordenes/:ocId', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  const ocId = Number(req.params.ocId);
+  const { rows: ocRows } = await db.pool.query(
+    'SELECT estado FROM ordenes_compra WHERE id = $1 AND project_id = $2', [ocId, req.project.id]
+  );
+  if (!ocRows[0]) return res.status(404).json({ error: 'Orden de compra no encontrada' });
+  if (ocRows[0].estado !== 'borrador') {
+    return res.status(400).json({ error: 'Solo se pueden eliminar órdenes de compra en estado "borrador"' });
+  }
+  await db.pool.query('DELETE FROM ordenes_compra WHERE id = $1', [ocId]);
+  res.json({ ok: true });
 }));
 
 // ---------------------------------------------------------------------------

@@ -311,8 +311,11 @@ function destroyCharts() {
 async function renderView() {
   destroyCharts();
   const view = $('#view');
-  if (state.view === 'usuarios') {
-    try { await renderUsuarios(view); } catch (err) { view.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`; }
+  if (state.view === 'usuarios' || state.view === 'proveedores') {
+    try {
+      if (state.view === 'usuarios') await renderUsuarios(view);
+      else await renderProveedores(view);
+    } catch (err) { view.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`; }
     syncFab();
     return;
   }
@@ -333,6 +336,7 @@ async function renderView() {
       case 'resumen': await renderResumen(view); break;
       case 'insumos': await renderInsumos(view); break;
       case 'requisiciones': await renderRequisiciones(view); break;
+      case 'ordenes': await renderOrdenes(view); break;
       case 'avance': await renderAvance(view); break;
       case 'programa': await renderPrograma(view); break;
       case 'destajo': await renderDestajo(view); break;
@@ -735,6 +739,7 @@ async function openRequisicionDetail(reqId) {
       <div class="modal-actions">
         <button class="btn btn-danger" id="btnDeleteReq">Eliminar</button>
         ${r.estado === 'borrador' ? '<button class="btn" id="btnEditReq">Editar</button>' : ''}
+        ${r.estado === 'autorizada' ? '<button class="btn btn-primary" id="btnGenerarOC">Generar Orden de Compra</button>' : ''}
         <button class="btn" id="btnCloseDetail">Cerrar</button>
       </div>
     `);
@@ -755,6 +760,9 @@ async function openRequisicionDetail(reqId) {
     $('#btnCloseDetail').addEventListener('click', closeModal);
     if (r.estado === 'borrador') {
       $('#btnEditReq').addEventListener('click', () => openEditRequisicionModal(r));
+    }
+    if (r.estado === 'autorizada') {
+      $('#btnGenerarOC').addEventListener('click', () => openGenerarOrdenModal(r));
     }
     $('#estadoSelect').addEventListener('change', async (e) => {
       try {
@@ -928,6 +936,197 @@ function openEditRequisicionModal(requisicion) {
       btn.disabled = false; btn.textContent = 'Guardar cambios';
     }
   });
+}
+
+// Genera una Orden de Compra a partir de una requisición 'autorizada'. Se
+// puede ordenar solo algunos items (no obliga a cubrir el 100%) y se puede
+// repetir varias veces sobre la misma requisición (compra dividida).
+async function openGenerarOrdenModal(requisicion) {
+  openModal('<div class="spinner"></div>');
+  let proveedores = [];
+  try {
+    proveedores = await api('/proveedores');
+  } catch (err) {
+    closeModal();
+    toast(err.message, 'danger');
+    return;
+  }
+  if (!proveedores.length) {
+    openModal(`
+      <h3>Generar Orden de Compra</h3>
+      <p class="muted">Aún no hay proveedores activos en el catálogo. Ve a la pestaña "Proveedores" y da de alta al menos uno antes de generar una orden de compra.</p>
+      <div class="modal-actions"><button class="btn" id="btnCancelOC">Cerrar</button></div>
+    `);
+    $('#btnCancelOC').addEventListener('click', closeModal);
+    return;
+  }
+
+  openModal(`
+    <h3>Generar Orden de Compra</h3>
+    <p class="muted">${esc(requisicion.folio || `Requisición #${requisicion.id}`)} — puedes ordenar solo algunos items; deja en 0 los que no vayas a incluir en esta orden.</p>
+    <div class="field"><label>Proveedor *</label>
+      <select id="ocProveedor">${proveedores.map((p) => `<option value="${p.id}">${esc(p.nombre)}</option>`).join('')}</select>
+    </div>
+    <div class="field"><label>Folio (opcional)</label><input id="ocFolio" placeholder="Ej. OC-2026-001" /></div>
+    <div class="field"><label>Fecha</label><input id="ocFecha" type="date" value="${new Date().toISOString().slice(0, 10)}" /></div>
+    <div id="ocItems"></div>
+    <div class="field"><label>Observaciones</label><textarea id="ocObs" rows="2" placeholder="Notas para esta orden…"></textarea></div>
+    <div class="modal-actions">
+      <button class="btn" id="btnCancelOC">Cerrar</button>
+      <button class="btn btn-primary" id="btnSaveOC">Crear orden de compra</button>
+    </div>
+  `);
+
+  $('#ocItems').innerHTML = requisicion.items.map((it) => `
+    <div class="req-item-row" data-req-item="${it.id}">
+      <div style="font-weight:600;font-size:0.88rem">${esc(it.insumo_concepto)}</div>
+      <div class="code muted">${esc(it.insumo_codigo)} · solicitado: ${fmtNum(it.cantidad_solicitada, 3)} ${esc(it.unidad || '')} a ${fmtMoney(it.precio_solicitado)}</div>
+      <div class="qty-row">
+        <div><label>Cantidad a ordenar</label><input type="number" min="0" step="any" data-oc-cantidad value="${it.cantidad_solicitada}" /></div>
+        <div><label>Precio unitario</label><input type="number" min="0" step="any" data-oc-precio value="${it.precio_solicitado}" /></div>
+        <div class="muted" data-oc-importe style="font-size:0.78rem;text-align:right">= ${fmtMoney(it.cantidad_solicitada * it.precio_solicitado)}</div>
+      </div>
+    </div>
+  `).join('');
+
+  $$('#ocItems .req-item-row').forEach((row) => {
+    const cantInp = row.querySelector('[data-oc-cantidad]');
+    const precInp = row.querySelector('[data-oc-precio]');
+    const out = row.querySelector('[data-oc-importe]');
+    const update = () => { out.textContent = `= ${fmtMoney((Number(cantInp.value) || 0) * (Number(precInp.value) || 0))}`; };
+    cantInp.addEventListener('input', update);
+    precInp.addEventListener('input', update);
+  });
+
+  $('#btnCancelOC').addEventListener('click', closeModal);
+  $('#btnSaveOC').addEventListener('click', async () => {
+    const items = $$('#ocItems .req-item-row').map((row) => ({
+      requisicion_item_id: Number(row.dataset.reqItem),
+      cantidad_ordenada: Number(row.querySelector('[data-oc-cantidad]').value) || 0,
+      precio_unitario: Number(row.querySelector('[data-oc-precio]').value) || 0,
+    })).filter((it) => it.cantidad_ordenada > 0);
+
+    if (!items.length) { toast('Indica una cantidad mayor a 0 en al menos un item', 'danger'); return; }
+
+    const btn = $('#btnSaveOC');
+    btn.disabled = true; btn.textContent = 'Creando…';
+    try {
+      const result = await api(`/projects/${state.projectId}/requisiciones/${requisicion.id}/ordenes`, {
+        method: 'POST',
+        body: {
+          proveedor_id: Number($('#ocProveedor').value),
+          folio: $('#ocFolio').value.trim() || null,
+          fecha: $('#ocFecha').value || null,
+          observaciones: $('#ocObs').value.trim() || null,
+          items,
+        },
+      });
+      closeModal();
+      toast(result.tiene_alertas
+        ? 'Orden de compra creada — algún item supera lo solicitado en la requisición'
+        : 'Orden de compra creada', result.tiene_alertas ? 'danger' : 'success');
+      state.view = 'ordenes';
+      $$('.tab').forEach((t) => t.classList.toggle('active', t.dataset.view === 'ordenes'));
+      renderView();
+    } catch (err) {
+      toast(err.message, 'danger');
+      btn.disabled = false; btn.textContent = 'Crear orden de compra';
+    }
+  });
+}
+
+// =========================================================================
+// VISTA: Órdenes de Compra
+// =========================================================================
+async function renderOrdenes(view) {
+  const ordenes = await api(`/projects/${state.projectId}/ordenes`);
+
+  view.innerHTML = `
+    <h2 class="section-title">Órdenes de Compra</h2>
+    <p class="muted">Generadas a partir de requisiciones ya autorizadas. Una requisición puede tener varias órdenes (compra dividida entre proveedores o en distintos momentos).</p>
+    <div id="ordenesList"></div>
+  `;
+
+  const list = $('#ordenesList');
+  if (!ordenes.length) {
+    list.innerHTML = '<div class="empty-state"><div class="big">🧾</div>Aún no hay órdenes de compra.<br>Genera una desde el detalle de una requisición autorizada.</div>';
+    return;
+  }
+  const estadoBadge = { borrador: 'muted', enviada: 'yellow', confirmada: 'green', recibida_parcial: 'yellow', recibida_completa: 'green', cancelada: 'red' };
+  list.innerHTML = ordenes.map((o) => `
+    <div class="card" data-oc="${o.id}">
+      <div class="row between">
+        <div>
+          <strong>${esc(o.folio || `OC #${o.id}`)}</strong>
+          <div class="muted">${fmtDate(o.fecha)} · ${esc(o.proveedor_nombre)} · req. ${esc(o.requisicion_folio || '')}</div>
+          <div class="muted">${o.num_items} insumo${o.num_items === 1 ? '' : 's'} · ${fmtMoney(o.importe_total)}</div>
+        </div>
+        <span class="badge ${estadoBadge[o.estado] || 'muted'}">${esc(o.estado)}</span>
+      </div>
+      <div class="row end"><button class="btn small" data-view-oc="${o.id}">Ver detalle</button></div>
+    </div>
+  `).join('');
+
+  $$('[data-view-oc]', list).forEach((btn) => btn.addEventListener('click', () => openOrdenDetalle(Number(btn.dataset.viewOc))));
+}
+
+async function openOrdenDetalle(ocId) {
+  openModal('<div class="spinner"></div>');
+  try {
+    const o = await api(`/projects/${state.projectId}/ordenes/${ocId}`);
+    const estados = ['borrador', 'enviada', 'confirmada', 'cancelada'];
+    const esEstadoRecepcion = !estados.includes(o.estado);
+    openModal(`
+      <h3>${esc(o.folio || `Orden de Compra #${o.id}`)}</h3>
+      <div class="card-row"><span class="k">Proveedor</span><span class="v">${esc(o.proveedor_nombre)}</span></div>
+      ${o.proveedor_contacto ? `<div class="card-row"><span class="k">Contacto</span><span class="v">${esc(o.proveedor_contacto)}</span></div>` : ''}
+      ${o.proveedor_telefono ? `<div class="card-row"><span class="k">Teléfono</span><span class="v">${esc(o.proveedor_telefono)}</span></div>` : ''}
+      <div class="card-row"><span class="k">Requisición origen</span><span class="v">${esc(o.requisicion_folio || '')}</span></div>
+      <div class="card-row"><span class="k">Fecha</span><span class="v">${fmtDate(o.fecha)}</span></div>
+      ${o.observaciones ? `<p class="muted">${esc(o.observaciones)}</p>` : ''}
+      <div class="field"><label>Estado</label>
+        ${esEstadoRecepcion
+          ? `<p class="muted">${esc(o.estado)} — este estado lo controla la recepción de mercancía, no se puede cambiar aquí.</p>`
+          : `<select id="ocEstadoSelect">${estados.map((e) => `<option value="${e}" ${e === o.estado ? 'selected' : ''}>${e}</option>`).join('')}</select>`}
+      </div>
+      <div id="ocItemsDetail"></div>
+      <div class="modal-actions">
+        ${o.estado === 'borrador' ? '<button class="btn btn-danger" id="btnDeleteOC">Eliminar</button>' : ''}
+        <button class="btn" id="btnCloseOC">Cerrar</button>
+      </div>
+    `);
+    $('#ocItemsDetail').innerHTML = o.items.map((it) => `
+      <div class="req-item-row">
+        <div class="row between">
+          <div style="font-weight:600;font-size:0.88rem">${esc(it.insumo_concepto)}</div>
+          <span>${fmtMoney(it.importe)}</span>
+        </div>
+        <div class="muted code">${esc(it.insumo_codigo)} · ${esc(it.unidad || '')}</div>
+        <div class="row between"><span class="muted">Ordenado</span><span>${fmtNum(it.cantidad_ordenada, 3)} ${esc(it.unidad || '')} a ${fmtMoney(it.precio_unitario)}</span></div>
+        <div class="row between"><span class="muted">Solicitado en la requisición</span><span>${fmtNum(it.cantidad_solicitada, 3)} ${esc(it.unidad || '')}</span></div>
+      </div>`).join('');
+
+    $('#btnCloseOC').addEventListener('click', closeModal);
+    $('#ocEstadoSelect')?.addEventListener('change', async (e) => {
+      try {
+        await api(`/projects/${state.projectId}/ordenes/${ocId}/estado`, { method: 'PUT', body: { estado: e.target.value } });
+        toast('Estado actualizado', 'success');
+        renderView();
+      } catch (err) { toast(err.message, 'danger'); }
+    });
+    $('#btnDeleteOC')?.addEventListener('click', async () => {
+      if (!confirm('¿Eliminar esta orden de compra?')) return;
+      try {
+        await api(`/projects/${state.projectId}/ordenes/${ocId}`, { method: 'DELETE' });
+        closeModal();
+        toast('Orden de compra eliminada', 'success');
+        renderView();
+      } catch (err) { toast(err.message, 'danger'); }
+    });
+  } catch (err) {
+    closeModal();
+    toast(err.message, 'danger');
+  }
 }
 
 // =========================================================================
@@ -2023,6 +2222,114 @@ async function openUsuarioModal(usuario) {
   });
 }
 
+// =========================================================================
+// VISTA: Proveedores (catálogo global — solo Administrador gestiona)
+// =========================================================================
+async function renderProveedores(view) {
+  const proveedores = await api('/proveedores');
+
+  view.innerHTML = `
+    <h2 class="section-title">Proveedores</h2>
+    <p class="muted">Catálogo compartido entre todas las obras, usado al generar órdenes de compra.</p>
+    ${isAdmin() ? `
+    <div class="section-actions">
+      <button class="btn btn-primary" id="btnNuevoProveedor">+ Nuevo proveedor</button>
+    </div>` : ''}
+    <div id="proveedoresList"></div>
+  `;
+  $('#btnNuevoProveedor')?.addEventListener('click', () => openProveedorModal(null));
+  paintProveedoresList(proveedores);
+}
+
+function paintProveedoresList(proveedores) {
+  const list = $('#proveedoresList');
+  if (!proveedores.length) {
+    list.innerHTML = '<div class="empty-state">No hay proveedores registrados.</div>';
+    return;
+  }
+  list.innerHTML = proveedores.map((p) => `
+    <div class="card">
+      <div class="row between">
+        <div>
+          <strong>${esc(p.nombre)}</strong>
+          ${p.contacto ? `<div class="muted" style="font-size:0.8rem">${esc(p.contacto)}</div>` : ''}
+          ${p.telefono ? `<div class="muted" style="font-size:0.8rem">📞 ${esc(p.telefono)}</div>` : ''}
+          ${p.rfc ? `<div class="muted code" style="font-size:0.74rem">${esc(p.rfc)}</div>` : ''}
+        </div>
+        ${!p.activo ? '<span class="badge red">Inactivo</span>' : ''}
+      </div>
+      ${isAdmin() ? `
+      <div class="row end" style="margin-top:8px;gap:8px">
+        <button class="btn small" data-edit-prov="${p.id}">Editar</button>
+        <button class="btn small ${p.activo ? 'btn-danger' : ''}" data-toggle-prov="${p.id}">${p.activo ? 'Desactivar' : 'Activar'}</button>
+      </div>` : ''}
+    </div>
+  `).join('');
+
+  $$('[data-edit-prov]', list).forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const p = proveedores.find((x) => x.id === Number(btn.dataset.editProv));
+      if (p) openProveedorModal(p);
+    });
+  });
+  $$('[data-toggle-prov]', list).forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const p = proveedores.find((x) => x.id === Number(btn.dataset.toggleProv));
+      if (!p) return;
+      try {
+        await api(`/proveedores/${p.id}/estado`, { method: 'PUT', body: { activo: !p.activo } });
+        toast(p.activo ? 'Proveedor desactivado' : 'Proveedor activado', 'success');
+        renderView();
+      } catch (err) { toast(err.message, 'danger'); }
+    });
+  });
+}
+
+function openProveedorModal(proveedor) {
+  const isEdit = !!proveedor;
+  openModal(`
+    <h3>${isEdit ? 'Editar proveedor' : 'Nuevo proveedor'}</h3>
+    <div class="field"><label>Nombre *</label><input id="pvNombre" value="${isEdit ? esc(proveedor.nombre) : ''}" /></div>
+    <div class="field"><label>Contacto</label><input id="pvContacto" value="${isEdit ? esc(proveedor.contacto || '') : ''}" /></div>
+    <div class="field"><label>Teléfono</label><input id="pvTelefono" type="tel" value="${isEdit ? esc(proveedor.telefono || '') : ''}" /></div>
+    <div class="field"><label>Email</label><input id="pvEmail" type="email" value="${isEdit ? esc(proveedor.email || '') : ''}" /></div>
+    <div class="field"><label>RFC</label><input id="pvRfc" value="${isEdit ? esc(proveedor.rfc || '') : ''}" /></div>
+    <div class="modal-actions">
+      <button class="btn" id="btnCancelProv">Cerrar</button>
+      <button class="btn btn-primary" id="btnSaveProv">${isEdit ? 'Guardar cambios' : 'Crear proveedor'}</button>
+    </div>
+  `);
+  $('#pvNombre').focus();
+  $('#btnCancelProv').addEventListener('click', closeModal);
+  $('#btnSaveProv').addEventListener('click', async () => {
+    const nombre = $('#pvNombre').value.trim();
+    if (!nombre) { toast('Escribe el nombre del proveedor', 'danger'); return; }
+    const btn = $('#btnSaveProv');
+    btn.disabled = true;
+    const body = {
+      nombre,
+      contacto: $('#pvContacto').value.trim() || null,
+      telefono: $('#pvTelefono').value.trim() || null,
+      email: $('#pvEmail').value.trim() || null,
+      rfc: $('#pvRfc').value.trim() || null,
+    };
+    try {
+      if (isEdit) {
+        await api(`/proveedores/${proveedor.id}`, { method: 'PUT', body });
+        toast('Proveedor actualizado', 'success');
+      } else {
+        await api('/proveedores', { method: 'POST', body });
+        toast('Proveedor creado', 'success');
+      }
+      closeModal();
+      renderView();
+    } catch (err) {
+      toast(err.message, 'danger');
+      btn.disabled = false;
+    }
+  });
+}
+
 // ---------------------------------------------------------------------------
 // FAB: contextual quick-action depending on the active view
 // ---------------------------------------------------------------------------
@@ -2045,8 +2352,9 @@ fab.addEventListener('click', () => {
   }
 });
 function syncFab() {
+  const noFabViews = ['usuarios', 'proveedores', 'ordenes'];
   const hasAction = ['requisiciones', 'insumos', 'destajo'].includes(state.view);
-  fab.style.display = state.view !== 'usuarios' && state.projectId && (hasAction || isAdmin()) ? 'flex' : 'none';
+  fab.style.display = !noFabViews.includes(state.view) && state.projectId && (hasAction || isAdmin()) ? 'flex' : 'none';
   if (state.view === 'requisiciones' || state.view === 'insumos') fab.textContent = '🧾';
   else if (state.view === 'destajo') fab.textContent = '👷';
   else fab.textContent = '+';

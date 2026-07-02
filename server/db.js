@@ -210,6 +210,37 @@ const SCHEMA = `
     importe DOUBLE PRECISION DEFAULT 0
   );
   CREATE INDEX IF NOT EXISTS idx_ocitems_oc ON orden_compra_items(orden_compra_id);
+
+  CREATE TABLE IF NOT EXISTS recepciones (
+    id SERIAL PRIMARY KEY,
+    orden_compra_id INTEGER NOT NULL REFERENCES ordenes_compra(id) ON DELETE CASCADE,
+    fecha DATE NOT NULL DEFAULT CURRENT_DATE,
+    recibido_por TEXT,
+    observaciones TEXT,
+    creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
+  CREATE INDEX IF NOT EXISTS idx_recepciones_oc ON recepciones(orden_compra_id);
+
+  CREATE TABLE IF NOT EXISTS recepcion_items (
+    id SERIAL PRIMARY KEY,
+    recepcion_id INTEGER NOT NULL REFERENCES recepciones(id) ON DELETE CASCADE,
+    orden_compra_item_id INTEGER NOT NULL REFERENCES orden_compra_items(id),
+    cantidad_recibida DOUBLE PRECISION DEFAULT 0,
+    observaciones TEXT
+  );
+  CREATE INDEX IF NOT EXISTS idx_recepitems_recepcion ON recepcion_items(recepcion_id);
+
+  CREATE TABLE IF NOT EXISTS pagos (
+    id SERIAL PRIMARY KEY,
+    orden_compra_id INTEGER NOT NULL REFERENCES ordenes_compra(id) ON DELETE CASCADE,
+    fecha DATE NOT NULL DEFAULT CURRENT_DATE,
+    monto DOUBLE PRECISION NOT NULL,
+    metodo TEXT,
+    referencia TEXT,
+    observaciones TEXT,
+    creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
+  CREATE INDEX IF NOT EXISTS idx_pagos_oc ON pagos(orden_compra_id);
 `;
 
 async function initSchema() {

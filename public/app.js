@@ -1063,6 +1063,10 @@ async function renderOrdenes(view) {
         </div>
         <span class="badge ${estadoBadge[o.estado] || 'muted'}">${esc(o.estado)}</span>
       </div>
+      <div class="row between" style="margin-top:6px;font-size:0.84rem">
+        <span class="muted">Pagado: ${fmtMoney(o.total_pagado)}</span>
+        <span style="color:${o.saldo_pendiente > 0 ? 'var(--red)' : 'var(--green)'};font-weight:600">Saldo: ${fmtMoney(o.saldo_pendiente)}</span>
+      </div>
       <div class="row end"><button class="btn small" data-view-oc="${o.id}">Ver detalle</button></div>
     </div>
   `).join('');
@@ -1076,6 +1080,7 @@ async function openOrdenDetalle(ocId) {
     const o = await api(`/projects/${state.projectId}/ordenes/${ocId}`);
     const estados = ['borrador', 'enviada', 'confirmada', 'cancelada'];
     const esEstadoRecepcion = !estados.includes(o.estado);
+    const puedeRecibir = ['confirmada', 'recibida_parcial'].includes(o.estado);
     openModal(`
       <h3>${esc(o.folio || `Orden de Compra #${o.id}`)}</h3>
       <div class="card-row"><span class="k">Proveedor</span><span class="v">${esc(o.proveedor_nombre)}</span></div>
@@ -1090,6 +1095,15 @@ async function openOrdenDetalle(ocId) {
           : `<select id="ocEstadoSelect">${estados.map((e) => `<option value="${e}" ${e === o.estado ? 'selected' : ''}>${e}</option>`).join('')}</select>`}
       </div>
       <div id="ocItemsDetail"></div>
+
+      <h3 class="section-title">Recepciones</h3>
+      <div id="ocRecepcionesList"><div class="spinner"></div></div>
+      ${puedeRecibir ? '<div class="row end" style="margin-top:8px"><button class="btn small btn-primary" id="btnRegistrarRecepcion">Registrar recepción</button></div>' : ''}
+
+      <h3 class="section-title">Pagos</h3>
+      <div id="ocPagosList"><div class="spinner"></div></div>
+      ${isAdmin() ? '<div class="row end" style="margin-top:8px"><button class="btn small btn-primary" id="btnRegistrarPago">Registrar pago</button></div>' : ''}
+
       <div class="modal-actions">
         ${o.estado === 'borrador' ? '<button class="btn btn-danger" id="btnDeleteOC">Eliminar</button>' : ''}
         <button class="btn" id="btnCloseOC">Cerrar</button>
@@ -1112,7 +1126,7 @@ async function openOrdenDetalle(ocId) {
         await api(`/projects/${state.projectId}/ordenes/${ocId}/estado`, { method: 'PUT', body: { estado: e.target.value } });
         toast('Estado actualizado', 'success');
         renderView();
-      } catch (err) { toast(err.message, 'danger'); }
+      } catch (err) { toast(err.message, 'danger'); e.target.value = o.estado; }
     });
     $('#btnDeleteOC')?.addEventListener('click', async () => {
       if (!confirm('¿Eliminar esta orden de compra?')) return;
@@ -1123,10 +1137,187 @@ async function openOrdenDetalle(ocId) {
         renderView();
       } catch (err) { toast(err.message, 'danger'); }
     });
+    $('#btnRegistrarRecepcion')?.addEventListener('click', () => openRegistrarRecepcionModal(o));
+    $('#btnRegistrarPago')?.addEventListener('click', () => openRegistrarPagoModal(o));
+
+    await Promise.all([paintOcRecepciones(ocId), paintOcPagos(ocId)]);
   } catch (err) {
     closeModal();
     toast(err.message, 'danger');
   }
+}
+
+async function paintOcRecepciones(ocId) {
+  const box = $('#ocRecepcionesList');
+  if (!box) return;
+  try {
+    const recepciones = await api(`/projects/${state.projectId}/ordenes/${ocId}/recepciones`);
+    if (!recepciones.length) {
+      box.innerHTML = '<p class="muted" style="font-size:0.84rem">Aún no se ha recibido material de esta orden.</p>';
+      return;
+    }
+    box.innerHTML = recepciones.map((r) => `
+      <div class="req-item-row">
+        <div class="row between">
+          <strong style="font-size:0.86rem">${fmtDate(r.fecha)}</strong>
+          ${r.recibido_por ? `<span class="muted">${esc(r.recibido_por)}</span>` : ''}
+        </div>
+        ${r.items.map((it) => `
+          <div class="row between" style="font-size:0.82rem">
+            <span>${esc(it.insumo_concepto)}</span>
+            <span>${fmtNum(it.cantidad_recibida, 3)} ${esc(it.unidad || '')}</span>
+          </div>`).join('')}
+        ${r.observaciones ? `<div class="muted" style="font-size:0.78rem">${esc(r.observaciones)}</div>` : ''}
+      </div>`).join('');
+  } catch (err) {
+    box.innerHTML = `<div class="alert-box danger">⚠ ${esc(err.message)}</div>`;
+  }
+}
+
+async function paintOcPagos(ocId) {
+  const box = $('#ocPagosList');
+  if (!box) return;
+  try {
+    const data = await api(`/projects/${state.projectId}/ordenes/${ocId}/pagos`);
+    const pagosHtml = data.pagos.length ? data.pagos.map((p) => `
+      <div class="row between" style="font-size:0.84rem">
+        <span>${fmtDate(p.fecha)} ${p.metodo ? `· ${esc(p.metodo)}` : ''} ${p.referencia ? `· ${esc(p.referencia)}` : ''}</span>
+        <span>${fmtMoney(p.monto)}</span>
+      </div>`).join('') : '<p class="muted" style="font-size:0.84rem">Sin pagos registrados.</p>';
+    box.innerHTML = `
+      ${pagosHtml}
+      <div class="card-row"><span class="k">Total pagado</span><span class="v">${fmtMoney(data.total_pagado)}</span></div>
+      <div class="card-row"><span class="k">Saldo pendiente</span><span class="v" style="color:${data.saldo_pendiente > 0 ? 'var(--red)' : 'var(--green)'}">${fmtMoney(data.saldo_pendiente)}</span></div>
+    `;
+  } catch (err) {
+    box.innerHTML = `<div class="alert-box danger">⚠ ${esc(err.message)}</div>`;
+  }
+}
+
+async function openRegistrarRecepcionModal(orden) {
+  openModal('<div class="spinner"></div>');
+  let acumMap = new Map();
+  try {
+    const recepciones = await api(`/projects/${state.projectId}/ordenes/${orden.id}/recepciones`);
+    recepciones.forEach((r) => {
+      r.items.forEach((it) => {
+        acumMap.set(it.orden_compra_item_id, (acumMap.get(it.orden_compra_item_id) || 0) + Number(it.cantidad_recibida));
+      });
+    });
+  } catch (err) {
+    closeModal();
+    toast(err.message, 'danger');
+    return;
+  }
+
+  openModal(`
+    <h3>Registrar recepción</h3>
+    <p class="muted">${esc(orden.folio || `OC #${orden.id}`)} — anota lo que llegó en esta entrega (no acumulado).</p>
+    <div class="field"><label>Fecha</label><input id="recFecha" type="date" value="${new Date().toISOString().slice(0, 10)}" /></div>
+    <div class="field"><label>Recibido por</label><input id="recPor" placeholder="Nombre de quien recibió" /></div>
+    <div id="recItems"></div>
+    <div class="field"><label>Observaciones</label><textarea id="recObs" rows="2" placeholder="Notas de la recepción…"></textarea></div>
+    <div class="modal-actions">
+      <button class="btn" id="btnCancelRec">Cerrar</button>
+      <button class="btn btn-primary" id="btnSaveRec">Guardar recepción</button>
+    </div>
+  `);
+
+  $('#recItems').innerHTML = orden.items.map((it) => {
+    const acumulado = acumMap.get(it.id) || 0;
+    const pendiente = Math.max(0, it.cantidad_ordenada - acumulado);
+    return `
+    <div class="req-item-row" data-oc-item="${it.id}">
+      <div style="font-weight:600;font-size:0.88rem">${esc(it.insumo_concepto)}</div>
+      <div class="code muted">${esc(it.insumo_codigo)} · ordenado: ${fmtNum(it.cantidad_ordenada, 3)} ${esc(it.unidad || '')} · recibido a la fecha: ${fmtNum(acumulado, 3)} ${esc(it.unidad || '')}</div>
+      <div class="qty-row">
+        <div><label>Cantidad recibida ahora</label><input type="number" min="0" step="any" data-rec-cantidad data-pendiente="${pendiente}" data-ordenado="${it.cantidad_ordenada}" data-acumulado="${acumulado}" value="0" /></div>
+        <div class="muted" data-rec-faltante style="font-size:0.76rem;align-self:end">faltarían: ${fmtNum(pendiente, 3)} ${esc(it.unidad || '')}</div>
+      </div>
+    </div>`;
+  }).join('');
+
+  $$('#recItems [data-rec-cantidad]').forEach((inp) => {
+    inp.addEventListener('input', () => {
+      const ordenado = Number(inp.dataset.ordenado);
+      const acumulado = Number(inp.dataset.acumulado);
+      const cantidad = Math.max(0, Number(inp.value) || 0);
+      const faltante = Math.max(0, ordenado - (acumulado + cantidad));
+      const out = inp.closest('.qty-row').querySelector('[data-rec-faltante]');
+      out.textContent = faltante > 0 ? `faltarían: ${fmtNum(faltante, 3)}` : '✓ completo';
+      out.style.color = faltante > 0 ? 'var(--red)' : 'var(--green)';
+    });
+  });
+
+  $('#btnCancelRec').addEventListener('click', closeModal);
+  $('#btnSaveRec').addEventListener('click', async () => {
+    const items = $$('#recItems [data-rec-cantidad]')
+      .map((inp) => ({
+        orden_compra_item_id: Number(inp.closest('[data-oc-item]').dataset.ocItem),
+        cantidad_recibida: Number(inp.value) || 0,
+      }))
+      .filter((it) => it.cantidad_recibida > 0);
+    if (!items.length) { toast('Indica una cantidad mayor a 0 en al menos un item', 'danger'); return; }
+
+    const btn = $('#btnSaveRec');
+    btn.disabled = true; btn.textContent = 'Guardando…';
+    try {
+      const result = await api(`/projects/${state.projectId}/ordenes/${orden.id}/recepciones`, {
+        method: 'POST',
+        body: { fecha: $('#recFecha').value || null, recibido_por: $('#recPor').value.trim() || null, observaciones: $('#recObs').value.trim() || null, items },
+      });
+      toast(result.tiene_alertas
+        ? `Recepción guardada — hay faltantes. Estado de la orden: ${result.estado_orden}`
+        : `Recepción guardada. Estado de la orden: ${result.estado_orden}`, result.tiene_alertas ? 'danger' : 'success');
+      await openOrdenDetalle(orden.id);
+    } catch (err) {
+      toast(err.message, 'danger');
+      btn.disabled = false; btn.textContent = 'Guardar recepción';
+    }
+  });
+}
+
+function openRegistrarPagoModal(orden) {
+  openModal(`
+    <h3>Registrar pago</h3>
+    <p class="muted">${esc(orden.folio || `OC #${orden.id}`)} — ${esc(orden.proveedor_nombre)}</p>
+    <div class="field"><label>Fecha</label><input id="pagoFecha" type="date" value="${new Date().toISOString().slice(0, 10)}" /></div>
+    <div class="field"><label>Monto *</label><input id="pagoMonto" type="number" min="0" step="any" /></div>
+    <div class="field"><label>Método</label><input id="pagoMetodo" placeholder="Transferencia, efectivo, cheque…" /></div>
+    <div class="field"><label>Referencia</label><input id="pagoReferencia" placeholder="Folio, número de cheque…" /></div>
+    <div class="field"><label>Observaciones</label><textarea id="pagoObs" rows="2"></textarea></div>
+    <div class="modal-actions">
+      <button class="btn" id="btnCancelPago">Cerrar</button>
+      <button class="btn btn-primary" id="btnSavePago">Guardar pago</button>
+    </div>
+  `);
+  $('#pagoMonto').focus();
+  $('#btnCancelPago').addEventListener('click', closeModal);
+  $('#btnSavePago').addEventListener('click', async () => {
+    const monto = Number($('#pagoMonto').value);
+    if (!monto || monto <= 0) { toast('Indica un monto mayor a 0', 'danger'); return; }
+    const btn = $('#btnSavePago');
+    btn.disabled = true; btn.textContent = 'Guardando…';
+    try {
+      const result = await api(`/projects/${state.projectId}/ordenes/${orden.id}/pagos`, {
+        method: 'POST',
+        body: {
+          fecha: $('#pagoFecha').value || null,
+          monto,
+          metodo: $('#pagoMetodo').value.trim() || null,
+          referencia: $('#pagoReferencia').value.trim() || null,
+          observaciones: $('#pagoObs').value.trim() || null,
+        },
+      });
+      toast(result.alerta_sobrepago
+        ? `Pago registrado — el saldo quedó negativo (sobrepago de ${fmtMoney(Math.abs(result.saldo_pendiente))})`
+        : 'Pago registrado', result.alerta_sobrepago ? 'danger' : 'success');
+      await openOrdenDetalle(orden.id);
+    } catch (err) {
+      toast(err.message, 'danger');
+      btn.disabled = false; btn.textContent = 'Guardar pago';
+    }
+  });
 }
 
 // =========================================================================

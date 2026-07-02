@@ -640,11 +640,20 @@ app.get('/api/projects/:id/ordenes', h(auth.allow('residente')), h(requireProjec
     ORDER BY oc.id DESC
   `, [req.project.id]);
   const withTotals = await Promise.all(ordenes.map(async (o) => {
-    const { rows } = await db.pool.query(`
+    const { rows: itemRows } = await db.pool.query(`
       SELECT COUNT(*) AS num_items, COALESCE(SUM(importe), 0) AS importe_total
       FROM orden_compra_items WHERE orden_compra_id = $1
     `, [o.id]);
-    return { ...o, ...rows[0] };
+    const { rows: pagoRows } = await db.pool.query(
+      'SELECT COALESCE(SUM(monto), 0) AS total_pagado FROM pagos WHERE orden_compra_id = $1', [o.id]
+    );
+    const importeTotal = Number(itemRows[0].importe_total);
+    const totalPagado = Number(pagoRows[0].total_pagado);
+    return {
+      ...o, ...itemRows[0],
+      total_pagado: Number(totalPagado.toFixed(2)),
+      saldo_pendiente: Number((importeTotal - totalPagado).toFixed(2)),
+    };
   }));
   res.json(withTotals);
 }));
@@ -753,9 +762,16 @@ app.put('/api/projects/:id/ordenes/:ocId/estado', h(auth.allow('residente')), h(
   if (!['borrador', 'enviada', 'confirmada', 'cancelada'].includes(estado)) {
     return res.status(400).json({ error: 'Estado inválido. Los estados de recepción se controlan automáticamente.' });
   }
+  const ocId = Number(req.params.ocId);
+  if (estado === 'cancelada') {
+    const { rows: pagoRows } = await db.pool.query('SELECT COUNT(*) AS n FROM pagos WHERE orden_compra_id = $1', [ocId]);
+    if (Number(pagoRows[0].n) > 0) {
+      return res.status(400).json({ error: 'No se puede cancelar una orden de compra que ya tiene pagos registrados' });
+    }
+  }
   const { rowCount } = await db.pool.query(
     'UPDATE ordenes_compra SET estado = $1 WHERE id = $2 AND project_id = $3',
-    [estado, Number(req.params.ocId), req.project.id]
+    [estado, ocId, req.project.id]
   );
   if (rowCount === 0) return res.status(404).json({ error: 'Orden de compra no encontrada' });
   res.json({ ok: true });
@@ -771,6 +787,198 @@ app.delete('/api/projects/:id/ordenes/:ocId', h(auth.allow('residente')), h(requ
     return res.status(400).json({ error: 'Solo se pueden eliminar órdenes de compra en estado "borrador"' });
   }
   await db.pool.query('DELETE FROM ordenes_compra WHERE id = $1', [ocId]);
+  res.json({ ok: true });
+}));
+
+// ---------------------------------------------------------------------------
+// Recepción de material — actualiza ordenes_compra.estado directamente
+// (recibida_parcial/recibida_completa), sin pasar por el endpoint .../estado
+// que sigue bloqueando esos dos valores.
+// ---------------------------------------------------------------------------
+async function computeEstadoRecepcion(ocId) {
+  const { rows } = await db.pool.query(`
+    SELECT oci.cantidad_ordenada, COALESCE(SUM(ri.cantidad_recibida), 0) AS recibido
+    FROM orden_compra_items oci
+    LEFT JOIN recepcion_items ri ON ri.orden_compra_item_id = oci.id
+    WHERE oci.orden_compra_id = $1
+    GROUP BY oci.id, oci.cantidad_ordenada
+  `, [ocId]);
+
+  const algoRecibido = rows.some((r) => Number(r.recibido) > 0);
+  if (!algoRecibido) return null; // nada recibido todavía: no se toca el estado actual
+
+  const todoCompleto = rows.every((r) => Number(r.recibido) >= Number(r.cantidad_ordenada));
+  const nuevoEstado = todoCompleto ? 'recibida_completa' : 'recibida_parcial';
+  await db.pool.query('UPDATE ordenes_compra SET estado = $1 WHERE id = $2', [nuevoEstado, ocId]);
+  return nuevoEstado;
+}
+
+app.get('/api/projects/:id/ordenes/:ocId/recepciones', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  const ocId = Number(req.params.ocId);
+  const { rows: ocRows } = await db.pool.query(
+    'SELECT id FROM ordenes_compra WHERE id = $1 AND project_id = $2', [ocId, req.project.id]
+  );
+  if (!ocRows[0]) return res.status(404).json({ error: 'Orden de compra no encontrada' });
+
+  const { rows: recepciones } = await db.pool.query(
+    'SELECT * FROM recepciones WHERE orden_compra_id = $1 ORDER BY id DESC', [ocId]
+  );
+  const withItems = await Promise.all(recepciones.map(async (r) => {
+    const { rows: items } = await db.pool.query(`
+      SELECT ri.*, i.codigo AS insumo_codigo, i.concepto AS insumo_concepto, i.unidad
+      FROM recepcion_items ri
+      JOIN orden_compra_items oci ON oci.id = ri.orden_compra_item_id
+      JOIN requisicion_items reqi ON reqi.id = oci.requisicion_item_id
+      JOIN insumos i ON i.id = reqi.insumo_id
+      WHERE ri.recepcion_id = $1
+      ORDER BY ri.id
+    `, [r.id]);
+    return { ...r, items };
+  }));
+  res.json(withItems);
+}));
+
+app.post('/api/projects/:id/ordenes/:ocId/recepciones', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  const ocId = Number(req.params.ocId);
+  const { rows: ocRows } = await db.pool.query(
+    'SELECT * FROM ordenes_compra WHERE id = $1 AND project_id = $2', [ocId, req.project.id]
+  );
+  if (!ocRows[0]) return res.status(404).json({ error: 'Orden de compra no encontrada' });
+  if (!['confirmada', 'recibida_parcial'].includes(ocRows[0].estado)) {
+    return res.status(400).json({ error: 'Solo se pueden registrar recepciones de órdenes en estado "confirmada" o "recibida_parcial"' });
+  }
+
+  const { fecha, recibido_por, observaciones, items } = req.body || {};
+  if (!Array.isArray(items) || items.length === 0) {
+    return res.status(400).json({ error: 'La recepción debe incluir al menos un item' });
+  }
+
+  const { rows: ocItems } = await db.pool.query('SELECT * FROM orden_compra_items WHERE orden_compra_id = $1', [ocId]);
+  const ocItemsMap = new Map(ocItems.map((it) => [it.id, it]));
+  for (const it of items) {
+    if (!ocItemsMap.has(Number(it.orden_compra_item_id))) {
+      return res.status(400).json({ error: `El item ${it.orden_compra_item_id} no pertenece a esta orden de compra` });
+    }
+  }
+
+  const { rows: acumRows } = await db.pool.query(`
+    SELECT oci.id AS orden_compra_item_id, COALESCE(SUM(ri.cantidad_recibida), 0) AS acumulado
+    FROM orden_compra_items oci
+    LEFT JOIN recepcion_items ri ON ri.orden_compra_item_id = oci.id
+    WHERE oci.orden_compra_id = $1
+    GROUP BY oci.id
+  `, [ocId]);
+  const acumMap = new Map(acumRows.map((r) => [r.orden_compra_item_id, Number(r.acumulado)]));
+
+  const computed = items.map((it) => {
+    const ocItem = ocItemsMap.get(Number(it.orden_compra_item_id));
+    const cantidad = Math.max(0, Number(it.cantidad_recibida) || 0);
+    const acumuladoPrevio = acumMap.get(ocItem.id) || 0;
+    const acumuladoNuevo = acumuladoPrevio + cantidad;
+    const faltante = Math.max(0, Number((ocItem.cantidad_ordenada - acumuladoNuevo).toFixed(4)));
+    return {
+      orden_compra_item_id: ocItem.id,
+      cantidad_recibida: cantidad,
+      observaciones: it.observaciones || null,
+      cantidad_ordenada: ocItem.cantidad_ordenada,
+      acumulado_recibido: acumuladoNuevo,
+      faltante,
+      alerta_faltante: faltante > 0,
+    };
+  });
+
+  const recepcion = await db.withTransaction(async (client) => {
+    const { rows } = await client.query(
+      `INSERT INTO recepciones (orden_compra_id, fecha, recibido_por, observaciones)
+       VALUES ($1, COALESCE($2::date, CURRENT_DATE), $3, $4) RETURNING *`,
+      [ocId, fecha || null, recibido_por?.trim() || null, observaciones || null]
+    );
+    const recepcionId = rows[0].id;
+    for (const c of computed) {
+      await client.query(
+        `INSERT INTO recepcion_items (recepcion_id, orden_compra_item_id, cantidad_recibida, observaciones)
+         VALUES ($1,$2,$3,$4)`,
+        [recepcionId, c.orden_compra_item_id, c.cantidad_recibida, c.observaciones]
+      );
+    }
+    return rows[0];
+  });
+
+  const nuevoEstado = await computeEstadoRecepcion(ocId);
+
+  res.status(201).json({
+    ...recepcion,
+    items: computed,
+    estado_orden: nuevoEstado || ocRows[0].estado,
+    tiene_alertas: computed.some((c) => c.alerta_faltante),
+  });
+}));
+
+// ---------------------------------------------------------------------------
+// Pagos a proveedor — lectura para residente/admin, alta/baja solo admin
+// (mismo patrón que proveedores). No bloquea sobre-pago, solo advierte.
+// ---------------------------------------------------------------------------
+async function saldoDeOrden(ocId) {
+  const { rows: itemRows } = await db.pool.query(
+    'SELECT COALESCE(SUM(importe), 0) AS importe_total FROM orden_compra_items WHERE orden_compra_id = $1', [ocId]
+  );
+  const { rows: pagoRows } = await db.pool.query(
+    'SELECT COALESCE(SUM(monto), 0) AS total_pagado FROM pagos WHERE orden_compra_id = $1', [ocId]
+  );
+  const importeTotal = Number(itemRows[0].importe_total);
+  const totalPagado = Number(pagoRows[0].total_pagado);
+  return {
+    importe_total: importeTotal,
+    total_pagado: Number(totalPagado.toFixed(2)),
+    saldo_pendiente: Number((importeTotal - totalPagado).toFixed(2)),
+  };
+}
+
+app.get('/api/projects/:id/ordenes/:ocId/pagos', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  const ocId = Number(req.params.ocId);
+  const { rows: ocRows } = await db.pool.query(
+    'SELECT id FROM ordenes_compra WHERE id = $1 AND project_id = $2', [ocId, req.project.id]
+  );
+  if (!ocRows[0]) return res.status(404).json({ error: 'Orden de compra no encontrada' });
+
+  const { rows: pagos } = await db.pool.query(
+    'SELECT * FROM pagos WHERE orden_compra_id = $1 ORDER BY id DESC', [ocId]
+  );
+  res.json({ pagos, ...(await saldoDeOrden(ocId)) });
+}));
+
+app.post('/api/projects/:id/ordenes/:ocId/pagos', h(auth.allow()), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  const ocId = Number(req.params.ocId);
+  const { rows: ocRows } = await db.pool.query(
+    'SELECT * FROM ordenes_compra WHERE id = $1 AND project_id = $2', [ocId, req.project.id]
+  );
+  if (!ocRows[0]) return res.status(404).json({ error: 'Orden de compra no encontrada' });
+  if (['borrador', 'cancelada'].includes(ocRows[0].estado)) {
+    return res.status(400).json({ error: 'No se pueden registrar pagos de una orden en borrador o cancelada' });
+  }
+
+  const { fecha, monto, metodo, referencia, observaciones } = req.body || {};
+  const montoNum = Number(monto);
+  if (!Number.isFinite(montoNum) || montoNum <= 0) {
+    return res.status(400).json({ error: 'El monto del pago debe ser mayor a 0' });
+  }
+
+  const { rows } = await db.pool.query(
+    `INSERT INTO pagos (orden_compra_id, fecha, monto, metodo, referencia, observaciones)
+     VALUES ($1, COALESCE($2::date, CURRENT_DATE), $3, $4, $5, $6) RETURNING *`,
+    [ocId, fecha || null, montoNum, metodo?.trim() || null, referencia?.trim() || null, observaciones?.trim() || null]
+  );
+
+  const saldo = await saldoDeOrden(ocId);
+  res.status(201).json({ ...rows[0], ...saldo, alerta_sobrepago: saldo.saldo_pendiente < 0 });
+}));
+
+app.delete('/api/projects/:id/ordenes/:ocId/pagos/:pagoId', h(auth.allow()), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  const { rowCount } = await db.pool.query(
+    'DELETE FROM pagos WHERE id = $1 AND orden_compra_id = $2',
+    [Number(req.params.pagoId), Number(req.params.ocId)]
+  );
+  if (rowCount === 0) return res.status(404).json({ error: 'Pago no encontrado' });
   res.json({ ok: true });
 }));
 

@@ -120,6 +120,31 @@ const SCHEMA = `
     peso_pct DOUBLE PRECISION DEFAULT 0,
     orden INTEGER DEFAULT 0
   );
+
+  CREATE TABLE IF NOT EXISTS destajistas (
+    id SERIAL PRIMARY KEY,
+    project_id INTEGER NOT NULL REFERENCES proyectos(id) ON DELETE CASCADE,
+    nombre TEXT NOT NULL,
+    telefono TEXT,
+    orden INTEGER DEFAULT 0,
+    creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
+  CREATE INDEX IF NOT EXISTS idx_destajistas_project ON destajistas(project_id);
+
+  CREATE TABLE IF NOT EXISTS destajo_items (
+    id SERIAL PRIMARY KEY,
+    project_id INTEGER NOT NULL REFERENCES proyectos(id) ON DELETE CASCADE,
+    destajista_id INTEGER NOT NULL REFERENCES destajistas(id) ON DELETE CASCADE,
+    concepto_id INTEGER REFERENCES conceptos(id) ON DELETE SET NULL,
+    codigo TEXT,
+    concepto TEXT NOT NULL,
+    unidad TEXT,
+    cantidad_asignada DOUBLE PRECISION DEFAULT 0,
+    precio_destajo DOUBLE PRECISION DEFAULT 0,
+    cantidad_ejecutada DOUBLE PRECISION DEFAULT 0,
+    orden INTEGER DEFAULT 0
+  );
+  CREATE INDEX IF NOT EXISTS idx_destajo_items_destajista ON destajo_items(destajista_id);
 `;
 
 async function initSchema() {

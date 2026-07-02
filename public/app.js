@@ -149,11 +149,10 @@ $('#fileInput').addEventListener('change', async (ev) => {
     const fd = new FormData();
     fd.append('archivo', file);
     const result = await api('/projects', { method: 'POST', body: fd });
-    closeModal();
-    toast(`"${result.nombre}" cargado: ${result.conceptos} conceptos, ${result.insumos} insumos`, 'success');
     await refreshProjectList();
     selectProject(result.id);
     closeDrawer();
+    openPostUploadModal(result);
   } catch (err) {
     closeModal();
     toast(err.message, 'danger');
@@ -199,6 +198,7 @@ async function renderView() {
       case 'requisiciones': await renderRequisiciones(view); break;
       case 'avance': await renderAvance(view); break;
       case 'programa': await renderPrograma(view); break;
+      case 'destajo': await renderDestajo(view); break;
       default: view.innerHTML = '';
     }
   } catch (err) {
@@ -1146,6 +1146,354 @@ function openEditFechasModal(itemId, programa, obraInicio, obraFin) {
   });
 }
 
+// =========================================================================
+// VISTA: Control de Destajo
+// =========================================================================
+async function renderDestajo(view) {
+  const destajistas = await api(`/projects/${state.projectId}/destajistas`);
+  const totalAsig = destajistas.reduce((s, d) => s + d.total_asignado, 0);
+  const totalGanado = destajistas.reduce((s, d) => s + d.total_ganado, 0);
+
+  view.innerHTML = `
+    <h2 class="section-title">Control de Destajo</h2>
+    ${destajistas.length ? `
+    <div class="kpi-grid" style="margin-bottom:4px">
+      <div class="kpi"><div class="label">Destajistas</div><div class="value">${destajistas.length}</div></div>
+      <div class="kpi accent"><div class="label">Total asignado</div><div class="value">${fmtMoney(totalAsig)}</div></div>
+      <div class="kpi green"><div class="label">Total ganado</div><div class="value">${fmtMoney(totalGanado)}</div></div>
+    </div>` : ''}
+    <div class="section-actions">
+      <button class="btn btn-primary" id="btnNuevoDest">+ Nuevo destajista</button>
+    </div>
+    ${destajistas.length === 0 ? `
+      <div class="empty-state">
+        <div class="big">👷</div>
+        <p>No hay destajistas registrados.</p>
+        <p>Agrega trabajadores y asígnales los conceptos que ejecutarán a destajo.<br>
+           Si tu Excel tenía una hoja llamada "Destajo" o "Destajistas", se importó automáticamente al cargar el presupuesto.</p>
+      </div>
+    ` : destajistas.map((d) => {
+      const pct = Math.round(d.pct_avance || 0);
+      return `
+      <div class="card" style="margin-bottom:12px">
+        <div class="row between">
+          <div>
+            <strong style="font-size:1rem">${esc(d.nombre)}</strong>
+            ${d.telefono ? `<div class="muted" style="font-size:0.8rem">📞 ${esc(d.telefono)}</div>` : ''}
+          </div>
+          <button class="btn small btn-danger" data-del-dest="${d.id}">Eliminar</button>
+        </div>
+        <div class="row" style="gap:14px;margin:6px 0;flex-wrap:wrap;font-size:0.84rem">
+          <span class="muted">${d.items.length} actividad${d.items.length !== 1 ? 'es' : ''}</span>
+          <span>Asig: ${fmtMoney(d.total_asignado)}</span>
+          <span style="color:var(--green)">Ganado: <span data-dest-ganado="${d.id}">${fmtMoney(d.total_ganado)}</span></span>
+          <span class="badge ${pct >= 100 ? 'green' : 'yellow'}">${pct}%</span>
+        </div>
+        <div class="progress-bar" style="margin-bottom:8px"><span style="width:${Math.min(100, pct)}%"></span></div>
+        ${renderDestajistaItems(d)}
+        <div style="margin-top:8px">
+          <button class="btn small" data-add-item="${d.id}">+ Agregar actividad</button>
+        </div>
+      </div>`;
+    }).join('')}
+  `;
+
+  $('#btnNuevoDest').addEventListener('click', () => openNuevoDestajistaModal());
+
+  $$('[data-del-dest]', view).forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const destId = Number(btn.dataset.delDest);
+      const d = destajistas.find((x) => x.id === destId);
+      if (!d) return;
+      if (!confirm(`¿Eliminar a "${d.nombre}" y todas sus actividades? Esta acción no se puede deshacer.`)) return;
+      try {
+        await api(`/projects/${state.projectId}/destajistas/${destId}`, { method: 'DELETE' });
+        toast('Destajista eliminado', 'success');
+        renderView();
+      } catch (err) { toast(err.message, 'danger'); }
+    });
+  });
+
+  $$('[data-add-item]', view).forEach((btn) => {
+    btn.addEventListener('click', () => openAgregarItemModal(Number(btn.dataset.addItem), destajistas));
+  });
+
+  $$('[data-save-item]', view).forEach((inp) => {
+    inp.addEventListener('blur', async function () {
+      const itemId = Number(this.dataset.itemId);
+      const destId = Number(this.dataset.destId);
+      const field = this.dataset.field;
+      const value = Math.max(0, Number(this.value) || 0);
+      this.value = value;
+      try {
+        await api(`/projects/${state.projectId}/destajistas/${destId}/items/${itemId}`, {
+          method: 'PUT',
+          body: { [field]: value },
+        });
+        this.style.outline = '2px solid var(--green)';
+        setTimeout(() => { this.style.outline = ''; }, 1000);
+        // Update ganado cell in the same row
+        const row = this.closest('tr');
+        if (row) {
+          const execInp = row.querySelector('[data-field="cantidad_ejecutada"]');
+          const puInp = row.querySelector('[data-field="precio_destajo"]');
+          const exec = Math.max(0, Number(execInp?.value) || 0);
+          const pu = Math.max(0, Number(puInp?.value) || 0);
+          const ganadoCell = row.querySelector('[data-ganado-cell]');
+          if (ganadoCell) ganadoCell.textContent = fmtMoney(exec * pu);
+          // Update card total
+          let cardGanado = 0;
+          const card = this.closest('.card');
+          if (card) {
+            card.querySelectorAll('tr[data-item-row]').forEach((tr) => {
+              const e = tr.querySelector('[data-field="cantidad_ejecutada"]');
+              const p = tr.querySelector('[data-field="precio_destajo"]');
+              if (e && p) cardGanado += Math.max(0, Number(e.value) || 0) * Math.max(0, Number(p.value) || 0);
+            });
+            const cardTotalEl = card.querySelector(`[data-dest-ganado="${destId}"]`);
+            if (cardTotalEl) cardTotalEl.textContent = fmtMoney(cardGanado);
+          }
+        }
+      } catch (err) { toast(err.message, 'danger'); }
+    });
+  });
+
+  $$('[data-del-item]', view).forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      if (!confirm('¿Eliminar esta actividad?')) return;
+      const itemId = Number(btn.dataset.itemId);
+      const destId = Number(btn.dataset.destId);
+      try {
+        await api(`/projects/${state.projectId}/destajistas/${destId}/items/${itemId}`, { method: 'DELETE' });
+        toast('Actividad eliminada', 'success');
+        renderView();
+      } catch (err) { toast(err.message, 'danger'); }
+    });
+  });
+}
+
+function renderDestajistaItems(d) {
+  if (!d.items.length) {
+    return `<p class="muted" style="font-size:0.82rem;margin:4px 0 0">Sin actividades asignadas aún.</p>`;
+  }
+  return `
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>Actividad</th>
+            <th class="num">Asig.</th>
+            <th class="num">Ejec.</th>
+            <th class="num">P.U. destajo</th>
+            <th class="num">Ganado</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          ${d.items.map((it) => `
+          <tr data-item-row>
+            <td>
+              <div style="font-size:0.84rem;font-weight:600">${esc(it.concepto)}</div>
+              ${it.codigo ? `<div class="code muted">${esc(it.codigo)}</div>` : ''}
+              ${it.unidad ? `<div class="muted" style="font-size:0.72rem">${esc(it.unidad)}</div>` : ''}
+            </td>
+            <td class="num">
+              <input type="number" min="0" step="0.01" style="width:72px;text-align:right"
+                value="${it.cantidad_asignada}"
+                data-save-item data-item-id="${it.id}" data-dest-id="${d.id}" data-field="cantidad_asignada" />
+            </td>
+            <td class="num">
+              <input type="number" min="0" step="0.01" style="width:72px;text-align:right"
+                value="${it.cantidad_ejecutada}"
+                data-save-item data-item-id="${it.id}" data-dest-id="${d.id}" data-field="cantidad_ejecutada" />
+            </td>
+            <td class="num">
+              <input type="number" min="0" step="0.01" style="width:80px;text-align:right"
+                value="${it.precio_destajo}"
+                data-save-item data-item-id="${it.id}" data-dest-id="${d.id}" data-field="precio_destajo" />
+            </td>
+            <td class="num" data-ganado-cell style="color:var(--green)">${fmtMoney(it.cantidad_ejecutada * it.precio_destajo)}</td>
+            <td>
+              <button class="btn small btn-ghost" data-del-item data-item-id="${it.id}" data-dest-id="${d.id}" title="Eliminar">✕</button>
+            </td>
+          </tr>`).join('')}
+          <tr style="font-weight:600;border-top:1px solid var(--border)">
+            <td colspan="4" style="text-align:right;color:var(--muted);padding-right:8px">Total ganado:</td>
+            <td class="num" style="color:var(--green)" data-dest-ganado="${d.id}">${fmtMoney(d.total_ganado)}</td>
+            <td></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>`;
+}
+
+function openNuevoDestajistaModal() {
+  openModal(`
+    <h3>Nuevo destajista</h3>
+    <div class="field"><label>Nombre *</label><input id="destNombre" placeholder="Ej. Juan López" /></div>
+    <div class="field"><label>Teléfono (opcional)</label><input id="destTel" type="tel" placeholder="55 1234 5678" /></div>
+    <div class="modal-actions">
+      <button class="btn" id="btnCancelDest">Cerrar</button>
+      <button class="btn btn-primary" id="btnSaveDest">Crear destajista</button>
+    </div>
+  `);
+  $('#destNombre').focus();
+  $('#btnCancelDest').addEventListener('click', closeModal);
+  $('#btnSaveDest').addEventListener('click', async () => {
+    const nombre = $('#destNombre').value.trim();
+    if (!nombre) { toast('Escribe el nombre del destajista', 'danger'); return; }
+    const btn = $('#btnSaveDest');
+    btn.disabled = true;
+    try {
+      await api(`/projects/${state.projectId}/destajistas`, {
+        method: 'POST',
+        body: { nombre, telefono: $('#destTel').value.trim() || null },
+      });
+      closeModal();
+      toast(`${nombre} agregado`, 'success');
+      renderView();
+    } catch (err) {
+      toast(err.message, 'danger');
+      btn.disabled = false;
+    }
+  });
+}
+
+async function openAgregarItemModal(destId, destajistas) {
+  const dest = destajistas.find((d) => d.id === destId);
+  if (!dest) return;
+
+  let allConceptos = [];
+  try {
+    allConceptos = await cached('conceptos', () => api(`/projects/${state.projectId}/conceptos`));
+    allConceptos = allConceptos.filter((c) => !c.es_total && c.unidad && c.cantidad > 0);
+  } catch (e) { /* catalog might be empty */ }
+
+  openModal(`
+    <h3>Agregar actividad — ${esc(dest.nombre)}</h3>
+    <div class="field">
+      <label>Buscar en catálogo de conceptos</label>
+      <input id="buscarConcepto" placeholder="Código o descripción…" autocomplete="off" />
+      <div id="resultadosConcepto" class="project-list" style="max-height:140px;overflow-y:auto;gap:4px;margin-top:4px"></div>
+    </div>
+    <div class="field"><label>Concepto *</label><input id="itemConcepto" placeholder="Ej. Excavación en tierra" /></div>
+    <div class="row" style="gap:8px">
+      <div class="field" style="flex:1"><label>Código</label><input id="itemCodigo" /></div>
+      <div class="field" style="flex:1"><label>Unidad</label><input id="itemUnidad" placeholder="M2, ML…" /></div>
+    </div>
+    <div class="row" style="gap:8px">
+      <div class="field" style="flex:1"><label>Cantidad asignada</label><input id="itemCant" type="number" min="0" step="any" /></div>
+      <div class="field" style="flex:1"><label>P.U. destajo ($)</label><input id="itemPU" type="number" min="0" step="any" /></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" id="btnCancelItem">Cerrar</button>
+      <button class="btn btn-primary" id="btnSaveItem">Agregar actividad</button>
+    </div>
+  `);
+
+  let selConceptoId = null;
+
+  $('#buscarConcepto').addEventListener('input', (e) => {
+    const q = e.target.value.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+    const results = $('#resultadosConcepto');
+    if (!q) { results.innerHTML = ''; return; }
+    const matches = allConceptos.filter((c) => {
+      const hay = (c.concepto + ' ' + (c.codigo || '')).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+      return hay.includes(q);
+    }).slice(0, 6);
+    results.innerHTML = matches.map((c) => `
+      <div class="project-item" data-pick="${c.id}" style="cursor:pointer">
+        <span class="pname">${esc(c.concepto)}</span>
+        <span class="pmeta">${esc(c.codigo || '')} · ${esc(c.unidad || '')} · ${fmtNum(c.cantidad, 2)} · ${fmtMoney(c.precio_unitario)}/u</span>
+      </div>`).join('') || '<p class="muted" style="padding:6px">Sin resultados</p>';
+
+    $$('[data-pick]', results).forEach((row) => {
+      row.addEventListener('click', () => {
+        const c = allConceptos.find((x) => x.id === Number(row.dataset.pick));
+        if (!c) return;
+        selConceptoId = c.id;
+        $('#buscarConcepto').value = `${c.codigo ? c.codigo + ' · ' : ''}${c.concepto}`;
+        results.innerHTML = '';
+        $('#itemConcepto').value = c.concepto;
+        $('#itemCodigo').value = c.codigo || '';
+        $('#itemUnidad').value = c.unidad || '';
+        if (!$('#itemCant').value) $('#itemCant').value = c.cantidad;
+        if (!$('#itemPU').value) $('#itemPU').value = c.precio_unitario;
+      });
+    });
+  });
+
+  $('#btnCancelItem').addEventListener('click', closeModal);
+  $('#btnSaveItem').addEventListener('click', async () => {
+    const concepto = $('#itemConcepto').value.trim();
+    if (!concepto) { toast('El concepto es requerido', 'danger'); return; }
+    const btn = $('#btnSaveItem');
+    btn.disabled = true;
+    try {
+      await api(`/projects/${state.projectId}/destajistas/${destId}/items`, {
+        method: 'POST',
+        body: {
+          concepto_id: selConceptoId || null,
+          codigo: $('#itemCodigo').value.trim() || null,
+          concepto,
+          unidad: $('#itemUnidad').value.trim() || null,
+          cantidad_asignada: Number($('#itemCant').value) || 0,
+          precio_destajo: Number($('#itemPU').value) || 0,
+        },
+      });
+      closeModal();
+      toast('Actividad agregada', 'success');
+      renderView();
+    } catch (err) {
+      toast(err.message, 'danger');
+      btn.disabled = false;
+    }
+  });
+}
+
+function openPostUploadModal(result) {
+  const inicio = result.inicio_obra || '';
+  const fin = result.fin_obra || '';
+  const destMsg = result.destajistas > 0 ? `, ${result.destajistas} destajista${result.destajistas !== 1 ? 's' : ''}` : '';
+  openModal(`
+    <h3>✓ Presupuesto cargado</h3>
+    <p class="muted"><strong>${esc(result.nombre)}</strong> — ${result.conceptos} conceptos, ${result.insumos} insumos${destMsg}</p>
+    <div style="border-top:1px solid var(--border);margin:14px 0;padding-top:14px">
+      <h4 style="margin:0 0 6px">Fechas de obra detectadas</h4>
+      <p class="muted" style="font-size:0.78rem;margin-bottom:10px">Verifica las fechas del archivo. Si no aparecen o son incorrectas, corrígelas aquí — el Programa de ejecución se regenerará automáticamente.</p>
+      <div class="field"><label>Inicio de obra</label><input id="postUploadInicio" type="date" value="${esc(inicio)}" /></div>
+      <div class="field"><label>Fin de obra</label><input id="postUploadFin" type="date" value="${esc(fin)}" /></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" id="btnSkipFechasPost">Omitir</button>
+      <button class="btn btn-primary" id="btnGuardarFechasPost">Guardar fechas</button>
+    </div>
+  `);
+
+  $('#btnSkipFechasPost').addEventListener('click', () => {
+    closeModal();
+    toast(`"${result.nombre}" cargado: ${result.conceptos} conceptos, ${result.insumos} insumos${destMsg}`, 'success');
+  });
+
+  $('#btnGuardarFechasPost').addEventListener('click', async () => {
+    const inicio_obra = $('#postUploadInicio').value;
+    const fin_obra = $('#postUploadFin').value;
+    if (!inicio_obra || !fin_obra) { toast('Indica ambas fechas', 'danger'); return; }
+    const btn = $('#btnGuardarFechasPost');
+    btn.disabled = true; btn.textContent = 'Guardando…';
+    try {
+      await api(`/projects/${result.id}/fechas-obra`, { method: 'PUT', body: { inicio_obra, fin_obra } });
+      closeModal();
+      invalidate('resumen');
+      toast(`"${result.nombre}" cargado con fechas configuradas`, 'success');
+      renderView();
+    } catch (err) {
+      toast(err.message, 'danger');
+      btn.disabled = false; btn.textContent = 'Guardar fechas';
+    }
+  });
+}
+
 // ---------------------------------------------------------------------------
 // FAB: contextual quick-action depending on the active view
 // ---------------------------------------------------------------------------
@@ -1160,13 +1508,17 @@ fab.addEventListener('click', () => {
     else { $('.tab[data-view="insumos"]').click(); toast('Agrega insumos desde el catálogo primero', ''); }
   } else if (state.view === 'insumos') {
     if (getDraft().length) { $('.tab[data-view="requisiciones"]').click(); }
+  } else if (state.view === 'destajo') {
+    openNuevoDestajistaModal();
   } else {
     promptUpload();
   }
 });
 function syncFab() {
   fab.style.display = state.projectId ? 'flex' : 'none';
-  fab.textContent = (state.view === 'requisiciones' || state.view === 'insumos') ? '🧾' : '+';
+  if (state.view === 'requisiciones' || state.view === 'insumos') fab.textContent = '🧾';
+  else if (state.view === 'destajo') fab.textContent = '👷';
+  else fab.textContent = '+';
 }
 
 // ---------------------------------------------------------------------------

@@ -48,6 +48,31 @@ async function ingest(client, projectId, parsed) {
       [projectId, a.semana, a.fecha_inicio, a.fecha_fin, a.avance_fisico_programado, a.avance_fisico_real, a.avance_financiero_programado, a.avance_financiero_real]
     );
   }
+
+  if (parsed.destajistas && parsed.destajistas.length > 0) {
+    const { rows: cRows } = await client.query(
+      'SELECT id, codigo FROM conceptos WHERE project_id = $1 AND codigo IS NOT NULL',
+      [projectId]
+    );
+    const conceptoMap = new Map(cRows.map((r) => [r.codigo, r.id]));
+
+    for (const d of parsed.destajistas) {
+      const { rows: destRows } = await client.query(
+        'INSERT INTO destajistas (project_id, nombre, orden) VALUES ($1, $2, $3) RETURNING id',
+        [projectId, d.nombre, d.orden]
+      );
+      const destId = destRows[0].id;
+      for (const item of d.items) {
+        const conceptoId = item.codigo ? (conceptoMap.get(item.codigo) || null) : null;
+        await client.query(
+          `INSERT INTO destajo_items
+             (project_id, destajista_id, concepto_id, codigo, concepto, unidad, cantidad_asignada, precio_destajo, orden)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+          [projectId, destId, conceptoId, item.codigo, item.concepto, item.unidad, item.cantidad_asignada, item.precio_destajo, item.orden]
+        );
+      }
+    }
+  }
 }
 
 module.exports = { ingest };

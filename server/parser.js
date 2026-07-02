@@ -282,6 +282,83 @@ function parseInsumos(sheet) {
 }
 
 // ---------------------------------------------------------------------------
+// Destajistas ("Control de Destajo"): optional sheet listing piecework workers
+// and their assigned concepts. Detected by sheet name containing "DESTAJ".
+// Flat-table format: DESTAJISTA | CODIGO | CONCEPTO | UNIDAD | CANTIDAD | P.U. DESTAJO
+// ---------------------------------------------------------------------------
+const DESTAJO_SYNONYMS = {
+  destajista: ['DESTAJISTA', 'NOMBRE', 'CONTRATISTA', 'CUADRILLA', 'TRABAJADOR'],
+  codigo: ['CODIGO', 'CLAVE'],
+  concepto: ['CONCEPTO', 'DESCRIPCION', 'ACTIVIDAD', 'TRABAJO'],
+  unidad: ['UNIDAD', 'UNI', 'UND'],
+  cantidad: ['CANTIDAD', 'CANT'],
+  precio_destajo: ['P.U. DESTAJO', 'PRECIO DESTAJO', 'PU DESTAJO', 'DESTAJO', 'PRECIO UNITARIO', 'P.U.'],
+};
+
+function findHeaderRowDestajo(sheet, maxRows = 25) {
+  for (let r = 1; r <= Math.min(sheet.rowCount, maxRows); r++) {
+    const row = sheet.getRow(r);
+    const colMap = {};
+    row.eachCell({ includeEmpty: false }, (cell, col) => {
+      const t = norm(cellText(cell.value)).replace(/:$/, '');
+      for (const [key, opts] of Object.entries(DESTAJO_SYNONYMS)) {
+        if (opts.includes(t) && colMap[key] == null) colMap[key] = col;
+      }
+    });
+    if (colMap.concepto != null && (colMap.cantidad != null || colMap.precio_destajo != null)) {
+      return { rowNumber: r, colMap };
+    }
+  }
+  return null;
+}
+
+function parseDestajistas(workbook) {
+  let destSheet = null;
+  for (const sheet of workbook.worksheets) {
+    if (norm(sheet.name).includes('DESTAJ')) { destSheet = sheet; break; }
+  }
+  if (!destSheet) return [];
+
+  const header = findHeaderRowDestajo(destSheet);
+  if (!header) return [];
+
+  const { rowNumber, colMap } = header;
+  const results = new Map();
+  let currentDest = null;
+
+  for (let r = rowNumber + 1; r <= destSheet.rowCount; r++) {
+    const row = destSheet.getRow(r);
+    const destNom = colMap.destajista != null ? cellText(row.getCell(colMap.destajista).value).trim() : '';
+    const concepto = colMap.concepto != null ? cellText(row.getCell(colMap.concepto).value).trim() : '';
+    if (!destNom && !concepto) continue;
+
+    if (destNom) currentDest = destNom;
+    if (!currentDest) continue;
+
+    if (!results.has(currentDest)) {
+      results.set(currentDest, { nombre: currentDest, items: [], orden: results.size });
+    }
+
+    if (concepto) {
+      const codigo = colMap.codigo != null ? cellText(row.getCell(colMap.codigo).value).trim() : '';
+      const unidad = colMap.unidad != null ? cellText(row.getCell(colMap.unidad).value).trim() : '';
+      const cantidad_asignada = colMap.cantidad != null ? num(row.getCell(colMap.cantidad).value) : 0;
+      const precio_destajo = colMap.precio_destajo != null ? num(row.getCell(colMap.precio_destajo).value) : 0;
+      results.get(currentDest).items.push({
+        codigo: codigo || null,
+        concepto,
+        unidad: unidad || null,
+        cantidad_asignada,
+        precio_destajo,
+        orden: results.get(currentDest).items.length,
+      });
+    }
+  }
+
+  return Array.from(results.values());
+}
+
+// ---------------------------------------------------------------------------
 async function parseWorkbook(filePath) {
   const workbook = new ExcelJS.Workbook();
   await workbook.xlsx.readFile(filePath);
@@ -308,11 +385,13 @@ async function parseWorkbook(filePath) {
   const meta = extractMeta(workbook);
   const conceptos = budgetSheet ? parseBudgetConcepts(budgetSheet) : [];
   const insumos = insumosSheet ? parseInsumos(insumosSheet) : [];
+  const destajistas = parseDestajistas(workbook);
 
   return {
     meta,
     conceptos,
     insumos,
+    destajistas,
     sheets: {
       presupuesto: budgetSheet ? budgetSheet.name : null,
       insumos: insumosSheet ? insumosSheet.name : null,

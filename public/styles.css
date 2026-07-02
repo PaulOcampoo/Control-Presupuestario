@@ -118,6 +118,15 @@ label { display: block; font-size: 0.8rem; color: var(--muted); margin: 10px 0 4
 .search-bar { display: flex; gap: 8px; margin-bottom: 12px; }
 .search-bar input { flex: 1; }
 .chip-row { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 4px; -webkit-overflow-scrolling: touch; }
+
+/* Barra de búsqueda + filtros pegados debajo de las pestañas al hacer scroll */
+.sticky-filters {
+  position: sticky; top: calc(110px + var(--safe-top)); z-index: 18;
+  background: var(--bg); margin: 0 -14px 10px; padding: 10px 14px 8px;
+  border-bottom: 1px solid var(--border);
+}
+.sticky-filters .search-bar { margin-bottom: 10px; }
+.sticky-filters .chip-row { margin-bottom: 0; }
 .chip {
   flex: 0 0 auto; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--border);
   background: var(--panel-2); color: var(--muted); font-size: 0.8rem; cursor: pointer; white-space: nowrap;

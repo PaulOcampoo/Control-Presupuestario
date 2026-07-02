@@ -478,12 +478,14 @@ async function renderInsumos(view) {
   view.innerHTML = `
     <h2 class="section-title">Catálogo de insumos</h2>
     <p class="muted">Cantidades y precios presupuestados por insumo. Las barras y etiquetas muestran lo ya requisitado contra lo presupuestado.</p>
-    <div class="search-bar">
-      <input type="search" id="insumoSearch" placeholder="Buscar por código o nombre…" value="${esc(insumosFilter.q)}" />
-    </div>
-    <div class="chip-row" id="catChips">
-      <button class="chip ${!insumosFilter.categoria ? 'active' : ''}" data-cat="">Todos</button>
-      ${categorias.map((c) => `<button class="chip ${insumosFilter.categoria === c ? 'active' : ''}" data-cat="${esc(c)}">${esc(c)}</button>`).join('')}
+    <div class="sticky-filters">
+      <div class="search-bar">
+        <input type="search" id="insumoSearch" placeholder="Buscar por código o nombre…" value="${esc(insumosFilter.q)}" />
+      </div>
+      <div class="chip-row" id="catChips">
+        <button class="chip ${!insumosFilter.categoria ? 'active' : ''}" data-cat="">Todos</button>
+        ${categorias.map((c) => `<button class="chip ${insumosFilter.categoria === c ? 'active' : ''}" data-cat="${esc(c)}">${esc(c)}</button>`).join('')}
+      </div>
     </div>
     <div id="insumoList"></div>
   `;

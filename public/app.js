@@ -340,6 +340,7 @@ async function renderView() {
       case 'avance': await renderAvance(view); break;
       case 'programa': await renderPrograma(view); break;
       case 'destajo': await renderDestajo(view); break;
+      case 'finanzas': await renderFinanzas(view); break;
       default: view.innerHTML = '';
     }
   } catch (err) {
@@ -2523,6 +2524,195 @@ function openProveedorModal(proveedor) {
   });
 }
 
+// =========================================================================
+// VISTA: Finanzas — Resumen Financiero (Avance Valorizado vs Erogado Real,
+// dos fuentes de verdad separadas) + Gastos Generales (costos que no nacen
+// de una requisición: nómina, permisos, renta de equipo, combustible…)
+// =========================================================================
+const GASTO_CATEGORIA_LABELS = {
+  nomina: 'Nómina',
+  permisos: 'Permisos',
+  renta_equipo: 'Renta de equipo',
+  combustible: 'Combustible',
+  servicios: 'Servicios',
+  otro: 'Otro',
+};
+let gastosFilter = { categoria: '', estado: '' };
+
+async function renderFinanzas(view) {
+  const [resumen, gastos] = await Promise.all([
+    api(`/projects/${state.projectId}/finanzas/resumen`),
+    api(`/projects/${state.projectId}/gastos${queryString(gastosFilter)}`),
+  ]);
+
+  const av = resumen.avance_valorizado;
+  const er = resumen.erogado_real;
+  const brecha = resumen.brecha;
+  const brechaPositiva = brecha.monto >= 0;
+
+  view.innerHTML = `
+    <h2 class="section-title">Finanzas</h2>
+    <p class="muted">Compara el avance valorizado (% ejecutado del presupuesto) contra el dinero realmente erogado — son dos números distintos a propósito, no se fusionan.</p>
+
+    <div class="kpi-grid" style="margin-bottom:10px">
+      <div class="kpi accent" style="grid-column:1/-1">
+        <div class="label">Avance Valorizado</div>
+        <div class="value">${fmtPct(av.pct)}</div>
+        <div class="muted" style="margin-top:2px">${fmtMoney(av.monto)}</div>
+      </div>
+    </div>
+
+    <div class="card" style="border-color:var(--green)">
+      <h3 class="section-title" style="margin-top:0">Erogado Real</h3>
+      <div class="card-row"><span class="k">Total pagado</span><span class="v" style="color:var(--green)">${fmtMoney(er.total_pagado)}</span></div>
+      <div class="card-row"><span class="k">Total comprometido (no pagado)</span><span class="v" style="color:var(--yellow)">${fmtMoney(er.total_comprometido_no_pagado)}</span></div>
+      <h4 style="margin:12px 0 4px;font-size:0.82rem;color:var(--muted);text-transform:uppercase">Desglose</h4>
+      <div class="card-row"><span class="k">Compras — pagado</span><span class="v">${fmtMoney(er.compras_pagado)}</span></div>
+      <div class="card-row"><span class="k">Compras — comprometido</span><span class="v">${fmtMoney(er.compras_comprometido)}</span></div>
+      <div class="card-row"><span class="k">Gastos generales — pagado</span><span class="v">${fmtMoney(er.gastos_generales_pagado)}</span></div>
+      <div class="card-row"><span class="k">Gastos generales — pendiente</span><span class="v">${fmtMoney(er.gastos_generales_pendiente)}</span></div>
+    </div>
+
+    <div class="card" style="border-color:${brechaPositiva ? 'var(--green)' : 'var(--red)'}">
+      <h3 class="section-title" style="margin-top:0">Brecha</h3>
+      <div class="value" style="font-size:1.4rem;font-weight:700;color:${brechaPositiva ? 'var(--green)' : 'var(--red)'}">${fmtMoney(brecha.monto)}</div>
+      <p class="muted" style="margin-top:8px">${esc(brecha.descripcion)}</p>
+    </div>
+
+    <h3 class="section-title">Gastos Generales</h3>
+    <div class="row" style="gap:8px;margin-bottom:10px">
+      <select id="gastoFiltroCategoria" style="flex:1">
+        <option value="">Todas las categorías</option>
+        ${Object.entries(GASTO_CATEGORIA_LABELS).map(([k, l]) => `<option value="${k}" ${gastosFilter.categoria === k ? 'selected' : ''}>${esc(l)}</option>`).join('')}
+      </select>
+      <select id="gastoFiltroEstado" style="flex:1">
+        <option value="">Todos los estados</option>
+        <option value="pendiente" ${gastosFilter.estado === 'pendiente' ? 'selected' : ''}>Pendiente</option>
+        <option value="pagado" ${gastosFilter.estado === 'pagado' ? 'selected' : ''}>Pagado</option>
+      </select>
+    </div>
+    ${isAdmin() ? `
+    <div class="section-actions">
+      <button class="btn btn-primary" id="btnNuevoGasto">+ Registrar gasto</button>
+    </div>` : ''}
+    <div id="gastosList"></div>
+  `;
+
+  $('#gastoFiltroCategoria').addEventListener('change', (e) => { gastosFilter.categoria = e.target.value; renderView(); });
+  $('#gastoFiltroEstado').addEventListener('change', (e) => { gastosFilter.estado = e.target.value; renderView(); });
+  $('#btnNuevoGasto')?.addEventListener('click', () => openGastoModal(null));
+
+  paintGastosList(gastos);
+}
+
+function paintGastosList(gastos) {
+  const list = $('#gastosList');
+  if (!gastos.length) {
+    list.innerHTML = '<div class="empty-state">No hay gastos generales registrados con ese filtro.</div>';
+    return;
+  }
+  list.innerHTML = gastos.map((g) => `
+    <div class="card">
+      <div class="row between">
+        <div>
+          <strong>${esc(g.concepto)}</strong>
+          <div class="muted" style="font-size:0.8rem">${esc(GASTO_CATEGORIA_LABELS[g.categoria] || g.categoria)} · ${fmtDate(g.fecha)}</div>
+          ${g.observaciones ? `<div class="muted" style="font-size:0.78rem">${esc(g.observaciones)}</div>` : ''}
+        </div>
+        <div style="text-align:right">
+          <div style="font-weight:700">${fmtMoney(g.monto)}</div>
+          <span class="badge ${g.estado === 'pagado' ? 'green' : 'yellow'}">${esc(g.estado)}</span>
+        </div>
+      </div>
+      ${isAdmin() ? `
+      <div class="row end" style="margin-top:8px;gap:8px">
+        <button class="btn small" data-edit-gasto="${g.id}">Editar</button>
+        <button class="btn small" data-toggle-gasto="${g.id}">${g.estado === 'pagado' ? 'Marcar pendiente' : 'Marcar pagado'}</button>
+        ${g.estado === 'pendiente' ? `<button class="btn small btn-danger" data-del-gasto="${g.id}">Eliminar</button>` : ''}
+      </div>` : ''}
+    </div>
+  `).join('');
+
+  $$('[data-edit-gasto]', list).forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const g = gastos.find((x) => x.id === Number(btn.dataset.editGasto));
+      if (g) openGastoModal(g);
+    });
+  });
+  $$('[data-toggle-gasto]', list).forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const g = gastos.find((x) => x.id === Number(btn.dataset.toggleGasto));
+      if (!g) return;
+      try {
+        await api(`/projects/${state.projectId}/gastos/${g.id}/estado`, {
+          method: 'PUT', body: { estado: g.estado === 'pagado' ? 'pendiente' : 'pagado' },
+        });
+        toast('Estado actualizado', 'success');
+        renderView();
+      } catch (err) { toast(err.message, 'danger'); }
+    });
+  });
+  $$('[data-del-gasto]', list).forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      if (!confirm('¿Eliminar este gasto?')) return;
+      try {
+        await api(`/projects/${state.projectId}/gastos/${Number(btn.dataset.delGasto)}`, { method: 'DELETE' });
+        toast('Gasto eliminado', 'success');
+        renderView();
+      } catch (err) { toast(err.message, 'danger'); }
+    });
+  });
+}
+
+function openGastoModal(gasto) {
+  const isEdit = !!gasto;
+  const catOptions = Object.entries(GASTO_CATEGORIA_LABELS)
+    .map(([k, l]) => `<option value="${k}" ${gasto && gasto.categoria === k ? 'selected' : ''}>${esc(l)}</option>`)
+    .join('');
+  openModal(`
+    <h3>${isEdit ? 'Editar gasto' : 'Registrar gasto'}</h3>
+    <div class="field"><label>Categoría *</label><select id="gCategoria">${catOptions}</select></div>
+    <div class="field"><label>Concepto *</label><input id="gConcepto" placeholder="Ej. Nómina semana 12" value="${isEdit ? esc(gasto.concepto) : ''}" /></div>
+    <div class="field"><label>Fecha</label><input id="gFecha" type="date" value="${isEdit ? esc(String(gasto.fecha).slice(0, 10)) : new Date().toISOString().slice(0, 10)}" /></div>
+    <div class="field"><label>Monto *</label><input id="gMonto" type="number" min="0" step="any" value="${isEdit ? gasto.monto : ''}" /></div>
+    <div class="field"><label>Observaciones</label><textarea id="gObs" rows="2">${isEdit ? esc(gasto.observaciones || '') : ''}</textarea></div>
+    <div class="modal-actions">
+      <button class="btn" id="btnCancelGasto">Cerrar</button>
+      <button class="btn btn-primary" id="btnSaveGasto">${isEdit ? 'Guardar cambios' : 'Registrar gasto'}</button>
+    </div>
+  `);
+  $('#btnCancelGasto').addEventListener('click', closeModal);
+  $('#btnSaveGasto').addEventListener('click', async () => {
+    const concepto = $('#gConcepto').value.trim();
+    const monto = Number($('#gMonto').value);
+    if (!concepto) { toast('Escribe el concepto del gasto', 'danger'); return; }
+    if (!monto || monto <= 0) { toast('Indica un monto mayor a 0', 'danger'); return; }
+    const btn = $('#btnSaveGasto');
+    btn.disabled = true;
+    const body = {
+      categoria: $('#gCategoria').value,
+      concepto,
+      fecha: $('#gFecha').value || null,
+      monto,
+      observaciones: $('#gObs').value.trim() || null,
+    };
+    try {
+      if (isEdit) {
+        await api(`/projects/${state.projectId}/gastos/${gasto.id}`, { method: 'PUT', body });
+        toast('Gasto actualizado', 'success');
+      } else {
+        await api(`/projects/${state.projectId}/gastos`, { method: 'POST', body });
+        toast('Gasto registrado', 'success');
+      }
+      closeModal();
+      renderView();
+    } catch (err) {
+      toast(err.message, 'danger');
+      btn.disabled = false;
+    }
+  });
+}
+
 // ---------------------------------------------------------------------------
 // FAB: contextual quick-action depending on the active view
 // ---------------------------------------------------------------------------
@@ -2545,7 +2735,7 @@ fab.addEventListener('click', () => {
   }
 });
 function syncFab() {
-  const noFabViews = ['usuarios', 'proveedores', 'ordenes'];
+  const noFabViews = ['usuarios', 'proveedores', 'ordenes', 'finanzas'];
   const hasAction = ['requisiciones', 'insumos', 'destajo'].includes(state.view);
   fab.style.display = !noFabViews.includes(state.view) && state.projectId && (hasAction || isAdmin()) ? 'flex' : 'none';
   if (state.view === 'requisiciones' || state.view === 'insumos') fab.textContent = '🧾';

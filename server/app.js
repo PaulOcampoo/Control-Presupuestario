@@ -983,6 +983,165 @@ app.delete('/api/projects/:id/ordenes/:ocId/pagos/:pagoId', h(auth.allow()), h(r
 }));
 
 // ---------------------------------------------------------------------------
+// Gastos generales — costos que no nacen de una requisición (nómina,
+// permisos, renta de equipo, combustible, etc.). Lectura para residente/
+// admin, alta/edición/baja solo admin, mismo patrón que proveedores/pagos.
+// ---------------------------------------------------------------------------
+app.get('/api/projects/:id/gastos', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  const pid = req.project.id;
+  const { categoria, estado } = req.query;
+  let sql = 'SELECT * FROM gastos_generales WHERE project_id = $1';
+  const params = [pid];
+  let idx = 2;
+  if (categoria) { sql += ` AND categoria = $${idx++}`; params.push(categoria); }
+  if (estado) { sql += ` AND estado = $${idx++}`; params.push(estado); }
+  sql += ' ORDER BY fecha DESC, id DESC';
+  const { rows } = await db.pool.query(sql, params);
+  res.json(rows);
+}));
+
+app.post('/api/projects/:id/gastos', h(auth.allow()), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  const pid = req.project.id;
+  const { categoria, concepto, fecha, monto, observaciones } = req.body || {};
+  if (!categoria?.trim()) return res.status(400).json({ error: 'La categoría es requerida' });
+  if (!concepto?.trim()) return res.status(400).json({ error: 'El concepto es requerido' });
+  const montoNum = Number(monto);
+  if (!Number.isFinite(montoNum) || montoNum <= 0) {
+    return res.status(400).json({ error: 'El monto debe ser mayor a 0' });
+  }
+  const { rows } = await db.pool.query(
+    `INSERT INTO gastos_generales (project_id, categoria, concepto, fecha, monto, observaciones, creado_por)
+     VALUES ($1,$2,$3,COALESCE($4::date, CURRENT_DATE),$5,$6,$7) RETURNING *`,
+    [pid, categoria.trim(), concepto.trim(), fecha || null, montoNum, observaciones?.trim() || null, req.user.id]
+  );
+  res.status(201).json(rows[0]);
+}));
+
+app.put('/api/projects/:id/gastos/:gastoId', h(auth.allow()), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  const pid = req.project.id;
+  const gastoId = Number(req.params.gastoId);
+  const { categoria, concepto, fecha, monto, observaciones } = req.body || {};
+  const montoNum = monto != null && monto !== '' ? Number(monto) : null;
+  if (montoNum != null && (!Number.isFinite(montoNum) || montoNum <= 0)) {
+    return res.status(400).json({ error: 'El monto debe ser mayor a 0' });
+  }
+  const { rows } = await db.pool.query(
+    `UPDATE gastos_generales SET
+       categoria = COALESCE($1, categoria),
+       concepto = COALESCE($2, concepto),
+       fecha = COALESCE($3::date, fecha),
+       monto = COALESCE($4, monto),
+       observaciones = COALESCE($5, observaciones)
+     WHERE id = $6 AND project_id = $7
+     RETURNING *`,
+    [categoria?.trim() || null, concepto?.trim() || null, fecha || null, montoNum, observaciones?.trim() || null, gastoId, pid]
+  );
+  if (!rows[0]) return res.status(404).json({ error: 'Gasto no encontrado' });
+  res.json(rows[0]);
+}));
+
+app.put('/api/projects/:id/gastos/:gastoId/estado', h(auth.allow()), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  const { estado } = req.body || {};
+  if (!['pendiente', 'pagado'].includes(estado)) {
+    return res.status(400).json({ error: 'Estado inválido' });
+  }
+  const { rows } = await db.pool.query(
+    'UPDATE gastos_generales SET estado = $1 WHERE id = $2 AND project_id = $3 RETURNING *',
+    [estado, Number(req.params.gastoId), req.project.id]
+  );
+  if (!rows[0]) return res.status(404).json({ error: 'Gasto no encontrado' });
+  res.json(rows[0]);
+}));
+
+app.delete('/api/projects/:id/gastos/:gastoId', h(auth.allow()), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  const gastoId = Number(req.params.gastoId);
+  const { rows: existRows } = await db.pool.query(
+    'SELECT estado FROM gastos_generales WHERE id = $1 AND project_id = $2', [gastoId, req.project.id]
+  );
+  if (!existRows[0]) return res.status(404).json({ error: 'Gasto no encontrado' });
+  if (existRows[0].estado === 'pagado') {
+    return res.status(400).json({ error: 'No se puede eliminar un gasto ya marcado como pagado' });
+  }
+  await db.pool.query('DELETE FROM gastos_generales WHERE id = $1', [gastoId]);
+  res.json({ ok: true });
+}));
+
+// ---------------------------------------------------------------------------
+// Resumen financiero: Avance Valorizado (% ejecutado × presupuesto, idéntico
+// al que ya usa el Resumen) vs Erogado Real (Compras + Gastos Generales) —
+// dos fuentes de verdad separadas, nunca fusionadas ni promediadas.
+// ---------------------------------------------------------------------------
+app.get('/api/projects/:id/finanzas/resumen', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  const pid = req.project.id;
+  const presupuestoTotal = await presupuestoTotalDe(pid);
+
+  const { rows: ultimoRows } = await db.pool.query(`
+    SELECT avance_financiero_real FROM avances_semanales
+    WHERE project_id = $1 AND avance_financiero_real IS NOT NULL
+    ORDER BY semana DESC LIMIT 1
+  `, [pid]);
+  const pctValorizado = ultimoRows[0] ? Number(ultimoRows[0].avance_financiero_real) : 0;
+  const montoValorizado = Number((presupuestoTotal * (pctValorizado / 100)).toFixed(2));
+
+  const { rows: comprasPagadoRows } = await db.pool.query(`
+    SELECT COALESCE(SUM(p.monto), 0) AS total
+    FROM pagos p
+    JOIN ordenes_compra oc ON oc.id = p.orden_compra_id
+    WHERE oc.project_id = $1 AND oc.estado != 'cancelada'
+  `, [pid]);
+  const comprasPagado = Number(comprasPagadoRows[0].total);
+
+  // Comprometido: solo órdenes ya aceptadas por el proveedor (confirmada en
+  // adelante) — 'enviada' aún no cuenta como compromiso real de dinero.
+  const { rows: comprasComprometidoRows } = await db.pool.query(`
+    SELECT oc.id,
+           COALESCE(SUM(oci.importe), 0) AS importe_total,
+           COALESCE((SELECT SUM(p.monto) FROM pagos p WHERE p.orden_compra_id = oc.id), 0) AS pagado
+    FROM ordenes_compra oc
+    LEFT JOIN orden_compra_items oci ON oci.orden_compra_id = oc.id
+    WHERE oc.project_id = $1 AND oc.estado IN ('confirmada', 'recibida_parcial', 'recibida_completa')
+    GROUP BY oc.id
+  `, [pid]);
+  const comprasComprometido = comprasComprometidoRows.reduce(
+    (s, oc) => s + Math.max(0, Number(oc.importe_total) - Number(oc.pagado)), 0
+  );
+
+  const { rows: gastosPagadoRows } = await db.pool.query(
+    "SELECT COALESCE(SUM(monto), 0) AS total FROM gastos_generales WHERE project_id = $1 AND estado = 'pagado'", [pid]
+  );
+  const gastosPagado = Number(gastosPagadoRows[0].total);
+
+  const { rows: gastosPendienteRows } = await db.pool.query(
+    "SELECT COALESCE(SUM(monto), 0) AS total FROM gastos_generales WHERE project_id = $1 AND estado = 'pendiente'", [pid]
+  );
+  const gastosPendiente = Number(gastosPendienteRows[0].total);
+
+  const totalPagado = Number((comprasPagado + gastosPagado).toFixed(2));
+  const totalComprometidoNoPagado = Number((comprasComprometido + gastosPendiente).toFixed(2));
+  const brechaMonto = Number((montoValorizado - totalPagado).toFixed(2));
+
+  res.json({
+    avance_valorizado: {
+      pct: pctValorizado,
+      monto: montoValorizado,
+    },
+    erogado_real: {
+      compras_pagado: Number(comprasPagado.toFixed(2)),
+      compras_comprometido: Number(comprasComprometido.toFixed(2)),
+      gastos_generales_pagado: Number(gastosPagado.toFixed(2)),
+      gastos_generales_pendiente: Number(gastosPendiente.toFixed(2)),
+      total_pagado: totalPagado,
+      total_comprometido_no_pagado: totalComprometidoNoPagado,
+    },
+    brecha: {
+      monto: brechaMonto,
+      descripcion: 'positivo = se ha avanzado más obra de la que se ha pagado; negativo = se ha pagado más de lo que refleja el avance reportado',
+    },
+    presupuesto_total: presupuestoTotal,
+  });
+}));
+
+// ---------------------------------------------------------------------------
 // Programa de ejecución
 // ---------------------------------------------------------------------------
 app.get('/api/projects/:id/programa', h(auth.allow()), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {

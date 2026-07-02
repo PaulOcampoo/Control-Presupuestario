@@ -241,6 +241,20 @@ const SCHEMA = `
     creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW()
   );
   CREATE INDEX IF NOT EXISTS idx_pagos_oc ON pagos(orden_compra_id);
+
+  CREATE TABLE IF NOT EXISTS gastos_generales (
+    id SERIAL PRIMARY KEY,
+    project_id INTEGER NOT NULL REFERENCES proyectos(id) ON DELETE CASCADE,
+    categoria TEXT NOT NULL,
+    concepto TEXT NOT NULL,
+    fecha DATE NOT NULL DEFAULT CURRENT_DATE,
+    monto DOUBLE PRECISION NOT NULL,
+    estado TEXT NOT NULL DEFAULT 'pendiente',
+    observaciones TEXT,
+    creado_por INTEGER REFERENCES usuarios(id),
+    creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
+  CREATE INDEX IF NOT EXISTS idx_gastos_project ON gastos_generales(project_id);
 `;
 
 async function initSchema() {

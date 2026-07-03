@@ -57,16 +57,23 @@ body {
 .icon-btn:active { transform: scale(0.96); }
 
 .tabs {
-  display: flex; overflow-x: auto; gap: 6px; padding: 8px 10px;
+  display: flex; overflow-x: auto; gap: 8px; padding: 10px 12px;
   background: var(--panel); border-bottom: 1px solid var(--border);
   position: sticky; top: calc(60px + var(--safe-top)); z-index: 19;
   -webkit-overflow-scrolling: touch;
 }
 .tab {
-  flex: 0 0 auto; padding: 8px 14px; border-radius: 999px; border: 1px solid var(--border);
+  flex: 0 0 auto; display: inline-flex; align-items: center; gap: 6px;
+  padding: 8px 16px; border-radius: 999px; border: 1px solid var(--border);
   background: var(--panel-2); color: var(--muted); font-size: 0.86rem; cursor: pointer; white-space: nowrap;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
 }
-.tab.active { background: var(--accent); color: #04212f; border-color: var(--accent); font-weight: 600; }
+.tab:hover { border-color: var(--roforb-silver); color: var(--text); }
+.tab-icon { font-size: 0.95em; line-height: 1; }
+.tab.active {
+  background: var(--accent); color: #04212f; border-color: var(--accent); font-weight: 600;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 35%, transparent);
+}
 
 #view { flex: 1; padding: 14px; padding-bottom: calc(28px + var(--safe-bottom)); max-width: 980px; width: 100%; margin: 0 auto; }
 
@@ -197,6 +204,11 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .project-item .pname { font-weight: 600; font-size: 0.9rem; }
 .project-item .pmeta { color: var(--muted); font-size: 0.74rem; }
 .project-item .pactions { display: flex; justify-content: flex-end; margin-top: 6px; }
+
+/* Bloquea el scroll de fondo mientras un modal está abierto (ver
+   openModal/closeModal en app.js) — el propio .modal ya hace su scroll
+   interno vía overflow-y: auto arriba. */
+body.modal-open { overflow: hidden; }
 
 /* Modal */
 .modal {

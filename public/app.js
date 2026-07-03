@@ -184,16 +184,21 @@ $('#loginForm').addEventListener('submit', async (ev) => {
 // ---------------------------------------------------------------------------
 // Modal helpers
 // ---------------------------------------------------------------------------
+// Bloquea el scroll del fondo mientras cualquier modal está abierto — se
+// aplica una sola vez aquí (todos los modales de la app pasan por
+// openModal/closeModal) para que los modales nuevos lo hereden solos.
 function openModal(html) {
   const modal = $('#modal');
   modal.innerHTML = html;
   modal.classList.add('show');
   $('#modalOverlay').classList.add('show');
+  document.body.classList.add('modal-open');
 }
 function closeModal() {
   $('#modal').classList.remove('show');
   $('#modalOverlay').classList.remove('show');
   $('#modal').innerHTML = '';
+  document.body.classList.remove('modal-open');
 }
 $('#modalOverlay').addEventListener('click', closeModal);
 
@@ -928,6 +933,10 @@ async function openRequisicionDetail(reqId) {
         toast('Estado actualizado', 'success');
         invalidate('resumen');
         renderView();
+        // Refresca el modal en el lugar (no solo la lista de fondo) para que
+        // "Generar Orden de Compra" aparezca de inmediato al autorizar, sin
+        // tener que cerrar y reabrir esta misma ventana.
+        await openRequisicionDetail(reqId);
       } catch (err) { toast(err.message, 'danger'); }
     });
     $('#btnDeleteReq').addEventListener('click', async () => {
@@ -2127,6 +2136,12 @@ async function openDestajoSemanaModal(destId, semana, nombre) {
     return;
   }
 
+  // Editar un valor ya capturado requiere residente/admin (mismo patrón de
+  // permisos que Avance regular) — un 'cabo' solo puede capturar valores
+  // nuevos; el backend es la autoridad real, esto es solo UX preventiva.
+  const yaCapturado = (it) => it.cantidad_ejecutada_periodo != null && it.cantidad_ejecutada_periodo !== '';
+  const soloLecturaParaMi = (it) => state.user.puesto === 'cabo' && yaCapturado(it);
+
   $('#destAvcList').innerHTML = items.map((it) => `
     <div class="req-item-row">
       <div style="font-weight:600;font-size:0.86rem">${esc(it.concepto)}</div>
@@ -2140,10 +2155,11 @@ async function openDestajoSemanaModal(destId, semana, nombre) {
           <label>Ejecutado este periodo</label>
           <input type="number" min="0" step="0.01" data-destajo-cantidad="${it.destajo_item_id}"
                  data-precio="${it.precio_destajo}" data-prev="${it.cantidad_acumulada_previa}"
-                 value="${it.cantidad_ejecutada_periodo ?? ''}" />
+                 value="${it.cantidad_ejecutada_periodo ?? ''}" ${soloLecturaParaMi(it) ? 'disabled title="Solo un residente o administrador puede editar un avance ya capturado"' : ''} />
         </div>
         <div class="muted" data-acum-out style="font-size:0.74rem;text-align:right;align-self:end;line-height:1.3"></div>
       </div>
+      ${soloLecturaParaMi(it) ? '<div class="muted" style="font-size:0.72rem;color:var(--yellow);margin-top:2px">🔒 Ya capturado — solo residente/admin puede editarlo</div>' : ''}
     </div>
   `).join('');
 
@@ -2178,9 +2194,11 @@ async function openDestajoSemanaModal(destId, semana, nombre) {
     }));
     btn.disabled = true; btn.textContent = 'Guardando…';
     try {
-      await api(`/projects/${state.projectId}/destajistas/${destId}/avance/${semana}`, { method: 'PUT', body: { items: payloadItems } });
+      const result = await api(`/projects/${state.projectId}/destajistas/${destId}/avance/${semana}`, { method: 'PUT', body: { items: payloadItems } });
       closeModal();
-      toast(`Avance de destajo de la semana ${semana} guardado`, 'success');
+      toast(result.omitidos > 0
+        ? `Avance guardado — ${result.omitidos} valor(es) ya capturados no se modificaron (requieren residente/admin)`
+        : `Avance de destajo de la semana ${semana} guardado`, result.omitidos > 0 ? 'danger' : 'success');
       renderView();
     } catch (err) {
       toast(err.message, 'danger');
@@ -2974,6 +2992,19 @@ btnSync.addEventListener('click', async () => {
     setTimeout(() => { btnSync.classList.remove('spin'); btnSync.disabled = false; }, 600);
   }
 });
+
+// ---------------------------------------------------------------------------
+// UX: select-all al enfocar un campo numérico (avance, montos, cantidades,
+// tasas de IVA, etc.) — un solo listener delegado en document, así lo heredan
+// automáticamente todos los inputs numéricos actuales y futuros de la app,
+// sin tener que repetirlo pantalla por pantalla. 'focus' no burbujea, por
+// eso se usa fase de captura (tercer argumento true).
+// ---------------------------------------------------------------------------
+document.addEventListener('focus', (e) => {
+  if (e.target.matches && e.target.matches('input[type="number"]')) {
+    e.target.select();
+  }
+}, true);
 
 // ---------------------------------------------------------------------------
 // PWA: service worker registration

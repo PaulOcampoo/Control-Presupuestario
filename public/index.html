@@ -41,18 +41,28 @@
       <button id="btnLogout" class="icon-btn" aria-label="Cerrar sesión" title="Cerrar sesión">🚪</button>
     </header>
 
+    <!--
+      Orden por flujo real de la operación (no alfabético, no el orden en que
+      se fueron agregando las features): primero el panorama (Resumen), luego
+      el catálogo base (Insumos), luego el ciclo de compra completo
+      (Requisiciones → Proveedores → Órdenes de Compra, en ese orden porque
+      hace falta un proveedor antes de poder generar una OC), luego ejecución
+      en obra (Programa alimenta los periodos que usan Avance y Destajo),
+      y al final el clúster de administración/solo-admin (Finanzas → Mapeo →
+      Usuarios).
+    -->
     <nav id="tabs" class="tabs">
-      <button class="tab" data-view="resumen">Resumen</button>
-      <button class="tab" data-view="insumos">Insumos</button>
-      <button class="tab" data-view="requisiciones">Requisiciones</button>
-      <button class="tab" data-view="ordenes">Órdenes de Compra</button>
-      <button class="tab" data-view="avance">Avance</button>
-      <button class="tab" data-view="programa">Programa</button>
-      <button class="tab" data-view="destajo">Destajo</button>
-      <button class="tab" data-view="usuarios">Usuarios</button>
-      <button class="tab" data-view="proveedores">Proveedores</button>
-      <button class="tab" data-view="finanzas">Finanzas</button>
-      <button class="tab" data-view="mapeo">Mapeo</button>
+      <button class="tab" data-view="resumen"><span class="tab-icon">📊</span><span class="tab-label">Resumen</span></button>
+      <button class="tab" data-view="insumos"><span class="tab-icon">📦</span><span class="tab-label">Insumos</span></button>
+      <button class="tab" data-view="requisiciones"><span class="tab-icon">🧾</span><span class="tab-label">Requisiciones</span></button>
+      <button class="tab" data-view="proveedores"><span class="tab-icon">🏭</span><span class="tab-label">Proveedores</span></button>
+      <button class="tab" data-view="ordenes"><span class="tab-icon">🛒</span><span class="tab-label">Órdenes de Compra</span></button>
+      <button class="tab" data-view="programa"><span class="tab-icon">🗓️</span><span class="tab-label">Programa</span></button>
+      <button class="tab" data-view="avance"><span class="tab-icon">📈</span><span class="tab-label">Avance</span></button>
+      <button class="tab" data-view="destajo"><span class="tab-icon">👷</span><span class="tab-label">Destajo</span></button>
+      <button class="tab" data-view="finanzas"><span class="tab-icon">💰</span><span class="tab-label">Finanzas</span></button>
+      <button class="tab" data-view="mapeo"><span class="tab-icon">🔗</span><span class="tab-label">Mapeo</span></button>
+      <button class="tab" data-view="usuarios"><span class="tab-icon">👤</span><span class="tab-label">Usuarios</span></button>
     </nav>
 
     <main id="view"></main>

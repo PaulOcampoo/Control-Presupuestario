@@ -1774,12 +1774,27 @@ app.put('/api/projects/:id/destajistas/:destId/avance/:semana', h(auth.allow('re
   const { rows: validRows } = await db.pool.query('SELECT id FROM destajo_items WHERE destajista_id = $1', [destId]);
   const validIds = new Set(validRows.map((r) => r.id));
 
+  // Editar un valor ya capturado en una semana requiere residente/admin — el
+  // mismo patrón de permisos que usa Avance regular (auth.allow('residente'),
+  // sin 'cabo') para su edición. La captura inicial (sin valor previo) sigue
+  // abierta a 'cabo', que es el único puesto con acceso a esta pestaña.
+  const { rows: existingRows } = await db.pool.query(
+    'SELECT destajo_item_id, cantidad_ejecutada FROM avance_destajo WHERE semana = $1', [semana]
+  );
+  const existingMap = new Map(existingRows.map((r) => [r.destajo_item_id, Number(r.cantidad_ejecutada)]));
+  const esCabo = req.user.puesto === 'cabo';
+
+  let omitidos = 0;
   await db.withTransaction(async (client) => {
     for (const it of items) {
       const itemId = Number(it.destajo_item_id);
       if (!validIds.has(itemId)) continue;
       const cantidad = it.cantidad_ejecutada == null || it.cantidad_ejecutada === ''
         ? 0 : Math.max(0, Number(it.cantidad_ejecutada));
+      if (esCabo && existingMap.has(itemId) && existingMap.get(itemId) !== cantidad) {
+        omitidos++;
+        continue;
+      }
       await client.query(`
         INSERT INTO avance_destajo (semana, destajo_item_id, cantidad_ejecutada)
         VALUES ($1, $2, $3)
@@ -1788,7 +1803,7 @@ app.put('/api/projects/:id/destajistas/:destId/avance/:semana', h(auth.allow('re
     }
   });
 
-  res.json({ ok: true, semana });
+  res.json({ ok: true, semana, omitidos });
 }));
 
 // ---------------------------------------------------------------------------

@@ -341,6 +341,7 @@ async function renderView() {
       case 'programa': await renderPrograma(view); break;
       case 'destajo': await renderDestajo(view); break;
       case 'finanzas': await renderFinanzas(view); break;
+      case 'mapeo': await renderMapeo(view); break;
       default: view.innerHTML = '';
     }
   } catch (err) {
@@ -550,6 +551,120 @@ function queryString(obj) {
 function debounce(fn, ms) {
   let t;
   return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); };
+}
+
+// =========================================================================
+// VISTA: Mapeo de conceptos → insumos (solo admin)
+// Infraestructura de captura para un futuro bloqueo de avance — todavía no
+// bloquea nada, solo permite ir poblando la relación concepto ↔ insumo.
+// =========================================================================
+let mapeoSelectedConceptoId = null;
+
+async function renderMapeo(view) {
+  if (!isAdmin()) {
+    view.innerHTML = '<div class="alert-box danger">⚠️ No tienes permiso para ver esta sección.</div>';
+    return;
+  }
+  const [conceptos, resumen] = await Promise.all([
+    api(`/projects/${state.projectId}/conceptos`),
+    api(`/projects/${state.projectId}/concepto-insumos/resumen`),
+  ]);
+  const conceptosReales = conceptos.filter((c) => !c.es_total);
+  const mapeadosSet = new Set(resumen.concepto_ids_mapeados);
+
+  if (mapeoSelectedConceptoId && !conceptosReales.find((c) => c.id === mapeoSelectedConceptoId)) {
+    mapeoSelectedConceptoId = null;
+  }
+  if (!mapeoSelectedConceptoId && conceptosReales.length) mapeoSelectedConceptoId = conceptosReales[0].id;
+
+  const pct = resumen.total_conceptos ? (resumen.conceptos_mapeados / resumen.total_conceptos) * 100 : 0;
+
+  view.innerHTML = `
+    <h2 class="section-title">Mapeo de conceptos → insumos</h2>
+    <p class="muted">Vincula cada concepto del presupuesto con los insumos (materiales/equipo) que lo componen. Esto es solo la captura del mapeo — todavía no afecta la captura de Avance.</p>
+    <div class="card">
+      <div class="row between">
+        <strong>Progreso de mapeo</strong>
+        <span class="badge ${resumen.conceptos_mapeados === resumen.total_conceptos ? 'green' : 'yellow'}">${resumen.conceptos_mapeados}/${resumen.total_conceptos} conceptos mapeados</span>
+      </div>
+      <div class="progress-bar"><span style="width:${Math.min(100, pct)}%"></span></div>
+    </div>
+    <div class="card">
+      <label>Concepto</label>
+      <select id="mapeoConceptoSelect">
+        ${conceptosReales.map((c) => `<option value="${c.id}" ${c.id === mapeoSelectedConceptoId ? 'selected' : ''}>${mapeadosSet.has(c.id) ? '✅' : '⬜'} ${esc(c.codigo || '')} — ${esc(c.concepto)}</option>`).join('')}
+      </select>
+    </div>
+    <div class="card">
+      <strong>Insumos vinculados</strong>
+      <div id="mapeoLinkedList" style="margin-top:8px">
+        <div class="spinner"></div>
+      </div>
+    </div>
+    <div class="card">
+      <strong>Vincular un insumo</strong>
+      <div class="search-bar" style="margin-top:8px">
+        <input type="search" id="mapeoInsumoSearch" placeholder="Buscar insumo por código o nombre…" />
+      </div>
+      <div id="mapeoSearchResults"></div>
+    </div>
+  `;
+
+  if (!conceptosReales.length) {
+    $('#mapeoLinkedList').innerHTML = '<div class="empty-state">Este presupuesto no tiene conceptos.</div>';
+    return;
+  }
+
+  $('#mapeoConceptoSelect').addEventListener('change', (e) => {
+    mapeoSelectedConceptoId = Number(e.target.value);
+    renderMapeo(view);
+  });
+
+  $('#mapeoInsumoSearch').addEventListener('input', debounce(async (e) => {
+    const q = e.target.value.trim();
+    const results = $('#mapeoSearchResults');
+    if (!q) { results.innerHTML = ''; return; }
+    try {
+      const found = await api(`/projects/${state.projectId}/insumos${queryString({ q })}`);
+      results.innerHTML = found.slice(0, 8).map((i) => `
+        <div class="project-item" data-link="${i.id}">
+          <span class="pname">${esc(i.concepto)}</span>
+          <span class="pmeta">${esc(i.codigo)} · ${esc(i.unidad || '')}</span>
+        </div>`).join('') || '<p class="muted">Sin resultados.</p>';
+      $$('[data-link]', results).forEach((row) => row.addEventListener('click', async () => {
+        try {
+          await api(`/conceptos/${mapeoSelectedConceptoId}/insumos`, { method: 'POST', body: { insumo_id: Number(row.dataset.link) } });
+          toast('Insumo vinculado', 'success');
+          renderMapeo(view);
+        } catch (err) { toast(err.message, 'danger'); }
+      }));
+    } catch (err) { toast(err.message, 'danger'); }
+  }, 280));
+
+  await paintMapeoLinked();
+
+  async function paintMapeoLinked() {
+    const box = $('#mapeoLinkedList');
+    if (!box) return;
+    const linked = await api(`/conceptos/${mapeoSelectedConceptoId}/insumos`);
+    if (!linked.length) { box.innerHTML = '<div class="empty-state">Sin insumos vinculados todavía.</div>'; return; }
+    box.innerHTML = linked.map((i) => `
+      <div class="row between" style="padding:6px 0;border-bottom:1px solid var(--border)">
+        <div>
+          <div>${esc(i.concepto)}</div>
+          <div class="muted" style="font-size:0.78rem">${esc(i.codigo)} · ${esc(i.unidad || '')}</div>
+        </div>
+        <button class="btn small btn-danger" data-unlink="${i.id}">Quitar</button>
+      </div>
+    `).join('');
+    $$('[data-unlink]', box).forEach((btn) => btn.addEventListener('click', async () => {
+      try {
+        await api(`/conceptos/${mapeoSelectedConceptoId}/insumos/${btn.dataset.unlink}`, { method: 'DELETE' });
+        toast('Insumo desvinculado', 'success');
+        renderMapeo(view);
+      } catch (err) { toast(err.message, 'danger'); }
+    }));
+  }
 }
 
 // =========================================================================
@@ -2735,7 +2850,7 @@ fab.addEventListener('click', () => {
   }
 });
 function syncFab() {
-  const noFabViews = ['usuarios', 'proveedores', 'ordenes', 'finanzas'];
+  const noFabViews = ['usuarios', 'proveedores', 'ordenes', 'finanzas', 'mapeo'];
   const hasAction = ['requisiciones', 'insumos', 'destajo'].includes(state.view);
   fab.style.display = !noFabViews.includes(state.view) && state.projectId && (hasAction || isAdmin()) ? 'flex' : 'none';
   if (state.view === 'requisiciones' || state.view === 'insumos') fab.textContent = '🧾';

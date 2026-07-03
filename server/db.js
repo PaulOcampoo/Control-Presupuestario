@@ -61,6 +61,15 @@ const SCHEMA = `
   );
   CREATE INDEX IF NOT EXISTS idx_insumos_project ON insumos(project_id);
 
+  CREATE TABLE IF NOT EXISTS concepto_insumos (
+    id SERIAL PRIMARY KEY,
+    concepto_id INTEGER NOT NULL REFERENCES conceptos(id) ON DELETE CASCADE,
+    insumo_id INTEGER NOT NULL REFERENCES insumos(id) ON DELETE CASCADE,
+    UNIQUE (concepto_id, insumo_id)
+  );
+  CREATE INDEX IF NOT EXISTS idx_conceptoinsumos_concepto ON concepto_insumos(concepto_id);
+  CREATE INDEX IF NOT EXISTS idx_conceptoinsumos_insumo ON concepto_insumos(insumo_id);
+
   CREATE TABLE IF NOT EXISTS requisiciones (
     id SERIAL PRIMARY KEY,
     project_id INTEGER NOT NULL REFERENCES proyectos(id) ON DELETE CASCADE,

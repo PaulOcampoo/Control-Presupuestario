@@ -15,7 +15,7 @@ const TOKEN_TTL = '30d';
 // Puestos y qué pestañas puede ver cada uno. 'admin' tiene acceso total
 // (se resuelve aparte en allow(), no necesita listarse en cada pestaña).
 const PERMISSIONS = {
-  admin: { label: 'Administrador', tabs: ['resumen', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'finanzas'] },
+  admin: { label: 'Administrador', tabs: ['resumen', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'finanzas', 'mapeo'] },
   residente: { label: 'Residente', tabs: ['insumos', 'requisiciones', 'ordenes', 'avance', 'destajo', 'finanzas'] },
   cabo: { label: 'Cabo', tabs: ['destajo'] },
 };

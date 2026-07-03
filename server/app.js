@@ -384,13 +384,91 @@ app.get('/api/projects/:id/conceptos', h(auth.allow('residente', 'cabo')), h(req
 }));
 
 // ---------------------------------------------------------------------------
+// Mapeo concepto ↔ insumos (solo admin) — infraestructura de captura para un
+// futuro bloqueo de avance; todavía no se usa para bloquear nada.
+// ---------------------------------------------------------------------------
+app.get('/api/conceptos/:id/insumos', h(auth.allow()), h(async (req, res) => {
+  const conceptoId = Number(req.params.id);
+  const { rows: conceptoRows } = await db.pool.query('SELECT id FROM conceptos WHERE id = $1', [conceptoId]);
+  if (!conceptoRows[0]) return res.status(404).json({ error: 'Concepto no encontrado' });
+
+  const { rows } = await db.pool.query(`
+    SELECT i.* FROM concepto_insumos ci
+    JOIN insumos i ON i.id = ci.insumo_id
+    WHERE ci.concepto_id = $1
+    ORDER BY i.orden
+  `, [conceptoId]);
+  res.json(rows);
+}));
+
+app.post('/api/conceptos/:id/insumos', h(auth.allow()), h(async (req, res) => {
+  const conceptoId = Number(req.params.id);
+  const insumoId = Number((req.body || {}).insumo_id);
+  if (!insumoId) return res.status(400).json({ error: 'insumo_id es requerido' });
+
+  const { rows: conceptoRows } = await db.pool.query('SELECT id, project_id FROM conceptos WHERE id = $1', [conceptoId]);
+  if (!conceptoRows[0]) return res.status(404).json({ error: 'Concepto no encontrado' });
+
+  const { rows: insumoRows } = await db.pool.query('SELECT id, project_id FROM insumos WHERE id = $1', [insumoId]);
+  if (!insumoRows[0]) return res.status(404).json({ error: 'Insumo no encontrado' });
+
+  if (insumoRows[0].project_id !== conceptoRows[0].project_id) {
+    return res.status(400).json({ error: 'El insumo debe pertenecer al mismo presupuesto que el concepto' });
+  }
+
+  try {
+    await db.pool.query(
+      'INSERT INTO concepto_insumos (concepto_id, insumo_id) VALUES ($1, $2)',
+      [conceptoId, insumoId]
+    );
+  } catch (err) {
+    if (err.code === '23505') {
+      return res.status(409).json({ error: 'Este insumo ya está vinculado a este concepto' });
+    }
+    throw err;
+  }
+  res.status(201).json({ ok: true });
+}));
+
+app.delete('/api/conceptos/:id/insumos/:insumo_id', h(auth.allow()), h(async (req, res) => {
+  const conceptoId = Number(req.params.id);
+  const insumoId = Number(req.params.insumo_id);
+  const { rowCount } = await db.pool.query(
+    'DELETE FROM concepto_insumos WHERE concepto_id = $1 AND insumo_id = $2',
+    [conceptoId, insumoId]
+  );
+  if (rowCount === 0) return res.status(404).json({ error: 'Ese insumo no está vinculado a este concepto' });
+  res.json({ ok: true });
+}));
+
+// Resumen de progreso de mapeo por proyecto (no pedido explícitamente, pero
+// necesario para el contador "X/95 conceptos mapeados" de la pantalla admin).
+app.get('/api/projects/:id/concepto-insumos/resumen', h(auth.allow()), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  const pid = req.project.id;
+  const { rows: totalRows } = await db.pool.query(
+    "SELECT COUNT(*) AS n FROM conceptos WHERE project_id = $1 AND es_total = 0", [pid]
+  );
+  const { rows: mapeadosRows } = await db.pool.query(`
+    SELECT DISTINCT ci.concepto_id
+    FROM concepto_insumos ci
+    JOIN conceptos c ON c.id = ci.concepto_id
+    WHERE c.project_id = $1
+  `, [pid]);
+  res.json({
+    total_conceptos: Number(totalRows[0].n),
+    conceptos_mapeados: mapeadosRows.length,
+    concepto_ids_mapeados: mapeadosRows.map((r) => r.concepto_id),
+  });
+}));
+
+// ---------------------------------------------------------------------------
 // Insumos
 // ---------------------------------------------------------------------------
 app.get('/api/projects/:id/insumos', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
   const pid = req.project.id;
   const { categoria, q } = req.query;
 
-  let sql = 'SELECT * FROM insumos WHERE project_id = $1';
+  let sql = "SELECT * FROM insumos WHERE project_id = $1 AND (codigo IS NULL OR codigo NOT ILIKE 'MO%')";
   const params = [pid];
   let idx = 2;
   if (categoria) { sql += ` AND categoria = $${idx++}`; params.push(categoria); }
@@ -427,7 +505,7 @@ app.get('/api/projects/:id/insumos', h(auth.allow('residente')), h(requireProjec
 
 app.get('/api/projects/:id/insumos/categorias', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
   const { rows } = await db.pool.query(
-    'SELECT DISTINCT categoria FROM insumos WHERE project_id = $1 AND categoria IS NOT NULL ORDER BY categoria',
+    "SELECT DISTINCT categoria FROM insumos WHERE project_id = $1 AND categoria IS NOT NULL AND (codigo IS NULL OR codigo NOT ILIKE 'MO%') ORDER BY categoria",
     [req.project.id]
   );
   res.json(rows.map((r) => r.categoria));

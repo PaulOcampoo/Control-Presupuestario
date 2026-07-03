@@ -343,6 +343,32 @@ body.modal-open { overflow: hidden; }
 .login-card .field { text-align: left; }
 .login-card .btn.full { margin-top: 16px; }
 
+/* Galería de clientes (pantalla intermedia entre login y drawer de proyectos) */
+.gallery-screen {
+  position: fixed; inset: 0; z-index: 100; display: flex; align-items: center; justify-content: center;
+  background: radial-gradient(circle at 30% 20%, #16233b 0%, var(--bg) 60%);
+  padding: 20px; overflow-y: auto;
+}
+.gallery-card {
+  width: 100%; max-width: 720px; background: var(--panel); border: 1px solid var(--border);
+  border-radius: 18px; padding: 28px 24px; box-shadow: 0 20px 60px rgba(0,0,0,0.45);
+}
+.gallery-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px; }
+.gallery-card h1 { font-size: 1.2rem; margin: 4px 0; }
+.cliente-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; margin-top: 14px; }
+.cliente-card {
+  background: var(--panel-2); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 22px 14px; text-align: center; cursor: pointer;
+  display: flex; flex-direction: column; gap: 8px; align-items: center;
+  transition: border-color 0.15s, transform 0.1s;
+}
+.cliente-card:hover { border-color: var(--accent); }
+.cliente-card:active { transform: scale(0.97); }
+.cliente-card .cliente-icon { font-size: 1.8rem; }
+.cliente-card .cliente-nombre { font-weight: 700; font-size: 0.98rem; }
+.cliente-card .cliente-count { color: var(--muted); font-size: 0.76rem; }
+.cliente-card-orphan { border-style: dashed; border-color: var(--yellow); }
+
 .drawer-account {
   display: flex; align-items: center; justify-content: space-between; gap: 8px;
   background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px;

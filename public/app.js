@@ -10,6 +10,9 @@ const PUESTO_LABELS = { admin: 'Administrador', residente: 'Residente', cabo: 'C
 const state = {
   projects: [],
   projectId: null,
+  clientes: [],
+  clienteId: null,
+  pendingUploadClienteId: null,
   view: 'resumen',
   cache: {},     // per-project cached API responses
   charts: {},    // active Chart.js instances (destroyed on re-render)
@@ -67,12 +70,19 @@ function toast(msg, kind = '') {
 // ---------------------------------------------------------------------------
 function showLoginScreen() {
   $('#app').style.display = 'none';
+  $('#clientGalleryScreen').style.display = 'none';
   $('#loginScreen').style.display = 'flex';
   $('#loginUsuario').focus();
 }
 function showApp() {
   $('#loginScreen').style.display = 'none';
+  $('#clientGalleryScreen').style.display = 'none';
   $('#app').style.display = '';
+}
+function showClientGallery() {
+  $('#loginScreen').style.display = 'none';
+  $('#app').style.display = 'none';
+  $('#clientGalleryScreen').style.display = 'flex';
 }
 
 function isAdmin() { return !!state.user && state.user.puesto === 'admin'; }
@@ -112,6 +122,8 @@ function handleSessionExpired() {
   state.user = null;
   state.projects = [];
   state.projectId = null;
+  state.clientes = [];
+  state.clienteId = null;
   state.cache = {};
   closeDrawer();
   closeModal();
@@ -120,13 +132,13 @@ function handleSessionExpired() {
 }
 
 async function bootApp() {
-  showApp();
   destroyCharts();
   try {
-    await refreshProjectList();
-    if (state.projects.length) selectProject(state.projects[0].id);
-    else renderView();
+    await Promise.all([refreshClientList(), refreshProjectList()]);
+    showClientGallery();
+    renderClientGallery();
   } catch (err) {
+    showApp();
     $('#view').innerHTML = `<div class="alert-box danger">⚠️ No se pudo conectar con el servidor: ${esc(err.message)}</div>`;
   }
 }
@@ -151,6 +163,8 @@ async function logout() {
   state.user = null;
   state.projects = [];
   state.projectId = null;
+  state.clientes = [];
+  state.clienteId = null;
   state.cache = {};
   closeDrawer();
   showLoginScreen();
@@ -210,32 +224,56 @@ function closeDrawer() { $('#drawer').classList.remove('open'); $('#drawerOverla
 $('#btnMenu').addEventListener('click', openDrawer);
 $('#btnCloseDrawer').addEventListener('click', closeDrawer);
 $('#drawerOverlay').addEventListener('click', closeDrawer);
+$('#btnVolverClientes').addEventListener('click', async () => {
+  closeDrawer();
+  state.clienteId = null;
+  state.projectId = null;
+  try {
+    await refreshClientList();
+  } catch (err) { toast(err.message, 'danger'); }
+  showClientGallery();
+  renderClientGallery();
+});
 
 async function refreshProjectList() {
   state.projects = await api('/projects');
   renderProjectList();
 }
 
+function visibleProjects() {
+  if (state.clienteId === 'sin-cliente') return state.projects.filter((p) => p.cliente_id == null);
+  return state.clienteId != null ? state.projects.filter((p) => p.cliente_id === state.clienteId) : state.projects;
+}
+
 function renderProjectList() {
   const list = $('#projectList');
-  if (!state.projects.length) {
+  const projects = visibleProjects();
+  if (!projects.length) {
     list.innerHTML = '<div class="empty-state"><div class="big">📂</div>Aún no hay presupuestos cargados.<br>Toca el botón de abajo para subir tu primer archivo Excel.</div>';
     return;
   }
-  list.innerHTML = state.projects.map((p) => `
+  list.innerHTML = projects.map((p) => `
     <div class="project-item ${p.id === state.projectId ? 'active' : ''}" data-id="${p.id}">
       <span class="pname">${esc(p.nombre)}</span>
       <span class="pmeta">${esc(p.lugar || '')}${p.lugar ? ' · ' : ''}${fmtMoney(p.total_sin_iva)}</span>
       <span class="pmeta">${fmtDate(p.inicio_obra)} → ${fmtDate(p.fin_obra)}</span>
-      ${isAdmin() ? `<div class="pactions"><button class="btn small btn-danger" data-del="${p.id}">Eliminar</button></div>` : ''}
+      ${isAdmin() ? `<div class="pactions"><button class="btn small" data-cambiar-cliente="${p.id}">Cambiar cliente</button><button class="btn small btn-danger" data-del="${p.id}">Eliminar</button></div>` : ''}
     </div>
   `).join('');
 
   $$('.project-item', list).forEach((el) => {
     el.addEventListener('click', (ev) => {
-      if (ev.target.closest('[data-del]')) return;
+      if (ev.target.closest('[data-del]') || ev.target.closest('[data-cambiar-cliente]')) return;
       selectProject(Number(el.dataset.id));
       closeDrawer();
+    });
+  });
+  $$('[data-cambiar-cliente]', list).forEach((btn) => {
+    btn.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      const id = Number(btn.dataset.cambiarCliente);
+      const proj = state.projects.find((p) => p.id === id);
+      if (proj) openCambiarClienteModal(proj);
     });
   });
   $$('[data-del]', list).forEach((btn) => {
@@ -248,10 +286,41 @@ function renderProjectList() {
       delete state.cache[id];
       if (state.projectId === id) state.projectId = null;
       await refreshProjectList();
-      if (!state.projectId && state.projects[0]) selectProject(state.projects[0].id);
-      else if (!state.projects.length) renderView();
+      const remaining = visibleProjects();
+      if (!state.projectId && remaining[0]) selectProject(remaining[0].id);
+      else if (!remaining.length) renderView();
       toast('Presupuesto eliminado', 'success');
     });
+  });
+}
+
+function openCambiarClienteModal(project) {
+  const options = state.clientes.map((c) => `<option value="${c.id}" ${c.id === project.cliente_id ? 'selected' : ''}>${esc(c.nombre)}</option>`).join('');
+  openModal(`
+    <h3>Cambiar cliente</h3>
+    <p class="muted">Reasigna "${esc(project.nombre)}" a otro cliente.</p>
+    <div class="field"><label>Cliente</label><select id="cambiarClienteSelect"><option value="">Selecciona un cliente…</option>${options}</select></div>
+    <div class="modal-actions">
+      <button class="btn" id="btnCancelCambiarCliente">Cancelar</button>
+      <button class="btn btn-primary" id="btnSaveCambiarCliente">Guardar</button>
+    </div>
+  `);
+  $('#btnCancelCambiarCliente').addEventListener('click', closeModal);
+  $('#btnSaveCambiarCliente').addEventListener('click', async () => {
+    const clienteId = Number($('#cambiarClienteSelect').value) || null;
+    if (!clienteId) { toast('Selecciona un cliente', 'danger'); return; }
+    const btn = $('#btnSaveCambiarCliente');
+    btn.disabled = true; btn.textContent = 'Guardando…';
+    try {
+      await api(`/projects/${project.id}/cliente`, { method: 'PUT', body: { cliente_id: clienteId } });
+      closeModal();
+      await Promise.all([refreshClientList(), refreshProjectList()]);
+      renderProjectList();
+      toast('Cliente actualizado', 'success');
+    } catch (err) {
+      toast(err.message, 'danger');
+      btn.disabled = false; btn.textContent = 'Guardar';
+    }
   });
 }
 
@@ -265,9 +334,146 @@ function selectProject(id) {
 }
 
 // ---------------------------------------------------------------------------
+// Galería de clientes (pantalla previa a elegir un proyecto)
+// ---------------------------------------------------------------------------
+async function refreshClientList() {
+  state.clientes = await api('/clientes');
+}
+
+function renderClientGallery() {
+  const grid = $('#clienteGrid');
+  // Proyectos sin cliente_id: solo pueden existir de cargas hechas antes de que
+  // cliente_id fuera obligatorio (ver PUT /projects/:id/cliente). Solo admin
+  // los ve, como una tarjeta especial, para poder reasignarlos.
+  const huerfanos = state.projects.filter((p) => p.cliente_id == null);
+  let html = state.clientes.map((c) => `
+    <div class="cliente-card" data-cliente="${c.id}">
+      <span class="cliente-icon">🏢</span>
+      <span class="cliente-nombre">${esc(c.nombre)}</span>
+      <span class="cliente-count">${c.num_proyectos} presupuesto${c.num_proyectos !== 1 ? 's' : ''}</span>
+    </div>
+  `).join('');
+  if (isAdmin() && huerfanos.length) {
+    html += `
+      <div class="cliente-card cliente-card-orphan" data-cliente="sin-cliente">
+        <span class="cliente-icon">⚠️</span>
+        <span class="cliente-nombre">Sin cliente asignado</span>
+        <span class="cliente-count">${huerfanos.length} presupuesto${huerfanos.length !== 1 ? 's' : ''}</span>
+      </div>`;
+  }
+  grid.innerHTML = html || '<div class="empty-state"><div class="big">🏢</div>Aún no hay clientes registrados.</div>';
+  $$('.cliente-card', grid).forEach((el) => {
+    el.addEventListener('click', () => selectCliente(el.dataset.cliente === 'sin-cliente' ? 'sin-cliente' : Number(el.dataset.cliente)));
+  });
+  $('#btnNuevoClienteGallery').style.display = isAdmin() ? '' : 'none';
+}
+
+function selectCliente(id) {
+  state.clienteId = id;
+  state.projectId = null;
+  showApp();
+  if (id === 'sin-cliente') {
+    $('#projectName').textContent = 'Sin cliente asignado — elige un presupuesto';
+  } else {
+    const cliente = state.clientes.find((c) => c.id === id);
+    $('#projectName').textContent = cliente ? `${cliente.nombre} — elige un presupuesto` : '';
+  }
+  renderView();
+  renderProjectList();
+  openDrawer();
+}
+
+$('#btnGalleryLogout').addEventListener('click', logout);
+$('#btnNuevoClienteGallery').addEventListener('click', openNuevoClienteModal);
+
+function openNuevoClienteModal() {
+  openModal(`
+    <h3>Nuevo cliente</h3>
+    <div class="field"><label>Nombre del cliente *</label><input id="nuevoClienteNombre" placeholder="Ej. VINTE" /></div>
+    <div class="modal-actions">
+      <button class="btn" id="btnCancelNuevoCliente">Cancelar</button>
+      <button class="btn btn-primary" id="btnSaveNuevoCliente">Crear cliente</button>
+    </div>
+  `);
+  $('#btnCancelNuevoCliente').addEventListener('click', closeModal);
+  $('#btnSaveNuevoCliente').addEventListener('click', async () => {
+    const nombre = $('#nuevoClienteNombre').value.trim();
+    if (!nombre) { toast('Escribe el nombre del cliente', 'danger'); return; }
+    const btn = $('#btnSaveNuevoCliente');
+    btn.disabled = true; btn.textContent = 'Creando…';
+    try {
+      await api('/clientes', { method: 'POST', body: { nombre } });
+      closeModal();
+      await refreshClientList();
+      renderClientGallery();
+      toast('Cliente creado', 'success');
+    } catch (err) {
+      toast(err.message, 'danger');
+      btn.disabled = false; btn.textContent = 'Crear cliente';
+    }
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Upload flow
 // ---------------------------------------------------------------------------
-function promptUpload() { $('#fileInput').click(); }
+function promptUpload() {
+  const options = state.clientes.map((c) => `<option value="${c.id}" ${c.id === state.clienteId ? 'selected' : ''}>${esc(c.nombre)}</option>`).join('');
+  openModal(`
+    <h3>Cargar presupuesto</h3>
+    <p class="muted">Indica a qué cliente pertenece este presupuesto antes de elegir el archivo Excel.</p>
+    <div class="field">
+      <label>Cliente</label>
+      <select id="uploadClienteSelect">
+        <option value="">Selecciona un cliente…</option>
+        ${options}
+      </select>
+    </div>
+    <div class="field" id="uploadNuevoClienteField" style="display:none">
+      <label>Nombre del nuevo cliente</label>
+      <input id="uploadNuevoClienteNombre" placeholder="Ej. VINTE" />
+    </div>
+    <div class="row end">
+      <button class="btn small" type="button" id="btnToggleNuevoCliente">+ Crear cliente nuevo</button>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" id="btnCancelUpload">Cancelar</button>
+      <button class="btn btn-primary" id="btnContinuarUpload">Continuar y elegir archivo</button>
+    </div>
+  `);
+  $('#btnCancelUpload').addEventListener('click', closeModal);
+  $('#btnToggleNuevoCliente').addEventListener('click', () => {
+    const field = $('#uploadNuevoClienteField');
+    const nowShowing = field.style.display === 'none';
+    field.style.display = nowShowing ? '' : 'none';
+    $('#uploadClienteSelect').disabled = nowShowing;
+    $('#btnToggleNuevoCliente').textContent = nowShowing ? 'Usar cliente existente' : '+ Crear cliente nuevo';
+  });
+  $('#btnContinuarUpload').addEventListener('click', async () => {
+    const btn = $('#btnContinuarUpload');
+    const creatingNew = $('#uploadNuevoClienteField').style.display !== 'none';
+    let clienteId = Number($('#uploadClienteSelect').value) || null;
+    btn.disabled = true;
+    try {
+      if (creatingNew) {
+        const nombre = $('#uploadNuevoClienteNombre').value.trim();
+        if (!nombre) { toast('Escribe el nombre del cliente nuevo', 'danger'); btn.disabled = false; return; }
+        btn.textContent = 'Creando cliente…';
+        const nuevo = await api('/clientes', { method: 'POST', body: { nombre } });
+        clienteId = nuevo.id;
+        await refreshClientList();
+      }
+      if (!clienteId) { toast('Selecciona o crea un cliente', 'danger'); btn.disabled = false; return; }
+      state.pendingUploadClienteId = clienteId;
+      closeModal();
+      $('#fileInput').click();
+    } catch (err) {
+      toast(err.message, 'danger');
+      btn.disabled = false;
+      btn.textContent = 'Continuar y elegir archivo';
+    }
+  });
+}
 $('#btnUpload').addEventListener('click', promptUpload);
 $('#btnUploadDrawer').addEventListener('click', promptUpload);
 
@@ -276,6 +482,9 @@ $('#fileInput').addEventListener('change', async (ev) => {
   ev.target.value = '';
   if (!file) return;
   if (!/\.xlsx$/i.test(file.name)) { toast('Solo se admiten archivos .xlsx', 'danger'); return; }
+  const clienteId = state.pendingUploadClienteId;
+  state.pendingUploadClienteId = null;
+  if (!clienteId) { toast('Selecciona un cliente antes de subir el archivo', 'danger'); return; }
 
   openModal(`
     <h3>Cargando presupuesto…</h3>
@@ -285,8 +494,11 @@ $('#fileInput').addEventListener('change', async (ev) => {
   try {
     const fd = new FormData();
     fd.append('archivo', file);
+    fd.append('cliente_id', clienteId);
     const result = await api('/projects', { method: 'POST', body: fd });
-    await refreshProjectList();
+    state.clienteId = clienteId;
+    await Promise.all([refreshClientList(), refreshProjectList()]);
+    showApp();
     selectProject(result.id);
     closeDrawer();
     openPostUploadModal(result);

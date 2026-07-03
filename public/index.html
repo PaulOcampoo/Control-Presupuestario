@@ -26,6 +26,23 @@
     </form>
   </div>
 
+  <!-- Galería de clientes: pantalla intermedia entre login y selección de proyecto -->
+  <div id="clientGalleryScreen" class="gallery-screen" style="display:none">
+    <div class="gallery-card">
+      <div class="gallery-header">
+        <div class="topbar-brand">
+          <img src="/logo-roforb.png" alt="" class="topbar-logo" />
+          <strong>Grupo Roforb</strong>
+        </div>
+        <button id="btnGalleryLogout" class="btn small">Salir</button>
+      </div>
+      <h1>Selecciona un cliente</h1>
+      <p class="muted">Elige el cliente para ver sus presupuestos.</p>
+      <div id="clienteGrid" class="cliente-grid"></div>
+      <button class="btn btn-primary full" id="btnNuevoClienteGallery" style="display:none;margin-top:16px">+ Nuevo cliente</button>
+    </div>
+  </div>
+
   <div id="app" style="display:none">
     <header class="topbar">
       <button id="btnMenu" class="icon-btn" aria-label="Menú">☰</button>
@@ -71,6 +88,7 @@
   <!-- Drawer: lista de presupuestos -->
   <div id="drawer" class="drawer">
     <div id="drawerAccount" class="drawer-account"></div>
+    <button id="btnVolverClientes" class="btn small full" style="margin-bottom:12px">← Volver a clientes</button>
     <div class="drawer-header">
       <strong>Presupuestos cargados</strong>
       <button id="btnCloseDrawer" class="icon-btn">✕</button>

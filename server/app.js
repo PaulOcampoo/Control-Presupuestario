@@ -235,6 +235,42 @@ app.put('/api/proveedores/:id/estado', h(auth.allow()), h(async (req, res) => {
 }));
 
 // ---------------------------------------------------------------------------
+// Clientes (agrupador de proyectos). No hay tabla usuario_clientes: el acceso
+// se deriva de si el usuario tiene acceso a >=1 proyecto de ese cliente vía
+// usuario_proyectos (admin ve todos, igual que en GET /api/projects).
+// ---------------------------------------------------------------------------
+app.get('/api/clientes', h(auth.allow('residente', 'cabo')), h(async (req, res) => {
+  if (req.user.puesto === 'admin') {
+    const { rows } = await db.pool.query(`
+      SELECT c.id, c.nombre, COUNT(p.id)::int AS num_proyectos
+      FROM clientes c
+      LEFT JOIN proyectos p ON p.cliente_id = c.id
+      GROUP BY c.id, c.nombre
+      ORDER BY c.nombre
+    `);
+    return res.json(rows);
+  }
+  const { rows } = await db.pool.query(`
+    SELECT c.id, c.nombre, COUNT(DISTINCT p.id)::int AS num_proyectos
+    FROM clientes c
+    JOIN proyectos p ON p.cliente_id = c.id
+    JOIN usuario_proyectos up ON up.project_id = p.id AND up.usuario_id = $1
+    GROUP BY c.id, c.nombre
+    ORDER BY c.nombre
+  `, [req.user.id]);
+  res.json(rows);
+}));
+
+app.post('/api/clientes', h(auth.allow()), h(async (req, res) => {
+  const { nombre } = req.body || {};
+  if (!nombre?.trim()) return res.status(400).json({ error: 'El nombre del cliente es requerido' });
+  const { rows } = await db.pool.query(
+    'INSERT INTO clientes (nombre) VALUES ($1) RETURNING *', [nombre.trim()]
+  );
+  res.status(201).json({ ...rows[0], num_proyectos: 0 });
+}));
+
+// ---------------------------------------------------------------------------
 // Proyectos
 // ---------------------------------------------------------------------------
 app.get('/api/projects', h(auth.allow('residente', 'cabo')), h(async (req, res) => {
@@ -258,6 +294,7 @@ app.get('/api/projects', h(auth.allow('residente', 'cabo')), h(async (req, res) 
     return {
       id: p.id,
       nombre: p.nombre,
+      cliente_id: p.cliente_id,
       archivo_original: p.archivo_original,
       creado_en: p.creado_en,
       obra: meta.obra || null,
@@ -274,13 +311,23 @@ app.get('/api/projects', h(auth.allow('residente', 'cabo')), h(async (req, res) 
 app.post('/api/projects', h(auth.allow()), upload.single('archivo'), h(async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'Sube un archivo .xlsx de presupuesto' });
   const tmpPath = req.file.path;
+  const clienteId = Number(req.body.cliente_id);
+  if (!Number.isFinite(clienteId)) {
+    fs.rm(tmpPath, () => {});
+    return res.status(400).json({ error: 'Indica a qué cliente pertenece este presupuesto' });
+  }
+  const { rows: clienteRows } = await db.pool.query('SELECT id FROM clientes WHERE id = $1', [clienteId]);
+  if (!clienteRows[0]) {
+    fs.rm(tmpPath, () => {});
+    return res.status(400).json({ error: 'El cliente indicado no existe' });
+  }
   try {
     const parsed = await parseWorkbook(tmpPath);
     if (!parsed.conceptos.length && !parsed.insumos.length) {
       throw new Error('No se reconoció una hoja de presupuesto ni de listado de insumos en el archivo. Verifica que tenga el formato esperado (columnas Código, Concepto, Unidad, Cantidad, Precio, Importe).');
     }
     const nombre = parsed.meta.obra || req.file.originalname.replace(/\.xlsx$/i, '');
-    const record = await db.createProjectRecord(nombre, req.file.originalname);
+    const record = await db.createProjectRecord(nombre, req.file.originalname, clienteId);
     await db.withTransaction((client) => ingest(client, record.id, parsed));
     res.status(201).json({
       id: record.id,
@@ -308,6 +355,20 @@ app.get('/api/projects/:id', h(auth.allow('residente', 'cabo')), h(requireProjec
 app.delete('/api/projects/:id', h(auth.allow()), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
   await db.deleteProject(req.project.id);
   res.json({ ok: true });
+}));
+
+// Reasigna el cliente de un proyecto ya existente — cubre tanto correcciones
+// (cliente equivocado) como proyectos huérfanos (cliente_id NULL) que hayan
+// quedado de cargas hechas antes de que cliente_id fuera obligatorio.
+app.put('/api/projects/:id/cliente', h(auth.allow()), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  const clienteId = Number((req.body || {}).cliente_id);
+  if (!Number.isFinite(clienteId)) return res.status(400).json({ error: 'Indica un cliente válido' });
+  const { rows: clienteRows } = await db.pool.query('SELECT id FROM clientes WHERE id = $1', [clienteId]);
+  if (!clienteRows[0]) return res.status(400).json({ error: 'El cliente indicado no existe' });
+  const { rows } = await db.pool.query(
+    'UPDATE proyectos SET cliente_id = $1 WHERE id = $2 RETURNING *', [clienteId, req.project.id]
+  );
+  res.json(rows[0]);
 }));
 
 app.put('/api/projects/:id/fechas-obra', h(auth.allow()), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {

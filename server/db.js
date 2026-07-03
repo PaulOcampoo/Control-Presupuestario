@@ -275,6 +275,17 @@ const SCHEMA = `
   ALTER TABLE insumos ADD COLUMN IF NOT EXISTS iva_tasa DOUBLE PRECISION NOT NULL DEFAULT 16;
   ALTER TABLE ordenes_compra ADD COLUMN IF NOT EXISTS incluye_iva BOOLEAN NOT NULL DEFAULT true;
   ALTER TABLE pagos ADD COLUMN IF NOT EXISTS incluye_iva BOOLEAN NOT NULL DEFAULT true;
+
+  -- Cliente (agrupador de proyectos) — agregado después de que 'proyectos' ya
+  -- existía en producción. cliente_id es nullable para no romper proyectos
+  -- existentes sin cliente asignado (los 2 originales se migraron a "VINTE"
+  -- en un script one-off, ver historial de git).
+  CREATE TABLE IF NOT EXISTS clientes (
+    id SERIAL PRIMARY KEY,
+    nombre TEXT NOT NULL,
+    creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
+  ALTER TABLE proyectos ADD COLUMN IF NOT EXISTS cliente_id INTEGER REFERENCES clientes(id);
 `;
 
 async function initSchema() {
@@ -306,10 +317,10 @@ async function getProject(id) {
   return rows[0] || null;
 }
 
-async function createProjectRecord(nombre, archivoOriginal) {
+async function createProjectRecord(nombre, archivoOriginal, clienteId) {
   const { rows } = await pool.query(
-    'INSERT INTO proyectos (nombre, archivo_original) VALUES ($1, $2) RETURNING *',
-    [nombre, archivoOriginal]
+    'INSERT INTO proyectos (nombre, archivo_original, cliente_id) VALUES ($1, $2, $3) RETURNING *',
+    [nombre, archivoOriginal, clienteId]
   );
   return rows[0];
 }

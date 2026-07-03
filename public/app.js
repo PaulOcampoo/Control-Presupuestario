@@ -13,6 +13,7 @@ const state = {
   clientes: [],
   clienteId: null,
   pendingUploadClienteId: null,
+  pendingContrato: null,
   view: 'resumen',
   cache: {},     // per-project cached API responses
   charts: {},    // active Chart.js instances (destroyed on re-render)
@@ -544,6 +545,7 @@ function renderClientGallery() {
     el.addEventListener('click', () => selectCliente(el.dataset.cliente === 'sin-cliente' ? 'sin-cliente' : Number(el.dataset.cliente)));
   });
   $('#btnNuevoClienteGallery').style.display = isAdmin() ? '' : 'none';
+  $('#btnCargarContratoGallery').style.display = isAdmin() ? '' : 'none';
 }
 
 function selectCliente(id) {
@@ -729,6 +731,7 @@ async function renderView() {
   try {
     switch (state.view) {
       case 'resumen': await renderResumen(view); break;
+      case 'contrato': await renderContrato(view); break;
       case 'insumos': await renderInsumos(view); break;
       case 'requisiciones': await renderRequisiciones(view); break;
       case 'ordenes': await renderOrdenes(view); break;
@@ -858,6 +861,230 @@ function openEditFechasObraModal(meta) {
       toast(err.message, 'danger');
       btn.disabled = false; btn.textContent = 'Guardar y regenerar';
     }
+  });
+}
+
+// =========================================================================
+// VISTA: Contrato — carga de PDF con extracción vía Claude API (server/
+// extraccionContrato.js) hacia un formulario editable. Dos puntos de entrada:
+// promptUploadContrato() desde la galería de clientes (crea obra nueva) y
+// promptAttachContrato() desde dentro de una obra existente (solo adjunta/
+// actualiza sus datos de contrato, nunca crea un proyecto duplicado).
+// =========================================================================
+const CONTRATO_FIELDS = [
+  { key: 'proyecto_desarrollo', label: 'Proyecto / Desarrollo', inputType: 'text', format: 'text' },
+  { key: 'obra_numero', label: 'Número de obra', inputType: 'text', format: 'text' },
+  { key: 'obra_descripcion', label: 'Descripción de la obra', inputType: 'text', format: 'text' },
+  { key: 'empresa_contratante', label: 'Empresa contratante', inputType: 'text', format: 'text' },
+  { key: 'contratista_nombre', label: 'Nombre del contratista', inputType: 'text', format: 'text' },
+  { key: 'contratista_rfc', label: 'RFC del contratista', inputType: 'text', format: 'text' },
+  { key: 'contratista_domicilio', label: 'Domicilio del contratista', inputType: 'text', format: 'text' },
+  { key: 'contratista_telefono', label: 'Teléfono del contratista', inputType: 'text', format: 'text' },
+  { key: 'fecha_documento', label: 'Fecha del documento', inputType: 'date', format: 'date' },
+  { key: 'fecha_inicio', label: 'Fecha de inicio', inputType: 'date', format: 'date' },
+  { key: 'fecha_termino', label: 'Fecha de término', inputType: 'date', format: 'date' },
+  { key: 'tipo_contrato', label: 'Tipo de contrato', inputType: 'text', format: 'text' },
+  { key: 'subtotal_materiales', label: 'Subtotal materiales', inputType: 'number', format: 'money' },
+  { key: 'subtotal_mano_obra', label: 'Subtotal mano de obra', inputType: 'number', format: 'money' },
+  { key: 'subtotal_carga_social', label: 'Subtotal carga social', inputType: 'number', format: 'money' },
+  { key: 'subtotal_herramienta_equipo', label: 'Subtotal herramienta y equipo', inputType: 'number', format: 'money' },
+  { key: 'subtotal_costo_directo', label: 'Subtotal costo directo', inputType: 'number', format: 'money' },
+  { key: 'indirecto_utilidad', label: 'Indirecto y utilidad', inputType: 'number', format: 'money' },
+  { key: 'importe_contratado', label: 'Importe contratado', inputType: 'number', format: 'money' },
+  { key: 'iva_monto', label: 'IVA', inputType: 'number', format: 'money' },
+  { key: 'total_contratado', label: 'Total contratado', inputType: 'number', format: 'money' },
+  { key: 'anticipo_monto', label: 'Anticipo', inputType: 'number', format: 'money' },
+  { key: 'fondo_garantia_monto', label: 'Fondo de garantía', inputType: 'number', format: 'money' },
+  { key: 'volumen_contratado', label: 'Volumen contratado', inputType: 'number', format: 'number' },
+  { key: 'volumen_unidad', label: 'Unidad de volumen', inputType: 'text', format: 'text' },
+];
+
+// fecha_inicio/fecha_termino viven en las claves ya existentes inicio_obra/
+// fin_obra (las lee también la pestaña Resumen); el resto de campos usa su
+// propio nombre de clave en `meta`.
+function metaToCamposContrato(meta) {
+  const campos = {};
+  for (const f of CONTRATO_FIELDS) {
+    if (f.key === 'fecha_inicio') campos[f.key] = meta.inicio_obra || null;
+    else if (f.key === 'fecha_termino') campos[f.key] = meta.fin_obra || null;
+    else campos[f.key] = meta[f.key] != null ? meta[f.key] : null;
+  }
+  return campos;
+}
+
+// Se excluyen fecha_inicio/fecha_termino porque esas claves ya existen en
+// obras cargadas por Excel sin que eso signifique que tengan un contrato.
+function tieneContrato(meta) {
+  return CONTRATO_FIELDS.some((f) => {
+    if (f.key === 'fecha_inicio' || f.key === 'fecha_termino') return false;
+    return meta[f.key] != null && meta[f.key] !== '';
+  });
+}
+
+function formatContratoValor(field, value) {
+  if (value == null || value === '') return '—';
+  if (field.format === 'date') return fmtDate(value);
+  if (field.format === 'money') return fmtMoney(value);
+  if (field.format === 'number') return fmtNum(value);
+  return esc(value);
+}
+
+// Punto de entrada (a): galería de clientes → crea una obra nueva a partir del PDF
+function promptUploadContrato() {
+  const options = state.clientes.map((c) => `<option value="${c.id}" ${c.id === state.clienteId ? 'selected' : ''}>${esc(c.nombre)}</option>`).join('');
+  openModal(`
+    <h3>Cargar Contrato PDF</h3>
+    <p class="muted">Se creará una obra nueva a partir de los datos del contrato. Indica a qué cliente pertenece antes de elegir el PDF.</p>
+    <div class="field"><label>Cliente</label>
+      <select id="contratoClienteSelect"><option value="">Selecciona un cliente…</option>${options}</select>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" id="btnCancelContratoUpload">Cancelar</button>
+      <button class="btn btn-primary" id="btnContinuarContratoUpload">Continuar y elegir PDF</button>
+    </div>
+  `);
+  $('#btnCancelContratoUpload').addEventListener('click', closeModal);
+  $('#btnContinuarContratoUpload').addEventListener('click', () => {
+    const clienteId = Number($('#contratoClienteSelect').value) || null;
+    if (!clienteId) { toast('Selecciona un cliente', 'danger'); return; }
+    state.pendingContrato = { mode: 'create', clienteId };
+    closeModal();
+    $('#pdfFileInput').click();
+  });
+}
+$('#btnCargarContratoGallery').addEventListener('click', promptUploadContrato);
+
+// Punto de entrada (b): dentro de una obra ya existente → adjunta/actualiza sin crear duplicado
+function promptAttachContrato() {
+  state.pendingContrato = { mode: 'attach', projectId: state.projectId };
+  $('#pdfFileInput').click();
+}
+
+$('#pdfFileInput').addEventListener('change', async (ev) => {
+  const file = ev.target.files[0];
+  ev.target.value = '';
+  if (!file) return;
+  if (!/\.pdf$/i.test(file.name)) { toast('Solo se admiten archivos .pdf', 'danger'); return; }
+  const ctx = state.pendingContrato;
+  state.pendingContrato = null;
+  if (!ctx) return;
+  ctx.fileName = file.name;
+
+  openModal(`
+    <h3>Analizando contrato…</h3>
+    <p class="muted">Extrayendo los datos de "${esc(file.name)}" con IA. Esto puede tardar unos segundos.</p>
+    <div class="spinner"></div>
+  `);
+  try {
+    const fd = new FormData();
+    fd.append('pdf', file);
+    const preview = await api('/projects/contrato-preview', { method: 'POST', body: fd });
+    openContratoFormModal(preview, ctx);
+  } catch (err) {
+    closeModal();
+    toast(err.message, 'danger');
+  }
+});
+
+function openContratoFormModal(preview, ctx) {
+  const campos = preview.campos || {};
+  const escaneado = !!preview.escaneado;
+
+  const fieldsHtml = CONTRATO_FIELDS.map((f) => {
+    const value = campos[f.key];
+    const isNull = value == null || value === '';
+    return `
+      <div class="field ${isNull ? 'field-null' : ''}">
+        <label>${esc(f.label)}</label>
+        <input type="${f.inputType}" id="contrato_${f.key}" ${f.inputType === 'number' ? 'step="any"' : ''} value="${esc(value ?? '')}" />
+      </div>
+    `;
+  }).join('');
+
+  const clienteHtml = ctx.mode === 'create'
+    ? `<div class="field"><label>Cliente</label>
+        <select id="contratoFormCliente">${state.clientes.map((c) => `<option value="${c.id}" ${c.id === ctx.clienteId ? 'selected' : ''}>${esc(c.nombre)}</option>`).join('')}</select>
+      </div>`
+    : `<p class="muted">Se guardará en la obra: <strong>${esc((state.projects.find((p) => p.id === ctx.projectId) || {}).nombre || '')}</strong></p>`;
+
+  openModal(`
+    <h3>Datos del contrato</h3>
+    ${escaneado
+      ? '<div class="alert-box danger">⚠️ Este PDF parece ser una imagen escaneada sin texto extraíble. Captura los datos manualmente.</div>'
+      : '<p class="muted">Revisa y corrige los datos extraídos antes de guardar. Los campos con borde amarillo no se detectaron en el documento.</p>'}
+    ${clienteHtml}
+    ${fieldsHtml}
+    <div class="modal-actions">
+      <button class="btn" id="btnCancelContratoForm">Cancelar</button>
+      <button class="btn btn-primary" id="btnSaveContratoForm">Confirmar</button>
+    </div>
+  `);
+
+  $('#btnCancelContratoForm').addEventListener('click', closeModal);
+  $('#btnSaveContratoForm').addEventListener('click', async () => {
+    const btn = $('#btnSaveContratoForm');
+    const body = {};
+    CONTRATO_FIELDS.forEach((f) => {
+      const el = $(`#contrato_${f.key}`);
+      body[f.key] = el.value.trim() === '' ? null : el.value;
+    });
+    let clienteIdElegido = null;
+    if (ctx.mode === 'create') {
+      clienteIdElegido = Number($('#contratoFormCliente').value);
+      if (!clienteIdElegido) { toast('Selecciona un cliente', 'danger'); return; }
+      body.cliente_id = clienteIdElegido;
+      body.archivo_original = ctx.fileName || null;
+    } else {
+      body.project_id = ctx.projectId;
+    }
+    btn.disabled = true; btn.textContent = 'Guardando…';
+    try {
+      const result = await api('/projects/contrato-confirm', { method: 'POST', body });
+      closeModal();
+      if (clienteIdElegido) state.clienteId = clienteIdElegido;
+      await Promise.all([refreshClientList(), refreshProjectList()]);
+      showApp();
+      invalidate('resumen');
+      selectProject(result.project_id);
+      state.view = 'contrato';
+      $$('.tab').forEach((t) => t.classList.toggle('active', t.dataset.view === 'contrato'));
+      closeDrawer();
+      renderView();
+      toast('Contrato guardado', 'success');
+    } catch (err) {
+      toast(err.message, 'danger');
+      btn.disabled = false; btn.textContent = 'Confirmar';
+    }
+  });
+}
+
+async function renderContrato(view) {
+  const resumen = await cached('resumen', () => api(`/projects/${state.projectId}/resumen`));
+  const meta = resumen.meta || {};
+
+  if (!tieneContrato(meta)) {
+    view.innerHTML = `
+      <h2 class="section-title">Contrato</h2>
+      <div class="empty-state">
+        <div class="big">📄</div>
+        <p>Esta obra aún no tiene un contrato cargado.</p>
+        ${isAdmin() ? '<button class="btn btn-primary" id="btnCargarContratoTab">Cargar PDF de contrato</button>' : ''}
+      </div>
+    `;
+    $('#btnCargarContratoTab')?.addEventListener('click', promptAttachContrato);
+    return;
+  }
+
+  const campos = metaToCamposContrato(meta);
+  view.innerHTML = `
+    <h2 class="section-title">Contrato</h2>
+    <div class="card">
+      ${CONTRATO_FIELDS.map((f) => `<div class="card-row"><span class="k">${esc(f.label)}</span><span class="v">${formatContratoValor(f, campos[f.key])}</span></div>`).join('')}
+    </div>
+    ${isAdmin() ? '<div class="row end" style="margin-top:10px"><button class="btn" id="btnEditarContrato">Editar</button></div>' : ''}
+  `;
+  $('#btnEditarContrato')?.addEventListener('click', () => {
+    openContratoFormModal({ escaneado: false, campos }, { mode: 'attach', projectId: state.projectId });
   });
 }
 

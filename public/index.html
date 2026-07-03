@@ -40,6 +40,7 @@
       <p class="muted">Elige el cliente para ver sus presupuestos.</p>
       <div id="clienteGrid" class="cliente-grid"></div>
       <button class="btn btn-primary full" id="btnNuevoClienteGallery" style="display:none;margin-top:16px">+ Nuevo cliente</button>
+      <button class="btn full" id="btnCargarContratoGallery" style="display:none;margin-top:8px">📄 Cargar Contrato PDF</button>
     </div>
   </div>
 
@@ -81,6 +82,7 @@
     -->
     <nav id="tabs" class="tabs">
       <button class="tab" data-view="resumen"><span class="tab-icon">📊</span><span class="tab-label">Resumen</span></button>
+      <button class="tab" data-view="contrato"><span class="tab-icon">📄</span><span class="tab-label">Contrato</span></button>
       <button class="tab" data-view="insumos"><span class="tab-icon">📦</span><span class="tab-label">Insumos</span></button>
       <button class="tab" data-view="requisiciones"><span class="tab-icon">🧾</span><span class="tab-label">Requisiciones</span></button>
       <button class="tab" data-view="proveedores"><span class="tab-icon">🏭</span><span class="tab-label">Proveedores</span></button>
@@ -114,6 +116,7 @@
   <div id="modal" class="modal"></div>
 
   <input type="file" id="fileInput" accept=".xlsx" hidden />
+  <input type="file" id="pdfFileInput" accept=".pdf" hidden />
 
   <div id="toast" class="toast"></div>
 

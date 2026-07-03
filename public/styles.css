@@ -157,6 +157,7 @@ input, select, textarea {
 }
 label { display: block; font-size: 0.8rem; color: var(--muted); margin: 10px 0 4px; }
 .field { margin-bottom: 6px; }
+.field-null input, .field-null select { border-color: var(--yellow); }
 
 .search-bar { display: flex; gap: 8px; margin-bottom: 12px; }
 .search-bar input { flex: 1; }

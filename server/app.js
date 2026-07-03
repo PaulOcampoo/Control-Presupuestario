@@ -12,6 +12,7 @@ const { ingest } = require('./ingest');
 const { generatePlanning } = require('./planning');
 const auth = require('./auth');
 const { sendXlsxExport, buildExportFilename } = require('./exportHelper');
+const { extraerDatosContrato, CAMPOS_CONTRATO } = require('./extraccionContrato');
 
 const app = express();
 
@@ -25,6 +26,17 @@ const upload = multer({
   fileFilter: (_req, file, cb) => {
     const ok = /\.xlsx$/i.test(file.originalname);
     cb(ok ? null : new Error('Solo se admiten archivos .xlsx'), ok);
+  },
+});
+
+// Multer aparte para PDFs de contrato (fase de extracción vía Claude API) —
+// mismo patrón que `upload`, pero con su propio fileFilter.
+const uploadPdf = multer({
+  dest: os.tmpdir(),
+  limits: { fileSize: 15 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const ok = /\.pdf$/i.test(file.originalname);
+    cb(ok ? null : new Error('Solo se admiten archivos .pdf'), ok);
   },
 });
 
@@ -504,6 +516,64 @@ app.put('/api/projects/:id/fechas-obra', h(auth.allow()), h(requireProject), h(a
   });
 
   res.json({ ok: true, inicio_obra, fin_obra, actividades: plan.programa.length, semanas: plan.avances.length });
+}));
+
+// ---------------------------------------------------------------------------
+// Contrato PDF — extracción vía Claude API (admin-only). Flujo separado de la
+// carga por Excel: no toca parseWorkbook/ingest ni el catálogo de conceptos/
+// insumos, solo crea/actualiza la obra y sus datos de contrato en `meta`.
+// contrato-preview no guarda nada; contrato-confirm es quien escribe.
+// ---------------------------------------------------------------------------
+app.post('/api/projects/contrato-preview', h(auth.allow()), uploadPdf.single('pdf'), h(async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'Sube un archivo .pdf de contrato' });
+  const tmpPath = req.file.path;
+  try {
+    const buffer = await fs.promises.readFile(tmpPath);
+    const resultado = await extraerDatosContrato(buffer);
+    res.json(resultado);
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message });
+  } finally {
+    fs.rm(tmpPath, () => {});
+  }
+}));
+
+app.post('/api/projects/contrato-confirm', h(auth.allow()), h(async (req, res) => {
+  const body = req.body || {};
+  const upsertMeta = `
+    INSERT INTO meta (project_id, clave, valor) VALUES ($1, $2, $3)
+    ON CONFLICT (project_id, clave) DO UPDATE SET valor = EXCLUDED.valor
+  `;
+
+  let projectId;
+  let nombre;
+  if (body.project_id) {
+    projectId = Number(body.project_id);
+    const proj = await db.getProject(projectId);
+    if (!proj) return res.status(404).json({ error: 'Proyecto no encontrado' });
+    nombre = proj.nombre;
+  } else {
+    const clienteId = Number(body.cliente_id);
+    if (!Number.isFinite(clienteId)) {
+      return res.status(400).json({ error: 'Indica a qué cliente pertenece esta obra' });
+    }
+    const { rows: clienteRows } = await db.pool.query('SELECT id FROM clientes WHERE id = $1', [clienteId]);
+    if (!clienteRows[0]) return res.status(400).json({ error: 'El cliente indicado no existe' });
+    nombre = (body.obra_descripcion || body.proyecto_desarrollo || '').toString().trim() || 'Contrato sin nombre';
+    const record = await db.createProjectRecord(nombre, body.archivo_original || null, clienteId);
+    projectId = record.id;
+  }
+
+  await db.withTransaction(async (client) => {
+    for (const campo of CAMPOS_CONTRATO) {
+      const valor = body[campo];
+      if (valor === undefined || valor === null || valor === '') continue;
+      const clave = campo === 'fecha_inicio' ? 'inicio_obra' : campo === 'fecha_termino' ? 'fin_obra' : campo;
+      await client.query(upsertMeta, [projectId, clave, String(valor)]);
+    }
+  });
+
+  res.json({ project_id: projectId, nombre });
 }));
 
 // ---------------------------------------------------------------------------

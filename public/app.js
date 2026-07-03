@@ -1543,7 +1543,11 @@ async function openGenerarOrdenModal(requisicion) {
     <div class="field"><label>Fecha</label><input id="ocFecha" type="date" value="${new Date().toISOString().slice(0, 10)}" /></div>
     <div id="ocItems"></div>
     <div class="field">
-      <label><input type="checkbox" id="ocIncluyeIva" checked style="width:auto;margin-right:6px" /> El monto por unidad que capturé arriba incluye IVA</label>
+      <label class="muted" style="font-size:0.78rem;margin-bottom:4px;display:block">¿Los precios que capturaste arriba incluyen IVA?</label>
+      <div style="display:flex;flex-direction:column;gap:6px">
+        <label style="font-weight:400"><input type="radio" name="ocIvaModo" id="ocSinIva" checked style="width:auto;margin-right:6px" /> Los precios que capturé son <strong>SIN IVA</strong> (se sumará el 16% al total)</label>
+        <label style="font-weight:400"><input type="radio" name="ocIvaModo" id="ocIncluyeIva" style="width:auto;margin-right:6px" /> Los precios que capturé <strong>YA INCLUYEN IVA</strong> (se desglosará del total)</label>
+      </div>
     </div>
     <div class="card" id="ocIvaResumen" style="background:var(--panel-2)">
       <div class="card-row"><span class="k">Subtotal</span><span class="v" id="ocSubtotalOut">—</span></div>
@@ -1592,7 +1596,7 @@ async function openGenerarOrdenModal(requisicion) {
     cantInp.addEventListener('input', update);
     precInp.addEventListener('input', update);
   });
-  $('#ocIncluyeIva').addEventListener('change', updateIvaResumen);
+  $$('input[name="ocIvaModo"]').forEach((r) => r.addEventListener('change', updateIvaResumen));
   updateIvaResumen();
 
   $('#btnCancelOC').addEventListener('click', closeModal);

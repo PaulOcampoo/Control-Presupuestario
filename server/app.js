@@ -1040,7 +1040,7 @@ app.post('/api/projects/:id/requisiciones/:reqId/ordenes', h(auth.allow('residen
   const pid = req.project.id;
   const reqId = Number(req.params.reqId);
   const { proveedor_id, folio, fecha, observaciones, items } = req.body || {};
-  const incluyeIva = (req.body || {}).incluye_iva !== false; // default true (patrón real observado)
+  const incluyeIva = (req.body || {}).incluye_iva === true; // default false: la mayoría de precios se capturan sin IVA
 
   const { rows: reqRows } = await db.pool.query(
     'SELECT * FROM requisiciones WHERE id = $1 AND project_id = $2', [reqId, pid]

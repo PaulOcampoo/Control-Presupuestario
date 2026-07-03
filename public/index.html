@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#0f172a" />
-  <title>Control Presupuestal de Obra</title>
+  <title>Grupo Roforb — Control Presupuestal</title>
   <link rel="manifest" href="/manifest.webmanifest" />
   <link rel="icon" href="/icons/icon-192.png" />
   <link rel="apple-touch-icon" href="/icons/icon-192.png" />
@@ -16,9 +16,9 @@
   <!-- Pantalla de login: filtra el acceso por usuario y puesto -->
   <div id="loginScreen" class="login-screen">
     <form id="loginForm" class="login-card">
-      <div class="login-logo">🏗️</div>
-      <h1>Control Presupuestal</h1>
-      <p class="muted">Inicia sesión con tu cuenta de la constructora</p>
+      <img class="login-logo" src="/logo-roforb.png" alt="Grupo Roforb" />
+      <h1>Grupo Roforb</h1>
+      <p class="muted">Control Presupuestal de Obra — inicia sesión con tu cuenta</p>
       <div class="field"><label>Usuario</label><input id="loginUsuario" autocomplete="username" required /></div>
       <div class="field"><label>Contraseña</label><input id="loginPassword" type="password" autocomplete="current-password" required /></div>
       <div id="loginError" class="alert-box danger" style="display:none"></div>
@@ -30,7 +30,10 @@
     <header class="topbar">
       <button id="btnMenu" class="icon-btn" aria-label="Menú">☰</button>
       <div class="topbar-title">
-        <strong>Control Presupuestal</strong>
+        <div class="topbar-brand">
+          <img src="/logo-roforb.png" alt="" class="topbar-logo" />
+          <strong>Grupo Roforb</strong>
+        </div>
         <span id="projectName" class="muted">Selecciona un presupuesto</span>
       </div>
       <button id="btnSync" class="icon-btn" aria-label="Sincronizar" title="Sincronizar datos">↺</button>

@@ -1,6 +1,6 @@
 {
-  "name": "Control Presupuestal de Obra",
-  "short_name": "CtrlPpto",
+  "name": "Grupo Roforb — Control Presupuestal",
+  "short_name": "Roforb",
   "description": "Catalogo de insumos, requisiciones con alertas, avances y programa de ejecucion por presupuesto.",
   "start_url": "/",
   "scope": "/",

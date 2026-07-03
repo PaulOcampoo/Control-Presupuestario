@@ -4,15 +4,24 @@
   --panel-2: #273449;
   --border: #334155;
   --text: #e2e8f0;
-  --muted: #94a3b8;
-  --accent: #38bdf8;
-  --accent-2: #0ea5e9;
+  --muted: #acabad;
+  --accent: #c3a67f;
+  --accent-2: #c3a67f;
   --green: #22c55e;
   --yellow: #eab308;
   --red: #ef4444;
   --radius: 12px;
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
+
+  /* Paleta de marca Grupo Roforb — extraída por código del logotipo real
+     (public/logo-roforb.png), no inventada. Solo usar para UI/marca; las
+     gráficas de datos (Chart.js) usan hex fijos aparte y no dependen de
+     estas variables. */
+  --roforb-navy: #0f172a;
+  --roforb-gold: #c3a67f;
+  --roforb-silver: #888789;
+  --roforb-silver-light: #acabad;
 }
 
 * { box-sizing: border-box; }
@@ -41,7 +50,7 @@ body {
 .topbar-title span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 .icon-btn {
-  background: var(--panel-2); color: var(--text); border: 1px solid var(--border);
+  background: var(--panel-2); color: var(--roforb-silver-light); border: 1px solid var(--border);
   border-radius: 10px; width: 40px; height: 40px; font-size: 1.1rem;
   display: flex; align-items: center; justify-content: center; cursor: pointer;
 }
@@ -65,7 +74,8 @@ h2.section-title { margin: 4px 0 12px; font-size: 1.05rem; }
 h3.section-title { margin: 18px 0 10px; font-size: 0.95rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
 
 .card {
-  background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--panel); border: 1px solid color-mix(in srgb, var(--roforb-silver) 40%, var(--border) 60%);
+  border-radius: var(--radius);
   padding: 14px; margin-bottom: 12px;
 }
 .card-row { display: flex; justify-content: space-between; gap: 10px; padding: 6px 0; border-bottom: 1px dashed var(--border); }

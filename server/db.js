@@ -57,7 +57,8 @@ const SCHEMA = `
     cantidad_presupuesto DOUBLE PRECISION DEFAULT 0,
     precio_presupuesto DOUBLE PRECISION DEFAULT 0,
     importe_presupuesto DOUBLE PRECISION DEFAULT 0,
-    orden INTEGER DEFAULT 0
+    orden INTEGER DEFAULT 0,
+    iva_tasa DOUBLE PRECISION NOT NULL DEFAULT 16
   );
   CREATE INDEX IF NOT EXISTS idx_insumos_project ON insumos(project_id);
 
@@ -205,6 +206,7 @@ const SCHEMA = `
     fecha DATE NOT NULL DEFAULT CURRENT_DATE,
     estado TEXT NOT NULL DEFAULT 'borrador',
     observaciones TEXT,
+    incluye_iva BOOLEAN NOT NULL DEFAULT true,
     creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW()
   );
   CREATE INDEX IF NOT EXISTS idx_oc_project ON ordenes_compra(project_id);
@@ -247,6 +249,7 @@ const SCHEMA = `
     metodo TEXT,
     referencia TEXT,
     observaciones TEXT,
+    incluye_iva BOOLEAN NOT NULL DEFAULT true,
     creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW()
   );
   CREATE INDEX IF NOT EXISTS idx_pagos_oc ON pagos(orden_compra_id);
@@ -264,6 +267,14 @@ const SCHEMA = `
     creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW()
   );
   CREATE INDEX IF NOT EXISTS idx_gastos_project ON gastos_generales(project_id);
+
+  -- Columnas de IVA agregadas después de que estas tablas ya existían en
+  -- producción — CREATE TABLE IF NOT EXISTS no las hubiera sumado a tablas
+  -- previamente creadas, así que se agregan explícitamente aquí (idempotente,
+  -- no destructivo: filas existentes quedan con el default).
+  ALTER TABLE insumos ADD COLUMN IF NOT EXISTS iva_tasa DOUBLE PRECISION NOT NULL DEFAULT 16;
+  ALTER TABLE ordenes_compra ADD COLUMN IF NOT EXISTS incluye_iva BOOLEAN NOT NULL DEFAULT true;
+  ALTER TABLE pagos ADD COLUMN IF NOT EXISTS incluye_iva BOOLEAN NOT NULL DEFAULT true;
 `;
 
 async function initSchema() {

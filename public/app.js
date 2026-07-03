@@ -535,6 +535,14 @@ function paintInsumos(insumos) {
         <span class="${over ? 'badge red' : ''}">${fmtNum(i.cantidad_acumulada, 3)} ${esc(i.unidad || '')} (${fmtPct(pct)})</span>
       </div>
       <div class="progress-bar ${over ? 'over' : ''}"><span style="width:${Math.min(100, pct)}%"></span></div>
+      ${isAdmin() ? `
+      <div class="row between" style="margin-top:6px">
+        <span class="muted" style="font-size:0.78rem">IVA aplicable</span>
+        <span style="display:flex;align-items:center;gap:4px">
+          <input type="number" min="0" max="100" step="0.01" value="${i.iva_tasa}" data-iva-input="${i.id}" style="width:64px;text-align:right" />
+          <span class="muted" style="font-size:0.78rem">%</span>
+        </span>
+      </div>` : ''}
       <div class="row end">
         <button class="btn small btn-primary" data-add="${i.id}">+ Agregar a requisición</button>
       </div>
@@ -542,6 +550,18 @@ function paintInsumos(insumos) {
   }).join('');
 
   $$('[data-add]', list).forEach((btn) => btn.addEventListener('click', () => addToDraft(Number(btn.dataset.add), insumos)));
+
+  $$('[data-iva-input]', list).forEach((inp) => {
+    inp.addEventListener('blur', async () => {
+      const insumoId = Number(inp.dataset.ivaInput);
+      const ivaTasa = Number(inp.value);
+      if (!Number.isFinite(ivaTasa) || ivaTasa < 0 || ivaTasa > 100) { toast('IVA debe ser un número entre 0 y 100', 'danger'); return; }
+      try {
+        await api(`/projects/${state.projectId}/insumos/${insumoId}`, { method: 'PUT', body: { iva_tasa: ivaTasa } });
+        toast('IVA del insumo actualizado', 'success');
+      } catch (err) { toast(err.message, 'danger'); }
+    });
+  });
 }
 
 function queryString(obj) {
@@ -551,6 +571,26 @@ function queryString(obj) {
 function debounce(fn, ms) {
   let t;
   return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); };
+}
+
+// Espejo en el cliente de computeIvaBreakdown (server/app.js) para la vista
+// previa en vivo al capturar una Orden de Compra — items: [{importe, iva_tasa}]
+function ivaBreakdown(items, incluyeIva) {
+  let subtotal = 0;
+  let iva = 0;
+  for (const it of items) {
+    const importe = Number(it.importe) || 0;
+    const tasa = Number(it.iva_tasa || 16) / 100;
+    if (incluyeIva) {
+      const sub = importe / (1 + tasa);
+      subtotal += sub;
+      iva += importe - sub;
+    } else {
+      subtotal += importe;
+      iva += importe * tasa;
+    }
+  }
+  return { subtotal, iva, total: subtotal + iva };
 }
 
 // =========================================================================
@@ -1062,8 +1102,14 @@ function openEditRequisicionModal(requisicion) {
 async function openGenerarOrdenModal(requisicion) {
   openModal('<div class="spinner"></div>');
   let proveedores = [];
+  let ivaTasaMap = new Map();
   try {
-    proveedores = await api('/proveedores');
+    const [provs, insumos] = await Promise.all([
+      api('/proveedores'),
+      api(`/projects/${state.projectId}/insumos`),
+    ]);
+    proveedores = provs;
+    ivaTasaMap = new Map(insumos.map((i) => [i.id, i.iva_tasa]));
   } catch (err) {
     closeModal();
     toast(err.message, 'danger');
@@ -1088,6 +1134,14 @@ async function openGenerarOrdenModal(requisicion) {
     <div class="field"><label>Folio (opcional)</label><input id="ocFolio" placeholder="Ej. OC-2026-001" /></div>
     <div class="field"><label>Fecha</label><input id="ocFecha" type="date" value="${new Date().toISOString().slice(0, 10)}" /></div>
     <div id="ocItems"></div>
+    <div class="field">
+      <label><input type="checkbox" id="ocIncluyeIva" checked style="width:auto;margin-right:6px" /> El monto por unidad que capturé arriba incluye IVA</label>
+    </div>
+    <div class="card" id="ocIvaResumen" style="background:var(--panel-2)">
+      <div class="card-row"><span class="k">Subtotal</span><span class="v" id="ocSubtotalOut">—</span></div>
+      <div class="card-row"><span class="k">IVA</span><span class="v" id="ocIvaOut">—</span></div>
+      <div class="card-row"><span class="k">Total</span><span class="v" id="ocTotalOut" style="font-weight:700">—</span></div>
+    </div>
     <div class="field"><label>Observaciones</label><textarea id="ocObs" rows="2" placeholder="Notas para esta orden…"></textarea></div>
     <div class="modal-actions">
       <button class="btn" id="btnCancelOC">Cerrar</button>
@@ -1096,7 +1150,7 @@ async function openGenerarOrdenModal(requisicion) {
   `);
 
   $('#ocItems').innerHTML = requisicion.items.map((it) => `
-    <div class="req-item-row" data-req-item="${it.id}">
+    <div class="req-item-row" data-req-item="${it.id}" data-iva-tasa="${ivaTasaMap.get(it.insumo_id) ?? 16}">
       <div style="font-weight:600;font-size:0.88rem">${esc(it.insumo_concepto)}</div>
       <div class="code muted">${esc(it.insumo_codigo)} · solicitado: ${fmtNum(it.cantidad_solicitada, 3)} ${esc(it.unidad || '')} a ${fmtMoney(it.precio_solicitado)}</div>
       <div class="qty-row">
@@ -1107,14 +1161,31 @@ async function openGenerarOrdenModal(requisicion) {
     </div>
   `).join('');
 
+  function updateIvaResumen() {
+    const incluyeIva = $('#ocIncluyeIva').checked;
+    const items = $$('#ocItems .req-item-row').map((row) => ({
+      importe: (Number(row.querySelector('[data-oc-cantidad]').value) || 0) * (Number(row.querySelector('[data-oc-precio]').value) || 0),
+      iva_tasa: Number(row.dataset.ivaTasa),
+    }));
+    const b = ivaBreakdown(items, incluyeIva);
+    $('#ocSubtotalOut').textContent = fmtMoney(b.subtotal);
+    $('#ocIvaOut').textContent = fmtMoney(b.iva);
+    $('#ocTotalOut').textContent = fmtMoney(b.total);
+  }
+
   $$('#ocItems .req-item-row').forEach((row) => {
     const cantInp = row.querySelector('[data-oc-cantidad]');
     const precInp = row.querySelector('[data-oc-precio]');
     const out = row.querySelector('[data-oc-importe]');
-    const update = () => { out.textContent = `= ${fmtMoney((Number(cantInp.value) || 0) * (Number(precInp.value) || 0))}`; };
+    const update = () => {
+      out.textContent = `= ${fmtMoney((Number(cantInp.value) || 0) * (Number(precInp.value) || 0))}`;
+      updateIvaResumen();
+    };
     cantInp.addEventListener('input', update);
     precInp.addEventListener('input', update);
   });
+  $('#ocIncluyeIva').addEventListener('change', updateIvaResumen);
+  updateIvaResumen();
 
   $('#btnCancelOC').addEventListener('click', closeModal);
   $('#btnSaveOC').addEventListener('click', async () => {
@@ -1136,6 +1207,7 @@ async function openGenerarOrdenModal(requisicion) {
           folio: $('#ocFolio').value.trim() || null,
           fecha: $('#ocFecha').value || null,
           observaciones: $('#ocObs').value.trim() || null,
+          incluye_iva: $('#ocIncluyeIva').checked,
           items,
         },
       });
@@ -1213,6 +1285,12 @@ async function openOrdenDetalle(ocId) {
           : `<select id="ocEstadoSelect">${estados.map((e) => `<option value="${e}" ${e === o.estado ? 'selected' : ''}>${e}</option>`).join('')}</select>`}
       </div>
       <div id="ocItemsDetail"></div>
+      <div class="card" style="background:var(--panel-2)">
+        <div class="card-row"><span class="k">Los montos capturados</span><span class="v">${o.incluye_iva ? 'incluyen IVA' : 'no incluyen IVA (son sin IVA)'}</span></div>
+        <div class="card-row"><span class="k">Subtotal</span><span class="v">${fmtMoney(o.desglose_iva.subtotal)}</span></div>
+        <div class="card-row"><span class="k">IVA</span><span class="v">${fmtMoney(o.desglose_iva.iva)}</span></div>
+        <div class="card-row"><span class="k">Total</span><span class="v" style="font-weight:700">${fmtMoney(o.desglose_iva.total)}</span></div>
+      </div>
 
       <h3 class="section-title">Recepciones</h3>
       <div id="ocRecepcionesList"><div class="spinner"></div></div>
@@ -1299,7 +1377,8 @@ async function paintOcPagos(ocId) {
     const data = await api(`/projects/${state.projectId}/ordenes/${ocId}/pagos`);
     const pagosHtml = data.pagos.length ? data.pagos.map((p) => `
       <div class="row between" style="font-size:0.84rem">
-        <span>${fmtDate(p.fecha)} ${p.metodo ? `· ${esc(p.metodo)}` : ''} ${p.referencia ? `· ${esc(p.referencia)}` : ''}</span>
+        <span>${fmtDate(p.fecha)} ${p.metodo ? `· ${esc(p.metodo)}` : ''} ${p.referencia ? `· ${esc(p.referencia)}` : ''}
+          <span class="muted" style="font-size:0.74rem"> · ${p.incluye_iva ? 'con IVA' : 'sin IVA'}</span></span>
         <span>${fmtMoney(p.monto)}</span>
       </div>`).join('') : '<p class="muted" style="font-size:0.84rem">Sin pagos registrados.</p>';
     box.innerHTML = `
@@ -1401,6 +1480,9 @@ function openRegistrarPagoModal(orden) {
     <p class="muted">${esc(orden.folio || `OC #${orden.id}`)} — ${esc(orden.proveedor_nombre)}</p>
     <div class="field"><label>Fecha</label><input id="pagoFecha" type="date" value="${new Date().toISOString().slice(0, 10)}" /></div>
     <div class="field"><label>Monto *</label><input id="pagoMonto" type="number" min="0" step="any" /></div>
+    <div class="field">
+      <label><input type="checkbox" id="pagoIncluyeIva" checked style="width:auto;margin-right:6px" /> Este monto incluye IVA</label>
+    </div>
     <div class="field"><label>Método</label><input id="pagoMetodo" placeholder="Transferencia, efectivo, cheque…" /></div>
     <div class="field"><label>Referencia</label><input id="pagoReferencia" placeholder="Folio, número de cheque…" /></div>
     <div class="field"><label>Observaciones</label><textarea id="pagoObs" rows="2"></textarea></div>
@@ -1422,6 +1504,7 @@ function openRegistrarPagoModal(orden) {
         body: {
           fecha: $('#pagoFecha').value || null,
           monto,
+          incluye_iva: $('#pagoIncluyeIva').checked,
           metodo: $('#pagoMetodo').value.trim() || null,
           referencia: $('#pagoReferencia').value.trim() || null,
           observaciones: $('#pagoObs').value.trim() || null,

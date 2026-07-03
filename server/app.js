@@ -511,6 +511,21 @@ app.get('/api/projects/:id/insumos/categorias', h(auth.allow('residente')), h(re
   res.json(rows.map((r) => r.categoria));
 }));
 
+// Solo permite editar la tasa de IVA del insumo (captura hacia adelante para
+// Compras) — no toca codigo/concepto/cantidad/precio del catálogo del .xlsx.
+app.put('/api/projects/:id/insumos/:insumoId', h(auth.allow()), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  const ivaTasa = Number((req.body || {}).iva_tasa);
+  if (!Number.isFinite(ivaTasa) || ivaTasa < 0 || ivaTasa > 100) {
+    return res.status(400).json({ error: 'iva_tasa debe ser un número entre 0 y 100' });
+  }
+  const { rows } = await db.pool.query(
+    'UPDATE insumos SET iva_tasa = $1 WHERE id = $2 AND project_id = $3 RETURNING *',
+    [ivaTasa, Number(req.params.insumoId), req.project.id]
+  );
+  if (!rows[0]) return res.status(404).json({ error: 'Insumo no encontrado' });
+  res.json(rows[0]);
+}));
+
 // ---------------------------------------------------------------------------
 // Requisiciones
 // ---------------------------------------------------------------------------
@@ -708,6 +723,33 @@ app.post('/api/projects/:id/requisiciones/preview', h(auth.allow('residente')), 
 // o para ordenar en distintos momentos); el sobre-orden de un item solo
 // genera una alerta, no bloquea, igual que alerta_cantidad/alerta_precio.
 // ---------------------------------------------------------------------------
+
+// Calcula Subtotal/IVA/Total de una OC a partir de sus items (cada uno con
+// `importe` e `iva_tasa` propia del insumo) y el toggle `incluye_iva` de la
+// orden: si incluye_iva, el importe capturado ES el total con IVA (se
+// desglosa hacia atrás); si no, el importe es el subtotal (se le suma IVA).
+function computeIvaBreakdown(items, incluyeIva) {
+  let subtotal = 0;
+  let iva = 0;
+  for (const it of items) {
+    const importe = Number(it.importe) || 0;
+    const tasa = Number(it.iva_tasa) / 100;
+    if (incluyeIva) {
+      const sub = importe / (1 + tasa);
+      subtotal += sub;
+      iva += importe - sub;
+    } else {
+      subtotal += importe;
+      iva += importe * tasa;
+    }
+  }
+  const total = subtotal + iva;
+  return {
+    subtotal: Number(subtotal.toFixed(2)),
+    iva: Number(iva.toFixed(2)),
+    total: Number(total.toFixed(2)),
+  };
+}
 app.get('/api/projects/:id/ordenes', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
   const { rows: ordenes } = await db.pool.query(`
     SELECT oc.*, pv.nombre AS proveedor_nombre, r.folio AS requisicion_folio
@@ -747,7 +789,7 @@ app.get('/api/projects/:id/ordenes/:ocId', h(auth.allow('residente')), h(require
   `, [Number(req.params.ocId), req.project.id]);
   if (!ocRows[0]) return res.status(404).json({ error: 'Orden de compra no encontrada' });
   const { rows: items } = await db.pool.query(`
-    SELECT oci.*, i.codigo AS insumo_codigo, i.concepto AS insumo_concepto, i.unidad,
+    SELECT oci.*, i.codigo AS insumo_codigo, i.concepto AS insumo_concepto, i.unidad, i.iva_tasa,
            ri.cantidad_solicitada
     FROM orden_compra_items oci
     JOIN requisicion_items ri ON ri.id = oci.requisicion_item_id
@@ -755,13 +797,14 @@ app.get('/api/projects/:id/ordenes/:ocId', h(auth.allow('residente')), h(require
     WHERE oci.orden_compra_id = $1
     ORDER BY oci.id
   `, [ocRows[0].id]);
-  res.json({ ...ocRows[0], items });
+  res.json({ ...ocRows[0], items, desglose_iva: computeIvaBreakdown(items, ocRows[0].incluye_iva) });
 }));
 
 app.post('/api/projects/:id/requisiciones/:reqId/ordenes', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
   const pid = req.project.id;
   const reqId = Number(req.params.reqId);
   const { proveedor_id, folio, fecha, observaciones, items } = req.body || {};
+  const incluyeIva = (req.body || {}).incluye_iva !== false; // default true (patrón real observado)
 
   const { rows: reqRows } = await db.pool.query(
     'SELECT * FROM requisiciones WHERE id = $1 AND project_id = $2', [reqId, pid]
@@ -775,9 +818,12 @@ app.post('/api/projects/:id/requisiciones/:reqId/ordenes', h(auth.allow('residen
     return res.status(400).json({ error: 'La orden de compra debe incluir al menos un insumo' });
   }
 
-  const { rows: reqItems } = await db.pool.query(
-    'SELECT * FROM requisicion_items WHERE requisicion_id = $1', [reqId]
-  );
+  const { rows: reqItems } = await db.pool.query(`
+    SELECT ri.*, i.iva_tasa
+    FROM requisicion_items ri
+    JOIN insumos i ON i.id = ri.insumo_id
+    WHERE ri.requisicion_id = $1
+  `, [reqId]);
   const reqItemsMap = new Map(reqItems.map((it) => [it.id, it]));
   for (const it of items) {
     if (!reqItemsMap.has(Number(it.requisicion_item_id))) {
@@ -806,15 +852,16 @@ app.post('/api/projects/:id/requisiciones/:reqId/ordenes', h(auth.allow('residen
       cantidad_ordenada: cantidad,
       precio_unitario: precio,
       importe: Number((cantidad * precio).toFixed(2)),
+      iva_tasa: reqItem.iva_tasa,
       alerta_sobre_orden: (acumuladoPrevio + cantidad) > reqItem.cantidad_solicitada,
     };
   });
 
   const created = await db.withTransaction(async (client) => {
     const { rows } = await client.query(
-      `INSERT INTO ordenes_compra (project_id, requisicion_id, proveedor_id, folio, fecha, observaciones)
-       VALUES ($1,$2,$3,$4,COALESCE($5::date, CURRENT_DATE),$6) RETURNING *`,
-      [pid, reqId, Number(proveedor_id), folio || null, fecha || null, observaciones || null]
+      `INSERT INTO ordenes_compra (project_id, requisicion_id, proveedor_id, folio, fecha, observaciones, incluye_iva)
+       VALUES ($1,$2,$3,$4,COALESCE($5::date, CURRENT_DATE),$6,$7) RETURNING *`,
+      [pid, reqId, Number(proveedor_id), folio || null, fecha || null, observaciones || null, incluyeIva]
     );
     const ocId = rows[0].id;
     for (const c of computed) {
@@ -832,6 +879,7 @@ app.post('/api/projects/:id/requisiciones/:reqId/ordenes', h(auth.allow('residen
     items: computed,
     importe_total: Number(computed.reduce((s, c) => s + c.importe, 0).toFixed(2)),
     tiene_alertas: computed.some((c) => c.alerta_sobre_orden),
+    desglose_iva: computeIvaBreakdown(computed, incluyeIva),
   });
 }));
 
@@ -1036,15 +1084,16 @@ app.post('/api/projects/:id/ordenes/:ocId/pagos', h(auth.allow()), h(requireProj
   }
 
   const { fecha, monto, metodo, referencia, observaciones } = req.body || {};
+  const incluyeIva = (req.body || {}).incluye_iva !== false; // default true (patrón real observado)
   const montoNum = Number(monto);
   if (!Number.isFinite(montoNum) || montoNum <= 0) {
     return res.status(400).json({ error: 'El monto del pago debe ser mayor a 0' });
   }
 
   const { rows } = await db.pool.query(
-    `INSERT INTO pagos (orden_compra_id, fecha, monto, metodo, referencia, observaciones)
-     VALUES ($1, COALESCE($2::date, CURRENT_DATE), $3, $4, $5, $6) RETURNING *`,
-    [ocId, fecha || null, montoNum, metodo?.trim() || null, referencia?.trim() || null, observaciones?.trim() || null]
+    `INSERT INTO pagos (orden_compra_id, fecha, monto, metodo, referencia, observaciones, incluye_iva)
+     VALUES ($1, COALESCE($2::date, CURRENT_DATE), $3, $4, $5, $6, $7) RETURNING *`,
+    [ocId, fecha || null, montoNum, metodo?.trim() || null, referencia?.trim() || null, observaciones?.trim() || null, incluyeIva]
   );
 
   const saldo = await saldoDeOrden(ocId);

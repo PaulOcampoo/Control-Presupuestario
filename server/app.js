@@ -11,6 +11,7 @@ const { parseWorkbook } = require('./parser');
 const { ingest } = require('./ingest');
 const { generatePlanning } = require('./planning');
 const auth = require('./auth');
+const { sendXlsxExport, buildExportFilename } = require('./exportHelper');
 
 const app = express();
 
@@ -193,12 +194,42 @@ app.put('/api/usuarios/:id/proyectos', h(auth.allow()), h(async (req, res) => {
 // ---------------------------------------------------------------------------
 // Proveedores (catálogo global — no depende de project_id ni de obra)
 // ---------------------------------------------------------------------------
-app.get('/api/proveedores', h(auth.allow('residente', 'cabo')), h(async (req, res) => {
-  const activo = req.query.activo === 'false' ? 0 : 1;
+async function getProveedoresData(activoQuery) {
+  const activo = activoQuery === 'false' ? 0 : 1;
   const { rows } = await db.pool.query(
     'SELECT * FROM proveedores WHERE activo = $1 ORDER BY nombre', [activo]
   );
-  res.json(rows);
+  return rows;
+}
+
+app.get('/api/proveedores', h(auth.allow('residente', 'cabo')), h(async (req, res) => {
+  res.json(await getProveedoresData(req.query.activo));
+}));
+
+app.get('/api/proveedores/export', h(auth.allow('residente', 'cabo')), h(async (req, res) => {
+  const proveedores = await getProveedoresData(req.query.activo);
+  await sendXlsxExport(res, {
+    filename: buildExportFilename('Proveedores'),
+    sheets: [{
+      sheetName: 'Proveedores',
+      columns: [
+        { header: 'Nombre', key: 'nombre', width: 30 },
+        { header: 'Contacto', key: 'contacto', width: 24 },
+        { header: 'Teléfono', key: 'telefono', width: 16 },
+        { header: 'Email', key: 'email', width: 26 },
+        { header: 'RFC', key: 'rfc', width: 16 },
+        { header: 'Activo', key: 'activo', width: 10 },
+      ],
+      rows: proveedores.map((p) => ({
+        nombre: p.nombre,
+        contacto: p.contacto || '',
+        telefono: p.telefono || '',
+        email: p.email || '',
+        rfc: p.rfc || '',
+        activo: p.activo ? 'Sí' : 'No',
+      })),
+    }],
+  });
 }));
 
 app.post('/api/proveedores', h(auth.allow()), h(async (req, res) => {
@@ -525,10 +556,7 @@ app.get('/api/projects/:id/concepto-insumos/resumen', h(auth.allow()), h(require
 // ---------------------------------------------------------------------------
 // Insumos
 // ---------------------------------------------------------------------------
-app.get('/api/projects/:id/insumos', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
-  const pid = req.project.id;
-  const { categoria, q } = req.query;
-
+async function getInsumosData(pid, { categoria, q } = {}) {
   let sql = "SELECT * FROM insumos WHERE project_id = $1 AND (codigo IS NULL OR codigo NOT ILIKE 'MO%')";
   const params = [pid];
   let idx = 2;
@@ -552,7 +580,7 @@ app.get('/api/projects/:id/insumos', h(auth.allow('residente')), h(requireProjec
   `, [pid]);
   const acumulados = new Map(acumuladosRows.map((r) => [r.insumo_id, r]));
 
-  res.json(insumos.map((i) => {
+  return insumos.map((i) => {
     const acc = acumulados.get(i.id);
     const cantidad_acumulada = acc ? Number(acc.cantidad_acumulada) : 0;
     return {
@@ -561,7 +589,45 @@ app.get('/api/projects/:id/insumos', h(auth.allow('residente')), h(requireProjec
       cantidad_disponible: i.cantidad_presupuesto - cantidad_acumulada,
       sobrepasado_cantidad: cantidad_acumulada > i.cantidad_presupuesto,
     };
-  }));
+  });
+}
+
+app.get('/api/projects/:id/insumos', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  res.json(await getInsumosData(req.project.id, req.query));
+}));
+
+app.get('/api/projects/:id/insumos/export', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  const insumos = await getInsumosData(req.project.id, req.query);
+  await sendXlsxExport(res, {
+    filename: buildExportFilename('Insumos', req.project.nombre),
+    sheets: [{
+      sheetName: 'Insumos',
+      columns: [
+        { header: 'Código', key: 'codigo', width: 14 },
+        { header: 'Concepto', key: 'concepto', width: 40 },
+        { header: 'Unidad', key: 'unidad', width: 10 },
+        { header: 'Categoría', key: 'categoria', width: 18 },
+        { header: 'Cantidad presupuestada', key: 'cantidad_presupuesto', width: 20, format: 'int' },
+        { header: 'Precio unitario presupuestado', key: 'precio_presupuesto', width: 22, format: 'money' },
+        { header: 'IVA (%)', key: 'iva_tasa', width: 10, format: 'int' },
+        { header: 'Cantidad acumulada (requisitada)', key: 'cantidad_acumulada', width: 24, format: 'int' },
+        { header: 'Cantidad disponible', key: 'cantidad_disponible', width: 18, format: 'int' },
+        { header: 'Excede presupuesto', key: 'excede', width: 16 },
+      ],
+      rows: insumos.map((i) => ({
+        codigo: i.codigo,
+        concepto: i.concepto,
+        unidad: i.unidad,
+        categoria: i.categoria,
+        cantidad_presupuesto: Number(i.cantidad_presupuesto),
+        precio_presupuesto: Number(i.precio_presupuesto),
+        iva_tasa: Number(i.iva_tasa),
+        cantidad_acumulada: Number(i.cantidad_acumulada),
+        cantidad_disponible: Number(i.cantidad_disponible),
+        excede: i.sobrepasado_cantidad ? 'Sí' : 'No',
+      })),
+    }],
+  });
 }));
 
 app.get('/api/projects/:id/insumos/categorias', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
@@ -634,12 +700,12 @@ async function computeAlertsAndTotals(projectId, items, ignoreRequisicionId = nu
   return out;
 }
 
-app.get('/api/projects/:id/requisiciones', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+async function getRequisicionesData(pid) {
   const { rows: reqs } = await db.pool.query(
     'SELECT * FROM requisiciones WHERE project_id = $1 ORDER BY id DESC',
-    [req.project.id]
+    [pid]
   );
-  const withTotals = await Promise.all(reqs.map(async (r) => {
+  return Promise.all(reqs.map(async (r) => {
     const { rows } = await db.pool.query(`
       SELECT COUNT(*) AS num_items,
              COALESCE(SUM(importe), 0) AS importe_total,
@@ -649,7 +715,40 @@ app.get('/api/projects/:id/requisiciones', h(auth.allow('residente')), h(require
     `, [r.id]);
     return { ...r, ...rows[0] };
   }));
-  res.json(withTotals);
+}
+
+app.get('/api/projects/:id/requisiciones', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  res.json(await getRequisicionesData(req.project.id));
+}));
+
+app.get('/api/projects/:id/requisiciones/export', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  const reqs = await getRequisicionesData(req.project.id);
+  await sendXlsxExport(res, {
+    filename: buildExportFilename('Requisiciones', req.project.nombre),
+    sheets: [{
+      sheetName: 'Requisiciones',
+      columns: [
+        { header: 'Folio', key: 'folio', width: 16 },
+        { header: 'Fecha', key: 'fecha', width: 14 },
+        { header: 'Estado', key: 'estado', width: 14 },
+        { header: 'No. de partidas', key: 'num_items', width: 14, format: 'int' },
+        { header: 'Importe total', key: 'importe_total', width: 18, format: 'money' },
+        { header: 'Alertas de cantidad', key: 'alertas_cantidad', width: 18, format: 'int' },
+        { header: 'Alertas de precio', key: 'alertas_precio', width: 16, format: 'int' },
+        { header: 'Observaciones', key: 'observaciones', width: 30 },
+      ],
+      rows: reqs.map((r) => ({
+        folio: r.folio || `Requisición #${r.id}`,
+        fecha: r.fecha,
+        estado: r.estado,
+        num_items: Number(r.num_items),
+        importe_total: Number(r.importe_total),
+        alertas_cantidad: Number(r.alertas_cantidad),
+        alertas_precio: Number(r.alertas_precio),
+        observaciones: r.observaciones || '',
+      })),
+    }],
+  });
 }));
 
 app.get('/api/projects/:id/requisiciones/:reqId', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
@@ -811,7 +910,7 @@ function computeIvaBreakdown(items, incluyeIva) {
     total: Number(total.toFixed(2)),
   };
 }
-app.get('/api/projects/:id/ordenes', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+async function getOrdenesData(pid) {
   const { rows: ordenes } = await db.pool.query(`
     SELECT oc.*, pv.nombre AS proveedor_nombre, r.folio AS requisicion_folio
     FROM ordenes_compra oc
@@ -819,8 +918,8 @@ app.get('/api/projects/:id/ordenes', h(auth.allow('residente')), h(requireProjec
     JOIN requisiciones r ON r.id = oc.requisicion_id
     WHERE oc.project_id = $1
     ORDER BY oc.id DESC
-  `, [req.project.id]);
-  const withTotals = await Promise.all(ordenes.map(async (o) => {
+  `, [pid]);
+  return Promise.all(ordenes.map(async (o) => {
     const { rows: itemRows } = await db.pool.query(`
       SELECT COUNT(*) AS num_items, COALESCE(SUM(importe), 0) AS importe_total
       FROM orden_compra_items WHERE orden_compra_id = $1
@@ -836,7 +935,44 @@ app.get('/api/projects/:id/ordenes', h(auth.allow('residente')), h(requireProjec
       saldo_pendiente: Number((importeTotal - totalPagado).toFixed(2)),
     };
   }));
-  res.json(withTotals);
+}
+
+app.get('/api/projects/:id/ordenes', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  res.json(await getOrdenesData(req.project.id));
+}));
+
+app.get('/api/projects/:id/ordenes/export', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  const ordenes = await getOrdenesData(req.project.id);
+  await sendXlsxExport(res, {
+    filename: buildExportFilename('OrdenesDeCompra', req.project.nombre),
+    sheets: [{
+      sheetName: 'Ordenes de Compra',
+      columns: [
+        { header: 'Folio', key: 'folio', width: 16 },
+        { header: 'Fecha', key: 'fecha', width: 14 },
+        { header: 'Proveedor', key: 'proveedor', width: 26 },
+        { header: 'Requisición', key: 'requisicion', width: 16 },
+        { header: 'Estado', key: 'estado', width: 16 },
+        { header: 'Incluye IVA', key: 'incluye_iva', width: 12 },
+        { header: 'No. de partidas', key: 'num_items', width: 14, format: 'int' },
+        { header: 'Importe total', key: 'importe_total', width: 18, format: 'money' },
+        { header: 'Total pagado', key: 'total_pagado', width: 18, format: 'money' },
+        { header: 'Saldo pendiente', key: 'saldo_pendiente', width: 18, format: 'money' },
+      ],
+      rows: ordenes.map((o) => ({
+        folio: o.folio || `OC #${o.id}`,
+        fecha: o.fecha,
+        proveedor: o.proveedor_nombre,
+        requisicion: o.requisicion_folio || '',
+        estado: o.estado,
+        incluye_iva: o.incluye_iva ? 'Sí' : 'No',
+        num_items: Number(o.num_items),
+        importe_total: Number(o.importe_total),
+        total_pagado: Number(o.total_pagado),
+        saldo_pendiente: Number(o.saldo_pendiente),
+      })),
+    }],
+  });
 }));
 
 app.get('/api/projects/:id/ordenes/:ocId', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
@@ -1175,9 +1311,17 @@ app.delete('/api/projects/:id/ordenes/:ocId/pagos/:pagoId', h(auth.allow()), h(r
 // permisos, renta de equipo, combustible, etc.). Lectura para residente/
 // admin, alta/edición/baja solo admin, mismo patrón que proveedores/pagos.
 // ---------------------------------------------------------------------------
-app.get('/api/projects/:id/gastos', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
-  const pid = req.project.id;
-  const { categoria, estado } = req.query;
+// Debe reflejar exactamente GASTO_CATEGORIA_LABELS en public/app.js.
+const GASTO_CATEGORIA_LABELS = {
+  nomina: 'Nómina',
+  permisos: 'Permisos',
+  renta_equipo: 'Renta de equipo',
+  combustible: 'Combustible',
+  servicios: 'Servicios',
+  otro: 'Otro',
+};
+
+async function getGastosData(pid, { categoria, estado } = {}) {
   let sql = 'SELECT * FROM gastos_generales WHERE project_id = $1';
   const params = [pid];
   let idx = 2;
@@ -1185,7 +1329,11 @@ app.get('/api/projects/:id/gastos', h(auth.allow('residente')), h(requireProject
   if (estado) { sql += ` AND estado = $${idx++}`; params.push(estado); }
   sql += ' ORDER BY fecha DESC, id DESC';
   const { rows } = await db.pool.query(sql, params);
-  res.json(rows);
+  return rows;
+}
+
+app.get('/api/projects/:id/gastos', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  res.json(await getGastosData(req.project.id, req.query));
 }));
 
 app.post('/api/projects/:id/gastos', h(auth.allow()), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
@@ -1259,8 +1407,7 @@ app.delete('/api/projects/:id/gastos/:gastoId', h(auth.allow()), h(requireProjec
 // al que ya usa el Resumen) vs Erogado Real (Compras + Gastos Generales) —
 // dos fuentes de verdad separadas, nunca fusionadas ni promediadas.
 // ---------------------------------------------------------------------------
-app.get('/api/projects/:id/finanzas/resumen', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
-  const pid = req.project.id;
+async function getFinanzasResumenData(pid) {
   const presupuestoTotal = await presupuestoTotalDe(pid);
 
   const { rows: ultimoRows } = await db.pool.query(`
@@ -1319,7 +1466,7 @@ app.get('/api/projects/:id/finanzas/resumen', h(auth.allow('residente')), h(requ
   const totalComprometidoNoPagado = Number((comprasComprometidoSinIva + gastosPendiente).toFixed(2));
   const brechaMonto = Number((montoValorizado - totalPagado).toFixed(2));
 
-  res.json({
+  return {
     avance_valorizado: {
       pct: pctValorizado,
       monto: montoValorizado,
@@ -1340,6 +1487,65 @@ app.get('/api/projects/:id/finanzas/resumen', h(auth.allow('residente')), h(requ
       descripcion: 'positivo = se ha avanzado más obra de la que se ha pagado; negativo = se ha pagado más de lo que refleja el avance reportado',
     },
     presupuesto_total: presupuestoTotal,
+  };
+}
+
+app.get('/api/projects/:id/finanzas/resumen', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  res.json(await getFinanzasResumenData(req.project.id));
+}));
+
+app.get('/api/projects/:id/finanzas/export', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  const [resumen, gastos] = await Promise.all([
+    getFinanzasResumenData(req.project.id),
+    getGastosData(req.project.id, req.query),
+  ]);
+  const av = resumen.avance_valorizado;
+  const er = resumen.erogado_real;
+  const resumenRows = [
+    { concepto: 'Presupuesto total (sin IVA)', valor: resumen.presupuesto_total },
+    { concepto: 'Avance Valorizado (%)', valor: av.pct },
+    { concepto: 'Avance Valorizado (monto)', valor: av.monto },
+    { concepto: 'Erogado Real — total pagado', valor: er.total_pagado },
+    { concepto: 'Erogado Real — total comprometido (no pagado)', valor: er.total_comprometido_no_pagado },
+    { concepto: 'Compras — pagado (sin IVA, ajustado)', valor: er.compras_pagado },
+    { concepto: 'Compras — pagado (con IVA, real)', valor: er.compras_pagado_con_iva },
+    { concepto: 'Compras — comprometido (sin IVA, ajustado)', valor: er.compras_comprometido },
+    { concepto: 'Compras — comprometido (con IVA, real)', valor: er.compras_comprometido_con_iva },
+    { concepto: 'Gastos generales — pagado', valor: er.gastos_generales_pagado },
+    { concepto: 'Gastos generales — pendiente', valor: er.gastos_generales_pendiente },
+    { concepto: 'Brecha (Avance Valorizado - Total pagado)', valor: resumen.brecha.monto },
+  ];
+  await sendXlsxExport(res, {
+    filename: buildExportFilename('Finanzas', req.project.nombre),
+    sheets: [
+      {
+        sheetName: 'Resumen',
+        columns: [
+          { header: 'Concepto', key: 'concepto', width: 44 },
+          { header: 'Valor', key: 'valor', width: 20, format: 'money' },
+        ],
+        rows: resumenRows,
+      },
+      {
+        sheetName: 'Gastos Generales',
+        columns: [
+          { header: 'Categoría', key: 'categoria', width: 18 },
+          { header: 'Concepto', key: 'concepto', width: 30 },
+          { header: 'Fecha', key: 'fecha', width: 14 },
+          { header: 'Monto', key: 'monto', width: 16, format: 'money' },
+          { header: 'Estado', key: 'estado', width: 14 },
+          { header: 'Observaciones', key: 'observaciones', width: 30 },
+        ],
+        rows: gastos.map((g) => ({
+          categoria: GASTO_CATEGORIA_LABELS[g.categoria] || g.categoria,
+          concepto: g.concepto,
+          fecha: g.fecha,
+          monto: Number(g.monto),
+          estado: g.estado,
+          observaciones: g.observaciones || '',
+        })),
+      },
+    ],
   });
 }));
 
@@ -1405,12 +1611,52 @@ app.put('/api/projects/:id/programa/:itemId', h(auth.allow()), h(requireProject)
 // ---------------------------------------------------------------------------
 // Avances semanales
 // ---------------------------------------------------------------------------
-app.get('/api/projects/:id/avances', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+async function getAvancesData(pid) {
   const { rows } = await db.pool.query(
     'SELECT * FROM avances_semanales WHERE project_id = $1 ORDER BY semana',
-    [req.project.id]
+    [pid]
   );
-  res.json(rows);
+  return rows;
+}
+
+app.get('/api/projects/:id/avances', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  res.json(await getAvancesData(req.project.id));
+}));
+
+app.get('/api/projects/:id/avances/export', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  const avances = await getAvancesData(req.project.id);
+  const presupuestoTotal = await presupuestoTotalDe(req.project.id);
+  // Misma fórmula que paintAvanceTable() en el frontend: importe del periodo =
+  // presupuestoTotal * (delta de % programado acumulado vs la semana anterior).
+  const rows = avances.map((a, idx) => {
+    const prevPct = idx > 0 ? (avances[idx - 1].avance_financiero_programado || 0) : 0;
+    const pctPeriodo = Math.max(0, (a.avance_financiero_programado || 0) - prevPct);
+    return {
+      semana: a.semana,
+      fecha_inicio: a.fecha_inicio,
+      fecha_fin: a.fecha_fin,
+      presupuesto_periodo: Number((presupuestoTotal * (pctPeriodo / 100)).toFixed(2)),
+      programado_acumulado: a.avance_financiero_programado != null ? Number(a.avance_financiero_programado) : null,
+      fisico_real: a.avance_fisico_real != null ? Number(a.avance_fisico_real) : null,
+      financiero_real: a.avance_financiero_real != null ? Number(a.avance_financiero_real) : null,
+    };
+  });
+  await sendXlsxExport(res, {
+    filename: buildExportFilename('Avance', req.project.nombre),
+    sheets: [{
+      sheetName: 'Avance semanal',
+      columns: [
+        { header: 'Semana', key: 'semana', width: 10, format: 'int' },
+        { header: 'Fecha inicio', key: 'fecha_inicio', width: 14 },
+        { header: 'Fecha fin', key: 'fecha_fin', width: 14 },
+        { header: 'Presupuesto del periodo', key: 'presupuesto_periodo', width: 22, format: 'money' },
+        { header: '% Programado acumulado', key: 'programado_acumulado', width: 20, format: 'pct' },
+        { header: '% Físico real', key: 'fisico_real', width: 16, format: 'pct' },
+        { header: '% Financiero real', key: 'financiero_real', width: 18, format: 'pct' },
+      ],
+      rows,
+    }],
+  });
 }));
 
 app.put('/api/projects/:id/avances/:semana', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
@@ -1615,13 +1861,12 @@ app.get('/api/projects/:id/resumen', h(auth.allow()), h(requireProject), h(auth.
 // ---------------------------------------------------------------------------
 // Destajistas (piecework workers)
 // ---------------------------------------------------------------------------
-app.get('/api/projects/:id/destajistas', h(auth.allow('residente', 'cabo')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
-  const pid = req.project.id;
+async function getDestajistasData(pid) {
   const { rows: dests } = await db.pool.query(
     'SELECT * FROM destajistas WHERE project_id = $1 ORDER BY orden, id',
     [pid]
   );
-  const result = await Promise.all(dests.map(async (d) => {
+  return Promise.all(dests.map(async (d) => {
     const { rows: items } = await db.pool.query(`
       SELECT di.id, di.project_id, di.destajista_id, di.concepto_id, di.codigo, di.concepto, di.unidad,
              di.cantidad_asignada, di.precio_destajo, di.orden,
@@ -1643,7 +1888,50 @@ app.get('/api/projects/:id/destajistas', h(auth.allow('residente', 'cabo')), h(r
     const pctAvance = totalAsignado > 0 ? Math.min(100, (totalGanado / totalAsignado) * 100) : 0;
     return { ...d, items, total_asignado: totalAsignado, total_ganado: totalGanado, pct_avance: pctAvance };
   }));
-  res.json(result);
+}
+
+app.get('/api/projects/:id/destajistas', h(auth.allow('residente', 'cabo')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  res.json(await getDestajistasData(req.project.id));
+}));
+
+app.get('/api/projects/:id/destajistas/export', h(auth.allow('residente', 'cabo')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  const destajistas = await getDestajistasData(req.project.id);
+  const rows = [];
+  destajistas.forEach((d) => {
+    d.items.forEach((it) => {
+      rows.push({
+        destajista: d.nombre,
+        telefono: d.telefono || '',
+        codigo: it.codigo || '',
+        concepto: it.concepto,
+        unidad: it.unidad || '',
+        cantidad_asignada: Number(it.cantidad_asignada),
+        precio_destajo: Number(it.precio_destajo),
+        cantidad_ejecutada: Number(it.cantidad_ejecutada),
+        importe_asignado: Number((Number(it.cantidad_asignada) * Number(it.precio_destajo)).toFixed(2)),
+        importe_ganado: Number((Number(it.cantidad_ejecutada) * Number(it.precio_destajo)).toFixed(2)),
+      });
+    });
+  });
+  await sendXlsxExport(res, {
+    filename: buildExportFilename('Destajo', req.project.nombre),
+    sheets: [{
+      sheetName: 'Destajo',
+      columns: [
+        { header: 'Destajista', key: 'destajista', width: 24 },
+        { header: 'Teléfono', key: 'telefono', width: 16 },
+        { header: 'Código', key: 'codigo', width: 14 },
+        { header: 'Concepto', key: 'concepto', width: 40 },
+        { header: 'Unidad', key: 'unidad', width: 10 },
+        { header: 'Cantidad asignada', key: 'cantidad_asignada', width: 18, format: 'int' },
+        { header: 'Precio destajo', key: 'precio_destajo', width: 16, format: 'money' },
+        { header: 'Cantidad ejecutada', key: 'cantidad_ejecutada', width: 18, format: 'int' },
+        { header: 'Importe asignado', key: 'importe_asignado', width: 18, format: 'money' },
+        { header: 'Importe ganado', key: 'importe_ganado', width: 18, format: 'money' },
+      ],
+      rows,
+    }],
+  });
 }));
 
 app.post('/api/projects/:id/destajistas', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {

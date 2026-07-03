@@ -56,6 +56,57 @@ async function api(path, opts = {}) {
   return data;
 }
 
+// Descarga un .xlsx generado por el servidor (reusado por todos los botones
+// "Exportar a Excel" — el archivo y su nombre los arma el backend, aquí solo
+// se dispara la descarga con el token de sesión en el header).
+async function downloadExport(path) {
+  const headers = {};
+  if (state.token) headers.Authorization = `Bearer ${state.token}`;
+  const res = await fetch(`/api${path}`, { headers });
+  if (res.status === 401) {
+    handleSessionExpired();
+    throw new Error('Sesión expirada');
+  }
+  if (!res.ok) {
+    let msg = `Error ${res.status}`;
+    try { const data = await res.json(); msg = (data && data.error) || msg; } catch { /* no body */ }
+    throw new Error(msg);
+  }
+  const blob = await res.blob();
+  const disposition = res.headers.get('Content-Disposition') || '';
+  const match = disposition.match(/filename="?([^";]+)"?/);
+  const filename = match ? match[1] : 'export.xlsx';
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+// Conecta un botón "Exportar a Excel": deshabilita mientras descarga y
+// restaura su texto al terminar (o si falla). Un solo lugar para las 7
+// pantallas con exportación, en vez de repetir el mismo try/finally.
+function wireExportButton(selector, path) {
+  const btn = $(selector);
+  if (!btn) return;
+  btn.addEventListener('click', async () => {
+    const original = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Exportando…';
+    try {
+      await downloadExport(path);
+    } catch (err) {
+      toast(err.message, 'danger');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = original;
+    }
+  });
+}
+
 function toast(msg, kind = '') {
   const el = $('#toast');
   el.textContent = msg;
@@ -697,6 +748,9 @@ async function renderInsumos(view) {
   view.innerHTML = `
     <h2 class="section-title">Catálogo de insumos</h2>
     <p class="muted">Cantidades y precios presupuestados por insumo. Las barras y etiquetas muestran lo ya requisitado contra lo presupuestado.</p>
+    <div class="section-actions">
+      <button class="btn" id="btnExportInsumos">⭳ Exportar a Excel</button>
+    </div>
     <div class="sticky-filters">
       <div class="search-bar">
         <input type="search" id="insumoSearch" placeholder="Buscar por código o nombre…" value="${esc(insumosFilter.q)}" />
@@ -708,6 +762,8 @@ async function renderInsumos(view) {
     </div>
     <div id="insumoList"></div>
   `;
+
+  wireExportButton('#btnExportInsumos', `/projects/${state.projectId}/insumos/export${queryString(insumosFilter)}`);
 
   $('#insumoSearch').addEventListener('input', debounce((e) => {
     insumosFilter.q = e.target.value.trim();
@@ -961,10 +1017,12 @@ async function renderRequisiciones(view) {
       </div>` : ''}
     <div class="section-actions">
       <button class="btn" id="btnGoCatalogo">+ Agregar insumos desde el catálogo</button>
+      <button class="btn" id="btnExportRequisiciones">⭳ Exportar a Excel</button>
     </div>
     <div id="reqList"></div>
   `;
   $('#btnGoCatalogo').addEventListener('click', () => { $('.tab[data-view="insumos"]').click(); });
+  wireExportButton('#btnExportRequisiciones', `/projects/${state.projectId}/requisiciones/export`);
   if (draft.length) $('#btnOpenDraft').addEventListener('click', openDraftModal);
 
   const list = $('#reqList');
@@ -1455,8 +1513,12 @@ async function renderOrdenes(view) {
   view.innerHTML = `
     <h2 class="section-title">Órdenes de Compra</h2>
     <p class="muted">Generadas a partir de requisiciones ya autorizadas. Una requisición puede tener varias órdenes (compra dividida entre proveedores o en distintos momentos).</p>
+    <div class="section-actions">
+      <button class="btn" id="btnExportOrdenes">⭳ Exportar a Excel</button>
+    </div>
     <div id="ordenesList"></div>
   `;
+  wireExportButton('#btnExportOrdenes', `/projects/${state.projectId}/ordenes/export`);
 
   const list = $('#ordenesList');
   if (!ordenes.length) {
@@ -1758,6 +1820,9 @@ async function renderAvance(view) {
   view.innerHTML = `
     <h2 class="section-title">Avance semanal</h2>
     <p class="muted">Curva programada (calculada a partir del presupuesto y las fechas de obra) contra el avance real que captures cada semana.</p>
+    <div class="section-actions">
+      <button class="btn" id="btnExportAvance">⭳ Exportar a Excel</button>
+    </div>
     <div class="card"><div class="chart-wrap tall"><canvas id="chartSemanal"></canvas></div></div>
 
     <h3 class="section-title">Captura de avance real por semana</h3>
@@ -1775,6 +1840,7 @@ async function renderAvance(view) {
     <div class="card"><div class="chart-wrap tall"><canvas id="chartFisFin"></canvas></div></div>
   `;
 
+  wireExportButton('#btnExportAvance', `/projects/${state.projectId}/avances/export`);
   paintAvanceChart(avances);
   paintFisFinChart(avances);
   paintAvanceTable(avances, presupuestoTotal);
@@ -2112,9 +2178,10 @@ async function renderDestajo(view) {
       <div class="kpi accent"><div class="label">Total asignado</div><div class="value">${fmtMoney(totalAsig)}</div></div>
       <div class="kpi green"><div class="label">Total ganado</div><div class="value">${fmtMoney(totalGanado)}</div></div>
     </div>` : ''}
-    ${canManageDestajo() ? `
+    ${(canManageDestajo() || destajistas.length) ? `
     <div class="section-actions">
-      <button class="btn btn-primary" id="btnNuevoDest">+ Nuevo destajista</button>
+      ${canManageDestajo() ? '<button class="btn btn-primary" id="btnNuevoDest">+ Nuevo destajista</button>' : ''}
+      ${destajistas.length ? '<button class="btn" id="btnExportDestajo">⭳ Exportar a Excel</button>' : ''}
     </div>` : ''}
     ${destajistas.length === 0 ? `
       <div class="empty-state">
@@ -2128,6 +2195,7 @@ async function renderDestajo(view) {
   `;
 
   $('#btnNuevoDest')?.addEventListener('click', () => openNuevoDestajistaModal());
+  wireExportButton('#btnExportDestajo', `/projects/${state.projectId}/destajistas/export`);
 
   $$('[data-edit-dest]', view).forEach((btn) => {
     btn.addEventListener('click', () => {
@@ -2861,13 +2929,14 @@ async function renderProveedores(view) {
   view.innerHTML = `
     <h2 class="section-title">Proveedores</h2>
     <p class="muted">Catálogo compartido entre todas las obras, usado al generar órdenes de compra.</p>
-    ${isAdmin() ? `
     <div class="section-actions">
-      <button class="btn btn-primary" id="btnNuevoProveedor">+ Nuevo proveedor</button>
-    </div>` : ''}
+      ${isAdmin() ? '<button class="btn btn-primary" id="btnNuevoProveedor">+ Nuevo proveedor</button>' : ''}
+      <button class="btn" id="btnExportProveedores">⭳ Exportar a Excel</button>
+    </div>
     <div id="proveedoresList"></div>
   `;
   $('#btnNuevoProveedor')?.addEventListener('click', () => openProveedorModal(null));
+  wireExportButton('#btnExportProveedores', '/proveedores/export');
   paintProveedoresList(proveedores);
 }
 
@@ -2989,6 +3058,9 @@ async function renderFinanzas(view) {
   view.innerHTML = `
     <h2 class="section-title">Finanzas</h2>
     <p class="muted">Compara el avance valorizado (% ejecutado del presupuesto) contra el dinero realmente erogado — son dos números distintos a propósito, no se fusionan.</p>
+    <div class="section-actions">
+      <button class="btn" id="btnExportFinanzas">⭳ Exportar a Excel</button>
+    </div>
 
     <div class="kpi-grid" style="margin-bottom:10px">
       <div class="kpi accent" style="grid-column:1/-1">
@@ -3037,6 +3109,7 @@ async function renderFinanzas(view) {
     <div id="gastosList"></div>
   `;
 
+  wireExportButton('#btnExportFinanzas', `/projects/${state.projectId}/finanzas/export${queryString(gastosFilter)}`);
   $('#gastoFiltroCategoria').addEventListener('change', (e) => { gastosFilter.categoria = e.target.value; renderView(); });
   $('#gastoFiltroEstado').addEventListener('change', (e) => { gastosFilter.estado = e.target.value; renderView(); });
   $('#btnNuevoGasto')?.addEventListener('click', () => openGastoModal(null));

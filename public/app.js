@@ -1932,7 +1932,15 @@ async function toggleDestajoSemanal(btn, destajistas) {
   try {
     const data = await api(`/projects/${state.projectId}/destajistas/${destId}/avance`);
     if (!data.semanas.length) {
-      body.innerHTML = '<p class="muted" style="padding:10px 4px">El proyecto no tiene periodos de programa de obra generados (faltan las fechas de inicio/fin de obra).</p>';
+      body.innerHTML = `
+        <div style="padding:10px 4px">
+          <p class="muted" style="margin:0 0 8px">El proyecto no tiene periodos de programa de obra generados (faltan las fechas de inicio/fin de obra).</p>
+          <button class="btn small btn-primary" id="btnFixFechasObra${destId}">Corregir inicio/fin de obra</button>
+        </div>`;
+      $(`#btnFixFechasObra${destId}`, body).addEventListener('click', async () => {
+        const resumen = await cached('resumen', () => api(`/projects/${state.projectId}/resumen`));
+        openEditFechasObraModal(resumen.meta);
+      });
       return;
     }
     const dest = destajistas.find((d) => d.id === destId);
@@ -2679,11 +2687,14 @@ async function renderFinanzas(view) {
 
     <div class="card" style="border-color:var(--green)">
       <h3 class="section-title" style="margin-top:0">Erogado Real</h3>
+      <p class="muted" style="font-size:0.78rem;margin:-4px 0 10px">Los montos de Compras se muestran ajustados a base sin IVA (÷${(1 + er.iva_ajuste_pct / 100).toFixed(2)}) para que sean comparables contra Avance Valorizado, que también es sin IVA. Esto no cambia lo realmente pagado al proveedor — solo la base usada aquí para comparar.</p>
       <div class="card-row"><span class="k">Total pagado</span><span class="v" style="color:var(--green)">${fmtMoney(er.total_pagado)}</span></div>
       <div class="card-row"><span class="k">Total comprometido (no pagado)</span><span class="v" style="color:var(--yellow)">${fmtMoney(er.total_comprometido_no_pagado)}</span></div>
       <h4 style="margin:12px 0 4px;font-size:0.82rem;color:var(--muted);text-transform:uppercase">Desglose</h4>
-      <div class="card-row"><span class="k">Compras — pagado</span><span class="v">${fmtMoney(er.compras_pagado)}</span></div>
-      <div class="card-row"><span class="k">Compras — comprometido</span><span class="v">${fmtMoney(er.compras_comprometido)}</span></div>
+      <div class="card-row"><span class="k">Compras — pagado (sin IVA, ajustado)</span><span class="v">${fmtMoney(er.compras_pagado)}</span></div>
+      <div class="card-row"><span class="k">Compras — pagado (con IVA, real)</span><span class="v muted">${fmtMoney(er.compras_pagado_con_iva)}</span></div>
+      <div class="card-row"><span class="k">Compras — comprometido (sin IVA, ajustado)</span><span class="v">${fmtMoney(er.compras_comprometido)}</span></div>
+      <div class="card-row"><span class="k">Compras — comprometido (con IVA, real)</span><span class="v muted">${fmtMoney(er.compras_comprometido_con_iva)}</span></div>
       <div class="card-row"><span class="k">Gastos generales — pagado</span><span class="v">${fmtMoney(er.gastos_generales_pagado)}</span></div>
       <div class="card-row"><span class="k">Gastos generales — pendiente</span><span class="v">${fmtMoney(er.gastos_generales_pendiente)}</span></div>
     </div>

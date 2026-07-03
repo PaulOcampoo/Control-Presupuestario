@@ -1194,8 +1194,19 @@ app.get('/api/projects/:id/finanzas/resumen', h(auth.allow('residente')), h(requ
   );
   const gastosPendiente = Number(gastosPendienteRows[0].total);
 
-  const totalPagado = Number((comprasPagado + gastosPagado).toFixed(2));
-  const totalComprometidoNoPagado = Number((comprasComprometido + gastosPendiente).toFixed(2));
+  // pagos.monto y orden_compra_items.precio_unitario se capturan con IVA
+  // incluido (monto real pagado/cotizado), mientras que montoValorizado sale
+  // de presupuestoTotal, que es sin IVA. Para que "Erogado Real" sea
+  // comparable con "Avance Valorizado" se ajustan aquí SOLO estos dos montos
+  // de compras a una base sin IVA (÷1.16) — nunca se toca lo guardado en
+  // pagos ni orden_compra_items, que siguen representando el monto real con
+  // IVA. gastos_generales queda fuera de este ajuste (fuera de alcance).
+  const IVA_RATE = 0.16;
+  const comprasPagadoSinIva = Number((comprasPagado / (1 + IVA_RATE)).toFixed(2));
+  const comprasComprometidoSinIva = Number((comprasComprometido / (1 + IVA_RATE)).toFixed(2));
+
+  const totalPagado = Number((comprasPagadoSinIva + gastosPagado).toFixed(2));
+  const totalComprometidoNoPagado = Number((comprasComprometidoSinIva + gastosPendiente).toFixed(2));
   const brechaMonto = Number((montoValorizado - totalPagado).toFixed(2));
 
   res.json({
@@ -1204,12 +1215,15 @@ app.get('/api/projects/:id/finanzas/resumen', h(auth.allow('residente')), h(requ
       monto: montoValorizado,
     },
     erogado_real: {
-      compras_pagado: Number(comprasPagado.toFixed(2)),
-      compras_comprometido: Number(comprasComprometido.toFixed(2)),
+      compras_pagado: comprasPagadoSinIva,
+      compras_pagado_con_iva: Number(comprasPagado.toFixed(2)),
+      compras_comprometido: comprasComprometidoSinIva,
+      compras_comprometido_con_iva: Number(comprasComprometido.toFixed(2)),
       gastos_generales_pagado: Number(gastosPagado.toFixed(2)),
       gastos_generales_pendiente: Number(gastosPendiente.toFixed(2)),
       total_pagado: totalPagado,
       total_comprometido_no_pagado: totalComprometidoNoPagado,
+      iva_ajuste_pct: IVA_RATE * 100,
     },
     brecha: {
       monto: brechaMonto,

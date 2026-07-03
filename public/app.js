@@ -19,6 +19,9 @@ const state = {
   token: null,
   user: null,        // { id, nombre, usuario, puesto }
   allowedTabs: [],
+  notificaciones: [],
+  notifNoLeidas: 0,
+  notifTimer: null,
 };
 
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -151,7 +154,129 @@ function applySession(user, tabs) {
   renderDrawerAccount();
   state.view = tabs[0] || 'resumen';
   $$('.tab').forEach((t) => t.classList.toggle('active', t.dataset.view === state.view));
+  startNotifPolling();
 }
+
+// ---------------------------------------------------------------------------
+// Notificaciones in-app — campana en el topbar. Se refresca por polling
+// (no hay WebSockets/SSE porque el backend corre en Vercel serverless, sin
+// proceso persistente). Infraestructura base: fases futuras (impuestos,
+// vencimiento de contrato, requisición/OC publicada) solo necesitan llamar a
+// crearNotificacion()/notificarAdmins() en el backend — esto ya las muestra.
+// ---------------------------------------------------------------------------
+const NOTIF_POLL_MS = 60000;
+
+function startNotifPolling() {
+  stopNotifPolling();
+  refreshNotificaciones();
+  state.notifTimer = setInterval(refreshNotificaciones, NOTIF_POLL_MS);
+}
+
+function stopNotifPolling() {
+  if (state.notifTimer) { clearInterval(state.notifTimer); state.notifTimer = null; }
+  state.notificaciones = [];
+  state.notifNoLeidas = 0;
+}
+
+async function refreshNotificaciones() {
+  try {
+    const data = await api('/notificaciones');
+    state.notificaciones = data.notificaciones;
+    state.notifNoLeidas = data.no_leidas;
+    renderNotifBadge();
+    if ($('#notifDropdown').classList.contains('show')) renderNotifList();
+  } catch (err) {
+    // Silencioso: un fallo de polling cada 60s no debe interrumpir con un toast.
+  }
+}
+
+function renderNotifBadge() {
+  const badge = $('#notifBadge');
+  if (state.notifNoLeidas > 0) {
+    badge.style.display = '';
+    badge.textContent = state.notifNoLeidas > 9 ? '9+' : String(state.notifNoLeidas);
+  } else {
+    badge.style.display = 'none';
+  }
+}
+
+function timeAgo(creadoEn) {
+  // creado_en llega como 'YYYY-MM-DD HH:MM:SS' en UTC (ver setTypeParser en
+  // server/db.js) — se marca explícitamente como 'Z' para no interpretarla
+  // en la zona horaria local del navegador.
+  const then = new Date(`${creadoEn.replace(' ', 'T')}Z`).getTime();
+  const diffSec = Math.max(0, Math.floor((Date.now() - then) / 1000));
+  if (diffSec < 60) return 'hace un momento';
+  const diffMin = Math.floor(diffSec / 60);
+  if (diffMin < 60) return `hace ${diffMin} minuto${diffMin === 1 ? '' : 's'}`;
+  const diffHr = Math.floor(diffMin / 60);
+  if (diffHr < 24) return `hace ${diffHr} hora${diffHr === 1 ? '' : 's'}`;
+  const diffDay = Math.floor(diffHr / 24);
+  if (diffDay < 30) return `hace ${diffDay} día${diffDay === 1 ? '' : 's'}`;
+  const diffMonth = Math.floor(diffDay / 30);
+  return `hace ${diffMonth} mes${diffMonth === 1 ? '' : 'es'}`;
+}
+
+function renderNotifList() {
+  const list = $('#notifList');
+  if (!state.notificaciones.length) {
+    list.innerHTML = '<div class="empty-state" style="padding:24px 12px">Sin notificaciones.</div>';
+    return;
+  }
+  list.innerHTML = state.notificaciones.map((n) => `
+    <div class="notif-item ${n.leida ? '' : 'unread'}" data-notif="${n.id}">
+      <div class="notif-msg">${esc(n.mensaje)}</div>
+      <div class="notif-time">${timeAgo(n.creado_en)}</div>
+    </div>
+  `).join('');
+
+  $$('.notif-item', list).forEach((el) => {
+    el.addEventListener('click', async () => {
+      const id = Number(el.dataset.notif);
+      const notif = state.notificaciones.find((n) => n.id === id);
+      if (!notif) return;
+      // TODO (fases futuras): switch sobre notif.tipo / notif.referencia_id
+      // para navegar al recurso correspondiente (requisición, OC, etc.).
+      if (notif.leida) return;
+      try {
+        await api(`/notificaciones/${id}/leida`, { method: 'PUT' });
+        notif.leida = true;
+        state.notifNoLeidas = Math.max(0, state.notifNoLeidas - 1);
+        renderNotifBadge();
+        renderNotifList();
+      } catch (err) { toast(err.message, 'danger'); }
+    });
+  });
+}
+
+function toggleNotifDropdown() {
+  const dd = $('#notifDropdown');
+  const opening = !dd.classList.contains('show');
+  dd.classList.toggle('show');
+  if (opening) { renderNotifList(); refreshNotificaciones(); }
+}
+
+function closeNotifDropdown() {
+  $('#notifDropdown').classList.remove('show');
+}
+
+$('#btnNotif').addEventListener('click', (e) => {
+  e.stopPropagation();
+  toggleNotifDropdown();
+});
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('#notifDropdown') && !e.target.closest('#btnNotif')) closeNotifDropdown();
+});
+$('#btnMarcarTodasLeidas').addEventListener('click', async (e) => {
+  e.stopPropagation();
+  try {
+    await api('/notificaciones/leer-todas', { method: 'PUT' });
+    state.notificaciones.forEach((n) => { n.leida = true; });
+    state.notifNoLeidas = 0;
+    renderNotifBadge();
+    renderNotifList();
+  } catch (err) { toast(err.message, 'danger'); }
+});
 
 function renderDrawerAccount() {
   const box = $('#drawerAccount');
@@ -176,6 +301,7 @@ function handleSessionExpired() {
   state.clientes = [];
   state.clienteId = null;
   state.cache = {};
+  stopNotifPolling();
   closeDrawer();
   closeModal();
   showLoginScreen();
@@ -217,6 +343,7 @@ async function logout() {
   state.clientes = [];
   state.clienteId = null;
   state.cache = {};
+  stopNotifPolling();
   closeDrawer();
   showLoginScreen();
 }
@@ -1163,12 +1290,14 @@ async function openRequisicionDetail(reqId) {
     const estados = ['borrador', 'enviada', 'autorizada', 'cancelada'];
     openModal(`
       <h3>${esc(r.folio || `Requisición #${r.id}`)}</h3>
-      <div class="row between">
-        <span class="muted">${fmtDate(r.fecha)}</span>
-        <select id="estadoSelect">${estados.map((e) => `<option value="${e}" ${e === r.estado ? 'selected' : ''}>${e}</option>`).join('')}</select>
-      </div>
+      <span class="muted">${fmtDate(r.fecha)}</span>
       ${r.observaciones ? `<p class="muted">${esc(r.observaciones)}</p>` : ''}
       <div id="reqItemsDetail"></div>
+      <div class="card" style="margin-top:14px">
+        <h4 style="margin:0 0 4px;font-size:0.9rem">Estado de la requisición</h4>
+        <p class="muted" style="font-size:0.78rem;margin:0 0 10px">Cambia el estado para avanzar el flujo de compra: envíala, autorízala (necesario para poder generar una Orden de Compra) o cancélala.</p>
+        <select id="estadoSelect">${estados.map((e) => `<option value="${e}" ${e === r.estado ? 'selected' : ''}>${e}</option>`).join('')}</select>
+      </div>
       <div class="modal-actions">
         <button class="btn btn-danger" id="btnDeleteReq">Eliminar</button>
         ${r.estado === 'borrador' ? '<button class="btn" id="btnEditReq">Editar</button>' : ''}

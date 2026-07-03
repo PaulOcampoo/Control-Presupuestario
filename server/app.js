@@ -84,6 +84,45 @@ app.get('/api/auth/me', h(async (req, res) => {
 }));
 
 // ---------------------------------------------------------------------------
+// Notificaciones in-app — disponibles para cualquier puesto (son personales,
+// ancladas a usuario_id). Esta fase solo expone lectura/marcado; los
+// disparadores concretos (impuestos, vencimiento de contrato, requisición/OC
+// publicada) los agregan fases futuras vía notificaciones.crearNotificacion()
+// / notificarAdmins() — ver server/notificaciones.js.
+// ---------------------------------------------------------------------------
+app.get('/api/notificaciones', h(async (req, res) => {
+  const { rows } = await db.pool.query(
+    'SELECT * FROM notificaciones WHERE usuario_id = $1 ORDER BY creado_en DESC LIMIT 50',
+    [req.user.id]
+  );
+  const { rows: countRows } = await db.pool.query(
+    'SELECT COUNT(*)::int AS n FROM notificaciones WHERE usuario_id = $1 AND leida = false',
+    [req.user.id]
+  );
+  res.json({ notificaciones: rows, no_leidas: countRows[0].n });
+}));
+
+app.put('/api/notificaciones/:id/leida', h(async (req, res) => {
+  const id = Number(req.params.id);
+  const { rows: existRows } = await db.pool.query('SELECT usuario_id FROM notificaciones WHERE id = $1', [id]);
+  if (!existRows[0]) return res.status(404).json({ error: 'Notificación no encontrada' });
+  if (existRows[0].usuario_id !== req.user.id) {
+    return res.status(403).json({ error: 'No tienes permiso sobre esta notificación' });
+  }
+  const { rows } = await db.pool.query(
+    'UPDATE notificaciones SET leida = true WHERE id = $1 RETURNING *', [id]
+  );
+  res.json(rows[0]);
+}));
+
+app.put('/api/notificaciones/leer-todas', h(async (req, res) => {
+  await db.pool.query(
+    'UPDATE notificaciones SET leida = true WHERE usuario_id = $1 AND leida = false', [req.user.id]
+  );
+  res.json({ ok: true });
+}));
+
+// ---------------------------------------------------------------------------
 // Usuarios (solo admin)
 // ---------------------------------------------------------------------------
 app.get('/api/usuarios', h(auth.allow()), h(async (_req, res) => {

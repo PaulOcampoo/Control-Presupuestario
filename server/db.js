@@ -286,6 +286,25 @@ const SCHEMA = `
     creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW()
   );
   ALTER TABLE proyectos ADD COLUMN IF NOT EXISTS cliente_id INTEGER REFERENCES clientes(id);
+
+  -- Notificaciones in-app — infraestructura base para las alertas de fases
+  -- futuras (impuestos, vencimiento de contrato, requisición/OC publicada).
+  -- 'tipo' es texto libre (no ENUM) para que esas fases agreguen tipos nuevos
+  -- sin migrar el esquema. 'referencia_id' apunta al id del recurso asociado
+  -- (requisicion_id, orden_compra_id, etc.) según 'tipo' — sin FK porque puede
+  -- referenciar distintas tablas según el tipo.
+  CREATE TABLE IF NOT EXISTS notificaciones (
+    id SERIAL PRIMARY KEY,
+    usuario_id INTEGER NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+    project_id INTEGER REFERENCES proyectos(id) ON DELETE CASCADE,
+    tipo TEXT NOT NULL,
+    referencia_id INTEGER,
+    mensaje TEXT NOT NULL,
+    leida BOOLEAN NOT NULL DEFAULT false,
+    creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
+  CREATE INDEX IF NOT EXISTS idx_notificaciones_usuario ON notificaciones(usuario_id);
+  CREATE INDEX IF NOT EXISTS idx_notificaciones_usuario_leida ON notificaciones(usuario_id, leida);
 `;
 
 async function initSchema() {

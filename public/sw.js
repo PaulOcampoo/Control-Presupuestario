@@ -1,6 +1,6 @@
 'use strict';
 
-const CACHE = 'ctrl-ppto-v18';
+const CACHE = 'ctrl-ppto-v19';
 const SHELL = [
   '/',
   '/index.html',
@@ -10,7 +10,8 @@ const SHELL = [
   '/vendor/chart.umd.min.js',
   '/icons/icon-192.png',
   '/icons/icon-512.png',
-  '/logo-roforb.png',
+  '/assets/logo-roforb.png',
+  '/assets/logo-roforb-icon.png',
 ];
 
 self.addEventListener('install', (event) => {

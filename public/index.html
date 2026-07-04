@@ -3,20 +3,27 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <meta name="theme-color" content="#0f172a" />
+  <meta name="theme-color" content="#0B1220" />
   <title>Grupo Roforb — Control Presupuestal</title>
   <link rel="manifest" href="/manifest.webmanifest" />
   <link rel="icon" href="/icons/icon-192.png" />
   <link rel="apple-touch-icon" href="/icons/icon-192.png" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <!-- Aplica el tema guardado antes de pintar, para evitar un parpadeo del
+       tema equivocado (ver toggleTheme()/applyTheme() en app.js). -->
+  <script>
+    (function () {
+      document.documentElement.setAttribute('data-theme', localStorage.getItem('cp_theme') || 'dark');
+    })();
+  </script>
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
   <!-- Pantalla de login: filtra el acceso por usuario y puesto -->
   <div id="loginScreen" class="login-screen">
     <form id="loginForm" class="login-card">
-      <img class="login-logo" src="/logo-roforb.png" alt="Grupo Roforb" />
+      <img class="login-logo" src="/assets/logo-roforb.png" alt="Grupo Roforb" />
       <h1>Grupo Roforb</h1>
       <p class="muted">Control Presupuestal de Obra — inicia sesión con tu cuenta</p>
       <div class="field"><label>Usuario</label><input id="loginUsuario" autocomplete="username" required /></div>
@@ -31,7 +38,7 @@
     <div class="gallery-card">
       <div class="gallery-header">
         <div class="topbar-brand">
-          <img src="/logo-roforb.png" alt="" class="topbar-logo" />
+          <img src="/assets/logo-roforb-icon.png" alt="" class="topbar-logo" />
           <strong>Grupo Roforb</strong>
         </div>
         <button id="btnGalleryLogout" class="btn small">Salir</button>
@@ -49,7 +56,7 @@
       <button id="btnMenu" class="icon-btn" aria-label="Menú">☰</button>
       <div class="topbar-title">
         <div class="topbar-brand">
-          <img src="/logo-roforb.png" alt="" class="topbar-logo" />
+          <img src="/assets/logo-roforb-icon.png" alt="" class="topbar-logo" />
           <strong>Grupo Roforb</strong>
         </div>
         <span id="projectName" class="muted">Selecciona un presupuesto</span>
@@ -67,6 +74,7 @@
           <div id="notifList" class="notif-list"></div>
         </div>
       </div>
+      <button id="btnThemeToggle" class="icon-btn" aria-label="Cambiar tema" title="Cambiar tema claro/oscuro">🌙</button>
       <button id="btnLogout" class="icon-btn" aria-label="Cerrar sesión" title="Cerrar sesión">🚪</button>
     </header>
 

@@ -28,6 +28,35 @@ const state = {
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 
+// ---------------------------------------------------------------------------
+// Tema claro/oscuro — persiste en localStorage; el atributo data-theme en
+// <html> ya se aplica de forma síncrona en un <script> inline en index.html
+// (antes de pintar, para evitar parpadeo). Aquí solo se sincroniza el botón
+// y se conecta el toggle.
+// ---------------------------------------------------------------------------
+const THEME_KEY = 'cp_theme';
+
+function getTheme() {
+  return localStorage.getItem(THEME_KEY) || 'dark';
+}
+
+function applyTheme(theme) {
+  document.documentElement.setAttribute('data-theme', theme);
+  const btn = $('#btnThemeToggle');
+  if (btn) btn.textContent = theme === 'light' ? '🌙' : '☀️';
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.setAttribute('content', theme === 'light' ? '#EAEEF5' : '#0B1220');
+}
+
+function toggleTheme() {
+  const next = getTheme() === 'light' ? 'dark' : 'light';
+  localStorage.setItem(THEME_KEY, next);
+  applyTheme(next);
+}
+
+applyTheme(getTheme());
+$('#btnThemeToggle').addEventListener('click', toggleTheme);
+
 const fmtMoney = (n) => (n == null ? '—' : Number(n).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 2 }));
 const fmtNum = (n, d = 2) => (n == null ? '—' : Number(n).toLocaleString('es-MX', { maximumFractionDigits: d }));
 const fmtPct = (n) => (n == null ? '—' : `${Number(n).toLocaleString('es-MX', { maximumFractionDigits: 1 })}%`);

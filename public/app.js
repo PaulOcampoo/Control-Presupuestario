@@ -3159,7 +3159,10 @@ async function openAgregarItemModal(destId, destajistas) {
         $('#itemCodigo').value = c.codigo || '';
         $('#itemUnidad').value = c.unidad || '';
         if (!$('#itemCant').value) $('#itemCant').value = c.cantidad;
-        if (!$('#itemPU').value) $('#itemPU').value = c.precio_unitario;
+        // No autorrellenar P.U. destajo con c.precio_unitario: ese es el precio
+        // unitario presupuestado TOTAL del concepto (materiales + mano de obra +
+        // equipo), no la tarifa de mano de obra que corresponde aquí. Se deja en
+        // blanco para captura manual del precio de destajo real.
       });
     });
   }
@@ -3558,6 +3561,7 @@ async function renderFinanzas(view) {
       <div class="card-row"><span class="k">Compras — comprometido (con IVA, real)</span><span class="v muted">${fmtMoney(er.compras_comprometido_con_iva)}</span></div>
       <div class="card-row"><span class="k">Gastos generales — pagado</span><span class="v">${fmtMoney(er.gastos_generales_pagado)}</span></div>
       <div class="card-row"><span class="k">Gastos generales — pendiente</span><span class="v">${fmtMoney(er.gastos_generales_pendiente)}</span></div>
+      <div class="card-row"><span class="k">Destajo — ejecutado (mano de obra)</span><span class="v">${fmtMoney(er.destajo_ejecutado)}</span></div>
     </div>
 
     <div class="card" style="border-color:${brechaPositiva ? 'var(--green)' : 'var(--red)'}">

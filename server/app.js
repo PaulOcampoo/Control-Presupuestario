@@ -1678,6 +1678,19 @@ async function getFinanzasResumenData(pid) {
   );
   const gastosPendiente = Number(gastosPendienteRows[0].total);
 
+  // Destajo: costo de mano de obra realmente ejecutado (cantidad_ejecutada,
+  // acumulada semana a semana en avance_destajo, × precio_destajo — el mismo
+  // cálculo que ya usa la pestaña Destajo como "total_ganado"). No hay
+  // distinción pagado/pendiente para destajo en el esquema actual, así que
+  // se trata como pagado (mano de obra ya ejecutada = costo real incurrido).
+  const { rows: destajoRows } = await db.pool.query(`
+    SELECT COALESCE(SUM(ad.cantidad_ejecutada * di.precio_destajo), 0) AS total
+    FROM destajo_items di
+    JOIN avance_destajo ad ON ad.destajo_item_id = di.id
+    WHERE di.project_id = $1
+  `, [pid]);
+  const destajoGanado = Number(destajoRows[0].total);
+
   // pagos.monto y orden_compra_items.precio_unitario se capturan con IVA
   // incluido (monto real pagado/cotizado), mientras que montoValorizado sale
   // de presupuestoTotal, que es sin IVA. Para que "Erogado Real" sea
@@ -1689,7 +1702,7 @@ async function getFinanzasResumenData(pid) {
   const comprasPagadoSinIva = Number((comprasPagado / (1 + IVA_RATE)).toFixed(2));
   const comprasComprometidoSinIva = Number((comprasComprometido / (1 + IVA_RATE)).toFixed(2));
 
-  const totalPagado = Number((comprasPagadoSinIva + gastosPagado).toFixed(2));
+  const totalPagado = Number((comprasPagadoSinIva + gastosPagado + destajoGanado).toFixed(2));
   const totalComprometidoNoPagado = Number((comprasComprometidoSinIva + gastosPendiente).toFixed(2));
   const brechaMonto = Number((montoValorizado - totalPagado).toFixed(2));
 
@@ -1705,6 +1718,7 @@ async function getFinanzasResumenData(pid) {
       compras_comprometido_con_iva: Number(comprasComprometido.toFixed(2)),
       gastos_generales_pagado: Number(gastosPagado.toFixed(2)),
       gastos_generales_pendiente: Number(gastosPendiente.toFixed(2)),
+      destajo_ejecutado: Number(destajoGanado.toFixed(2)),
       total_pagado: totalPagado,
       total_comprometido_no_pagado: totalComprometidoNoPagado,
       iva_ajuste_pct: IVA_RATE * 100,
@@ -1740,6 +1754,7 @@ app.get('/api/projects/:id/finanzas/export', h(auth.allow('residente')), h(requi
     { concepto: 'Compras — comprometido (con IVA, real)', valor: er.compras_comprometido_con_iva },
     { concepto: 'Gastos generales — pagado', valor: er.gastos_generales_pagado },
     { concepto: 'Gastos generales — pendiente', valor: er.gastos_generales_pendiente },
+    { concepto: 'Destajo — ejecutado (mano de obra)', valor: er.destajo_ejecutado },
     { concepto: 'Brecha (Avance Valorizado - Total pagado)', valor: resumen.brecha.monto },
   ];
   await sendXlsxExport(res, {

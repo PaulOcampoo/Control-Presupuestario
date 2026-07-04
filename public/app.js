@@ -57,6 +57,60 @@ function toggleTheme() {
 applyTheme(getTheme());
 $('#btnThemeToggle').addEventListener('click', toggleTheme);
 
+// ---------------------------------------------------------------------------
+// Instalación PWA — Android/Chrome dispara 'beforeinstallprompt' (evento
+// nativo, lo guardamos y lo disparamos al tocar el botón); iOS Safari no
+// tiene ese evento, así que ahí solo mostramos instrucciones manuales.
+// El aviso se oculta si la app ya corre instalada (standalone) o si el
+// usuario ya lo cerró antes (localStorage).
+// ---------------------------------------------------------------------------
+const INSTALL_DISMISSED_KEY = 'cp_install_dismissed';
+let deferredInstallPrompt = null;
+
+function isStandalone() {
+  return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+}
+function isIOS() {
+  return /iphone|ipad|ipod/i.test(navigator.userAgent) && !window.MSStream;
+}
+
+function showInstallBanner(mode) {
+  if (isStandalone() || localStorage.getItem(INSTALL_DISMISSED_KEY)) return;
+  const banner = $('#installBanner');
+  if (!banner) return;
+  $('#installBannerText').textContent = mode === 'ios'
+    ? 'Instala esta app: toca Compartir ⬆️ en Safari y elige "Agregar a pantalla de inicio".'
+    : 'Instala Control Presupuestal en tu dispositivo para acceso rápido, sin navegador.';
+  $('#btnInstallApp').style.display = mode === 'ios' ? 'none' : '';
+  banner.style.display = 'flex';
+}
+
+window.addEventListener('beforeinstallprompt', (ev) => {
+  ev.preventDefault();
+  deferredInstallPrompt = ev;
+  showInstallBanner('android');
+});
+
+window.addEventListener('appinstalled', () => {
+  deferredInstallPrompt = null;
+  $('#installBanner').style.display = 'none';
+});
+
+$('#btnInstallApp').addEventListener('click', async () => {
+  if (!deferredInstallPrompt) return;
+  deferredInstallPrompt.prompt();
+  await deferredInstallPrompt.userChoice;
+  deferredInstallPrompt = null;
+  $('#installBanner').style.display = 'none';
+});
+
+$('#btnDismissInstall').addEventListener('click', () => {
+  localStorage.setItem(INSTALL_DISMISSED_KEY, '1');
+  $('#installBanner').style.display = 'none';
+});
+
+if (isIOS() && !isStandalone()) showInstallBanner('ios');
+
 const fmtMoney = (n) => (n == null ? '—' : Number(n).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 2 }));
 const fmtNum = (n, d = 2) => (n == null ? '—' : Number(n).toLocaleString('es-MX', { maximumFractionDigits: d }));
 const fmtPct = (n) => (n == null ? '—' : `${Number(n).toLocaleString('es-MX', { maximumFractionDigits: 1 })}%`);
@@ -250,19 +304,26 @@ function timeAgo(creadoEn) {
 // Switch por tipo de notificación → navega al recurso correspondiente.
 // Fase 3 (impuestos) agrega el primer caso; fases futuras (requisición/OC
 // publicada, etc.) suman más ramas aquí — ver TODO original en Fase 1.
+const TAB_POR_TIPO_NOTIF = {
+  recordatorio_impuestos: 'impuestos',
+  requisicion_pendiente: 'requisiciones',
+  oc_pendiente: 'ordenes',
+  avance_pendiente: 'avance',
+  destajo_pendiente: 'destajo',
+};
+
 function navigateFromNotif(notif) {
-  if (notif.tipo === 'recordatorio_impuestos' && notif.project_id) {
-    if (!state.allowedTabs.includes('impuestos')) return;
-    const proj = state.projects.find((p) => p.id === notif.project_id);
-    if (!proj) return;
-    closeNotifDropdown();
-    closeDrawer();
-    showApp();
-    selectProject(notif.project_id);
-    state.view = 'impuestos';
-    $$('.tab').forEach((t) => t.classList.toggle('active', t.dataset.view === 'impuestos'));
-    renderView();
-  }
+  const tab = TAB_POR_TIPO_NOTIF[notif.tipo];
+  if (!tab || !notif.project_id || !state.allowedTabs.includes(tab)) return;
+  const proj = state.projects.find((p) => p.id === notif.project_id);
+  if (!proj) return;
+  closeNotifDropdown();
+  closeDrawer();
+  showApp();
+  selectProject(notif.project_id);
+  state.view = tab;
+  $$('.tab').forEach((t) => t.classList.toggle('active', t.dataset.view === tab));
+  renderView();
 }
 
 function renderNotifList() {
@@ -1531,7 +1592,7 @@ async function renderRequisiciones(view) {
   }
   list.innerHTML = reqs.map((r) => {
     const alertCount = r.alertas_cantidad + r.alertas_precio;
-    const estadoBadge = { borrador: 'muted', enviada: 'yellow', autorizada: 'green', cancelada: 'red' }[r.estado] || 'muted';
+    const estadoBadge = { borrador: 'muted', enviada: 'yellow', autorizada: 'green', rechazada: 'red', cancelada: 'red' }[r.estado] || 'muted';
     return `
     <div class="card" data-req="${r.id}">
       <div class="row between">
@@ -1659,7 +1720,10 @@ async function openRequisicionDetail(reqId) {
   openModal('<div class="spinner"></div>');
   try {
     const r = await api(`/projects/${state.projectId}/requisiciones/${reqId}`);
-    const estados = ['borrador', 'enviada', 'autorizada', 'cancelada'];
+    const estadosAdmin = ['borrador', 'enviada', 'autorizada', 'rechazada', 'cancelada'];
+    const estadosNoAdmin = ['borrador', 'enviada', 'cancelada'];
+    const estados = isAdmin() ? estadosAdmin : estadosNoAdmin;
+    const estadoBadgeMap = { borrador: 'muted', enviada: 'yellow', autorizada: 'green', rechazada: 'red', cancelada: 'red' };
     openModal(`
       <h3>${esc(r.folio || `Requisición #${r.id}`)}</h3>
       <span class="muted">${fmtDate(r.fecha)}</span>
@@ -1667,7 +1731,9 @@ async function openRequisicionDetail(reqId) {
       <div id="reqItemsDetail"></div>
       <div class="card" style="margin-top:14px">
         <h4 style="margin:0 0 4px;font-size:0.9rem">Estado de la requisición</h4>
-        <p class="muted" style="font-size:0.78rem;margin:0 0 10px">Cambia el estado para avanzar el flujo de compra: envíala, autorízala (necesario para poder generar una Orden de Compra) o cancélala.</p>
+        <p class="muted" style="font-size:0.78rem;margin:0 0 10px">${isAdmin() ? 'Cambia el estado para avanzar el flujo de compra: envíala, autorízala (necesario para poder generar una Orden de Compra), recházala o cancélala.' : 'Envía la requisición para que un Administrador la autorice. Solo un Administrador puede autorizar, rechazar o generar la Orden de Compra.'}</p>
+        ${r.estado === 'enviada' && !isAdmin() ? `<span class="badge yellow">Pendiente de autorización</span>` : ''}
+        ${r.estado === 'rechazada' ? `<span class="badge red">Rechazada por el Administrador</span>` : ''}
         <select id="estadoSelect">${estados.map((e) => `<option value="${e}" ${e === r.estado ? 'selected' : ''}>${e}</option>`).join('')}</select>
       </div>
       <div class="modal-actions">
@@ -2030,7 +2096,7 @@ async function renderOrdenes(view) {
     list.innerHTML = '<div class="empty-state"><div class="big">🧾</div>Aún no hay órdenes de compra.<br>Genera una desde el detalle de una requisición autorizada.</div>';
     return;
   }
-  const estadoBadge = { borrador: 'muted', enviada: 'yellow', confirmada: 'green', recibida_parcial: 'yellow', recibida_completa: 'green', cancelada: 'red' };
+  const estadoBadge = { borrador: 'muted', enviada: 'yellow', confirmada: 'green', rechazada: 'red', recibida_parcial: 'yellow', recibida_completa: 'green', cancelada: 'red' };
   list.innerHTML = ordenes.map((o) => `
     <div class="card" data-oc="${o.id}">
       <div class="row between">
@@ -2056,8 +2122,11 @@ async function openOrdenDetalle(ocId) {
   openModal('<div class="spinner"></div>');
   try {
     const o = await api(`/projects/${state.projectId}/ordenes/${ocId}`);
-    const estados = ['borrador', 'enviada', 'confirmada', 'cancelada'];
-    const esEstadoRecepcion = !estados.includes(o.estado);
+    const estadosAdmin = ['borrador', 'enviada', 'confirmada', 'rechazada', 'cancelada'];
+    const estadosNoAdmin = ['borrador', 'enviada', 'cancelada'];
+    const todosEstados = ['borrador', 'enviada', 'confirmada', 'rechazada', 'cancelada'];
+    const estados = isAdmin() ? estadosAdmin : estadosNoAdmin;
+    const esEstadoRecepcion = !todosEstados.includes(o.estado);
     const puedeRecibir = ['confirmada', 'recibida_parcial'].includes(o.estado);
     openModal(`
       <h3>${esc(o.folio || `Orden de Compra #${o.id}`)}</h3>
@@ -2070,7 +2139,9 @@ async function openOrdenDetalle(ocId) {
       <div class="field"><label>Estado</label>
         ${esEstadoRecepcion
           ? `<p class="muted">${esc(o.estado)} — este estado lo controla la recepción de mercancía, no se puede cambiar aquí.</p>`
-          : `<select id="ocEstadoSelect">${estados.map((e) => `<option value="${e}" ${e === o.estado ? 'selected' : ''}>${e}</option>`).join('')}</select>`}
+          : `${o.estado === 'enviada' && !isAdmin() ? '<span class="badge yellow">Pendiente de autorización</span>' : ''}
+             ${!isAdmin() ? '<p class="muted" style="font-size:0.78rem">Solo un Administrador puede confirmar o rechazar la orden.</p>' : ''}
+             <select id="ocEstadoSelect">${estados.map((e) => `<option value="${e}" ${e === o.estado ? 'selected' : ''}>${e}</option>`).join('')}</select>`}
       </div>
       <div id="ocItemsDetail"></div>
       <div class="card" style="background:var(--panel-2)">
@@ -2335,7 +2406,7 @@ async function renderAvance(view) {
     <div class="card">
       <div class="table-scroll">
         <table>
-          <thead><tr><th>Semana</th><th>Periodo</th><th class="num">Presupuesto del periodo</th><th class="num">Programado acum.</th><th class="num">Físico real %</th><th class="num">Financiero real %</th><th></th></tr></thead>
+          <thead><tr><th>Semana</th><th>Periodo</th><th class="num">Presupuesto del periodo</th><th class="num">Programado acum.</th><th class="num">Físico real %</th><th class="num">Financiero real %</th><th>Autorización</th><th></th></tr></thead>
           <tbody id="avanceTbody"></tbody>
         </table>
       </div>
@@ -2408,6 +2479,9 @@ function paintAvanceTable(avances, presupuestoTotal) {
     const prevPct = idx > 0 ? (avances[idx - 1].avance_financiero_programado || 0) : 0;
     const pctPeriodo = Math.max(0, (a.avance_financiero_programado || 0) - prevPct);
     const importePeriodo = presupuestoTotal * (pctPeriodo / 100);
+    const estadoAut = a.estado_autorizacion || 'autorizado';
+    const autBadge = { autorizado: 'green', pendiente_autorizacion: 'yellow', rechazado: 'red' }[estadoAut] || 'muted';
+    const autLabel = { autorizado: 'Autorizado', pendiente_autorizacion: 'Pendiente', rechazado: 'Rechazado' }[estadoAut] || estadoAut;
     return `
     <tr data-semana="${a.semana}">
       <td>${a.semana}</td>
@@ -2416,6 +2490,14 @@ function paintAvanceTable(avances, presupuestoTotal) {
       <td class="num">${fmtPct(a.avance_financiero_programado)}</td>
       <td class="num"><input type="number" min="0" max="100" step="0.1" data-field="avance_fisico_real" value="${a.avance_fisico_real ?? ''}" style="width:84px;text-align:right" /></td>
       <td class="num"><input type="number" min="0" max="100" step="0.1" data-field="avance_financiero_real" value="${a.avance_financiero_real ?? ''}" style="width:84px;text-align:right" /></td>
+      <td>
+        <span class="badge ${autBadge}">${autLabel}</span>
+        ${isAdmin() && estadoAut === 'pendiente_autorizacion' ? `
+        <div class="row" style="flex-wrap:nowrap;gap:4px;margin-top:4px">
+          <button class="btn small btn-auth" data-autorizar="${a.semana}" data-accion="autorizado">Autorizar</button>
+          <button class="btn small btn-danger btn-auth" data-autorizar="${a.semana}" data-accion="rechazado">Rechazar</button>
+        </div>` : ''}
+      </td>
       <td>
         <div class="row" style="flex-wrap:nowrap;gap:6px">
           <button class="btn small" data-detalle="${a.semana}" title="Capturar avance por concepto">Por concepto</button>
@@ -2431,6 +2513,22 @@ function paintAvanceTable(avances, presupuestoTotal) {
       const semana = Number(btn.dataset.detalle);
       const avance = avances.find((a) => a.semana === semana);
       if (avance) openAvanceConceptosModal(avance, presupuestoTotal);
+    });
+  });
+
+  $$('[data-autorizar]', tbody).forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const semana = Number(btn.dataset.autorizar);
+      const accion = btn.dataset.accion;
+      btn.disabled = true;
+      try {
+        await api(`/projects/${state.projectId}/avances/${semana}/autorizacion`, { method: 'PUT', body: { estado: accion } });
+        toast(accion === 'autorizado' ? `Avance de la semana ${semana} autorizado` : `Avance de la semana ${semana} rechazado`, 'success');
+        renderView();
+      } catch (err) {
+        toast(err.message, 'danger');
+        btn.disabled = false;
+      }
     });
   });
 
@@ -2869,18 +2967,47 @@ function paintDestajoSemanaChart(destId, semanas) {
 function paintDestajoSemanaTable(destId, semanas, nombre) {
   const tbody = document.getElementById(`semanalTbody${destId}`);
   if (!tbody) return;
-  tbody.innerHTML = semanas.map((s) => `
+  tbody.innerHTML = semanas.map((s) => {
+    const estadoAut = s.estado_autorizacion || 'autorizado';
+    const autBadge = { autorizado: 'green', pendiente_autorizacion: 'yellow', rechazado: 'red' }[estadoAut] || 'muted';
+    const autLabel = { autorizado: 'Autorizado', pendiente_autorizacion: 'Pendiente', rechazado: 'Rechazado' }[estadoAut] || estadoAut;
+    return `
     <tr>
       <td>${s.semana}</td>
       <td>${fmtDate(s.fecha_inicio)} – ${fmtDate(s.fecha_fin)}</td>
       <td class="num">${fmtMoney(s.ganado_periodo)}</td>
       <td class="num">${fmtMoney(s.ganado_acumulado)}</td>
       <td class="num">${fmtPct(s.pct_acumulado)}</td>
-      <td><button class="btn small btn-primary" data-capturar-semana="${s.semana}" data-dest-id="${destId}">Capturar</button></td>
+      <td>
+        <span class="badge ${autBadge}">${autLabel}</span>
+        ${isAdmin() && estadoAut === 'pendiente_autorizacion' ? `
+        <div class="row" style="flex-wrap:nowrap;gap:4px;margin-top:4px">
+          <button class="btn small btn-auth" data-autorizar-dest="${s.semana}" data-dest-id="${destId}" data-accion="autorizado">Autorizar</button>
+          <button class="btn small btn-danger btn-auth" data-autorizar-dest="${s.semana}" data-dest-id="${destId}" data-accion="rechazado">Rechazar</button>
+        </div>` : ''}
+        <div style="margin-top:4px"><button class="btn small btn-primary" data-capturar-semana="${s.semana}" data-dest-id="${destId}">Capturar</button></div>
+      </td>
     </tr>
-  `).join('');
+  `;
+  }).join('');
   $$('[data-capturar-semana]', tbody).forEach((btn) => {
     btn.addEventListener('click', () => openDestajoSemanaModal(Number(btn.dataset.destId), Number(btn.dataset.capturarSemana), nombre));
+  });
+  $$('[data-autorizar-dest]', tbody).forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const semana = Number(btn.dataset.autorizarDest);
+      const dId = Number(btn.dataset.destId);
+      const accion = btn.dataset.accion;
+      btn.disabled = true;
+      try {
+        await api(`/projects/${state.projectId}/destajistas/${dId}/avance/${semana}/autorizacion`, { method: 'PUT', body: { estado: accion } });
+        toast(accion === 'autorizado' ? `Avance de destajo semana ${semana} autorizado` : `Avance de destajo semana ${semana} rechazado`, 'success');
+        renderView();
+      } catch (err) {
+        toast(err.message, 'danger');
+        btn.disabled = false;
+      }
+    });
   });
 }
 

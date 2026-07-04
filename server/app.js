@@ -1066,17 +1066,30 @@ app.put('/api/projects/:id/requisiciones/:reqId', h(auth.allow('residente')), h(
   }
 }));
 
+// 'autorizada'/'rechazada' quedan reservadas a admin — residente/cabo pueden
+// llegar hasta 'enviada' (que dispara la notificación de autorización) o
+// 'cancelada'/'borrador' igual que antes. No se degrada nada del flujo
+// existente, solo se restringe quién puede poner el estado final.
 app.put('/api/projects/:id/requisiciones/:reqId/estado', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
   const { estado } = req.body || {};
-  if (!['borrador', 'enviada', 'autorizada', 'cancelada'].includes(estado)) {
+  if (!['borrador', 'enviada', 'autorizada', 'rechazada', 'cancelada'].includes(estado)) {
     return res.status(400).json({ error: 'Estado inválido' });
   }
+  if (['autorizada', 'rechazada'].includes(estado) && req.user.puesto !== 'admin') {
+    return res.status(403).json({ error: 'Solo un administrador puede autorizar o rechazar una requisición' });
+  }
   const reqId = Number(req.params.reqId);
-  const { rowCount } = await db.pool.query(
-    'UPDATE requisiciones SET estado = $1 WHERE id = $2 AND project_id = $3',
-    [estado, reqId, req.project.id]
+  const { rows: reqRows } = await db.pool.query(
+    'SELECT folio FROM requisiciones WHERE id = $1 AND project_id = $2', [reqId, req.project.id]
   );
-  if (rowCount === 0) return res.status(404).json({ error: 'Requisición no encontrada' });
+  if (!reqRows[0]) return res.status(404).json({ error: 'Requisición no encontrada' });
+
+  await db.pool.query('UPDATE requisiciones SET estado = $1 WHERE id = $2', [estado, reqId]);
+
+  if (estado === 'enviada' && req.user.puesto !== 'admin') {
+    const folio = reqRows[0].folio || `Requisición #${reqId}`;
+    await notificarAdmins(req.project.id, 'requisicion_pendiente', reqId, `${req.user.nombre} envió ${folio} para autorización`);
+  }
   res.json({ ok: true });
 }));
 
@@ -1307,10 +1320,16 @@ app.post('/api/projects/:id/requisiciones/:reqId/ordenes', h(auth.allow('residen
   });
 }));
 
+// 'confirmada'/'rechazada' quedan reservadas a admin, mismo criterio que en
+// requisiciones — residente puede llegar hasta 'enviada' (dispara la
+// notificación) o 'cancelada', igual que antes.
 app.put('/api/projects/:id/ordenes/:ocId/estado', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
   const { estado } = req.body || {};
-  if (!['borrador', 'enviada', 'confirmada', 'cancelada'].includes(estado)) {
+  if (!['borrador', 'enviada', 'confirmada', 'rechazada', 'cancelada'].includes(estado)) {
     return res.status(400).json({ error: 'Estado inválido. Los estados de recepción se controlan automáticamente.' });
+  }
+  if (['confirmada', 'rechazada'].includes(estado) && req.user.puesto !== 'admin') {
+    return res.status(403).json({ error: 'Solo un administrador puede confirmar o rechazar una orden de compra' });
   }
   const ocId = Number(req.params.ocId);
   if (estado === 'cancelada') {
@@ -1319,11 +1338,17 @@ app.put('/api/projects/:id/ordenes/:ocId/estado', h(auth.allow('residente')), h(
       return res.status(400).json({ error: 'No se puede cancelar una orden de compra que ya tiene pagos registrados' });
     }
   }
-  const { rowCount } = await db.pool.query(
-    'UPDATE ordenes_compra SET estado = $1 WHERE id = $2 AND project_id = $3',
-    [estado, ocId, req.project.id]
+  const { rows: ocRows } = await db.pool.query(
+    'SELECT folio FROM ordenes_compra WHERE id = $1 AND project_id = $2', [ocId, req.project.id]
   );
-  if (rowCount === 0) return res.status(404).json({ error: 'Orden de compra no encontrada' });
+  if (!ocRows[0]) return res.status(404).json({ error: 'Orden de compra no encontrada' });
+
+  await db.pool.query('UPDATE ordenes_compra SET estado = $1 WHERE id = $2', [estado, ocId]);
+
+  if (estado === 'enviada' && req.user.puesto !== 'admin') {
+    const folio = ocRows[0].folio || `OC #${ocId}`;
+    await notificarAdmins(req.project.id, 'oc_pendiente', ocId, `${req.user.nombre} envió ${folio} para autorización`);
+  }
   res.json({ ok: true });
 }));
 
@@ -1901,24 +1926,52 @@ app.get('/api/projects/:id/avances/export', h(auth.allow('residente')), h(requir
   });
 }));
 
+// Marca una captura (avance semanal o destajo) como pendiente de
+// autorización cuando la toca alguien que no es admin; solo pide notificar
+// la primera vez que entra a pendiente, no en cada guardado subsecuente
+// mientras sigue pendiente (evita spam de notificaciones).
+function calcularEstadoAutorizacion(estadoPrevio, actorEsAdmin) {
+  if (actorEsAdmin) return { nuevoEstado: 'autorizado', notificar: false };
+  return { nuevoEstado: 'pendiente_autorizacion', notificar: estadoPrevio !== 'pendiente_autorizacion' };
+}
+
 app.put('/api/projects/:id/avances/:semana', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
   const pid = req.project.id;
   const semana = Number(req.params.semana);
   const { rows: existRows } = await db.pool.query(
-    'SELECT id FROM avances_semanales WHERE project_id = $1 AND semana = $2',
+    'SELECT id, estado_autorizacion FROM avances_semanales WHERE project_id = $1 AND semana = $2',
     [pid, semana]
   );
   if (!existRows[0]) return res.status(404).json({ error: 'Semana no encontrada' });
 
   const clamp = (v) => (v == null || v === '' ? null : Math.max(0, Math.min(100, Number(v))));
   const { avance_fisico_real, avance_financiero_real } = req.body || {};
+  const { nuevoEstado, notificar } = calcularEstadoAutorizacion(existRows[0].estado_autorizacion, req.user.puesto === 'admin');
   const { rows } = await db.pool.query(`
     UPDATE avances_semanales
     SET avance_fisico_real = COALESCE($1, avance_fisico_real),
-        avance_financiero_real = COALESCE($2, avance_financiero_real)
-    WHERE project_id = $3 AND semana = $4
+        avance_financiero_real = COALESCE($2, avance_financiero_real),
+        estado_autorizacion = $3
+    WHERE project_id = $4 AND semana = $5
     RETURNING *
-  `, [clamp(avance_fisico_real), clamp(avance_financiero_real), pid, semana]);
+  `, [clamp(avance_fisico_real), clamp(avance_financiero_real), nuevoEstado, pid, semana]);
+
+  if (notificar) {
+    await notificarAdmins(pid, 'avance_pendiente', semana, `${req.user.nombre} reportó avance real de la semana ${semana} para autorización`);
+  }
+  res.json(rows[0]);
+}));
+
+app.put('/api/projects/:id/avances/:semana/autorizacion', h(auth.allow()), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  const { estado } = req.body || {};
+  if (!['autorizado', 'rechazado'].includes(estado)) {
+    return res.status(400).json({ error: 'Estado inválido' });
+  }
+  const { rows } = await db.pool.query(
+    'UPDATE avances_semanales SET estado_autorizacion = $1 WHERE project_id = $2 AND semana = $3 RETURNING *',
+    [estado, req.project.id, Number(req.params.semana)]
+  );
+  if (!rows[0]) return res.status(404).json({ error: 'Semana no encontrada' });
   res.json(rows[0]);
 }));
 
@@ -1986,7 +2039,7 @@ app.put('/api/projects/:id/avances/:semana/conceptos', h(auth.allow('residente')
   const pid = req.project.id;
   const semana = Number(req.params.semana);
   const { rows: existRows } = await db.pool.query(
-    'SELECT id FROM avances_semanales WHERE project_id = $1 AND semana = $2',
+    'SELECT id, estado_autorizacion FROM avances_semanales WHERE project_id = $1 AND semana = $2',
     [pid, semana]
   );
   if (!existRows[0]) return res.status(404).json({ error: 'Semana no encontrada' });
@@ -2007,6 +2060,12 @@ app.put('/api/projects/:id/avances/:semana/conceptos', h(auth.allow('residente')
       `, [semana, conceptoId, cantidad]);
     }
   });
+
+  const { nuevoEstado, notificar } = calcularEstadoAutorizacion(existRows[0].estado_autorizacion, req.user.puesto === 'admin');
+  await db.pool.query('UPDATE avances_semanales SET estado_autorizacion = $1 WHERE project_id = $2 AND semana = $3', [nuevoEstado, pid, semana]);
+  if (notificar) {
+    await notificarAdmins(pid, 'avance_pendiente', semana, `${req.user.nombre} reportó avance real de la semana ${semana} para autorización`);
+  }
 
   const totalPresupuesto = await presupuestoTotalDe(pid);
   let pctReal = null;
@@ -2287,12 +2346,14 @@ app.get('/api/projects/:id/destajistas/:destId/avance', h(auth.allow('residente'
 
   const { rows: semanas } = await db.pool.query(`
     SELECT av.semana, av.fecha_inicio, av.fecha_fin,
-           COALESCE(SUM(ad.cantidad_ejecutada * di.precio_destajo), 0) AS ganado_periodo
+           COALESCE(SUM(ad.cantidad_ejecutada * di.precio_destajo), 0) AS ganado_periodo,
+           daa.estado_autorizacion
     FROM avances_semanales av
     LEFT JOIN destajo_items di ON di.destajista_id = $2
     LEFT JOIN avance_destajo ad ON ad.destajo_item_id = di.id AND ad.semana = av.semana
+    LEFT JOIN destajo_avance_autorizacion daa ON daa.project_id = $1 AND daa.destajista_id = $2 AND daa.semana = av.semana
     WHERE av.project_id = $1
-    GROUP BY av.semana, av.fecha_inicio, av.fecha_fin
+    GROUP BY av.semana, av.fecha_inicio, av.fecha_fin, daa.estado_autorizacion
     ORDER BY av.semana
   `, [pid, destId]);
 
@@ -2306,6 +2367,7 @@ app.get('/api/projects/:id/destajistas/:destId/avance', h(auth.allow('residente'
       ganado_periodo: Number(s.ganado_periodo),
       ganado_acumulado: acumulado,
       pct_acumulado: totalAsignado > 0 ? Math.min(100, (acumulado / totalAsignado) * 100) : 0,
+      estado_autorizacion: s.estado_autorizacion || null,
     };
   });
 
@@ -2341,7 +2403,32 @@ app.get('/api/projects/:id/destajistas/:destId/avance/:semana', h(auth.allow('re
     ORDER BY di.orden, di.id
   `, [destId, semana]);
 
-  res.json({ semana, destajista: destRows[0], periodo: semRows[0], items });
+  const { rows: autRows } = await db.pool.query(
+    'SELECT estado_autorizacion FROM destajo_avance_autorizacion WHERE project_id = $1 AND destajista_id = $2 AND semana = $3',
+    [pid, destId, semana]
+  );
+
+  res.json({ semana, destajista: destRows[0], periodo: semRows[0], items, estado_autorizacion: autRows[0] ? autRows[0].estado_autorizacion : null });
+}));
+
+app.put('/api/projects/:id/destajistas/:destId/avance/:semana/autorizacion', h(auth.allow()), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  const { estado } = req.body || {};
+  if (!['autorizado', 'rechazado'].includes(estado)) {
+    return res.status(400).json({ error: 'Estado inválido' });
+  }
+  const destId = Number(req.params.destId);
+  const semana = Number(req.params.semana);
+  const { rows: destRows } = await db.pool.query('SELECT id FROM destajistas WHERE id = $1 AND project_id = $2', [destId, req.project.id]);
+  if (!destRows[0]) return res.status(404).json({ error: 'Destajista no encontrado' });
+
+  const { rows } = await db.pool.query(`
+    INSERT INTO destajo_avance_autorizacion (project_id, destajista_id, semana, estado_autorizacion, autorizado_por, autorizado_en)
+    VALUES ($1, $2, $3, $4, $5, NOW())
+    ON CONFLICT (project_id, destajista_id, semana)
+    DO UPDATE SET estado_autorizacion = EXCLUDED.estado_autorizacion, autorizado_por = EXCLUDED.autorizado_por, autorizado_en = NOW(), actualizado_en = NOW()
+    RETURNING *
+  `, [req.project.id, destId, semana, estado, req.user.id]);
+  res.json(rows[0]);
 }));
 
 app.put('/api/projects/:id/destajistas/:destId/avance/:semana', h(auth.allow('residente', 'cabo')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
@@ -2393,6 +2480,21 @@ app.put('/api/projects/:id/destajistas/:destId/avance/:semana', h(auth.allow('re
       `, [semana, itemId, cantidad]);
     }
   });
+
+  const { rows: authRows } = await db.pool.query(
+    'SELECT estado_autorizacion FROM destajo_avance_autorizacion WHERE project_id = $1 AND destajista_id = $2 AND semana = $3',
+    [pid, destId, semana]
+  );
+  const { nuevoEstado, notificar } = calcularEstadoAutorizacion(authRows[0] ? authRows[0].estado_autorizacion : null, req.user.puesto === 'admin');
+  await db.pool.query(`
+    INSERT INTO destajo_avance_autorizacion (project_id, destajista_id, semana, estado_autorizacion)
+    VALUES ($1, $2, $3, $4)
+    ON CONFLICT (project_id, destajista_id, semana) DO UPDATE SET estado_autorizacion = EXCLUDED.estado_autorizacion, actualizado_en = NOW()
+  `, [pid, destId, semana, nuevoEstado]);
+  if (notificar) {
+    const { rows: destInfo } = await db.pool.query('SELECT nombre FROM destajistas WHERE id = $1', [destId]);
+    await notificarAdmins(pid, 'destajo_pendiente', destId, `${req.user.nombre} capturó avance de destajo (${destInfo[0].nombre}, semana ${semana}) para autorización`);
+  }
 
   res.json({ ok: true, semana, omitidos });
 }));

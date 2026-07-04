@@ -78,6 +78,17 @@
       <button id="btnLogout" class="icon-btn" aria-label="Cerrar sesión" title="Cerrar sesión">🚪</button>
     </header>
 
+    <!-- Banner de instalación PWA: oculto hasta que haya un prompt nativo
+         (Android/Chrome) o se detecte iOS Safari (sin evento nativo, solo
+         instrucciones) — ver lógica en app.js. -->
+    <div id="installBanner" class="install-banner" style="display:none">
+      <span id="installBannerText" class="install-banner-text"></span>
+      <div class="install-banner-actions">
+        <button id="btnInstallApp" class="btn small btn-primary">Instalar app</button>
+        <button id="btnDismissInstall" class="icon-btn small" aria-label="Cerrar aviso de instalación">✕</button>
+      </div>
+    </div>
+
     <!--
       Orden por flujo real de la operación (no alfabético, no el orden en que
       se fueron agregando las features): primero el panorama (Resumen), luego

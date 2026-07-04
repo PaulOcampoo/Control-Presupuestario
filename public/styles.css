@@ -86,6 +86,16 @@ body {
   opacity: 0; pointer-events: none; transform: translateY(-6px); transition: opacity 0.15s, transform 0.15s;
 }
 .notif-dropdown.show { opacity: 1; pointer-events: auto; transform: translateY(0); }
+/* En pantallas angostas, .notif-wrap ya no está en el borde real de la
+   pantalla (quedaron botones después de la campana) — anclar al viewport
+   en vez de al padre evita que se desborde a la izquierda. */
+@media (max-width: 480px) {
+  .notif-dropdown {
+    position: fixed; top: calc(60px + var(--safe-top)); left: 12px; right: 12px; width: auto;
+    transform: translateY(-6px);
+  }
+  .notif-dropdown.show { transform: translateY(0); }
+}
 .notif-dropdown-header {
   display: flex; justify-content: space-between; align-items: center; gap: 8px;
   padding: 12px 14px; border-bottom: 1px solid var(--border-color);
@@ -97,6 +107,16 @@ body {
 .notif-item.unread { background: color-mix(in srgb, var(--accent-gold) 12%, transparent); border-left: 3px solid var(--accent-gold); }
 .notif-item .notif-msg { font-size: 0.86rem; }
 .notif-item .notif-time { color: var(--text-secondary); font-size: 0.72rem; margin-top: 3px; }
+
+/* Banner de instalación PWA */
+.install-banner {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 10px 12px; background: color-mix(in srgb, var(--accent-gold) 14%, var(--bg-surface));
+  border-bottom: 1px solid var(--border-color);
+}
+.install-banner-text { flex: 1 1 200px; font-size: 0.82rem; color: var(--text-primary); min-width: 0; }
+.install-banner-actions { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
+.install-banner-actions .icon-btn.small { width: 32px; height: 32px; font-size: 0.9rem; border-radius: 8px; }
 
 .tabs {
   display: flex; overflow-x: auto; gap: 8px; padding: 10px 12px;
@@ -163,6 +183,10 @@ h3.section-title { margin: 18px 0 10px; font-size: 0.95rem; color: var(--text-se
 .btn.full { width: 100%; }
 .btn.small { padding: 6px 12px; font-size: 0.82rem; }
 .btn[disabled] { opacity: 0.5; cursor: not-allowed; }
+/* Autorizar/Rechazar (Avance y Destajo): acciones críticas de un solo toque
+   para Administrador — se agrandan al tamaño de toque recomendado (44px)
+   aunque el resto de los botones "small" de la app usen menos. */
+.btn-auth { min-height: 44px; padding: 10px 16px; font-size: 0.86rem; }
 
 .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .row.between { justify-content: space-between; }

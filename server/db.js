@@ -330,6 +330,31 @@ const SCHEMA = `
     creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE(project_id, periodo_anio, periodo_mes)
   );
+
+  -- Autorización de avance semanal (físico/financiero) — capa agregada
+  -- encima del flujo existente, no lo reemplaza. Default 'autorizado' para
+  -- que las semanas ya existentes (capturadas antes de esta fase) no
+  -- queden bloqueadas retroactivamente; a partir de ahora, cuando alguien
+  -- no-admin captura avance real, el endpoint la pasa a
+  -- 'pendiente_autorizacion' y notifica a los admins (ver
+  -- PUT /api/projects/:id/avances/:semana[/conceptos] en server/app.js).
+  ALTER TABLE avances_semanales ADD COLUMN IF NOT EXISTS estado_autorizacion TEXT NOT NULL DEFAULT 'autorizado';
+
+  -- Autorización de avance de destajo por destajista+semana. No existe una
+  -- fila por defecto: se crea la primera vez que alguien captura avance de
+  -- destajo para ese destajista en esa semana (ver PUT
+  -- /api/projects/:id/destajistas/:destId/avance/:semana).
+  CREATE TABLE IF NOT EXISTS destajo_avance_autorizacion (
+    id SERIAL PRIMARY KEY,
+    project_id INTEGER NOT NULL REFERENCES proyectos(id) ON DELETE CASCADE,
+    destajista_id INTEGER NOT NULL REFERENCES destajistas(id) ON DELETE CASCADE,
+    semana INTEGER NOT NULL,
+    estado_autorizacion TEXT NOT NULL DEFAULT 'pendiente_autorizacion',
+    autorizado_por INTEGER REFERENCES usuarios(id),
+    autorizado_en TIMESTAMPTZ,
+    actualizado_en TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(project_id, destajista_id, semana)
+  );
 `;
 
 async function initSchema() {

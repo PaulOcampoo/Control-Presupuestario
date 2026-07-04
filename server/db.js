@@ -305,6 +305,31 @@ const SCHEMA = `
   );
   CREATE INDEX IF NOT EXISTS idx_notificaciones_usuario ON notificaciones(usuario_id);
   CREATE INDEX IF NOT EXISTS idx_notificaciones_usuario_leida ON notificaciones(usuario_id, leida);
+
+  -- Pagos de impuestos (IMSS/SAT/INFONAVIT) por obra y periodo — aplica a
+  -- TODAS las obras por igual, sin relación con la pestaña Contrato. Un
+  -- periodo por (project_id, año, mes); el cron mensual (ver
+  -- POST /api/cron/recordatorio-impuestos) los crea en 'pendiente' y el
+  -- residente/admin los actualiza a 'cargado' desde la pestaña Impuestos.
+  -- Las referencias son texto libre (folio escrito a mano) — no hay subida
+  -- de archivo binario en este alcance.
+  CREATE TABLE IF NOT EXISTS pagos_impuestos_obra (
+    id SERIAL PRIMARY KEY,
+    project_id INTEGER NOT NULL REFERENCES proyectos(id) ON DELETE CASCADE,
+    periodo_anio INTEGER NOT NULL,
+    periodo_mes INTEGER NOT NULL,
+    imss_monto DOUBLE PRECISION,
+    imss_referencia TEXT,
+    sat_monto DOUBLE PRECISION,
+    sat_referencia TEXT,
+    infonavit_monto DOUBLE PRECISION,
+    infonavit_referencia TEXT,
+    estado TEXT NOT NULL DEFAULT 'pendiente',
+    cargado_por INTEGER REFERENCES usuarios(id),
+    cargado_en TIMESTAMPTZ,
+    creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(project_id, periodo_anio, periodo_mes)
+  );
 `;
 
 async function initSchema() {

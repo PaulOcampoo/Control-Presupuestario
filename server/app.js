@@ -13,6 +13,7 @@ const { generatePlanning } = require('./planning');
 const auth = require('./auth');
 const { sendXlsxExport, buildExportFilename } = require('./exportHelper');
 const { extraerDatosContrato, CAMPOS_CONTRATO } = require('./extraccionContrato');
+const { crearNotificacion, notificarAdmins } = require('./notificaciones');
 
 const app = express();
 
@@ -78,6 +79,62 @@ app.post('/api/auth/login', h(async (req, res) => {
     token,
     user: { id: user.id, nombre: user.nombre, usuario: user.usuario, puesto: user.puesto },
     tabs: auth.PERMISSIONS[user.puesto] ? auth.PERMISSIONS[user.puesto].tabs : [],
+  });
+}));
+
+// Vercel Cron (ver vercel.json → "crons") — se autentica con CRON_SECRET en
+// vez de un JWT de usuario, así que se registra antes del middleware global
+// de sesión para que no le exija Authorization: Bearer <token de usuario>.
+app.post('/api/cron/recordatorio-impuestos', h(async (req, res) => {
+  const cronSecret = process.env.CRON_SECRET;
+  if (!cronSecret) {
+    return res.status(500).json({ error: 'CRON_SECRET no está configurada en el entorno' });
+  }
+  if (req.headers.authorization !== `Bearer ${cronSecret}`) {
+    return res.status(401).json({ error: 'No autorizado' });
+  }
+
+  const ahora = new Date();
+  const anio = ahora.getUTCFullYear();
+  const mes = ahora.getUTCMonth() + 1;
+
+  const { rows: proyectos } = await db.pool.query('SELECT id, nombre FROM proyectos');
+  let periodosCreados = 0;
+  let notificacionesEnviadas = 0;
+
+  for (const p of proyectos) {
+    const { rows: insertados } = await db.pool.query(
+      `INSERT INTO pagos_impuestos_obra (project_id, periodo_anio, periodo_mes, estado)
+       VALUES ($1, $2, $3, 'pendiente')
+       ON CONFLICT (project_id, periodo_anio, periodo_mes) DO NOTHING
+       RETURNING id`,
+      [p.id, anio, mes]
+    );
+    if (!insertados.length) continue; // ya existía este periodo para esta obra
+    periodosCreados++;
+
+    const mensaje = `Pendiente cargar pagos de IMSS/SAT/INFONAVIT de ${mes}/${anio} para ${p.nombre}`;
+    const admins = await notificarAdmins(p.id, 'recordatorio_impuestos', insertados[0].id, mensaje);
+    notificacionesEnviadas += admins.length;
+
+    // Obra huérfana (sin residentes en usuario_proyectos): se queda solo con
+    // la notificación a admins de arriba, no es un error.
+    const { rows: residentes } = await db.pool.query(`
+      SELECT u.id FROM usuarios u
+      JOIN usuario_proyectos up ON up.usuario_id = u.id
+      WHERE up.project_id = $1 AND u.puesto = 'residente' AND u.activo = true
+    `, [p.id]);
+    for (const r of residentes) {
+      await crearNotificacion(r.id, p.id, 'recordatorio_impuestos', insertados[0].id, mensaje);
+      notificacionesEnviadas++;
+    }
+  }
+
+  res.json({
+    ok: true,
+    periodo: `${anio}-${String(mes).padStart(2, '0')}`,
+    periodos_creados: periodosCreados,
+    notificaciones_enviadas: notificacionesEnviadas,
   });
 }));
 
@@ -574,6 +631,67 @@ app.post('/api/projects/contrato-confirm', h(auth.allow()), h(async (req, res) =
   });
 
   res.json({ project_id: projectId, nombre });
+}));
+
+// ---------------------------------------------------------------------------
+// Impuestos (IMSS/SAT/INFONAVIT) por obra y periodo — aplica a TODAS las
+// obras por igual (no depende de que tengan Contrato PDF cargado). Los
+// periodos 'pendiente' los crea el cron mensual (ver
+// POST /api/cron/recordatorio-impuestos, registrado antes del middleware de
+// sesión); aquí solo se consultan y se marcan como 'cargado'.
+// ---------------------------------------------------------------------------
+app.get('/api/projects/:id/impuestos', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  const { rows } = await db.pool.query(
+    'SELECT * FROM pagos_impuestos_obra WHERE project_id = $1 ORDER BY periodo_anio DESC, periodo_mes DESC',
+    [req.project.id]
+  );
+  res.json(rows);
+}));
+
+app.get('/api/projects/:id/impuestos/resumen', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  const { rows } = await db.pool.query(
+    'SELECT * FROM pagos_impuestos_obra WHERE project_id = $1', [req.project.id]
+  );
+  const sum = (periodos) => periodos.reduce((acc, p) => {
+    acc.imss += Number(p.imss_monto) || 0;
+    acc.sat += Number(p.sat_monto) || 0;
+    acc.infonavit += Number(p.infonavit_monto) || 0;
+    return acc;
+  }, { imss: 0, sat: 0, infonavit: 0 });
+
+  const pagados = rows.filter((p) => p.estado === 'cargado');
+  const pendientes = rows.filter((p) => p.estado === 'pendiente');
+  const acumuladoPagado = sum(pagados);
+  const pendienteActual = sum(pendientes);
+
+  res.json({
+    acumulado_pagado: { ...acumuladoPagado, total: acumuladoPagado.imss + acumuladoPagado.sat + acumuladoPagado.infonavit },
+    pendiente_actual: { ...pendienteActual, total: pendienteActual.imss + pendienteActual.sat + pendienteActual.infonavit },
+  });
+}));
+
+app.post('/api/projects/:id/impuestos/:periodoId/cargar', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  const periodoId = Number(req.params.periodoId);
+  const { imss_monto, imss_referencia, sat_monto, sat_referencia, infonavit_monto, infonavit_referencia } = req.body || {};
+
+  const { rows: existRows } = await db.pool.query(
+    'SELECT id FROM pagos_impuestos_obra WHERE id = $1 AND project_id = $2', [periodoId, req.project.id]
+  );
+  if (!existRows[0]) return res.status(404).json({ error: 'Periodo no encontrado' });
+
+  const { rows } = await db.pool.query(
+    `UPDATE pagos_impuestos_obra
+     SET imss_monto = $1, imss_referencia = $2, sat_monto = $3, sat_referencia = $4,
+         infonavit_monto = $5, infonavit_referencia = $6, estado = 'cargado',
+         cargado_por = $7, cargado_en = NOW()
+     WHERE id = $8
+     RETURNING *`,
+    [
+      imss_monto ?? null, imss_referencia || null, sat_monto ?? null, sat_referencia || null,
+      infonavit_monto ?? null, infonavit_referencia || null, req.user.id, periodoId,
+    ]
+  );
+  res.json(rows[0]);
 }));
 
 // ---------------------------------------------------------------------------

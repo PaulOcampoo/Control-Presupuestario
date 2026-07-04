@@ -218,6 +218,24 @@ function timeAgo(creadoEn) {
   return `hace ${diffMonth} mes${diffMonth === 1 ? '' : 'es'}`;
 }
 
+// Switch por tipo de notificación → navega al recurso correspondiente.
+// Fase 3 (impuestos) agrega el primer caso; fases futuras (requisición/OC
+// publicada, etc.) suman más ramas aquí — ver TODO original en Fase 1.
+function navigateFromNotif(notif) {
+  if (notif.tipo === 'recordatorio_impuestos' && notif.project_id) {
+    if (!state.allowedTabs.includes('impuestos')) return;
+    const proj = state.projects.find((p) => p.id === notif.project_id);
+    if (!proj) return;
+    closeNotifDropdown();
+    closeDrawer();
+    showApp();
+    selectProject(notif.project_id);
+    state.view = 'impuestos';
+    $$('.tab').forEach((t) => t.classList.toggle('active', t.dataset.view === 'impuestos'));
+    renderView();
+  }
+}
+
 function renderNotifList() {
   const list = $('#notifList');
   if (!state.notificaciones.length) {
@@ -236,8 +254,7 @@ function renderNotifList() {
       const id = Number(el.dataset.notif);
       const notif = state.notificaciones.find((n) => n.id === id);
       if (!notif) return;
-      // TODO (fases futuras): switch sobre notif.tipo / notif.referencia_id
-      // para navegar al recurso correspondiente (requisición, OC, etc.).
+      navigateFromNotif(notif);
       if (notif.leida) return;
       try {
         await api(`/notificaciones/${id}/leida`, { method: 'PUT' });
@@ -732,6 +749,7 @@ async function renderView() {
     switch (state.view) {
       case 'resumen': await renderResumen(view); break;
       case 'contrato': await renderContrato(view); break;
+      case 'impuestos': await renderImpuestos(view); break;
       case 'insumos': await renderInsumos(view); break;
       case 'requisiciones': await renderRequisiciones(view); break;
       case 'ordenes': await renderOrdenes(view); break;
@@ -1085,6 +1103,104 @@ async function renderContrato(view) {
   `;
   $('#btnEditarContrato')?.addEventListener('click', () => {
     openContratoFormModal({ escaneado: false, campos }, { mode: 'attach', projectId: state.projectId });
+  });
+}
+
+// =========================================================================
+// VISTA: Impuestos (IMSS/SAT/INFONAVIT) — aplica a TODAS las obras por
+// igual, sin relación con Contrato. Los periodos 'pendiente' los crea el
+// cron mensual (server/app.js → POST /api/cron/recordatorio-impuestos);
+// aquí solo se consultan y se capturan/corrigen.
+// =========================================================================
+const MES_NOMBRES = ['', 'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+
+async function renderImpuestos(view) {
+  const [periodos, resumen] = await Promise.all([
+    cached('impuestos', () => api(`/projects/${state.projectId}/impuestos`)),
+    cached('impuestosResumen', () => api(`/projects/${state.projectId}/impuestos/resumen`)),
+  ]);
+
+  view.innerHTML = `
+    <h2 class="section-title">Impuestos (IMSS / SAT / INFONAVIT)</h2>
+    <div class="kpi-grid">
+      <div class="kpi green"><div class="label">Acumulado pagado</div><div class="value">${fmtMoney(resumen.acumulado_pagado.total)}</div></div>
+      <div class="kpi ${resumen.pendiente_actual.total > 0 ? 'red' : 'green'}"><div class="label">Pendiente actual</div><div class="value">${fmtMoney(resumen.pendiente_actual.total)}</div></div>
+    </div>
+    <div class="card">
+      <div class="card-row"><span class="k">IMSS pagado</span><span class="v">${fmtMoney(resumen.acumulado_pagado.imss)}</span></div>
+      <div class="card-row"><span class="k">SAT pagado</span><span class="v">${fmtMoney(resumen.acumulado_pagado.sat)}</span></div>
+      <div class="card-row"><span class="k">INFONAVIT pagado</span><span class="v">${fmtMoney(resumen.acumulado_pagado.infonavit)}</span></div>
+    </div>
+
+    <h3 class="section-title">Periodos</h3>
+    ${!periodos.length ? '<div class="empty-state"><div class="big">🧾</div>Aún no hay periodos de impuestos para esta obra.<br>Se crean automáticamente el día 17 de cada mes.</div>' : `
+    <div class="card">
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Periodo</th><th class="num">IMSS</th><th class="num">SAT</th><th class="num">INFONAVIT</th><th>Estado</th></tr></thead>
+          <tbody id="impuestosTbody"></tbody>
+        </table>
+      </div>
+    </div>`}
+  `;
+
+  if (!periodos.length) return;
+
+  $('#impuestosTbody').innerHTML = periodos.map((p) => `
+    <tr class="row-click ${p.estado === 'pendiente' ? 'row-pendiente' : ''}" data-periodo="${p.id}">
+      <td>${esc(MES_NOMBRES[p.periodo_mes])} ${p.periodo_anio}</td>
+      <td class="num">${fmtMoney(p.imss_monto)}</td>
+      <td class="num">${fmtMoney(p.sat_monto)}</td>
+      <td class="num">${fmtMoney(p.infonavit_monto)}</td>
+      <td><span class="badge ${p.estado === 'cargado' ? 'green' : 'yellow'}">${esc(p.estado)}</span></td>
+    </tr>
+  `).join('');
+
+  $$('#impuestosTbody tr').forEach((tr) => {
+    tr.addEventListener('click', () => {
+      const periodo = periodos.find((p) => p.id === Number(tr.dataset.periodo));
+      if (periodo) openImpuestoPeriodoModal(periodo);
+    });
+  });
+}
+
+function openImpuestoPeriodoModal(periodo) {
+  openModal(`
+    <h3>${esc(MES_NOMBRES[periodo.periodo_mes])} ${periodo.periodo_anio}</h3>
+    <p class="muted">Captura o corrige el monto y la referencia (folio o nombre del comprobante escrito a mano) de cada concepto.</p>
+    <div class="field"><label>IMSS — monto</label><input type="number" step="any" id="imp_imss_monto" value="${periodo.imss_monto ?? ''}" /></div>
+    <div class="field"><label>IMSS — referencia</label><input id="imp_imss_referencia" value="${esc(periodo.imss_referencia || '')}" /></div>
+    <div class="field"><label>SAT — monto</label><input type="number" step="any" id="imp_sat_monto" value="${periodo.sat_monto ?? ''}" /></div>
+    <div class="field"><label>SAT — referencia</label><input id="imp_sat_referencia" value="${esc(periodo.sat_referencia || '')}" /></div>
+    <div class="field"><label>INFONAVIT — monto</label><input type="number" step="any" id="imp_infonavit_monto" value="${periodo.infonavit_monto ?? ''}" /></div>
+    <div class="field"><label>INFONAVIT — referencia</label><input id="imp_infonavit_referencia" value="${esc(periodo.infonavit_referencia || '')}" /></div>
+    <div class="modal-actions">
+      <button class="btn" id="btnCancelImpuesto">Cancelar</button>
+      <button class="btn btn-primary" id="btnSaveImpuesto">Guardar</button>
+    </div>
+  `);
+  $('#btnCancelImpuesto').addEventListener('click', closeModal);
+  $('#btnSaveImpuesto').addEventListener('click', async () => {
+    const btn = $('#btnSaveImpuesto');
+    const body = {
+      imss_monto: $('#imp_imss_monto').value === '' ? null : Number($('#imp_imss_monto').value),
+      imss_referencia: $('#imp_imss_referencia').value.trim() || null,
+      sat_monto: $('#imp_sat_monto').value === '' ? null : Number($('#imp_sat_monto').value),
+      sat_referencia: $('#imp_sat_referencia').value.trim() || null,
+      infonavit_monto: $('#imp_infonavit_monto').value === '' ? null : Number($('#imp_infonavit_monto').value),
+      infonavit_referencia: $('#imp_infonavit_referencia').value.trim() || null,
+    };
+    btn.disabled = true; btn.textContent = 'Guardando…';
+    try {
+      await api(`/projects/${state.projectId}/impuestos/${periodo.id}/cargar`, { method: 'POST', body });
+      closeModal();
+      invalidate('impuestos', 'impuestosResumen');
+      renderView();
+      toast('Periodo actualizado', 'success');
+    } catch (err) {
+      toast(err.message, 'danger');
+      btn.disabled = false; btn.textContent = 'Guardar';
+    }
   });
 }
 

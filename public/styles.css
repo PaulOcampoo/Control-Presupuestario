@@ -198,6 +198,8 @@ th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--bord
 th { color: var(--muted); font-weight: 600; font-size: 0.74rem; text-transform: uppercase; }
 td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+tr.row-click { cursor: pointer; }
+tr.row-pendiente { background: rgba(234,179,8,0.10); }
 
 .fab {
   position: fixed; right: 18px; bottom: calc(22px + var(--safe-bottom));

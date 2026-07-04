@@ -306,6 +306,7 @@ function timeAgo(creadoEn) {
 // publicada, etc.) suman más ramas aquí — ver TODO original en Fase 1.
 const TAB_POR_TIPO_NOTIF = {
   recordatorio_impuestos: 'impuestos',
+  contrato_por_vencer: 'contrato',
   requisicion_pendiente: 'requisiciones',
   oc_pendiente: 'ordenes',
   avance_pendiente: 'avance',
@@ -389,7 +390,7 @@ function renderTabsBar() {
   $$('.tab[data-soon]', nav).forEach((btn) => btn.addEventListener('click', () => toast(`${btn.dataset.soon} estará disponible próximamente`, '')));
 }
 
-function navigateFromNotif(notif) {
+async function navigateFromNotif(notif) {
   const tab = TAB_POR_TIPO_NOTIF[notif.tipo];
   if (!tab || !notif.project_id || !state.allowedTabs.includes(tab)) return;
   const proj = state.projects.find((p) => p.id === notif.project_id);
@@ -397,8 +398,58 @@ function navigateFromNotif(notif) {
   closeNotifDropdown();
   closeDrawer();
   showApp();
-  selectProject(notif.project_id);
-  switchToView(tab);
+  await selectProject(notif.project_id, tab);
+  await abrirRegistroDesdeNotif(notif);
+}
+
+// Además de aterrizar en el módulo correcto, salta directo al registro
+// mencionado por la notificación (abre su modal de autorizar/rechazar, o
+// resalta su fila) — en vez de dejar al usuario viendo solo el listado
+// general. Si el usuario no es admin, los propios modales/filas ya
+// restringen las acciones de autorización (ver isAdmin() en cada uno), así
+// que aquí no hace falta lógica extra de "solo lectura".
+async function abrirRegistroDesdeNotif(notif) {
+  const refId = notif.referencia_id;
+  if (refId == null) return;
+  try {
+    switch (notif.tipo) {
+      case 'requisicion_pendiente': await openRequisicionDetail(refId); break;
+      case 'oc_pendiente': await openOrdenDetalle(refId); break;
+      case 'avance_pendiente': resaltarFilaAvance(refId); break;
+      case 'destajo_pendiente': await resaltarFilaDestajo(refId); break;
+    }
+  } catch (err) { /* la navegación al módulo ya ocurrió; el deep-link es best-effort */ }
+}
+
+function scrollAndFlash(el) {
+  if (!el) return;
+  el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  el.classList.add('notif-target-flash');
+  setTimeout(() => el.classList.remove('notif-target-flash'), 1800);
+}
+
+function resaltarFilaAvance(semana) {
+  scrollAndFlash(document.querySelector(`#avanceTbody tr[data-semana="${semana}"]`));
+}
+
+// avance_pendiente trae la semana como referencia_id (preciso). destajo_pendiente
+// solo trae el destajista_id (ver server/notificaciones.js): la semana no se
+// guarda como columna propia, así que aquí se ubica la fila pendiente
+// buscando el botón de autorizar dentro de la tarjeta ya expandida — que es
+// justo la semana que disparó la notificación (solo hay una fila pendiente
+// a la vez por destajista, ver calcularEstadoAutorizacion en server/app.js).
+async function resaltarFilaDestajo(destId) {
+  const card = document.querySelector(`[data-dest-card="${destId}"]`);
+  if (!card) return;
+  card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  const toggleBtn = card.querySelector('[data-toggle-semanal]');
+  if (toggleBtn && !toggleBtn.classList.contains('open')) {
+    const destajistas = await api(`/projects/${state.projectId}/destajistas`);
+    await toggleDestajoSemanal(toggleBtn, destajistas);
+  }
+  const pendingBtn = card.querySelector('[data-autorizar-dest]');
+  const row = pendingBtn ? pendingBtn.closest('tr') : card.querySelector('.collapse-body tbody tr');
+  scrollAndFlash(row || card);
 }
 
 function renderNotifList() {
@@ -419,7 +470,7 @@ function renderNotifList() {
       const id = Number(el.dataset.notif);
       const notif = state.notificaciones.find((n) => n.id === id);
       if (!notif) return;
-      navigateFromNotif(notif);
+      await navigateFromNotif(notif);
       if (notif.leida) return;
       try {
         await api(`/notificaciones/${id}/leida`, { method: 'PUT' });
@@ -685,18 +736,21 @@ function openCambiarClienteModal(project) {
   });
 }
 
-function selectProject(id) {
+function selectProject(id, targetView) {
   state.projectId = id;
   state.cache[id] = state.cache[id] || {};
   const p = state.projects.find((x) => x.id === id);
   $('#projectName').textContent = p ? p.nombre : '';
   // Cada vez que se entra a un presupuesto (posiblemente distinto al
-  // anterior) se aterriza en la pantalla de inicio con las secciones.
-  state.view = state.allowedTabs.length <= 1 ? (state.allowedTabs[0] || 'inicio') : 'inicio';
+  // anterior) se aterriza en la pantalla de inicio con las secciones —
+  // salvo que el llamador pida una vista puntual (targetView, usado por el
+  // deep-link de notificaciones) para no disparar un renderView() extra
+  // hacia 'inicio' que compita en la carrera con el de la vista destino.
+  state.view = targetView || (state.allowedTabs.length <= 1 ? (state.allowedTabs[0] || 'inicio') : 'inicio');
   state.section = VIEW_TO_SECTION[state.view] || null;
   renderProjectList();
   renderTabsBar();
-  renderView();
+  return renderView();
 }
 
 // ---------------------------------------------------------------------------
@@ -1156,6 +1210,28 @@ function formatContratoValor(field, value) {
   return esc(value);
 }
 
+// Mismo cálculo que server/alertasContrato.js#calcularDiasRestantes (fecha
+// 'YYYY-MM-DD' normalizada a medianoche UTC) — puramente de despliegue, no
+// depende de si ya se envió alguna alerta.
+function calcularDiasRestantesFrontend(finObraIso) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(finObraIso || '');
+  if (!match) return null;
+  const fin = Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  const ahora = new Date();
+  const hoy = Date.UTC(ahora.getUTCFullYear(), ahora.getUTCMonth(), ahora.getUTCDate());
+  return Math.round((fin - hoy) / 86400000);
+}
+
+function vencimientoBadgeHtml(finObraIso) {
+  const dias = calcularDiasRestantesFrontend(finObraIso);
+  if (dias == null || dias > 30) return '';
+  const texto = dias < 0
+    ? `Venció hace ${Math.abs(dias)} día${Math.abs(dias) === 1 ? '' : 's'}`
+    : dias === 0 ? 'Vence hoy' : `Vence en ${dias} día${dias === 1 ? '' : 's'}`;
+  const kind = dias <= 7 ? 'red' : 'yellow';
+  return ` <span class="badge ${kind}">${esc(texto)}</span>`;
+}
+
 // Punto de entrada (a): galería de clientes → crea una obra nueva a partir del PDF
 function promptUploadContrato() {
   const options = state.clientes.map((c) => `<option value="${c.id}" ${c.id === state.clienteId ? 'selected' : ''}>${esc(c.nombre)}</option>`).join('');
@@ -1304,7 +1380,10 @@ async function renderContrato(view) {
   view.innerHTML = `
     <h2 class="section-title">Contrato</h2>
     <div class="card">
-      ${CONTRATO_FIELDS.map((f) => `<div class="card-row"><span class="k">${esc(f.label)}</span><span class="v">${formatContratoValor(f, campos[f.key])}</span></div>`).join('')}
+      ${CONTRATO_FIELDS.map((f) => {
+        const badge = f.key === 'fecha_termino' ? vencimientoBadgeHtml(campos.fecha_termino) : '';
+        return `<div class="card-row"><span class="k">${esc(f.label)}</span><span class="v">${formatContratoValor(f, campos[f.key])}${badge}</span></div>`;
+      }).join('')}
     </div>
     ${isAdmin() ? '<div class="row end" style="margin-top:10px"><button class="btn" id="btnEditarContrato">Editar</button></div>' : ''}
   `;

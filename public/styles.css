@@ -404,6 +404,12 @@ body.modal-open { overflow: hidden; }
 .search-bar-fancy .search-clear:hover { background: var(--border-color); color: var(--text-primary); }
 .search-bar-fancy .search-clear:active { transform: translateY(-50%) scale(0.9); }
 
+@keyframes notifTargetFlash {
+  0%, 100% { background: transparent; box-shadow: none; }
+  15%, 60% { background: color-mix(in srgb, var(--accent-gold) 22%, transparent); box-shadow: 0 0 0 2px var(--accent-gold); }
+}
+.notif-target-flash { animation: notifTargetFlash 1.8s ease-out; }
+
 @keyframes fadeSlideIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
 .search-results-fancy { animation: fadeSlideIn 0.15s ease; }
 .search-result-item {

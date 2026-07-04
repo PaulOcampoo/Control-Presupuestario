@@ -14,7 +14,8 @@ const state = {
   clienteId: null,
   pendingUploadClienteId: null,
   pendingContrato: null,
-  view: 'resumen',
+  view: 'inicio',
+  section: null,     // sección activa (obra/compras/administracion/tesoreria/maquinaria) o null
   cache: {},     // per-project cached API responses
   charts: {},    // active Chart.js instances (destroyed on re-render)
   token: null,
@@ -229,15 +230,14 @@ function canManageDestajo() { return !!state.user && (state.user.puesto === 'adm
 function applySession(user, tabs) {
   state.user = user;
   state.allowedTabs = tabs;
-  $$('.tab').forEach((tab) => {
-    tab.style.display = tabs.includes(tab.dataset.view) ? '' : 'none';
-  });
   const isAdmin = user.puesto === 'admin';
   $('#btnUpload').style.display = isAdmin ? '' : 'none';
   $('#btnUploadDrawer').style.display = isAdmin ? '' : 'none';
   renderDrawerAccount();
-  state.view = tabs[0] || 'resumen';
-  $$('.tab').forEach((t) => t.classList.toggle('active', t.dataset.view === state.view));
+  // Un rol con una sola pestaña permitida (ej. Cabo → solo Destajo) no gana
+  // nada viendo la pantalla de secciones antes: va directo a su única vista.
+  state.view = tabs.length <= 1 ? (tabs[0] || 'inicio') : 'inicio';
+  state.section = VIEW_TO_SECTION[state.view] || null;
   startNotifPolling();
 }
 
@@ -312,6 +312,83 @@ const TAB_POR_TIPO_NOTIF = {
   destajo_pendiente: 'destajo',
 };
 
+// ---------------------------------------------------------------------------
+// Secciones de navegación (pantalla de inicio tipo galería) — agrupan las
+// pestañas existentes por área de negocio. def.tabs con módulos reales;
+// def.proximamente son nombres de módulos pedidos por el cliente que aún no
+// existen (solo placeholder visual, sin backend). Una sección con
+// def.tabs.length === 0 es 100% futura (hoy solo Maquinaria).
+// ---------------------------------------------------------------------------
+const SECTION_DEFS = {
+  obra: { label: 'Obra', icon: '🏗️', tabs: ['programa', 'avance', 'destajo', 'requisiciones'], proximamente: ['Estimaciones'] },
+  compras: { label: 'Compras', icon: '🛒', tabs: ['ordenes', 'proveedores', 'insumos'], proximamente: ['Subcontratos'] },
+  administracion: { label: 'Administración', icon: '🗂️', tabs: ['usuarios', 'mapeo'], proximamente: ['Nóminas', 'Almacenes'] },
+  tesoreria: { label: 'Tesorería', icon: '💰', tabs: ['finanzas'], proximamente: [] },
+  maquinaria: { label: 'Maquinaria', icon: '🚜', tabs: [], proximamente: ['Maquinaria'] },
+};
+
+const TAB_ICONS = {
+  resumen: '📊', contrato: '📄', impuestos: '🧾', insumos: '📦', requisiciones: '🧾',
+  proveedores: '🏭', ordenes: '🛒', programa: '🗓️', avance: '📈', destajo: '👷',
+  finanzas: '💰', mapeo: '🔗', usuarios: '👤',
+};
+const TAB_LABELS = {
+  resumen: 'Resumen', contrato: 'Contrato', impuestos: 'Impuestos', insumos: 'Insumos', requisiciones: 'Requisiciones',
+  proveedores: 'Proveedores', ordenes: 'Órdenes de Compra', programa: 'Programa', avance: 'Avance', destajo: 'Destajo',
+  finanzas: 'Finanzas', mapeo: 'Mapeo', usuarios: 'Usuarios',
+};
+
+const VIEW_TO_SECTION = {};
+Object.entries(SECTION_DEFS).forEach(([sectionId, def]) => {
+  def.tabs.forEach((t) => { VIEW_TO_SECTION[t] = sectionId; });
+});
+
+// Navegación central: toda la app debe pasar por aquí para cambiar de vista
+// (en vez de simular clicks sobre una barra de tabs estática) — así la
+// sección activa y la barra de sub-navegación quedan siempre consistentes.
+function switchToView(viewId) {
+  state.view = viewId;
+  state.section = VIEW_TO_SECTION[viewId] || null;
+  renderTabsBar();
+  renderView();
+}
+
+function goToSection(sectionId) {
+  const def = SECTION_DEFS[sectionId];
+  if (!def) return;
+  if (def.tabs.length === 0) { toast(`${def.label} estará disponible próximamente`, ''); return; }
+  const firstTab = def.tabs.find((t) => state.allowedTabs.includes(t));
+  if (!firstTab) { toast('No tienes módulos disponibles en esta sección', ''); return; }
+  switchToView(firstTab);
+}
+
+// Reconstruye la barra bajo el topbar: oculta en 'inicio' (la navegación ahí
+// es por las tarjetas de sección dentro de la vista), botón "← Secciones"
+// + tabs reales de la sección cuando hay una activa, o solo "← Inicio"
+// para los accesos rápidos sin sección (Contrato/Impuestos).
+function renderTabsBar() {
+  const nav = $('#tabs');
+  if (!nav) return;
+  if (!state.projectId || state.view === 'inicio') { nav.innerHTML = ''; nav.style.display = 'none'; return; }
+  nav.style.display = '';
+  let html = '';
+  if (state.section) {
+    const def = SECTION_DEFS[state.section];
+    html += `<button class="tab tab-back" data-goto="inicio"><span class="tab-icon">←</span><span class="tab-label">Secciones</span></button>`;
+    def.tabs.filter((t) => state.allowedTabs.includes(t)).forEach((t) => {
+      html += `<button class="tab ${state.view === t ? 'active' : ''}" data-goto="${t}"><span class="tab-icon">${TAB_ICONS[t]}</span><span class="tab-label">${TAB_LABELS[t]}</span></button>`;
+    });
+    def.proximamente.forEach((nombre) => {
+      html += `<button class="tab tab-soon" data-soon="${esc(nombre)}"><span class="tab-icon">🔒</span><span class="tab-label">${esc(nombre)}</span></button>`;
+    });
+  } else {
+    html += `<button class="tab tab-back" data-goto="inicio"><span class="tab-icon">←</span><span class="tab-label">Inicio</span></button>`;
+  }
+  nav.innerHTML = html;
+  $$('.tab[data-goto]', nav).forEach((btn) => btn.addEventListener('click', () => switchToView(btn.dataset.goto)));
+  $$('.tab[data-soon]', nav).forEach((btn) => btn.addEventListener('click', () => toast(`${btn.dataset.soon} estará disponible próximamente`, '')));
+}
+
 function navigateFromNotif(notif) {
   const tab = TAB_POR_TIPO_NOTIF[notif.tipo];
   if (!tab || !notif.project_id || !state.allowedTabs.includes(tab)) return;
@@ -321,9 +398,7 @@ function navigateFromNotif(notif) {
   closeDrawer();
   showApp();
   selectProject(notif.project_id);
-  state.view = tab;
-  $$('.tab').forEach((t) => t.classList.toggle('active', t.dataset.view === tab));
-  renderView();
+  switchToView(tab);
 }
 
 function renderNotifList() {
@@ -615,7 +690,12 @@ function selectProject(id) {
   state.cache[id] = state.cache[id] || {};
   const p = state.projects.find((x) => x.id === id);
   $('#projectName').textContent = p ? p.nombre : '';
+  // Cada vez que se entra a un presupuesto (posiblemente distinto al
+  // anterior) se aterriza en la pantalla de inicio con las secciones.
+  state.view = state.allowedTabs.length <= 1 ? (state.allowedTabs[0] || 'inicio') : 'inicio';
+  state.section = VIEW_TO_SECTION[state.view] || null;
   renderProjectList();
+  renderTabsBar();
   renderView();
 }
 
@@ -795,18 +875,6 @@ $('#fileInput').addEventListener('change', async (ev) => {
   }
 });
 
-// ---------------------------------------------------------------------------
-// Tabs / routing
-// ---------------------------------------------------------------------------
-$$('.tab').forEach((tab) => {
-  tab.addEventListener('click', () => {
-    $$('.tab').forEach((t) => t.classList.remove('active'));
-    tab.classList.add('active');
-    state.view = tab.dataset.view;
-    renderView();
-  });
-});
-
 function destroyCharts() {
   Object.values(state.charts).forEach((c) => c && c.destroy());
   state.charts = {};
@@ -837,7 +905,7 @@ async function renderView() {
   view.innerHTML = '<div class="spinner"></div>';
   try {
     switch (state.view) {
-      case 'resumen': await renderResumen(view); break;
+      case 'inicio': await renderInicio(view); break;
       case 'contrato': await renderContrato(view); break;
       case 'impuestos': await renderImpuestos(view); break;
       case 'insumos': await renderInsumos(view); break;
@@ -872,73 +940,124 @@ function invalidate(...keys) {
 // =========================================================================
 // VISTA: Resumen
 // =========================================================================
-async function renderResumen(view) {
-  const resumen = await cached('resumen', () => api(`/projects/${state.projectId}/resumen`));
-  const m = resumen.meta || {};
-  const ejec = resumen.avance_financiero_ejecutado_actual || 0;
-  const prog = resumen.avance_financiero_programado_actual || 0;
-  const desviacion = ejec - prog;
-  const desvKind = desviacion >= 0 ? 'green' : (desviacion < -10 ? 'red' : 'yellow');
-
-  view.innerHTML = `
-    <h2 class="section-title">Resumen del presupuesto</h2>
-    <div class="kpi-grid">
-      <div class="kpi accent"><div class="label">Presupuesto total (sin IVA)</div><div class="value">${fmtMoney(resumen.presupuesto_total)}</div></div>
-      <div class="kpi"><div class="label">Avance programado</div><div class="value">${fmtPct(prog)}</div></div>
-      <div class="kpi green"><div class="label">Avance ejecutado</div><div class="value">${fmtPct(ejec)}</div></div>
-      <div class="kpi ${desvKind}"><div class="label">Desviación vs. programa</div><div class="value">${desviacion >= 0 ? '+' : ''}${fmtNum(desviacion, 1)} pp</div></div>
-    </div>
-
-    <h3 class="section-title">Avance físico-financiero: presupuestado vs ejecutado vs por ejecutar</h3>
-    <div class="card"><div class="chart-wrap"><canvas id="chartResumenDona"></canvas></div></div>
-
-    <h3 class="section-title">Datos de la obra</h3>
-    <div class="card">
-      <div class="card-row"><span class="k">Obra</span><span class="v">${esc(m.obra || '—')}</span></div>
-      <div class="card-row"><span class="k">Lugar</span><span class="v">${esc(m.lugar || '—')}</span></div>
-      <div class="card-row"><span class="k">Inicio de obra</span><span class="v">${fmtDate(m.inicio_obra)}</span></div>
-      <div class="card-row"><span class="k">Fin de obra</span><span class="v">${fmtDate(m.fin_obra)}</span></div>
-      <div class="card-row"><span class="k">Total sin IVA</span><span class="v">${fmtMoney(resumen.presupuesto_total)}</span></div>
-      ${m.total_con_iva ? `<div class="card-row"><span class="k">Total con IVA</span><span class="v">${fmtMoney(m.total_con_iva)}</span></div>` : ''}
-      <div class="row end" style="margin-top:10px"><button class="btn small" id="btnEditFechasObra">Corregir inicio/fin de obra</button></div>
-      <p class="muted" style="font-size:0.74rem;margin-top:6px">Úsalo si el archivo traía esas fechas vacías o incorrectas — al guardar se regenera todo el Programa y la curva de Avance con las fechas correctas.</p>
-    </div>
-
-    <h3 class="section-title">Requisiciones de compra</h3>
-    <div class="kpi-grid">
-      <div class="kpi"><div class="label">Requisiciones activas</div><div class="value">${resumen.requisiciones.num_requisiciones}</div></div>
-      <div class="kpi"><div class="label">Importe requisitado</div><div class="value">${fmtMoney(resumen.requisiciones.importe_requisitado)}</div></div>
-      <div class="kpi ${resumen.requisiciones.alertas_cantidad ? 'red' : 'green'}"><div class="label">Alertas de cantidad</div><div class="value">${resumen.requisiciones.alertas_cantidad}</div></div>
-      <div class="kpi ${resumen.requisiciones.alertas_precio ? 'red' : 'green'}"><div class="label">Alertas de precio</div><div class="value">${resumen.requisiciones.alertas_precio}</div></div>
+// Tarjetas de sección (mismo tratamiento visual que la galería "Selecciona
+// un cliente" — ver .section-card/.section-grid en styles.css). Siempre se
+// muestran las 5 para cualquier rol que llegue a 'inicio'; goToSection()
+// decide si navega, avisa "sin módulos para tu rol" o "próximamente".
+function seccionesGridHtml() {
+  return `
+    <div class="section-grid">
+      ${Object.entries(SECTION_DEFS).map(([id, def]) => {
+        const esFutura = def.tabs.length === 0;
+        return `
+        <div class="section-card ${esFutura ? 'disabled' : ''}" data-section="${id}">
+          <span class="section-icon">${def.icon}</span>
+          <span class="section-nombre">${esc(def.label)}</span>
+          ${esFutura ? '<span class="section-soon-badge">Próximamente</span>' : ''}
+        </div>`;
+      }).join('')}
     </div>
   `;
+}
 
-  const ctx = $('#chartResumenDona').getContext('2d');
-  state.charts.resumenDona = new Chart(ctx, {
-    type: 'doughnut',
-    data: {
-      labels: ['Ejecutado', 'Programado por ejecutar (a la fecha)', 'Resto por ejecutar'],
-      datasets: [{
-        data: [
-          resumen.importe_ejecutado,
-          Math.max(0, resumen.importe_programado - resumen.importe_ejecutado),
-          Math.max(0, resumen.presupuesto_total - Math.max(resumen.importe_programado, resumen.importe_ejecutado)),
-        ],
-        backgroundColor: ['#22c55e', '#eab308', '#334155'],
-        borderColor: '#1e293b',
-        borderWidth: 2,
-      }],
-    },
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      plugins: {
-        legend: { position: 'bottom', labels: { color: '#e2e8f0', boxWidth: 14, font: { size: 11 } } },
-        tooltip: { callbacks: { label: (c) => `${c.label}: ${fmtMoney(c.raw)}` } },
+function quickAccessHtml() {
+  const quickTabs = ['contrato', 'impuestos'].filter((t) => state.allowedTabs.includes(t));
+  if (!quickTabs.length) return '';
+  return `
+    <h3 class="section-title">Accesos rápidos</h3>
+    <div class="row" style="gap:8px;flex-wrap:wrap;margin-bottom:4px">
+      ${quickTabs.map((t) => `<button class="btn" data-goto="${t}">${TAB_ICONS[t]} ${TAB_LABELS[t]}</button>`).join('')}
+    </div>
+  `;
+}
+
+// Pantalla de entrada al proyecto: dashboard de Resumen (solo si el rol
+// tiene permiso 'resumen' — hoy admin-only, ver server/auth.js) + accesos
+// rápidos + las 5 tarjetas de sección. Reemplaza a la barra de tabs plana.
+async function renderInicio(view) {
+  const puedeVerResumen = state.allowedTabs.includes('resumen');
+  let dashboardHtml = '<h2 class="section-title">Inicio</h2>';
+  let resumen = null;
+  let m = {};
+
+  if (puedeVerResumen) {
+    resumen = await cached('resumen', () => api(`/projects/${state.projectId}/resumen`));
+    m = resumen.meta || {};
+    const ejec = resumen.avance_financiero_ejecutado_actual || 0;
+    const prog = resumen.avance_financiero_programado_actual || 0;
+    const desviacion = ejec - prog;
+    const desvKind = desviacion >= 0 ? 'green' : (desviacion < -10 ? 'red' : 'yellow');
+    dashboardHtml = `
+      <h2 class="section-title">Resumen del presupuesto</h2>
+      <div class="kpi-grid">
+        <div class="kpi accent"><div class="label">Presupuesto total (sin IVA)</div><div class="value">${fmtMoney(resumen.presupuesto_total)}</div></div>
+        <div class="kpi"><div class="label">Avance programado</div><div class="value">${fmtPct(prog)}</div></div>
+        <div class="kpi green"><div class="label">Avance ejecutado</div><div class="value">${fmtPct(ejec)}</div></div>
+        <div class="kpi ${desvKind}"><div class="label">Desviación vs. programa</div><div class="value">${desviacion >= 0 ? '+' : ''}${fmtNum(desviacion, 1)} pp</div></div>
+      </div>
+
+      <h3 class="section-title">Avance físico-financiero: presupuestado vs ejecutado vs por ejecutar</h3>
+      <div class="card"><div class="chart-wrap"><canvas id="chartResumenDona"></canvas></div></div>
+
+      <h3 class="section-title">Datos de la obra</h3>
+      <div class="card">
+        <div class="card-row"><span class="k">Obra</span><span class="v">${esc(m.obra || '—')}</span></div>
+        <div class="card-row"><span class="k">Lugar</span><span class="v">${esc(m.lugar || '—')}</span></div>
+        <div class="card-row"><span class="k">Inicio de obra</span><span class="v">${fmtDate(m.inicio_obra)}</span></div>
+        <div class="card-row"><span class="k">Fin de obra</span><span class="v">${fmtDate(m.fin_obra)}</span></div>
+        <div class="card-row"><span class="k">Total sin IVA</span><span class="v">${fmtMoney(resumen.presupuesto_total)}</span></div>
+        ${m.total_con_iva ? `<div class="card-row"><span class="k">Total con IVA</span><span class="v">${fmtMoney(m.total_con_iva)}</span></div>` : ''}
+        <div class="row end" style="margin-top:10px"><button class="btn small" id="btnEditFechasObra">Corregir inicio/fin de obra</button></div>
+        <p class="muted" style="font-size:0.74rem;margin-top:6px">Úsalo si el archivo traía esas fechas vacías o incorrectas — al guardar se regenera todo el Programa y la curva de Avance con las fechas correctas.</p>
+      </div>
+
+      <h3 class="section-title">Requisiciones de compra</h3>
+      <div class="kpi-grid">
+        <div class="kpi"><div class="label">Requisiciones activas</div><div class="value">${resumen.requisiciones.num_requisiciones}</div></div>
+        <div class="kpi"><div class="label">Importe requisitado</div><div class="value">${fmtMoney(resumen.requisiciones.importe_requisitado)}</div></div>
+        <div class="kpi ${resumen.requisiciones.alertas_cantidad ? 'red' : 'green'}"><div class="label">Alertas de cantidad</div><div class="value">${resumen.requisiciones.alertas_cantidad}</div></div>
+        <div class="kpi ${resumen.requisiciones.alertas_precio ? 'red' : 'green'}"><div class="label">Alertas de precio</div><div class="value">${resumen.requisiciones.alertas_precio}</div></div>
+      </div>
+    `;
+  }
+
+  view.innerHTML = `
+    ${dashboardHtml}
+    ${quickAccessHtml()}
+    <h3 class="section-title">Secciones</h3>
+    ${seccionesGridHtml()}
+  `;
+
+  if (puedeVerResumen) {
+    const ctx = $('#chartResumenDona').getContext('2d');
+    state.charts.resumenDona = new Chart(ctx, {
+      type: 'doughnut',
+      data: {
+        labels: ['Ejecutado', 'Programado por ejecutar (a la fecha)', 'Resto por ejecutar'],
+        datasets: [{
+          data: [
+            resumen.importe_ejecutado,
+            Math.max(0, resumen.importe_programado - resumen.importe_ejecutado),
+            Math.max(0, resumen.presupuesto_total - Math.max(resumen.importe_programado, resumen.importe_ejecutado)),
+          ],
+          backgroundColor: ['#22c55e', '#eab308', '#334155'],
+          borderColor: '#1e293b',
+          borderWidth: 2,
+        }],
       },
-    },
-  });
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: {
+          legend: { position: 'bottom', labels: { color: '#e2e8f0', boxWidth: 14, font: { size: 11 } } },
+          tooltip: { callbacks: { label: (c) => `${c.label}: ${fmtMoney(c.raw)}` } },
+        },
+      },
+    });
+    $('#btnEditFechasObra').addEventListener('click', () => openEditFechasObraModal(m));
+  }
 
-  $('#btnEditFechasObra').addEventListener('click', () => openEditFechasObraModal(m));
+  $$('.section-card', view).forEach((el) => el.addEventListener('click', () => goToSection(el.dataset.section)));
+  $$('[data-goto]', view).forEach((btn) => btn.addEventListener('click', () => switchToView(btn.dataset.goto)));
 }
 
 function openEditFechasObraModal(meta) {
@@ -1154,10 +1273,8 @@ function openContratoFormModal(preview, ctx) {
       showApp();
       invalidate('resumen');
       selectProject(result.project_id);
-      state.view = 'contrato';
-      $$('.tab').forEach((t) => t.classList.toggle('active', t.dataset.view === 'contrato'));
+      switchToView('contrato');
       closeDrawer();
-      renderView();
       toast('Contrato guardado', 'success');
     } catch (err) {
       toast(err.message, 'danger');
@@ -1581,7 +1698,7 @@ async function renderRequisiciones(view) {
     </div>
     <div id="reqList"></div>
   `;
-  $('#btnGoCatalogo').addEventListener('click', () => { $('.tab[data-view="insumos"]').click(); });
+  $('#btnGoCatalogo').addEventListener('click', () => switchToView('insumos'));
   wireExportButton('#btnExportRequisiciones', `/projects/${state.projectId}/requisiciones/export`);
   if (draft.length) $('#btnOpenDraft').addEventListener('click', openDraftModal);
 
@@ -2065,9 +2182,7 @@ async function openGenerarOrdenModal(requisicion) {
       toast(result.tiene_alertas
         ? 'Orden de compra creada — algún item supera lo solicitado en la requisición'
         : 'Orden de compra creada', result.tiene_alertas ? 'danger' : 'success');
-      state.view = 'ordenes';
-      $$('.tab').forEach((t) => t.classList.toggle('active', t.dataset.view === 'ordenes'));
-      renderView();
+      switchToView('ordenes');
     } catch (err) {
       toast(err.message, 'danger');
       btn.disabled = false; btn.textContent = 'Crear orden de compra';
@@ -3873,9 +3988,9 @@ fab.addEventListener('click', () => {
   const isAdmin = state.user && state.user.puesto === 'admin';
   if (state.view === 'requisiciones') {
     if (getDraft().length) openDraftModal();
-    else { $('.tab[data-view="insumos"]').click(); toast('Agrega insumos desde el catálogo primero', ''); }
+    else { switchToView('insumos'); toast('Agrega insumos desde el catálogo primero', ''); }
   } else if (state.view === 'insumos') {
-    if (getDraft().length) { $('.tab[data-view="requisiciones"]').click(); }
+    if (getDraft().length) { switchToView('requisiciones'); }
   } else if (state.view === 'destajo') {
     if (isAdmin || (state.user && state.user.puesto === 'residente')) openNuevoDestajistaModal();
   } else if (isAdmin) {

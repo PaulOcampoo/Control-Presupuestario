@@ -136,6 +136,27 @@ body {
   background: var(--accent-gold); color: #04212f; border-color: var(--accent-gold); font-weight: 600;
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-gold) 35%, transparent);
 }
+.tab-back { background: transparent; border-style: dashed; }
+.tab-soon { opacity: 0.55; border-style: dashed; cursor: pointer; }
+
+/* Tarjetas de sección en la pantalla de inicio — mismo tratamiento visual
+   que .cliente-card (galería "Selecciona un cliente"). */
+.section-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; margin: 14px 0 8px; }
+.section-card {
+  background: var(--bg-surface-2); border: 1px solid var(--border-color); border-radius: var(--radius);
+  padding: 22px 14px; text-align: center; cursor: pointer;
+  display: flex; flex-direction: column; gap: 8px; align-items: center;
+  transition: border-color 0.15s, transform 0.1s;
+}
+.section-card:hover { border-color: var(--accent-gold); }
+.section-card:active { transform: scale(0.97); }
+.section-card .section-icon { font-size: 1.8rem; }
+.section-card .section-nombre { font-weight: 700; font-size: 0.98rem; }
+.section-card.disabled { border-style: dashed; opacity: 0.6; }
+.section-soon-badge {
+  font-size: 0.68rem; color: var(--text-secondary); background: var(--bg-primary);
+  padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border-color);
+}
 
 #view { flex: 1; padding: 14px; padding-bottom: calc(28px + var(--safe-bottom)); max-width: 980px; width: 100%; margin: 0 auto; }
 

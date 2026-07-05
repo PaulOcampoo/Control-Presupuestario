@@ -30,6 +30,50 @@ const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 
 // ---------------------------------------------------------------------------
+// Íconos SVG minimalistas (Lucide-style, stroke, viewBox 0 0 24 24).
+// icon(name, size) devuelve el HTML listo para insertar en templates.
+// ---------------------------------------------------------------------------
+const ICON_SVG = {
+  moon:          '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>',
+  sun:           '<circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>',
+  obra:          '<path d="M3 21h18M5 21V7l7-4 7 4v14"/><path d="M9 21v-6h6v6"/>',
+  compras:       '<circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/>',
+  administracion:'<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>',
+  tesoreria:     '<rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/>',
+  maquinaria:    '<rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/>',
+  resumen:       '<line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>',
+  contrato:      '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>',
+  impuestos:     '<path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1z"/><line x1="14" y1="8" x2="8" y2="8"/><line x1="16" y1="12" x2="8" y2="12"/><line x1="13" y1="16" x2="8" y2="16"/>',
+  insumos:       '<line x1="16.5" y1="9.4" x2="7.5" y2="4.21"/><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/>',
+  requisiciones: '<path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/><line x1="9" y1="12" x2="15" y2="12"/><line x1="9" y1="16" x2="11" y2="16"/>',
+  proveedores:   '<path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>',
+  ordenes:       '<circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/>',
+  programa:      '<rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>',
+  avance:        '<polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/>',
+  destajo:       '<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>',
+  finanzas:      '<line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>',
+  mapeo:         '<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>',
+  usuarios:      '<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
+  lock:          '<rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>',
+  warning:       '<path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>',
+  check:         '<polyline points="20 6 9 17 4 12"/>',
+  x:             '<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>',
+  pencil:        '<path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>',
+  phone:         '<path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.88 10.3 19.79 19.79 0 0 1 2 1.63 2 2 0 0 1 4.11 0h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 7.91A16 16 0 0 0 15.1 15l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 23 16.92z"/>',
+  list:          '<line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>',
+  search:        '<circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>',
+  folder:        '<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>',
+  building:      '<rect x="4" y="2" width="16" height="20"/><path d="M9 22V12h6v10"/><path d="M2 22h20"/><line x1="9" y1="7" x2="9.01" y2="7"/><line x1="15" y1="7" x2="15.01" y2="7"/>',
+  bell:          '<path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/>',
+  'log-out':     '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>',
+};
+
+function icon(name, size = 18) {
+  const inner = ICON_SVG[name] || ICON_SVG.warning;
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="display:inline-block;vertical-align:middle;flex-shrink:0">${inner}</svg>`;
+}
+
+// ---------------------------------------------------------------------------
 // Tema claro/oscuro — persiste en localStorage; el atributo data-theme en
 // <html> ya se aplica de forma síncrona en un <script> inline en index.html
 // (antes de pintar, para evitar parpadeo). Aquí solo se sincroniza el botón
@@ -53,7 +97,7 @@ function chartColors() {
 function applyTheme(theme) {
   document.documentElement.setAttribute('data-theme', theme);
   const btn = $('#btnThemeToggle');
-  if (btn) btn.textContent = theme === 'light' ? '🌙' : '☀️';
+  if (btn) btn.innerHTML = theme === 'light' ? icon('moon', 16) : icon('sun', 16);
   const meta = document.querySelector('meta[name="theme-color"]');
   if (meta) meta.setAttribute('content', theme === 'light' ? '#EAEEF5' : '#0B1220');
 }
@@ -66,6 +110,8 @@ function toggleTheme() {
 
 applyTheme(getTheme());
 $('#btnThemeToggle').addEventListener('click', toggleTheme);
+$('#btnNotif').innerHTML = icon('bell', 18);
+$('#btnLogout').innerHTML = icon('log-out', 18);
 
 // ---------------------------------------------------------------------------
 // Instalación PWA — Android/Chrome dispara 'beforeinstallprompt' (evento
@@ -330,11 +376,11 @@ const TAB_POR_TIPO_NOTIF = {
 // def.tabs.length === 0 es 100% futura (hoy solo Maquinaria).
 // ---------------------------------------------------------------------------
 const SECTION_DEFS = {
-  obra: { label: 'Obra', icon: '🏗️', tabs: ['programa', 'avance', 'destajo', 'requisiciones'], proximamente: ['Estimaciones'] },
-  compras: { label: 'Compras', icon: '🛒', tabs: ['ordenes', 'proveedores', 'insumos'], proximamente: ['Subcontratos'] },
-  administracion: { label: 'Administración', icon: '🗂️', tabs: ['usuarios', 'mapeo'], proximamente: ['Nóminas', 'Almacenes'] },
-  tesoreria: { label: 'Tesorería', icon: '💰', tabs: ['finanzas'], proximamente: [] },
-  maquinaria: { label: 'Maquinaria', icon: '🚜', tabs: [], proximamente: ['Maquinaria'] },
+  obra:          { label: 'Obra',           icon: '🏗️', tabs: ['programa', 'avance', 'destajo', 'requisiciones'], proximamente: ['Estimaciones'] },
+  compras:       { label: 'Compras',        icon: '🛒',  tabs: ['ordenes', 'proveedores', 'insumos'], proximamente: ['Subcontratos'] },
+  administracion:{ label: 'Administración', icon: '🗂️', tabs: ['usuarios', 'mapeo'], proximamente: ['Nóminas', 'Almacenes'] },
+  tesoreria:     { label: 'Tesorería',      icon: '💰',  tabs: ['finanzas'], proximamente: [] },
+  maquinaria:    { label: 'Maquinaria',     icon: '🚜',  tabs: [], proximamente: ['Maquinaria'] },
 };
 
 const TAB_ICONS = {
@@ -700,7 +746,7 @@ function renderProjectList() {
   const list = $('#projectList');
   const projects = visibleProjects();
   if (!projects.length) {
-    list.innerHTML = '<div class="empty-state"><div class="big">📂</div>Aún no hay presupuestos cargados.<br>Toca el botón de abajo para subir tu primer archivo Excel.</div>';
+    list.innerHTML = `<div class="empty-state"><div class="big">📂</div>Aún no hay presupuestos cargados.<br>Toca el botón de abajo para subir tu primer archivo Excel.</div>`;
     return;
   }
   list.innerHTML = projects.map((p) => `
@@ -824,7 +870,7 @@ function renderClientGallery() {
         <span class="cliente-count">${huerfanos.length} presupuesto${huerfanos.length !== 1 ? 's' : ''}</span>
       </div>`;
   }
-  grid.innerHTML = html || '<div class="empty-state"><div class="big">🏢</div>Aún no hay clientes registrados.</div>';
+  grid.innerHTML = html || `<div class="empty-state"><div class="big">🏢</div>Aún no hay clientes registrados.</div>`;
   $$('.cliente-card', grid).forEach((el) => {
     el.addEventListener('click', () => selectCliente(el.dataset.cliente === 'sin-cliente' ? 'sin-cliente' : Number(el.dataset.cliente)));
   });
@@ -1365,7 +1411,7 @@ function openContratoFormModal(preview, ctx) {
   openModal(`
     <h3>Datos del contrato</h3>
     ${escaneado
-      ? '<div class="alert-box danger">⚠️ Este PDF parece ser una imagen escaneada sin texto extraíble. Captura los datos manualmente.</div>'
+      ? `<div class="alert-box danger">⚠️ Este PDF parece ser una imagen escaneada sin texto extraíble. Captura los datos manualmente.</div>`
       : '<p class="muted">Revisa y corrige los datos extraídos antes de guardar. Los campos con borde amarillo no se detectaron en el documento.</p>'}
     ${clienteHtml}
     ${fieldsHtml}
@@ -1471,7 +1517,7 @@ async function renderImpuestos(view) {
     </div>
 
     <h3 class="section-title">Periodos</h3>
-    ${!periodos.length ? '<div class="empty-state"><div class="big">🧾</div>Aún no hay periodos de impuestos para esta obra.<br>Se crean automáticamente el día 17 de cada mes.</div>' : `
+    ${!periodos.length ? `<div class="empty-state"><div class="big">🧾</div>Aún no hay periodos de impuestos para esta obra.<br>Se crean automáticamente el día 17 de cada mes.</div>` : `
     <div class="card">
       <div class="table-scroll">
         <table>
@@ -1605,7 +1651,7 @@ function paintInsumos(insumos) {
           <div class="title">${esc(i.concepto)}</div>
           <div class="code">${esc(i.codigo)} · ${esc(i.unidad || '')} ${i.categoria ? `· ${esc(i.categoria)}` : ''}</div>
         </div>
-        ${over ? '<span class="badge red">⚠ excede</span>' : ''}
+        ${over ? `<span class="badge red">⚠ excede</span>` : ''}
       </div>
       <div class="row between">
         <span class="muted">Presupuestado</span>
@@ -1683,7 +1729,7 @@ let mapeoSelectedConceptoId = null;
 
 async function renderMapeo(view) {
   if (!isAdmin()) {
-    view.innerHTML = '<div class="alert-box danger">⚠️ No tienes permiso para ver esta sección.</div>';
+    view.innerHTML = `<div class="alert-box danger">⚠️ No tienes permiso para ver esta sección.</div>`;
     return;
   }
   const [conceptos, resumen] = await Promise.all([
@@ -1835,7 +1881,7 @@ async function renderRequisiciones(view) {
 
   const list = $('#reqList');
   if (!reqs.length) {
-    list.innerHTML = '<div class="empty-state"><div class="big">🧾</div>Aún no hay requisiciones.<br>Agrega insumos desde el catálogo y crea tu primera requisición.</div>';
+    list.innerHTML = `<div class="empty-state"><div class="big">🧾</div>Aún no hay requisiciones.<br>Agrega insumos desde el catálogo y crea tu primera requisición.</div>`;
     return;
   }
   list.innerHTML = reqs.map((r) => {
@@ -1850,7 +1896,7 @@ async function renderRequisiciones(view) {
         </div>
         <span class="badge ${estadoBadge}">${esc(r.estado)}</span>
       </div>
-      ${alertCount ? `<div class="alert-box warn">⚠ ${alertCount} alerta${alertCount === 1 ? '' : 's'}: ${r.alertas_cantidad ? `${r.alertas_cantidad} de cantidad ` : ''}${r.alertas_precio ? `${r.alertas_precio} de precio` : ''}</div>` : ''}
+      ${alertCount ? `<div class="alert-box warn">⚠️${alertCount} alerta${alertCount === 1 ? '' : 's'}: ${r.alertas_cantidad ? `${r.alertas_cantidad} de cantidad ` : ''}${r.alertas_precio ? `${r.alertas_precio} de precio` : ''}</div>` : ''}
       <div class="row end"><button class="btn small" data-view-req="${r.id}">Ver detalle</button></div>
     </div>`;
   }).join('');
@@ -1931,13 +1977,13 @@ function openDraftModal() {
       const alerts = [];
       result.items.forEach((it) => {
         if (it.alerta_cantidad) {
-          alerts.push(`<div class="alert-box danger">⚠ <strong>${esc(it.insumo.codigo)}</strong>: la cantidad acumulada (${fmtNum(it.cantidad_acumulada_previa + it.cantidad_solicitada, 3)} ${esc(it.insumo.unidad || '')}) sobrepasa la cantidad presupuestada (${fmtNum(it.insumo.cantidad_presupuesto, 3)} ${esc(it.insumo.unidad || '')}).</div>`);
+          alerts.push(`<div class="alert-box danger">⚠️<strong>${esc(it.insumo.codigo)}</strong>: la cantidad acumulada (${fmtNum(it.cantidad_acumulada_previa + it.cantidad_solicitada, 3)} ${esc(it.insumo.unidad || '')}) sobrepasa la cantidad presupuestada (${fmtNum(it.insumo.cantidad_presupuesto, 3)} ${esc(it.insumo.unidad || '')}).</div>`);
         }
         if (it.alerta_precio) {
-          alerts.push(`<div class="alert-box warn">⚠ <strong>${esc(it.insumo.codigo)}</strong>: el precio solicitado (${fmtMoney(it.precio_solicitado)}) sobrepasa el precio presupuestado (${fmtMoney(it.insumo.precio_presupuesto)}).</div>`);
+          alerts.push(`<div class="alert-box warn">⚠️<strong>${esc(it.insumo.codigo)}</strong>: el precio solicitado (${fmtMoney(it.precio_solicitado)}) sobrepasa el precio presupuestado (${fmtMoney(it.insumo.precio_presupuesto)}).</div>`);
         }
       });
-      box.innerHTML = alerts.join('') || '<div class="alert-box info">✓ Sin alertas: las cantidades y precios están dentro del presupuesto.</div>';
+      box.innerHTML = alerts.join('') || `<div class="alert-box info">✓ Sin alertas: las cantidades y precios están dentro del presupuesto.</div>`;
     } catch (err) { /* silent preview errors */ }
   }
 
@@ -2008,8 +2054,8 @@ async function openRequisicionDetail(reqId) {
         <div class="muted code">${esc(it.insumo_codigo)} · ${esc(it.unidad || '')}</div>
         <div class="row between"><span class="muted">Solicitado</span><span>${fmtNum(it.cantidad_solicitada, 3)} ${esc(it.unidad || '')} a ${fmtMoney(it.precio_solicitado)}</span></div>
         <div class="row between"><span class="muted">Presupuestado</span><span>${fmtNum(it.cantidad_presupuesto, 3)} ${esc(it.unidad || '')} a ${fmtMoney(it.precio_presupuesto)}</span></div>
-        ${it.alerta_cantidad ? '<div class="alert-box danger">⚠ Cantidad acumulada sobrepasa lo presupuestado</div>' : ''}
-        ${it.alerta_precio ? '<div class="alert-box warn">⚠ Precio solicitado sobrepasa el precio presupuestado</div>' : ''}
+        ${it.alerta_cantidad ? `<div class="alert-box danger">⚠️ Cantidad acumulada sobrepasa lo presupuestado</div>` : ''}
+        ${it.alerta_precio ? `<div class="alert-box warn">⚠️ Precio solicitado sobrepasa el precio presupuestado</div>` : ''}
         ${it.observaciones ? `<div class="muted">${esc(it.observaciones)}</div>` : ''}
       </div>`).join('');
 
@@ -2164,13 +2210,13 @@ function openEditRequisicionModal(requisicion) {
       const alerts = [];
       result.items.forEach((it) => {
         if (it.alerta_cantidad) {
-          alerts.push(`<div class="alert-box danger">⚠ <strong>${esc(it.insumo.codigo)}</strong>: la cantidad acumulada (${fmtNum(it.cantidad_acumulada_previa + it.cantidad_solicitada, 3)} ${esc(it.insumo.unidad || '')}) sobrepasa la cantidad presupuestada (${fmtNum(it.insumo.cantidad_presupuesto, 3)} ${esc(it.insumo.unidad || '')}).</div>`);
+          alerts.push(`<div class="alert-box danger">⚠️<strong>${esc(it.insumo.codigo)}</strong>: la cantidad acumulada (${fmtNum(it.cantidad_acumulada_previa + it.cantidad_solicitada, 3)} ${esc(it.insumo.unidad || '')}) sobrepasa la cantidad presupuestada (${fmtNum(it.insumo.cantidad_presupuesto, 3)} ${esc(it.insumo.unidad || '')}).</div>`);
         }
         if (it.alerta_precio) {
-          alerts.push(`<div class="alert-box warn">⚠ <strong>${esc(it.insumo.codigo)}</strong>: el precio solicitado (${fmtMoney(it.precio_solicitado)}) sobrepasa el precio presupuestado (${fmtMoney(it.insumo.precio_presupuesto)}).</div>`);
+          alerts.push(`<div class="alert-box warn">⚠️<strong>${esc(it.insumo.codigo)}</strong>: el precio solicitado (${fmtMoney(it.precio_solicitado)}) sobrepasa el precio presupuestado (${fmtMoney(it.insumo.precio_presupuesto)}).</div>`);
         }
       });
-      box.innerHTML = alerts.join('') || '<div class="alert-box info">✓ Sin alertas: las cantidades y precios están dentro del presupuesto.</div>';
+      box.innerHTML = alerts.join('') || `<div class="alert-box info">✓ Sin alertas: las cantidades y precios están dentro del presupuesto.</div>`;
     } catch (err) { /* silent preview errors */ }
   }
 
@@ -2347,7 +2393,7 @@ async function renderOrdenes(view) {
 
   const list = $('#ordenesList');
   if (!ordenes.length) {
-    list.innerHTML = '<div class="empty-state"><div class="big">🧾</div>Aún no hay órdenes de compra.<br>Genera una desde el detalle de una requisición autorizada.</div>';
+    list.innerHTML = `<div class="empty-state"><div class="big">🧾</div>Aún no hay órdenes de compra.<br>Genera una desde el detalle de una requisición autorizada.</div>`;
     return;
   }
   const estadoBadge = { borrador: 'muted', enviada: 'yellow', confirmada: 'green', rechazada: 'red', recibida_parcial: 'yellow', recibida_completa: 'green', cancelada: 'red' };
@@ -2411,7 +2457,7 @@ async function openOrdenDetalle(ocId) {
 
       <h3 class="section-title">Pagos</h3>
       <div id="ocPagosList"><div class="spinner"></div></div>
-      ${isAdmin() ? '<div class="row end" style="margin-top:8px"><button class="btn small btn-primary" id="btnRegistrarPago">Registrar pago</button></div>' : ''}
+      ${isAdmin() && ['enviada', 'confirmada', 'recibida_parcial', 'recibida_completa'].includes(o.estado) ? '<div class="row end" style="margin-top:8px"><button class="btn small btn-primary" id="btnRegistrarPago">Registrar pago</button></div>' : ''}
 
       <div class="modal-actions">
         ${o.estado === 'borrador' ? '<button class="btn btn-danger" id="btnDeleteOC">Eliminar</button>' : ''}
@@ -2479,7 +2525,7 @@ async function paintOcRecepciones(ocId) {
         ${r.observaciones ? `<div class="muted" style="font-size:0.78rem">${esc(r.observaciones)}</div>` : ''}
       </div>`).join('');
   } catch (err) {
-    box.innerHTML = `<div class="alert-box danger">⚠ ${esc(err.message)}</div>`;
+    box.innerHTML = `<div class="alert-box danger">⚠️${esc(err.message)}</div>`;
   }
 }
 
@@ -2500,7 +2546,7 @@ async function paintOcPagos(ocId) {
       <div class="card-row"><span class="k">Saldo pendiente</span><span class="v" style="color:${data.saldo_pendiente > 0 ? 'var(--red)' : 'var(--green)'}">${fmtMoney(data.saldo_pendiente)}</span></div>
     `;
   } catch (err) {
-    box.innerHTML = `<div class="alert-box danger">⚠ ${esc(err.message)}</div>`;
+    box.innerHTML = `<div class="alert-box danger">⚠️${esc(err.message)}</div>`;
   }
 }
 
@@ -2643,7 +2689,7 @@ async function renderAvance(view) {
     cached('resumen', () => api(`/projects/${state.projectId}/resumen`)),
   ]);
   if (!avances.length) {
-    view.innerHTML = '<div class="empty-state"><div class="big">📅</div>No fue posible generar la curva de avance: el presupuesto no contiene fechas de inicio y fin de obra.</div>';
+    view.innerHTML = `<div class="empty-state"><div class="big">📅</div>No fue posible generar la curva de avance: el presupuesto no contiene fechas de inicio y fin de obra.</div>`;
     return;
   }
   const presupuestoTotal = resumen.presupuesto_total || 0;
@@ -2839,7 +2885,7 @@ async function openAvanceConceptosModal(avance, presupuestoTotal) {
     const data = await api(`/projects/${state.projectId}/avances/${semana}/conceptos`);
     items = data.items;
   } catch (err) {
-    $('#avcList').innerHTML = `<div class="alert-box danger">⚠ ${esc(err.message)}</div>`;
+    $('#avcList').innerHTML = `<div class="alert-box danger">⚠️${esc(err.message)}</div>`;
     return;
   }
 
@@ -2932,7 +2978,7 @@ async function renderPrograma(view) {
     cached('resumen', () => api(`/projects/${state.projectId}/resumen`)),
   ]);
   if (!programa.length) {
-    view.innerHTML = '<div class="empty-state"><div class="big">🗓️</div>No fue posible generar el programa de ejecución: el presupuesto no contiene fechas de inicio y fin de obra, o no tiene conceptos con cantidades.</div>';
+    view.innerHTML = `<div class="empty-state"><div class="big">🗓️</div>No fue posible generar el programa de ejecución: el presupuesto no contiene fechas de inicio y fin de obra, o no tiene conceptos con cantidades.</div>`;
     return;
   }
   const obraInicio = resumen.meta?.inicio_obra || null;
@@ -3189,7 +3235,7 @@ async function toggleDestajoSemanal(btn, destajistas) {
     paintDestajoSemanaChart(destId, data.semanas);
     paintDestajoSemanaTable(destId, data.semanas, dest ? dest.nombre : '');
   } catch (err) {
-    body.innerHTML = `<div class="alert-box danger">⚠ ${esc(err.message)}</div>`;
+    body.innerHTML = `<div class="alert-box danger">⚠️${esc(err.message)}</div>`;
   }
 }
 
@@ -3295,7 +3341,7 @@ async function openDestajoSemanaModal(destId, semana, nombre) {
     const dest = todos.find((d) => d.id === destId);
     totalAsignado = dest ? dest.total_asignado : 0;
   } catch (err) {
-    $('#destAvcList').innerHTML = `<div class="alert-box danger">⚠ ${esc(err.message)}</div>`;
+    $('#destAvcList').innerHTML = `<div class="alert-box danger">⚠️${esc(err.message)}</div>`;
     return;
   }
 
@@ -3327,7 +3373,7 @@ async function openDestajoSemanaModal(destId, semana, nombre) {
         </div>
         <div class="muted" data-acum-out style="font-size:0.74rem;text-align:right;align-self:end;line-height:1.3"></div>
       </div>
-      ${soloLecturaParaMi(it) ? '<div class="muted" style="font-size:0.72rem;color:var(--yellow);margin-top:2px">🔒 Ya capturado — solo residente/admin puede editarlo</div>' : ''}
+      ${soloLecturaParaMi(it) ? `<div class="muted" style="font-size:0.72rem;color:var(--yellow);margin-top:2px">🔒 Ya capturado — solo residente/admin puede editarlo</div>` : ''}
     </div>
   `).join('');
 
@@ -3663,7 +3709,7 @@ function openPostUploadModal(result) {
 // =========================================================================
 async function renderUsuarios(view) {
   if (!isAdmin()) {
-    view.innerHTML = '<div class="alert-box danger">⚠️ No tienes permiso para ver esta sección.</div>';
+    view.innerHTML = `<div class="alert-box danger">⚠️ No tienes permiso para ver esta sección.</div>`;
     return;
   }
   const usuarios = await api('/usuarios');

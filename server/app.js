@@ -18,6 +18,7 @@ const auth = require('./auth');
 const { sendXlsxExport, buildExportFilename } = require('./exportHelper');
 const { extraerDatosContrato, CAMPOS_CONTRATO } = require('./extraccionContrato');
 const { crearNotificacion, notificarAdmins } = require('./notificaciones');
+const { calcularDiasRestantes, determinarUmbral, construirMensaje } = require('./alertasContrato');
 
 const app = express();
 
@@ -76,10 +77,11 @@ app.post('/api/auth/login', h(async (req, res) => {
   });
 }));
 
-// Vercel Cron (ver vercel.json → "crons") — se autentica con CRON_SECRET en
-// vez de un JWT de usuario, así que se registra antes del middleware global
-// de sesión para que no le exija Authorization: Bearer <token de usuario>.
-app.post('/api/cron/recordatorio-impuestos', h(async (req, res) => {
+// Vercel Cron (ver vercel.json → "crons") — se autentican con CRON_SECRET en
+// vez de un JWT de usuario, así que se registran antes del middleware global
+// de sesión para que no les exija Authorization: Bearer <token de usuario>.
+// Un solo CRON_SECRET compartido para todos los endpoints de cron.
+function requireCronSecret(req, res, next) {
   const cronSecret = process.env.CRON_SECRET;
   if (!cronSecret) {
     return res.status(500).json({ error: 'CRON_SECRET no está configurada en el entorno' });
@@ -87,7 +89,10 @@ app.post('/api/cron/recordatorio-impuestos', h(async (req, res) => {
   if (req.headers.authorization !== `Bearer ${cronSecret}`) {
     return res.status(401).json({ error: 'No autorizado' });
   }
+  next();
+}
 
+app.post('/api/cron/recordatorio-impuestos', requireCronSecret, h(async (req, res) => {
   const ahora = new Date();
   const anio = ahora.getUTCFullYear();
   const mes = ahora.getUTCMonth() + 1;
@@ -130,6 +135,62 @@ app.post('/api/cron/recordatorio-impuestos', h(async (req, res) => {
     periodos_creados: periodosCreados,
     notificaciones_enviadas: notificacionesEnviadas,
   });
+}));
+
+// Alertas de vencimiento de contrato — lee meta.fin_obra de cada proyecto
+// (sin modificarla) y notifica a los 30/15/7 días de vencer o al vencer,
+// sin repetir la misma alerta (alertas_contrato_enviadas, UNIQUE por
+// project_id+umbral). Ver server/alertasContrato.js para el cálculo.
+app.post('/api/cron/alertas-vencimiento', requireCronSecret, h(async (req, res) => {
+  const { rows: proyectos } = await db.pool.query('SELECT id, nombre FROM proyectos');
+  const alertasEnviadas = [];
+  const omitidas = [];
+
+  for (const p of proyectos) {
+    const { rows: metaRows } = await db.pool.query(
+      "SELECT valor FROM meta WHERE project_id = $1 AND clave = 'fin_obra'", [p.id]
+    );
+    const finObra = metaRows[0] ? metaRows[0].valor : null;
+    if (!finObra) {
+      omitidas.push({ project_id: p.id, razon: 'sin fin_obra en meta' });
+      continue;
+    }
+
+    const diasRestantes = calcularDiasRestantes(finObra);
+    if (diasRestantes === null) {
+      omitidas.push({ project_id: p.id, razon: `fin_obra con formato inválido: "${finObra}"` });
+      continue;
+    }
+
+    const { rows: vencidoRows } = await db.pool.query(
+      "SELECT 1 FROM alertas_contrato_enviadas WHERE project_id = $1 AND umbral = 'vencido'", [p.id]
+    );
+    const umbral = determinarUmbral(diasRestantes, vencidoRows.length > 0);
+    if (!umbral) continue;
+
+    const { rows: insertados } = await db.pool.query(
+      `INSERT INTO alertas_contrato_enviadas (project_id, umbral) VALUES ($1, $2)
+       ON CONFLICT (project_id, umbral) DO NOTHING RETURNING id`,
+      [p.id, umbral]
+    );
+    if (!insertados.length) continue;
+
+    const mensaje = construirMensaje(umbral, p.nombre, finObra);
+    await notificarAdmins(p.id, 'contrato_por_vencer', insertados[0].id, mensaje);
+
+    const { rows: residentes } = await db.pool.query(`
+      SELECT u.id FROM usuarios u
+      JOIN usuario_proyectos up ON up.usuario_id = u.id
+      WHERE up.project_id = $1 AND u.puesto = 'residente' AND u.activo = true
+    `, [p.id]);
+    for (const r of residentes) {
+      await crearNotificacion(r.id, p.id, 'contrato_por_vencer', insertados[0].id, mensaje);
+    }
+
+    alertasEnviadas.push({ project_id: p.id, umbral });
+  }
+
+  res.json({ revisadas: proyectos.length, alertas_enviadas: alertasEnviadas, omitidas });
 }));
 
 app.use('/api', auth.requireAuth);
@@ -975,31 +1036,78 @@ app.get('/api/projects/:id/requisiciones', h(auth.allow('residente')), h(require
 
 app.get('/api/projects/:id/requisiciones/export', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
   const reqs = await getRequisicionesData(req.project.id);
+  const reqMap = new Map(reqs.map((r) => [r.id, r]));
+
+  const { rows: itemRows } = await db.pool.query(`
+    SELECT ri.requisicion_id, ri.cantidad_solicitada, ri.precio_solicitado, ri.importe,
+           ri.alerta_cantidad, ri.alerta_precio,
+           i.codigo AS insumo_codigo, i.concepto AS insumo_concepto, i.unidad
+    FROM requisicion_items ri
+    JOIN insumos i ON i.id = ri.insumo_id
+    JOIN requisiciones r ON r.id = ri.requisicion_id
+    WHERE r.project_id = $1
+    ORDER BY ri.requisicion_id, ri.id
+  `, [req.project.id]);
+
   await sendXlsxExport(res, {
     filename: buildExportFilename('Requisiciones', req.project.nombre),
-    sheets: [{
-      sheetName: 'Requisiciones',
-      columns: [
-        { header: 'Folio', key: 'folio', width: 16 },
-        { header: 'Fecha', key: 'fecha', width: 14 },
-        { header: 'Estado', key: 'estado', width: 14 },
-        { header: 'No. de partidas', key: 'num_items', width: 14, format: 'int' },
-        { header: 'Importe total', key: 'importe_total', width: 18, format: 'money' },
-        { header: 'Alertas de cantidad', key: 'alertas_cantidad', width: 18, format: 'int' },
-        { header: 'Alertas de precio', key: 'alertas_precio', width: 16, format: 'int' },
-        { header: 'Observaciones', key: 'observaciones', width: 30 },
-      ],
-      rows: reqs.map((r) => ({
-        folio: r.folio || `Requisición #${r.id}`,
-        fecha: r.fecha,
-        estado: r.estado,
-        num_items: Number(r.num_items),
-        importe_total: Number(r.importe_total),
-        alertas_cantidad: Number(r.alertas_cantidad),
-        alertas_precio: Number(r.alertas_precio),
-        observaciones: r.observaciones || '',
-      })),
-    }],
+    sheets: [
+      {
+        sheetName: 'Resumen',
+        columns: [
+          { header: 'Folio', key: 'folio', width: 16 },
+          { header: 'Fecha', key: 'fecha', width: 14 },
+          { header: 'Estado', key: 'estado', width: 14 },
+          { header: 'No. de partidas', key: 'num_items', width: 14, format: 'int' },
+          { header: 'Importe total', key: 'importe_total', width: 18, format: 'money' },
+          { header: 'Alertas de cantidad', key: 'alertas_cantidad', width: 18, format: 'int' },
+          { header: 'Alertas de precio', key: 'alertas_precio', width: 16, format: 'int' },
+          { header: 'Observaciones', key: 'observaciones', width: 30 },
+        ],
+        rows: reqs.map((r) => ({
+          folio: r.folio || `Requisición #${r.id}`,
+          fecha: r.fecha,
+          estado: r.estado,
+          num_items: Number(r.num_items),
+          importe_total: Number(r.importe_total),
+          alertas_cantidad: Number(r.alertas_cantidad),
+          alertas_precio: Number(r.alertas_precio),
+          observaciones: r.observaciones || '',
+        })),
+      },
+      {
+        sheetName: 'Detalle por insumo',
+        columns: [
+          { header: 'Folio', key: 'folio', width: 16 },
+          { header: 'Fecha', key: 'fecha', width: 14 },
+          { header: 'Estado', key: 'estado', width: 14 },
+          { header: 'Código', key: 'insumo_codigo', width: 14 },
+          { header: 'Material / Insumo', key: 'insumo_concepto', width: 36 },
+          { header: 'Unidad', key: 'unidad', width: 10 },
+          { header: 'Cantidad solicitada', key: 'cantidad_solicitada', width: 20 },
+          { header: 'Precio solicitado', key: 'precio_solicitado', width: 18, format: 'money' },
+          { header: 'Importe', key: 'importe', width: 18, format: 'money' },
+          { header: 'Alerta cantidad', key: 'alerta_cantidad', width: 16 },
+          { header: 'Alerta precio', key: 'alerta_precio', width: 14 },
+        ],
+        rows: itemRows.map((it) => {
+          const r = reqMap.get(it.requisicion_id) || {};
+          return {
+            folio: r.folio || `Requisición #${it.requisicion_id}`,
+            fecha: r.fecha || '',
+            estado: r.estado || '',
+            insumo_codigo: it.insumo_codigo,
+            insumo_concepto: it.insumo_concepto,
+            unidad: it.unidad || '',
+            cantidad_solicitada: Number(it.cantidad_solicitada),
+            precio_solicitado: Number(it.precio_solicitado),
+            importe: Number(it.importe),
+            alerta_cantidad: it.alerta_cantidad ? 'Sí' : '',
+            alerta_precio: it.alerta_precio ? 'Sí' : '',
+          };
+        }),
+      },
+    ],
   });
 }));
 

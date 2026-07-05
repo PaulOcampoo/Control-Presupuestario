@@ -331,6 +331,18 @@ const SCHEMA = `
     UNIQUE(project_id, periodo_anio, periodo_mes)
   );
 
+  -- Deduplicación de alertas de vencimiento de contrato (ver
+  -- POST /api/cron/alertas-vencimiento y server/alertasContrato.js). Una
+  -- fila por (project_id, umbral) — 'vencido' se inserta una sola vez para
+  -- no repetir la alerta cada día después de la fecha de término.
+  CREATE TABLE IF NOT EXISTS alertas_contrato_enviadas (
+    id SERIAL PRIMARY KEY,
+    project_id INTEGER NOT NULL REFERENCES proyectos(id) ON DELETE CASCADE,
+    umbral TEXT NOT NULL,
+    enviada_en TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(project_id, umbral)
+  );
+
   -- Autorización de avance semanal (físico/financiero) — capa agregada
   -- encima del flujo existente, no lo reemplaza. Default 'autorizado' para
   -- que las semanas ya existentes (capturadas antes de esta fase) no

@@ -5,3 +5,6 @@ uploads/
 *.db
 .env
 .env.local
+
+.vercel
+.env*

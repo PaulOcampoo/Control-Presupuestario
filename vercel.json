@@ -8,5 +8,8 @@
       "maxDuration": 60
     }
   },
-  "crons": [{ "path": "/api/cron/recordatorio-impuestos", "schedule": "0 15 17 * *" }]
+  "crons": [
+    { "path": "/api/cron/recordatorio-impuestos", "schedule": "0 15 17 * *" },
+    { "path": "/api/cron/alertas-vencimiento", "schedule": "0 15 * * *" }
+  ]
 }

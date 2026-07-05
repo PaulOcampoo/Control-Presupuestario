@@ -1119,11 +1119,15 @@ app.put('/api/projects/:id/requisiciones/:reqId/estado', h(auth.allow('residente
 }));
 
 app.delete('/api/projects/:id/requisiciones/:reqId', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
-  const { rowCount } = await db.pool.query(
-    'DELETE FROM requisiciones WHERE id = $1 AND project_id = $2',
-    [Number(req.params.reqId), req.project.id]
+  const reqId = Number(req.params.reqId);
+  const { rows } = await db.pool.query(
+    'SELECT estado FROM requisiciones WHERE id = $1 AND project_id = $2', [reqId, req.project.id]
   );
-  if (rowCount === 0) return res.status(404).json({ error: 'Requisición no encontrada' });
+  if (!rows[0]) return res.status(404).json({ error: 'Requisición no encontrada' });
+  if (rows[0].estado !== 'borrador') {
+    return res.status(400).json({ error: 'Solo se pueden eliminar requisiciones en estado "borrador"' });
+  }
+  await db.pool.query('DELETE FROM requisiciones WHERE id = $1', [reqId]);
   res.json({ ok: true });
 }));
 

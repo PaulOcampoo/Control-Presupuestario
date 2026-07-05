@@ -1870,6 +1870,7 @@ function openDraftModal() {
     <div class="field"><label>Observaciones</label><textarea id="reqObs" rows="2" placeholder="Notas para esta requisición…"></textarea></div>
     <div id="previewAlerts"></div>
     <div class="modal-actions">
+      <button class="btn btn-danger" id="btnDeleteDraft">Eliminar borrador</button>
       <button class="btn" id="btnCancelDraft">Cerrar</button>
       <button class="btn btn-primary" id="btnSubmitDraft">Crear requisición</button>
     </div>
@@ -1942,6 +1943,13 @@ function openDraftModal() {
 
   paintItems();
   runPreview();
+  $('#btnDeleteDraft').addEventListener('click', () => {
+    if (!confirm('¿Eliminar el borrador completo? Se perderán todos los insumos agregados.')) return;
+    getDraft().length = 0;
+    closeModal();
+    toast('Borrador eliminado', 'success');
+    renderView();
+  });
   $('#btnCancelDraft').addEventListener('click', closeModal);
   $('#btnSubmitDraft').addEventListener('click', async () => {
     const btn = $('#btnSubmitDraft');
@@ -1985,7 +1993,7 @@ async function openRequisicionDetail(reqId) {
         <select id="estadoSelect">${estados.map((e) => `<option value="${e}" ${e === r.estado ? 'selected' : ''}>${e}</option>`).join('')}</select>
       </div>
       <div class="modal-actions">
-        <button class="btn btn-danger" id="btnDeleteReq">Eliminar</button>
+        ${r.estado === 'borrador' ? '<button class="btn btn-danger" id="btnDeleteReq">Eliminar</button>' : ''}
         ${r.estado === 'borrador' ? '<button class="btn" id="btnEditReq">Editar</button>' : ''}
         ${r.estado === 'autorizada' ? '<button class="btn btn-primary" id="btnGenerarOC">Generar Orden de Compra</button>' : ''}
         <button class="btn" id="btnCloseDetail">Cerrar</button>

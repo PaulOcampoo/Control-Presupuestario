@@ -1665,8 +1665,9 @@ app.post('/api/projects/:id/ordenes/:ocId/pagos', h(auth.allow()), h(requireProj
     'SELECT * FROM ordenes_compra WHERE id = $1 AND project_id = $2', [ocId, req.project.id]
   );
   if (!ocRows[0]) return res.status(404).json({ error: 'Orden de compra no encontrada' });
-  if (['borrador', 'cancelada'].includes(ocRows[0].estado)) {
-    return res.status(400).json({ error: 'No se pueden registrar pagos de una orden en borrador o cancelada' });
+  const ESTADOS_PAGABLES = ['enviada', 'confirmada', 'recibida_parcial', 'recibida_completa'];
+  if (!ESTADOS_PAGABLES.includes(ocRows[0].estado)) {
+    return res.status(400).json({ error: `No se pueden registrar pagos de una orden en estado "${ocRows[0].estado}"` });
   }
 
   const { fecha, monto, metodo, referencia, observaciones } = req.body || {};

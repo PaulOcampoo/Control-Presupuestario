@@ -1,6 +1,6 @@
 'use strict';
 
-const CACHE = 'ctrl-ppto-v22';
+const CACHE = 'ctrl-ppto-v23';
 const SHELL = [
   '/',
   '/index.html',
@@ -8,6 +8,7 @@ const SHELL = [
   '/app.js',
   '/manifest.webmanifest',
   '/vendor/chart.umd.min.js',
+  '/vendor/vercel-blob-client.js',
   '/icons/icon-192.png',
   '/icons/icon-512.png',
   '/assets/logo-roforb.png',

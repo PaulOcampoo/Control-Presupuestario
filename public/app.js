@@ -913,10 +913,17 @@ $('#fileInput').addEventListener('change', async (ev) => {
     <div class="spinner"></div>
   `);
   try {
-    const fd = new FormData();
-    fd.append('archivo', file);
-    fd.append('cliente_id', clienteId);
-    const result = await api('/projects', { method: 'POST', body: fd });
+    // Sube directo a Vercel Blob desde el navegador (bypassa el límite de
+    // tamaño de body de la función serverless — ver Prompts_mod1.md Tarea 1).
+    const blob = await VercelBlobClient.upload(file.name, file, {
+      access: 'private',
+      handleUploadUrl: '/api/projects/upload-token',
+      headers: state.token ? { Authorization: `Bearer ${state.token}` } : {},
+    });
+    const result = await api('/projects', {
+      method: 'POST',
+      body: { cliente_id: clienteId, archivo_url: blob.url, archivo_nombre: file.name },
+    });
     state.clienteId = clienteId;
     await Promise.all([refreshClientList(), refreshProjectList()]);
     showApp();

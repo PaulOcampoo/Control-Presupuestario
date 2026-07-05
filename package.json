@@ -5,7 +5,8 @@
   "main": "server/index.js",
   "scripts": {
     "start": "node server/index.js",
-    "dev": "node --env-file=.env server/index.js"
+    "dev": "node --env-file=.env server/index.js",
+    "build:blob-client": "node scripts/build-blob-client.mjs"
   },
   "license": "UNLICENSED",
   "engines": {
@@ -16,6 +17,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.110.0",
+    "@vercel/blob": "^2.5.0",
     "bcryptjs": "^2.4.3",
     "chart.js": "^4.5.1",
     "exceljs": "^4.4.0",
@@ -24,5 +26,8 @@
     "multer": "^2.0.0",
     "pdf-parse": "^1.1.1",
     "pg": "^8.22.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.1"
   }
 }

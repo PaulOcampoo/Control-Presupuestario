@@ -3,8 +3,12 @@
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
+const { Readable } = require('stream');
+const { pipeline } = require('stream/promises');
 const express = require('express');
 const multer = require('multer');
+const { del, get } = require('@vercel/blob');
+const { handleUpload } = require('@vercel/blob/client');
 
 const db = require('./db');
 const { parseWorkbook } = require('./parser');
@@ -19,16 +23,6 @@ const app = express();
 
 app.use(express.json({ limit: '2mb' }));
 app.use(express.static(path.join(__dirname, '..', 'public')));
-
-// Use os.tmpdir() so file uploads work both locally and on Vercel
-const upload = multer({
-  dest: os.tmpdir(),
-  limits: { fileSize: 10 * 1024 * 1024 },
-  fileFilter: (_req, file, cb) => {
-    const ok = /\.xlsx$/i.test(file.originalname);
-    cb(ok ? null : new Error('Solo se admiten archivos .xlsx'), ok);
-  },
-});
 
 // Multer aparte para PDFs de contrato (fase de extracción vía Claude API) —
 // mismo patrón que `upload`, pero con su propio fileFilter.
@@ -447,26 +441,56 @@ app.get('/api/projects', h(auth.allow('residente', 'cabo')), h(async (req, res) 
   res.json(rows);
 }));
 
-app.post('/api/projects', h(auth.allow()), upload.single('archivo'), h(async (req, res) => {
-  if (!req.file) return res.status(400).json({ error: 'Sube un archivo .xlsx de presupuesto' });
-  const tmpPath = req.file.path;
-  const clienteId = Number(req.body.cliente_id);
+// Emite el token de subida directa a Vercel Blob: el navegador sube el
+// .xlsx sin pasar por esta función serverless (que tiene un límite de body
+// no configurable en Vercel), y solo nos manda la URL resultante a
+// POST /api/projects. Ver Prompts_mod1.md Tarea 1 (Error 413).
+app.post('/api/projects/upload-token', h(auth.allow()), h(async (req, res) => {
+  try {
+    const jsonResponse = await handleUpload({
+      body: req.body,
+      request: req,
+      onBeforeGenerateToken: async (pathname) => {
+        if (!/\.xlsx$/i.test(pathname)) {
+          throw new Error('Solo se admiten archivos .xlsx');
+        }
+        return {
+          allowedContentTypes: ['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'],
+          addRandomSuffix: true,
+          maximumSizeInBytes: 50 * 1024 * 1024,
+        };
+      },
+    });
+    res.json(jsonResponse);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+}));
+
+app.post('/api/projects', h(auth.allow()), h(async (req, res) => {
+  const { cliente_id, archivo_url, archivo_nombre } = req.body || {};
+  if (!archivo_url) return res.status(400).json({ error: 'Sube un archivo .xlsx de presupuesto' });
+  const clienteId = Number(cliente_id);
   if (!Number.isFinite(clienteId)) {
-    fs.rm(tmpPath, () => {});
+    del(archivo_url).catch(() => {});
     return res.status(400).json({ error: 'Indica a qué cliente pertenece este presupuesto' });
   }
   const { rows: clienteRows } = await db.pool.query('SELECT id FROM clientes WHERE id = $1', [clienteId]);
   if (!clienteRows[0]) {
-    fs.rm(tmpPath, () => {});
+    del(archivo_url).catch(() => {});
     return res.status(400).json({ error: 'El cliente indicado no existe' });
   }
+  const tmpPath = path.join(os.tmpdir(), `presupuesto-${Date.now()}-${Math.round(Math.random() * 1e9)}.xlsx`);
   try {
+    const blobResult = await get(archivo_url, { access: 'private' });
+    if (!blobResult) throw new Error('No se pudo descargar el archivo subido');
+    await pipeline(Readable.fromWeb(blobResult.stream), fs.createWriteStream(tmpPath));
     const parsed = await parseWorkbook(tmpPath);
     if (!parsed.conceptos.length && !parsed.insumos.length) {
       throw new Error('No se reconoció una hoja de presupuesto ni de listado de insumos en el archivo. Verifica que tenga el formato esperado (columnas Código, Concepto, Unidad, Cantidad, Precio, Importe).');
     }
-    const nombre = parsed.meta.obra || req.file.originalname.replace(/\.xlsx$/i, '');
-    const record = await db.createProjectRecord(nombre, req.file.originalname, clienteId);
+    const nombre = parsed.meta.obra || (archivo_nombre || '').replace(/\.xlsx$/i, '') || 'Presupuesto';
+    const record = await db.createProjectRecord(nombre, archivo_nombre || null, clienteId);
     await db.withTransaction((client) => ingest(client, record.id, parsed));
     res.status(201).json({
       id: record.id,
@@ -482,6 +506,7 @@ app.post('/api/projects', h(auth.allow()), upload.single('archivo'), h(async (re
     res.status(400).json({ error: err.message });
   } finally {
     fs.rm(tmpPath, () => {});
+    del(archivo_url).catch(() => {});
   }
 }));
 

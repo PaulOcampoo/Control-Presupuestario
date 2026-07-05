@@ -344,6 +344,35 @@ Object.entries(SECTION_DEFS).forEach(([sectionId, def]) => {
   def.tabs.forEach((t) => { VIEW_TO_SECTION[t] = sectionId; });
 });
 
+// Historial de navegación (botón atrás del navegador / gesto equivalente en
+// móvil) — registra cada cambio de pestaña dentro del presupuesto abierto
+// para que "atrás" regrese a la pestaña anterior en vez de salir de la app
+// o recargar sin estado. Nunca se toca la URL (siempre location.href): solo
+// viaja el estado de history, así no hay riesgo de romper enlaces/bookmarks.
+// Alcance a propósito: solo pestañas dentro del MISMO presupuesto — cambiar
+// de presupuesto reinicia el historial (selectProject usa replaceState),
+// y el estado de modales/formularios a medio llenar se descarta al volver.
+function pushTabHistory() {
+  history.pushState({ cpNav: true, projectId: state.projectId, view: state.view, section: state.section }, '', location.href);
+}
+
+function replaceTabHistory() {
+  history.replaceState({ cpNav: true, projectId: state.projectId, view: state.view, section: state.section }, '', location.href);
+}
+
+window.addEventListener('popstate', (ev) => {
+  const s = ev.state;
+  // Entrada ajena a nuestro historial de pestañas (ya sea de otro presupuesto
+  // o de antes de que existiera este mecanismo): se corrige en vez de
+  // dejarla "viva" — así el botón atrás nunca queda atorado en un estado
+  // que ya no corresponde a lo que se ve en pantalla.
+  if (!s || !s.cpNav || s.projectId !== state.projectId) { replaceTabHistory(); return; }
+  state.view = s.view;
+  state.section = s.section;
+  renderTabsBar();
+  renderView();
+});
+
 // Navegación central: toda la app debe pasar por aquí para cambiar de vista
 // (en vez de simular clicks sobre una barra de tabs estática) — así la
 // sección activa y la barra de sub-navegación quedan siempre consistentes.
@@ -352,6 +381,7 @@ function switchToView(viewId) {
   state.section = VIEW_TO_SECTION[viewId] || null;
   renderTabsBar();
   renderView();
+  pushTabHistory();
 }
 
 function goToSection(sectionId) {
@@ -750,6 +780,10 @@ function selectProject(id, targetView) {
   state.section = VIEW_TO_SECTION[state.view] || null;
   renderProjectList();
   renderTabsBar();
+  // Reinicia el historial de pestañas al entrar/cambiar de presupuesto (ver
+  // pushTabHistory/replaceTabHistory arriba): "atrás" solo debe deshacer
+  // cambios de pestaña dentro de este presupuesto, no saltar a uno anterior.
+  replaceTabHistory();
   return renderView();
 }
 

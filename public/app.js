@@ -38,7 +38,16 @@ const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 const THEME_KEY = 'cp_theme';
 
 function getTheme() {
-  return localStorage.getItem(THEME_KEY) || 'dark';
+  return localStorage.getItem(THEME_KEY) || 'light';
+}
+
+function chartColors() {
+  const light = getTheme() === 'light';
+  return {
+    text: light ? '#334155' : '#e2e8f0',
+    grid: light ? '#e2e8f0' : '#334155',
+    tick: light ? '#64748b' : '#94a3b8',
+  };
 }
 
 function applyTheme(theme) {
@@ -1117,14 +1126,16 @@ async function renderInicio(view) {
   }
 
   view.innerHTML = `
-    ${dashboardHtml}
+    ${puedeVerResumen ? '' : '<h2 class="section-title">Inicio</h2>'}
     ${quickAccessHtml()}
     <h3 class="section-title">Secciones</h3>
     ${seccionesGridHtml()}
+    ${puedeVerResumen ? dashboardHtml : ''}
   `;
 
   if (puedeVerResumen) {
     const ctx = $('#chartResumenDona').getContext('2d');
+    const cc = chartColors();
     state.charts.resumenDona = new Chart(ctx, {
       type: 'doughnut',
       data: {
@@ -1143,7 +1154,7 @@ async function renderInicio(view) {
       options: {
         responsive: true, maintainAspectRatio: false,
         plugins: {
-          legend: { position: 'bottom', labels: { color: '#e2e8f0', boxWidth: 14, font: { size: 11 } } },
+          legend: { position: 'bottom', labels: { color: cc.text, boxWidth: 14, font: { size: 11 } } },
           tooltip: { callbacks: { label: (c) => `${c.label}: ${fmtMoney(c.raw)}` } },
         },
       },
@@ -2660,6 +2671,7 @@ async function renderAvance(view) {
 function paintAvanceChart(avances) {
   const ctx = $('#chartSemanal').getContext('2d');
   const labels = avances.map((a) => `S${a.semana}`);
+  const cc = chartColors();
   state.charts.semanal = new Chart(ctx, {
     type: 'line',
     data: {
@@ -2673,10 +2685,10 @@ function paintAvanceChart(avances) {
     options: {
       responsive: true, maintainAspectRatio: false,
       scales: {
-        x: { ticks: { color: '#94a3b8', maxRotation: 0, autoSkip: true, font: { size: 10 } }, grid: { color: '#334155' } },
-        y: { min: 0, max: 100, ticks: { color: '#94a3b8', callback: (v) => `${v}%` }, grid: { color: '#334155' } },
+        x: { ticks: { color: cc.tick, maxRotation: 0, autoSkip: true, font: { size: 10 } }, grid: { color: cc.grid } },
+        y: { min: 0, max: 100, ticks: { color: cc.tick, callback: (v) => `${v}%` }, grid: { color: cc.grid } },
       },
-      plugins: { legend: { position: 'bottom', labels: { color: '#e2e8f0', boxWidth: 14, font: { size: 11 } } } },
+      plugins: { legend: { position: 'bottom', labels: { color: cc.text, boxWidth: 14, font: { size: 11 } } } },
     },
   });
 }
@@ -2687,6 +2699,7 @@ function paintFisFinChart(avances) {
   const programado = avances.map((a) => a.avance_financiero_programado);
   const ejecutado = avances.map((a) => a.avance_financiero_real);
   const porEjecutar = avances.map((a) => (a.avance_financiero_real != null ? Math.max(0, 100 - a.avance_financiero_real) : null));
+  const cc = chartColors();
   state.charts.fisfin = new Chart(ctx, {
     type: 'bar',
     data: {
@@ -2700,10 +2713,10 @@ function paintFisFinChart(avances) {
     options: {
       responsive: true, maintainAspectRatio: false,
       scales: {
-        x: { stacked: false, ticks: { color: '#94a3b8', maxRotation: 0, autoSkip: true, font: { size: 10 } }, grid: { display: false } },
-        y: { min: 0, max: 100, ticks: { color: '#94a3b8', callback: (v) => `${v}%` }, grid: { color: '#334155' } },
+        x: { stacked: false, ticks: { color: cc.tick, maxRotation: 0, autoSkip: true, font: { size: 10 } }, grid: { display: false } },
+        y: { min: 0, max: 100, ticks: { color: cc.tick, callback: (v) => `${v}%` }, grid: { color: cc.grid } },
       },
-      plugins: { legend: { position: 'bottom', labels: { color: '#e2e8f0', boxWidth: 14, font: { size: 11 } } } },
+      plugins: { legend: { position: 'bottom', labels: { color: cc.text, boxWidth: 14, font: { size: 11 } } } },
     },
   });
 }

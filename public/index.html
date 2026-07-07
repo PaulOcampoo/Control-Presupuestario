@@ -50,6 +50,7 @@
       <div id="clienteGrid" class="cliente-grid"></div>
       <button class="btn btn-primary full" id="btnNuevoClienteGallery" style="display:none;margin-top:16px">+ Nuevo cliente</button>
       <button class="btn full" id="btnCargarContratoGallery" style="display:none;margin-top:8px">📄 Cargar Contrato PDF</button>
+      <div id="bienvenidaSummary"></div>
     </div>
   </div>
 
@@ -114,6 +115,7 @@
         <button class="theme-opt" data-theme-set="dark"><span id="themeIconDark"></span>Oscuro</button>
         <button class="theme-opt" data-theme-set="system"><span id="themeIconSystem"></span>Sistema</button>
       </div>
+      <button id="btnMiCuentaPopover" class="btn full" style="margin-bottom:6px">Mi cuenta</button>
       <button id="btnLogoutPopover" class="btn full">Cerrar sesión</button>
     </div>
 
@@ -164,12 +166,8 @@
         <span id="mobileNavResumenIcon"></span>
         <span>Resumen</span>
       </button>
-      <button class="mobile-nav-item" id="mobileNavCompras">
-        <span id="mobileNavComprasIcon"></span>
-        <span>Compras</span>
-      </button>
       <button class="mobile-nav-fab" id="btnMobileQuick" aria-label="Acciones rápidas">
-        <span id="mobileQuickIcon"></span>
+        <span id="mobileQuickIcon">+</span>
       </button>
       <div class="mobile-notif-wrap notif-wrap">
         <button class="mobile-nav-item" id="btnMobileNotif">

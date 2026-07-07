@@ -25,6 +25,16 @@ const app = express();
 app.use(express.json({ limit: '2mb' }));
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
+// Cabeceras de seguridad básicas (sin dependencia nueva)
+app.use((_req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('X-XSS-Protection', '1; mode=block');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  next();
+});
+
 // Multer aparte para PDFs de contrato (fase de extracción vía Claude API) —
 // mismo patrón que `upload`, pero con su propio fileFilter.
 const uploadPdf = multer({
@@ -61,19 +71,55 @@ app.post('/api/auth/login', h(async (req, res) => {
   if (!usuario?.trim() || !password) {
     return res.status(400).json({ error: 'Indica usuario y contraseña' });
   }
+
+  const ip = ((req.headers['x-forwarded-for'] || '') + '').split(',')[0].trim() || req.socket?.remoteAddress || 'unknown';
+  const ident = usuario.trim().toLowerCase();
+
+  // Rate limiting por usuario: 5 fallos en 10 minutos (serverless-safe, cuenta en Postgres)
+  const { rows: failRows } = await db.pool.query(
+    `SELECT COUNT(*)::int AS n FROM login_attempts
+     WHERE identificador = $1 AND exitoso = false
+       AND creado_en > NOW() - INTERVAL '10 minutes'`,
+    [ident]
+  );
+  if (failRows[0].n >= 5) {
+    return res.status(429).json({ error: 'Demasiados intentos fallidos. Espera 10 minutos e intenta de nuevo.' });
+  }
+  // Rate limiting por IP: 20 fallos en 10 minutos — umbral más alto para
+  // no bloquear a toda una oficina con IP compartida, pero detiene enumerar
+  // varios usuarios distintos desde la misma IP.
+  const { rows: ipRows } = await db.pool.query(
+    `SELECT COUNT(*)::int AS n FROM login_attempts
+     WHERE ip = $1 AND exitoso = false
+       AND creado_en > NOW() - INTERVAL '10 minutes'`,
+    [ip]
+  );
+  if (ipRows[0].n >= 20) {
+    return res.status(429).json({ error: 'Demasiados intentos desde esta red. Espera 10 minutos e intenta de nuevo.' });
+  }
+
   const { rows } = await db.pool.query(
     'SELECT * FROM usuarios WHERE usuario = $1 AND activo = true',
     [usuario.trim()]
   );
   const user = rows[0];
-  if (!user || !(await auth.verifyPassword(password, user.password_hash))) {
+  const ok = !!(user && await auth.verifyPassword(password, user.password_hash));
+
+  await db.pool.query(
+    'INSERT INTO login_attempts (identificador, ip, exitoso) VALUES ($1, $2, $3)',
+    [ident, ip, ok]
+  );
+
+  if (!ok) {
     return res.status(401).json({ error: 'Usuario o contraseña incorrectos' });
   }
+
   const token = auth.signToken(user);
   res.json({
     token,
     user: { id: user.id, nombre: user.nombre, usuario: user.usuario, puesto: user.puesto },
     tabs: auth.PERMISSIONS[user.puesto] ? auth.PERMISSIONS[user.puesto].tabs : [],
+    must_change_password: user.must_change_password || false,
   });
 }));
 
@@ -197,14 +243,88 @@ app.use('/api', auth.requireAuth);
 
 app.get('/api/auth/me', h(async (req, res) => {
   const { rows } = await db.pool.query(
-    'SELECT id, nombre, usuario, puesto FROM usuarios WHERE id = $1 AND activo = true',
+    'SELECT id, nombre, usuario, puesto, must_change_password FROM usuarios WHERE id = $1 AND activo = true',
     [req.user.id]
   );
   if (!rows[0]) return res.status(401).json({ error: 'Sesión inválida' });
   res.json({
-    user: rows[0],
+    user: { id: rows[0].id, nombre: rows[0].nombre, usuario: rows[0].usuario, puesto: rows[0].puesto },
     tabs: auth.PERMISSIONS[rows[0].puesto] ? auth.PERMISSIONS[rows[0].puesto].tabs : [],
+    must_change_password: rows[0].must_change_password || false,
   });
+}));
+
+// Autogestión: el usuario puede cambiar su nombre, usuario y contraseña.
+// Si cambia la contraseña, se invalidan todas las sesiones anteriores y se
+// emite un token nuevo para la sesión actual.
+app.put('/api/auth/mi-cuenta', h(async (req, res) => {
+  const { nombre, usuario, passwordActual, passwordNueva } = req.body || {};
+
+  if (nombre !== undefined && !String(nombre || '').trim()) {
+    return res.status(400).json({ error: 'El nombre no puede estar vacío' });
+  }
+  if (usuario !== undefined && !String(usuario || '').trim()) {
+    return res.status(400).json({ error: 'El usuario no puede estar vacío' });
+  }
+  if (passwordNueva) {
+    if (!passwordActual) {
+      return res.status(400).json({ error: 'Indica tu contraseña actual para poder cambiarla' });
+    }
+    if (passwordNueva.length < 6) {
+      return res.status(400).json({ error: 'La contraseña nueva debe tener al menos 6 caracteres' });
+    }
+    if (passwordNueva.length > 72) {
+      return res.status(400).json({ error: 'La contraseña no puede superar 72 caracteres' });
+    }
+  }
+
+  const { rows: userRows } = await db.pool.query(
+    'SELECT * FROM usuarios WHERE id = $1 AND activo = true', [req.user.id]
+  );
+  if (!userRows[0]) return res.status(404).json({ error: 'Usuario no encontrado' });
+  const userDb = userRows[0];
+
+  if (passwordActual && !(await auth.verifyPassword(passwordActual, userDb.password_hash))) {
+    return res.status(400).json({ error: 'La contraseña actual es incorrecta' });
+  }
+  if (passwordNueva && passwordNueva === passwordActual) {
+    return res.status(400).json({ error: 'La contraseña nueva debe ser diferente a la actual' });
+  }
+
+  const nuevoUsuario = usuario?.trim() || null;
+  if (nuevoUsuario && nuevoUsuario !== userDb.usuario) {
+    const { rows: dup } = await db.pool.query(
+      'SELECT id FROM usuarios WHERE usuario = $1 AND id != $2', [nuevoUsuario, req.user.id]
+    );
+    if (dup.length) return res.status(409).json({ error: 'Ese nombre de usuario ya está en uso' });
+  }
+
+  const passwordHash = passwordNueva ? await auth.hashPassword(passwordNueva) : null;
+  const { rows } = await db.pool.query(
+    `UPDATE usuarios SET
+       nombre = COALESCE($1, nombre),
+       usuario = COALESCE($2, usuario),
+       password_hash = COALESCE($3, password_hash),
+       must_change_password = CASE WHEN $3 IS NOT NULL THEN false ELSE must_change_password END,
+       token_valid_since = CASE WHEN $3 IS NOT NULL THEN NOW() - INTERVAL '1 second' ELSE token_valid_since END
+     WHERE id = $4
+     RETURNING id, nombre, usuario, puesto`,
+    [nombre?.trim() || null, nuevoUsuario, passwordHash, req.user.id]
+  );
+  if (!rows[0]) return res.status(404).json({ error: 'Usuario no encontrado' });
+
+  // Emitir token nuevo si cambió contraseña o nombre de usuario (su iat > token_valid_since)
+  const newToken = passwordNueva ? auth.signToken(rows[0]) : null;
+  res.json({ ok: true, user: rows[0], token: newToken });
+}));
+
+// Cierra sesión en todos los dispositivos invalidando tokens anteriores.
+app.post('/api/auth/cerrar-todas-sesiones', h(async (req, res) => {
+  await db.pool.query(
+    'UPDATE usuarios SET token_valid_since = NOW() WHERE id = $1',
+    [req.user.id]
+  );
+  res.json({ ok: true });
 }));
 
 // ---------------------------------------------------------------------------
@@ -268,6 +388,11 @@ app.post('/api/usuarios', h(auth.allow('administracion')), h(async (req, res) =>
       'INSERT INTO usuarios (nombre, usuario, password_hash, puesto) VALUES ($1,$2,$3,$4) RETURNING id, nombre, usuario, puesto, activo, creado_en',
       [nombre.trim(), usuario.trim(), hash, puesto]
     );
+    const ip = ((req.headers['x-forwarded-for'] || '') + '').split(',')[0].trim() || req.socket?.remoteAddress || 'unknown';
+    await db.pool.query(
+      'INSERT INTO audit_log (actor_id, actor_usuario, accion, target_id, target_usuario, ip) VALUES ($1,$2,$3,$4,$5,$6)',
+      [req.user.id, req.user.usuario, 'crear_usuario', rows[0].id, rows[0].usuario, ip]
+    );
     res.status(201).json(rows[0]);
   } catch (err) {
     if (err.code === '23505') return res.status(409).json({ error: 'Ese nombre de usuario ya existe' });
@@ -284,18 +409,30 @@ app.put('/api/usuarios/:id', h(auth.allow('administracion')), h(async (req, res)
   if (password != null && password.length < 6) {
     return res.status(400).json({ error: 'La contraseña debe tener al menos 6 caracteres' });
   }
+  if (password != null && password.length > 72) {
+    return res.status(400).json({ error: 'La contraseña no puede superar 72 caracteres' });
+  }
   const passwordHash = password ? await auth.hashPassword(password) : null;
   const { rows } = await db.pool.query(
     `UPDATE usuarios SET
        nombre = COALESCE($1, nombre),
        puesto = COALESCE($2, puesto),
        activo = COALESCE($3, activo),
-       password_hash = COALESCE($4, password_hash)
+       password_hash = COALESCE($4, password_hash),
+       must_change_password = CASE WHEN $4 IS NOT NULL THEN true ELSE must_change_password END,
+       token_valid_since = CASE WHEN $4 IS NOT NULL THEN NOW() ELSE token_valid_since END
      WHERE id = $5
-     RETURNING id, nombre, usuario, puesto, activo, creado_en`,
+     RETURNING id, nombre, usuario, puesto, activo, creado_en, must_change_password`,
     [nombre?.trim() || null, puesto || null, activo != null ? Boolean(activo) : null, passwordHash, id]
   );
   if (!rows[0]) return res.status(404).json({ error: 'Usuario no encontrado' });
+  if (password) {
+    const ip = ((req.headers['x-forwarded-for'] || '') + '').split(',')[0].trim() || req.socket?.remoteAddress || 'unknown';
+    await db.pool.query(
+      'INSERT INTO audit_log (actor_id, actor_usuario, accion, target_id, target_usuario, ip) VALUES ($1,$2,$3,$4,$5,$6)',
+      [req.user.id, req.user.usuario, 'reset_password', rows[0].id, rows[0].usuario, ip]
+    );
+  }
   res.json(rows[0]);
 }));
 
@@ -499,6 +636,32 @@ app.get('/api/bienvenida', h(auth.allow('residente', 'cabo', 'compras', 'tesorer
   }));
 
   res.json(enriched);
+}));
+
+// ---------------------------------------------------------------------------
+// Última visita — último proyecto visitado por usuario+cliente
+// ---------------------------------------------------------------------------
+app.get('/api/ultima-visita/:clienteId', h(async (req, res) => {
+  const clienteId = parseInt(req.params.clienteId, 10);
+  if (!clienteId) return res.status(400).json({ error: 'Cliente inválido' });
+  const { rows } = await db.pool.query(
+    'SELECT proyecto_id FROM ultima_visita WHERE usuario_id = $1 AND cliente_id = $2',
+    [req.user.id, clienteId]
+  );
+  res.json(rows[0] || {});
+}));
+
+app.put('/api/ultima-visita/:clienteId', h(async (req, res) => {
+  const clienteId = parseInt(req.params.clienteId, 10);
+  const { proyecto_id } = req.body || {};
+  if (!clienteId || !proyecto_id) return res.status(400).json({ error: 'Datos inválidos' });
+  await db.pool.query(`
+    INSERT INTO ultima_visita (usuario_id, cliente_id, proyecto_id, actualizado_en)
+    VALUES ($1, $2, $3, NOW())
+    ON CONFLICT (usuario_id, cliente_id) DO UPDATE
+      SET proyecto_id = EXCLUDED.proyecto_id, actualizado_en = NOW()
+  `, [req.user.id, clienteId, proyecto_id]);
+  res.json({ ok: true });
 }));
 
 // ---------------------------------------------------------------------------

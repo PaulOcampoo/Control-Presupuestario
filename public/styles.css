@@ -514,6 +514,28 @@ body.modal-open { overflow: hidden; }
 .welcome-hint { font-size: 0.82rem; color: var(--text-secondary); margin: 8px 0 16px; text-align: center; }
 .welcome-card .btn.full { margin-top: 16px; }
 
+/* ── Resumen de presupuestos en pantalla de clientes ──────────────────────── */
+.bienvenida-summary { margin-top: 28px; padding-top: 18px; border-top: 1px solid var(--border-color); }
+.bienvenida-summary-title { font-size: 0.82rem; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.04em; font-weight: 700; margin-bottom: 16px; }
+.bienvenida-cliente-group { margin-bottom: 22px; }
+.bienvenida-cliente-header {
+  font-weight: 700; font-size: 0.85rem; color: var(--text-secondary);
+  margin-bottom: 8px; padding: 4px 0; border-bottom: 1px solid var(--border-color);
+}
+.bienvenida-client-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+.bienvenida-proj-card {
+  cursor: pointer;
+}
+.bienvenida-proj-card:hover {
+  border-color: var(--accent-gold);
+  box-shadow: 0 0 14px color-mix(in srgb, var(--accent-gold) 22%, transparent);
+  transform: translateY(-2px);
+}
+.bienvenida-proj-card:active { transform: scale(0.98); }
+@media (max-width: 480px) {
+  .bienvenida-client-grid { grid-template-columns: 1fr; }
+}
+
 .drawer-account {
   display: flex; align-items: center; justify-content: space-between; gap: 8px;
   background: var(--bg-surface-2); border: 1px solid var(--border-color); border-radius: 10px;
@@ -777,6 +799,7 @@ body.modal-open { overflow: hidden; }
   flex-shrink: 0; width: 50px; height: 50px; border-radius: 50%; border: none;
   background: var(--accent-gold); color: #04212f;
   display: flex; align-items: center; justify-content: center;
+  font-size: 1.6rem; font-weight: 700; line-height: 1;
   box-shadow: 0 4px 16px color-mix(in srgb, var(--accent-gold) 40%, transparent);
   cursor: pointer; margin: 0 4px; margin-bottom: 4px;
   transition: transform 0.15s;
@@ -862,6 +885,14 @@ body.modal-open { overflow: hidden; }
   .mobile-nav { display: flex; }
   /* Padding extra en #view para no quedar detrás de la bottom nav */
   #view { padding-bottom: calc(var(--mobile-nav-h) + 24px + var(--safe-bottom)); }
+
+  /* Topbar: solo mostrar el nombre del proyecto/cliente — ocultar todos los
+     controles de acción para no duplicar lo que ya vive en la barra inferior */
+  .topbar .icon-btn,
+  .topbar .notif-wrap { display: none !important; }
+  .topbar .topbar-brand { display: none !important; }
+  /* Hace el título tappable para abrir el drawer de presupuestos */
+  .topbar-title { cursor: pointer; user-select: none; }
 }
 
 /* ── Reduced motion ───────────────────────────────────────────────────── */

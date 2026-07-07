@@ -424,11 +424,11 @@ const TAB_POR_TIPO_NOTIF = {
 // def.tabs.length === 0 es 100% futura (hoy solo Maquinaria).
 // ---------------------------------------------------------------------------
 const SECTION_DEFS = {
-  obra:          { label: 'Obra',           icon: 'obra',           tabs: ['programa', 'avance', 'destajo'],                     proximamente: ['Estimaciones'] },
-  compras:       { label: 'Compras',        icon: 'compras',        tabs: ['requisiciones', 'insumos', 'proveedores', 'ordenes'], proximamente: ['Subcontratos'] },
-  tesoreria:     { label: 'Tesorería',      icon: 'tesoreria',      tabs: ['finanzas', 'impuestos'],                             proximamente: [] },
-  administracion:{ label: 'Administración', icon: 'administracion', tabs: ['usuarios', 'mapeo', 'contrato'],                    proximamente: ['Nóminas', 'Almacenes'] },
-  maquinaria:    { label: 'Maquinaria',     icon: 'maquinaria',     tabs: [],                                                    proximamente: ['Maquinaria'] },
+  obra:          { label: 'Obra',           icon: 'obra',           emoji: '🏗️',  tabs: ['programa', 'avance', 'destajo'],                     proximamente: ['Estimaciones'] },
+  compras:       { label: 'Compras',        icon: 'compras',        emoji: '🛒',   tabs: ['requisiciones', 'insumos', 'proveedores', 'ordenes'], proximamente: ['Subcontratos'] },
+  tesoreria:     { label: 'Tesorería',      icon: 'tesoreria',      emoji: '💰',   tabs: ['finanzas', 'impuestos'],                             proximamente: [] },
+  administracion:{ label: 'Administración', icon: 'administracion', emoji: '⚙️',  tabs: ['usuarios', 'mapeo', 'contrato'],                    proximamente: ['Nóminas', 'Almacenes'] },
+  maquinaria:    { label: 'Maquinaria',     icon: 'maquinaria',     emoji: '🚜',   tabs: [],                                                    proximamente: ['Maquinaria'] },
 };
 
 const TAB_ICONS = {
@@ -571,7 +571,7 @@ function renderSidebar() {
     const pr = $('#popoverRole');        if (pr) pr.textContent = PUESTO_LABELS[state.user.puesto] || state.user.puesto;
   }
   // Ícono del proyecto en sidebar
-  const pi = $('#sidebarProjectIcon'); if (pi) pi.innerHTML = icon('building', 16);
+  const pi = $('#sidebarProjectIcon'); if (pi) pi.textContent = '🏗️';
   const pc = $('#sidebarProjectChevron'); if (pc) pc.innerHTML = icon('chevron-down', 13);
   const pch = $('#sidebarProfileChevron'); if (pch) pch.innerHTML = icon('chevron-down', 13);
 
@@ -583,7 +583,7 @@ function renderSidebar() {
   if (state.allowedTabs.includes('resumen')) {
     const active = state.view === 'resumen' ? 'active' : '';
     html += `<button class="sbar-item ${active}" data-sbar-goto="resumen" title="Resumen">
-      <span class="sbar-icon">${icon('resumen', 18)}</span>
+      <span class="sbar-icon">${TAB_ICONS.resumen}</span>
       <span class="sbar-label">Resumen</span>
     </button>`;
   }
@@ -593,7 +593,7 @@ function renderSidebar() {
     if (def.tabs.length === 0) {
       // Sección futura (Maquinaria)
       html += `<button class="sbar-item sbar-disabled" disabled title="${esc(def.label)} — Próximamente">
-        <span class="sbar-icon">${icon(def.icon, 18)}</span>
+        <span class="sbar-icon">${def.emoji}</span>
         <span class="sbar-label">${esc(def.label)}</span>
         <span class="sbar-badge-soon">Pronto</span>
       </button>`;
@@ -605,7 +605,7 @@ function renderSidebar() {
     const isActive = state.section === sectionId;
     html += `<div class="sbar-group ${isActive ? 'open' : ''}">
       <button class="sbar-group-header ${isActive ? 'active' : ''}" data-sbar-group="${sectionId}" title="${esc(def.label)}">
-        <span class="sbar-icon">${icon(def.icon, 18)}</span>
+        <span class="sbar-icon">${def.emoji}</span>
         <span class="sbar-label">${esc(def.label)}</span>
         <span class="sbar-chevron">${icon('chevron-down', 13)}</span>
       </button>
@@ -613,13 +613,13 @@ function renderSidebar() {
     visibleTabs.forEach((t) => {
       const a = state.view === t ? 'active' : '';
       html += `<button class="sbar-item sbar-subitem ${a}" data-sbar-goto="${t}" title="${esc(TAB_LABELS[t])}">
-        <span class="sbar-icon">${icon(t, 15)}</span>
+        <span class="sbar-icon">${TAB_ICONS[t] || ''}</span>
         <span class="sbar-label">${esc(TAB_LABELS[t])}</span>
       </button>`;
     });
     def.proximamente.forEach((nombre) => {
       html += `<span class="sbar-item sbar-subitem sbar-soon" title="${esc(nombre)} — Próximamente">
-        <span class="sbar-icon">${icon('lock', 13)}</span>
+        <span class="sbar-icon">🔒</span>
         <span class="sbar-label">${esc(nombre)}</span>
       </span>`;
     });
@@ -676,8 +676,6 @@ function renderSidebar() {
 function renderMobileNav() {
   const resBtn = $('#mobileNavResumen');
   if (resBtn) resBtn.classList.toggle('active', state.view === 'resumen');
-  const cmpBtn = $('#mobileNavCompras');
-  if (cmpBtn) cmpBtn.classList.toggle('active', state.section === 'compras');
 }
 
 // ---------------------------------------------------------------------------
@@ -728,7 +726,7 @@ function openQuickActionMenu() {
   list.innerHTML = actions.length
     ? actions.map((a) => `
       <button class="quick-action-item" data-goto="${a.goto}">
-        ${icon(a.icon, 20)}<span>${esc(a.label)}</span>
+        <span style="font-size:1.2em">${TAB_ICONS[a.icon] || ''}</span><span>${esc(a.label)}</span>
       </button>`).join('')
     : '<p class="muted" style="padding:8px 0">No hay acciones disponibles para tu rol.</p>';
 
@@ -763,6 +761,7 @@ function openMobileProfile() {
       <button class="theme-opt ${pref==='dark'?'active':''}" data-theme-set="dark">${icon('moon',14)} Oscuro</button>
       <button class="theme-opt ${pref==='system'?'active':''}" data-theme-set="system">${icon('monitor',14)} Sistema</button>
     </div>
+    <button class="btn full" id="btnMiCuentaModal" style="margin-bottom:6px">Mi cuenta</button>
     <button class="btn btn-danger full" id="btnLogoutModal">Cerrar sesión</button>
     <div class="modal-actions"><button class="btn" id="btnCloseProfile">Cerrar</button></div>
   `);
@@ -772,6 +771,7 @@ function openMobileProfile() {
       $$('.theme-opt', $('#modal')).forEach((b) => b.classList.toggle('active', b.dataset.themeSet === btn.dataset.themeSet));
     });
   });
+  $('#btnMiCuentaModal').addEventListener('click', () => { closeModal(); openMiCuentaModal(false); });
   $('#btnLogoutModal').addEventListener('click', () => { closeModal(); logout(); });
   $('#btnCloseProfile').addEventListener('click', closeModal);
 }
@@ -936,8 +936,9 @@ async function bootApp() {
       refreshProjectList(),
       api('/bienvenida').catch(() => []),
     ]);
-    showWelcomeScreen();
-    renderWelcomeScreen(bienvenida);
+    showClientGallery();
+    renderClientGallery();
+    renderBienvenidaSummary(bienvenida);
   } catch (err) {
     showApp();
     $('#view').innerHTML = `<div class="alert-box danger">⚠️ No se pudo conectar con el servidor: ${esc(err.message)}</div>`;
@@ -952,6 +953,9 @@ async function tryRestoreSession() {
     const data = await api('/auth/me');
     applySession(data.user, data.tabs);
     await bootApp();
+    if (data.must_change_password) {
+      setTimeout(() => openMiCuentaModal(true), 400);
+    }
   } catch (err) {
     // handleSessionExpired ya se disparó desde api() en un 401
     if (state.token) { state.token = null; localStorage.removeItem(TOKEN_KEY); showLoginScreen(); }
@@ -989,6 +993,9 @@ $('#loginForm').addEventListener('submit', async (ev) => {
     applySession(data.user, data.tabs);
     $('#loginPassword').value = '';
     await bootApp();
+    if (data.must_change_password) {
+      setTimeout(() => openMiCuentaModal(true), 400);
+    }
   } catch (err) {
     errBox.textContent = err.message;
     errBox.style.display = '';
@@ -1025,10 +1032,14 @@ function openDrawer() { $('#drawer').classList.add('open'); $('#drawerOverlay').
 function closeDrawer() { $('#drawer').classList.remove('open'); $('#drawerOverlay').classList.remove('show'); }
 $('#btnMenu').addEventListener('click', () => {
   if (window.innerWidth <= 860) {
-    openDrawer(); // móvil: abre el drawer de presupuestos (comportamiento original)
+    openDrawer();
   } else {
-    toggleSidebarCollapse(); // desktop: colapsa/expande el sidebar
+    toggleSidebarCollapse();
   }
+});
+// En móvil el topbar muestra solo el nombre del proyecto/cliente — tappable para abrir el drawer
+document.querySelector('.topbar-title').addEventListener('click', () => {
+  if (window.innerWidth <= 860) openDrawer();
 });
 $('#btnCloseDrawer').addEventListener('click', closeDrawer);
 $('#drawerOverlay').addEventListener('click', closeDrawer);
@@ -1037,10 +1048,18 @@ $('#btnVolverClientes').addEventListener('click', async () => {
   state.clienteId = null;
   state.projectId = null;
   try {
-    await refreshClientList();
-  } catch (err) { toast(err.message, 'danger'); }
-  showClientGallery();
-  renderClientGallery();
+    const [, bienvenida] = await Promise.all([
+      refreshClientList(),
+      api('/bienvenida').catch(() => []),
+    ]);
+    showClientGallery();
+    renderClientGallery();
+    renderBienvenidaSummary(bienvenida);
+  } catch (err) {
+    toast(err.message, 'danger');
+    showClientGallery();
+    renderClientGallery();
+  }
 });
 
 async function refreshProjectList() {
@@ -1145,6 +1164,9 @@ function selectProject(id, targetView) {
   renderSidebar();
   renderMobileNav();
   replaceTabHistory();
+  if (typeof state.clienteId === 'number') {
+    api(`/ultima-visita/${state.clienteId}`, { method: 'PUT', body: { proyecto_id: id } }).catch(() => {});
+  }
   return renderView();
 }
 
@@ -1184,7 +1206,54 @@ function renderClientGallery() {
   $('#btnCargarContratoGallery').style.display = isAdmin() ? '' : 'none';
 }
 
-function selectCliente(id) {
+function renderBienvenidaSummary(proyectos) {
+  const el = $('#bienvenidaSummary');
+  if (!el) return;
+  if (!proyectos || !proyectos.length) { el.innerHTML = ''; return; }
+
+  const byCliente = new Map();
+  for (const p of proyectos) {
+    const cid = p.cliente_id != null ? p.cliente_id : 'sin-cliente';
+    const cname = p.cliente_nombre || 'Sin cliente';
+    if (!byCliente.has(cid)) byCliente.set(cid, { nombre: cname, proyectos: [] });
+    byCliente.get(cid).proyectos.push(p);
+  }
+
+  let html = `<div class="bienvenida-summary-title">Resumen de presupuestos</div>`;
+  for (const [cid, grupo] of byCliente) {
+    html += `<div class="bienvenida-cliente-group">
+      <div class="bienvenida-cliente-header">${esc(grupo.nombre)}</div>
+      <div class="bienvenida-client-grid">`;
+    for (const p of grupo.proyectos) {
+      const pct = Math.min(100, Math.max(0, Number(p.avance_financiero_ejecutado) || 0));
+      const totalFmt = p.presupuesto_total ? fmtMoney(p.presupuesto_total) : '—';
+      html += `
+        <div class="welcome-project-card bienvenida-proj-card" data-pid="${p.id}" data-cid="${p.cliente_id != null ? p.cliente_id : ''}">
+          <div class="wpc-nombre">${esc(p.nombre)}</div>
+          <div class="wpc-progress-bar"><div class="wpc-progress-fill" style="width:${pct}%"></div></div>
+          <div class="wpc-stats">
+            <span class="wpc-pct">${pct.toFixed(1)}%</span>
+            <span class="wpc-total">${totalFmt}</span>
+          </div>
+        </div>`;
+    }
+    html += `</div></div>`;
+  }
+
+  el.innerHTML = `<div class="bienvenida-summary">${html}</div>`;
+
+  $$('.bienvenida-proj-card', el).forEach((card) => {
+    card.addEventListener('click', () => {
+      const pid = Number(card.dataset.pid);
+      const cid = card.dataset.cid ? Number(card.dataset.cid) : null;
+      state.clienteId = cid;
+      showApp();
+      selectProject(pid);
+    });
+  });
+}
+
+async function selectCliente(id) {
   state.clienteId = id;
   state.projectId = null;
   showApp();
@@ -1196,7 +1265,17 @@ function selectCliente(id) {
   }
   renderView();
   renderProjectList();
-  openDrawer();
+  // Navegar al último proyecto visitado si existe
+  if (typeof id === 'number') {
+    try {
+      const data = await api(`/ultima-visita/${id}`);
+      if (data && data.proyecto_id) {
+        const exists = state.projects.find((p) => p.id === data.proyecto_id && p.cliente_id === id);
+        if (exists) { selectProject(data.proyecto_id); return; }
+      }
+    } catch (_) { /* no bloquea la navegación */ }
+  }
+  // Sin historial: el usuario ve el estado vacío y puede abrir el drawer manualmente
 }
 
 $('#btnGalleryLogout').addEventListener('click', logout);
@@ -1487,7 +1566,7 @@ function seccionesGridHtml() {
         if (!tieneAcceso) return '';
         return `
         <div class="section-card ${esFutura ? 'disabled' : ''}" data-section="${id}">
-          <span class="section-icon">${icon(def.icon, 26)}</span>
+          <span class="section-icon" style="font-size:1.6em">${def.emoji}</span>
           <span class="section-nombre">${esc(def.label)}</span>
           ${esFutura ? '<span class="section-soon-badge">Próximamente</span>' : ''}
         </div>`;
@@ -4082,6 +4161,88 @@ function openPostUploadModal(result) {
 }
 
 // =========================================================================
+// MI CUENTA — autogestión: cambio de nombre, usuario y contraseña
+// =========================================================================
+async function openMiCuentaModal(mustChange) {
+  openModal(`
+    <h3>Mi cuenta</h3>
+    ${mustChange ? `<div class="alert-box warning" style="margin-bottom:12px">⚠️ Debes cambiar tu contraseña antes de continuar.</div>` : ''}
+    <div class="field"><label>Nombre completo</label><input id="mcNombre" value="${esc(state.user?.nombre || '')}" /></div>
+    <div class="field"><label>Usuario (login)</label><input id="mcUsuario" value="${esc(state.user?.usuario || '')}" autocomplete="username" /></div>
+    <hr style="margin:14px 0;opacity:.2">
+    <p class="muted" style="font-size:0.8rem;margin:0 0 10px">Deja los campos de contraseña vacíos si no quieres cambiarla.</p>
+    <div class="field"><label>Contraseña actual</label><input id="mcPwActual" type="password" autocomplete="current-password" /></div>
+    <div class="field"><label>Contraseña nueva</label><input id="mcPwNueva" type="password" autocomplete="new-password" placeholder="Mínimo 6 caracteres" /></div>
+    <div class="field"><label>Confirmar contraseña nueva</label><input id="mcPwConfirm" type="password" autocomplete="new-password" /></div>
+    <div class="modal-actions" style="flex-direction:column;gap:8px">
+      <div style="display:flex;gap:8px;justify-content:flex-end">
+        ${mustChange ? '' : '<button class="btn" id="btnCerrarTodasSesiones" style="margin-right:auto;color:var(--text-muted);font-size:0.8rem">Cerrar sesión en todos los dispositivos</button>'}
+        <button class="btn" id="btnCancelMiCuenta">Cancelar</button>
+        <button class="btn btn-primary" id="btnSaveMiCuenta">Guardar</button>
+      </div>
+    </div>
+  `);
+
+  if (!mustChange) {
+    $('#btnCerrarTodasSesiones')?.addEventListener('click', async () => {
+      if (!confirm('¿Cerrar sesión en todos los dispositivos? Tendrás que volver a iniciar sesión.')) return;
+      try {
+        await api('/auth/cerrar-todas-sesiones', { method: 'POST' });
+        closeModal();
+        logout();
+      } catch (err) { toast(err.message, 'danger'); }
+    });
+  }
+
+  if (!mustChange) $('#btnCancelMiCuenta').addEventListener('click', closeModal);
+  else $('#btnCancelMiCuenta').addEventListener('click', closeModal); // en mustChange igual cierra (puede saltar por ahora)
+
+  $('#btnSaveMiCuenta').addEventListener('click', async () => {
+    const nombre = $('#mcNombre').value.trim();
+    const usuario = $('#mcUsuario').value.trim();
+    const pwActual = $('#mcPwActual').value;
+    const pwNueva = $('#mcPwNueva').value;
+    const pwConfirm = $('#mcPwConfirm').value;
+
+    if (!nombre) { toast('El nombre no puede estar vacío', 'danger'); return; }
+    if (!usuario) { toast('El usuario no puede estar vacío', 'danger'); return; }
+    if (pwNueva && pwNueva !== pwConfirm) { toast('Las contraseñas nuevas no coinciden', 'danger'); return; }
+
+    const body = {};
+    if (nombre !== state.user?.nombre) body.nombre = nombre;
+    if (usuario !== state.user?.usuario) body.usuario = usuario;
+    if (pwNueva) { body.passwordActual = pwActual; body.passwordNueva = pwNueva; }
+
+    if (!Object.keys(body).length) { closeModal(); return; }
+
+    const btn = $('#btnSaveMiCuenta');
+    btn.disabled = true;
+    try {
+      const data = await api('/auth/mi-cuenta', { method: 'PUT', body });
+      if (data.token) {
+        state.token = data.token;
+        localStorage.setItem(TOKEN_KEY, data.token);
+      }
+      state.user = { ...state.user, nombre: data.user.nombre, usuario: data.user.usuario };
+      updateProfileUI();
+      toast('Cuenta actualizada', 'success');
+      closeModal();
+    } catch (err) {
+      toast(err.message, 'danger');
+      btn.disabled = false;
+    }
+  });
+}
+
+function updateProfileUI() {
+  if (!state.user) return;
+  const initials = state.user.nombre.split(' ').map((w) => w[0]).filter(Boolean).slice(0, 2).join('').toUpperCase();
+  const av = $('#sidebarAvatar'); if (av) av.textContent = initials;
+  const nm = $('#sidebarProfileName'); if (nm) nm.textContent = state.user.nombre;
+  const pn = $('#popoverName'); if (pn) pn.textContent = state.user.nombre;
+}
+
+// =========================================================================
 // VISTA: Usuarios (solo Administrador) — alta, edición y baja de cuentas
 // =========================================================================
 async function renderUsuarios(view) {
@@ -4119,10 +4280,12 @@ function paintUsuariosList(usuarios) {
         <div class="row" style="gap:6px;flex-wrap:nowrap">
           <span class="badge ${u.puesto === 'admin' ? 'green' : u.puesto === 'logistica' ? 'yellow' : 'muted'}">${esc(PUESTO_LABELS[u.puesto] || u.puesto)}</span>
           ${!u.activo ? '<span class="badge red">Inactivo</span>' : ''}
+          ${u.must_change_password ? '<span class="badge yellow" title="Debe cambiar contraseña en el próximo login">🔑 Cambio pendiente</span>' : ''}
         </div>
       </div>
       <div class="row end" style="margin-top:8px;gap:8px">
         <button class="btn small" data-edit-user="${u.id}">Editar</button>
+        <button class="btn small" data-reset-user="${u.id}" title="Generar nueva contraseña temporal">Restablecer contraseña</button>
         ${u.id !== state.user.id ? `<button class="btn small btn-danger" data-del-user="${u.id}">Eliminar</button>` : ''}
       </div>
     </div>
@@ -4132,6 +4295,12 @@ function paintUsuariosList(usuarios) {
     btn.addEventListener('click', () => {
       const u = usuarios.find((x) => x.id === Number(btn.dataset.editUser));
       if (u) openUsuarioModal(u);
+    });
+  });
+  $$('[data-reset-user]', list).forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const u = usuarios.find((x) => x.id === Number(btn.dataset.resetUser));
+      if (u) openResetPasswordModal(u);
     });
   });
   $$('[data-del-user]', list).forEach((btn) => {
@@ -4225,6 +4394,48 @@ async function openUsuarioModal(usuario) {
         const projectIds = $$('#uProyectosList input[type="checkbox"]:checked').map((cb) => Number(cb.value));
         await api(`/usuarios/${targetId}/proyectos`, { method: 'PUT', body: { project_ids: projectIds } });
       }
+      closeModal();
+      renderView();
+    } catch (err) {
+      toast(err.message, 'danger');
+      btn.disabled = false;
+    }
+  });
+}
+
+// Restablece la contraseña de un usuario (solo admin). La nueva contraseña
+// la decide el admin y se entrega manualmente al trabajador. El backend marca
+// must_change_password = true e invalida sesiones anteriores del usuario.
+function openResetPasswordModal(usuario) {
+  openModal(`
+    <h3>Restablecer contraseña</h3>
+    <p class="muted">Asigna una contraseña temporal a <strong>${esc(usuario.nombre)}</strong>. El usuario deberá cambiarla en su próximo acceso.</p>
+    <div class="alert-box warning" style="margin:10px 0 14px">El admin nunca puede ver la contraseña actual del usuario — solo generar una nueva.</div>
+    <div class="field">
+      <label>Nueva contraseña temporal *</label>
+      <input id="rpPassword" type="password" autocomplete="new-password" placeholder="Mínimo 6 caracteres" />
+    </div>
+    <div class="field">
+      <label>Confirmar contraseña *</label>
+      <input id="rpConfirm" type="password" autocomplete="new-password" />
+    </div>
+    <div class="modal-actions">
+      <button class="btn" id="btnCancelReset">Cancelar</button>
+      <button class="btn btn-primary" id="btnConfirmReset">Restablecer</button>
+    </div>
+  `);
+  $('#btnCancelReset').addEventListener('click', closeModal);
+  $('#btnConfirmReset').addEventListener('click', async () => {
+    const password = $('#rpPassword').value;
+    const confirm = $('#rpConfirm').value;
+    if (!password) { toast('Escribe una contraseña', 'danger'); return; }
+    if (password.length < 6) { toast('Mínimo 6 caracteres', 'danger'); return; }
+    if (password !== confirm) { toast('Las contraseñas no coinciden', 'danger'); return; }
+    const btn = $('#btnConfirmReset');
+    btn.disabled = true;
+    try {
+      await api(`/usuarios/${usuario.id}`, { method: 'PUT', body: { password } });
+      toast(`Contraseña restablecida para ${usuario.nombre}`, 'success');
       closeModal();
       renderView();
     } catch (err) {
@@ -4638,12 +4849,11 @@ $$('[data-theme-set]').forEach((btn) => {
   btn.addEventListener('click', () => setTheme(btn.dataset.themeSet));
 });
 $('#btnLogoutPopover').addEventListener('click', () => { closeUserPopover(); logout(); });
+$('#btnMiCuentaPopover').addEventListener('click', () => { closeUserPopover(); openMiCuentaModal(false); });
 
 // Barra inferior móvil
 (function () {
   const ri = $('#mobileNavResumenIcon'); if (ri) ri.innerHTML = icon('resumen', 20);
-  const ci = $('#mobileNavComprasIcon'); if (ci) ci.innerHTML = icon('compras', 20);
-  const qi = $('#mobileQuickIcon');      if (qi) qi.innerHTML = icon('x', 20); // reemplazado al abrir
   const ni = $('#mobileNavNotifIcon');   if (ni) ni.innerHTML = icon('bell', 20);
   const pi = $('#mobileNavProfileIcon'); if (pi) pi.innerHTML = icon('usuarios', 20);
 })();
@@ -4651,9 +4861,6 @@ $('#btnLogoutPopover').addEventListener('click', () => { closeUserPopover(); log
 $('#mobileNavResumen').addEventListener('click', () => {
   if (state.allowedTabs.includes('resumen') && state.projectId) switchToView('resumen');
   else if (state.projectId) switchToView('inicio');
-});
-$('#mobileNavCompras').addEventListener('click', () => {
-  if (state.projectId) goToSection('compras');
 });
 $('#btnMobileQuick').addEventListener('click', openQuickActionMenu);
 $('#btnMobileNotif').addEventListener('click', (e) => {

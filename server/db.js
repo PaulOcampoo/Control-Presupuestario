@@ -367,6 +367,54 @@ const SCHEMA = `
     actualizado_en TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE(project_id, destajista_id, semana)
   );
+
+  -- Seguridad: columnas para gestión de contraseñas y revocación de sesión.
+  -- DEFAULT '2020-01-01' en token_valid_since para no invalidar sesiones
+  -- existentes al desplegar esta migración.
+  ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN NOT NULL DEFAULT false;
+  ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS token_valid_since TIMESTAMPTZ NOT NULL DEFAULT '2020-01-01 00:00:00+00';
+
+  -- Intentos de login para rate limiting por usuario (serverless-safe:
+  -- persiste entre instancias). Índice compuesto para la consulta de ventana
+  -- temporal (identificador + creado_en).
+  CREATE TABLE IF NOT EXISTS login_attempts (
+    id SERIAL PRIMARY KEY,
+    identificador TEXT NOT NULL,
+    ip TEXT,
+    exitoso BOOLEAN NOT NULL DEFAULT false,
+    creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
+  CREATE INDEX IF NOT EXISTS idx_login_attempts_ident ON login_attempts(identificador, creado_en);
+  CREATE INDEX IF NOT EXISTS idx_login_attempts_ip ON login_attempts(ip, creado_en);
+
+  -- Auditoría de acciones administrativas sensibles (creación de usuario,
+  -- reset de contraseña). No reemplaza login_attempts; registra quién hizo
+  -- qué sobre qué usuario y desde qué IP. actor_id puede ser NULL si el
+  -- actor ya no existe al consultar historial.
+  CREATE TABLE IF NOT EXISTS audit_log (
+    id SERIAL PRIMARY KEY,
+    actor_id INTEGER,
+    actor_usuario TEXT NOT NULL,
+    accion TEXT NOT NULL,
+    target_id INTEGER,
+    target_usuario TEXT,
+    ip TEXT,
+    creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
+  CREATE INDEX IF NOT EXISTS idx_audit_log_creado ON audit_log(creado_en DESC);
+
+  -- Última visita por usuario+cliente para navegación inteligente: cuando el
+  -- usuario selecciona un cliente, la app navega automáticamente al último
+  -- proyecto visitado. UNIQUE(usuario_id, cliente_id) permite upsert eficiente.
+  CREATE TABLE IF NOT EXISTS ultima_visita (
+    id SERIAL PRIMARY KEY,
+    usuario_id INTEGER NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+    cliente_id INTEGER NOT NULL REFERENCES clientes(id) ON DELETE CASCADE,
+    proyecto_id INTEGER NOT NULL REFERENCES proyectos(id) ON DELETE CASCADE,
+    actualizado_en TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(usuario_id, cliente_id)
+  );
+  CREATE INDEX IF NOT EXISTS idx_ultima_visita_usuario_cliente ON ultima_visita(usuario_id, cliente_id);
 `;
 
 async function initSchema() {

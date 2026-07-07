@@ -289,6 +289,27 @@ function toast(msg, kind = '') {
   toast._t = setTimeout(() => { el.className = 'toast'; }, 2500);
 }
 
+let _proxTid = null;
+function showProximamenteTooltip(label) {
+  clearTimeout(_proxTid);
+  document.getElementById('proximamenteTooltip')?.remove();
+
+  const el = document.createElement('div');
+  el.id = 'proximamenteTooltip';
+  el.textContent = `${label} estará disponible próximamente`;
+  document.body.appendChild(el);
+
+  _proxTid = setTimeout(() => {
+    el.classList.add('tooltip-exit');
+    const onEnd = () => {
+      el.removeEventListener('transitionend', onEnd);
+      el.remove();
+    };
+    el.addEventListener('transitionend', onEnd);
+    setTimeout(() => { if (el.parentNode) el.remove(); }, 300);
+  }, 2500);
+}
+
 // ---------------------------------------------------------------------------
 // Autenticación: pantalla de login que filtra el acceso por puesto. El token
 // se guarda en localStorage; cada puesto ve solo sus pestañas permitidas.
@@ -501,7 +522,7 @@ function switchToView(viewId) {
 function goToSection(sectionId) {
   const def = SECTION_DEFS[sectionId];
   if (!def) return;
-  if (def.tabs.length === 0) { toast(`${def.label} estará disponible próximamente`, ''); return; }
+  if (def.tabs.length === 0) { showProximamenteTooltip(def.label); return; }
   const firstTab = def.tabs.find((t) => state.allowedTabs.includes(t));
   if (!firstTab) { toast('No tienes módulos disponibles en esta sección', ''); return; }
   switchToView(firstTab);
@@ -531,7 +552,7 @@ function renderTabsBar() {
   }
   nav.innerHTML = html;
   $$('.tab[data-goto]', nav).forEach((btn) => btn.addEventListener('click', () => switchToView(btn.dataset.goto)));
-  $$('.tab[data-soon]', nav).forEach((btn) => btn.addEventListener('click', () => toast(`${btn.dataset.soon} estará disponible próximamente`, '')));
+  $$('.tab[data-soon]', nav).forEach((btn) => btn.addEventListener('click', () => showProximamenteTooltip(btn.dataset.soon)));
 }
 
 // ---------------------------------------------------------------------------

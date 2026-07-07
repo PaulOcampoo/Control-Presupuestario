@@ -921,13 +921,19 @@ body.modal-open { overflow: hidden; }
 
 /* ── Móvil: sidebar overlay, bottom nav visible ───────────────────────── */
 @media (max-width: 860px) {
-  /* Convertir .main-area en el scroll container real, acotado al espacio
-     sobre la bottom nav. Así la scrollbar termina en el borde de la nav y
-     nunca se superpone con ella. Body/html se dejan sin scroll propio. */
+  /* .main-area como scroll container, acotado encima de la bottom nav.
+     Usamos height:100% + padding-bottom en #app en vez de 100dvh en
+     .main-area, para evitar diferencias de dvh vs alto real de pantalla
+     según dispositivo (PWA vs browser, Android vs iOS). */
   html, body { overflow: hidden; }
-  #app { height: 100dvh; min-height: unset; }
+  #app {
+    height: 100%;          /* cadena html → body → viewport, sin dvh */
+    min-height: unset;
+    padding-bottom: calc(var(--mobile-nav-h) + var(--safe-bottom));
+  }
   .main-area {
-    height: calc(100dvh - var(--mobile-nav-h) - var(--safe-bottom));
+    flex: 1;
+    min-height: 0;         /* permite que el flex-item no exceda su contenedor */
     overflow-y: auto;
     overflow-x: clip;
   }

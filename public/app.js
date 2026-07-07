@@ -5,7 +5,10 @@
  * ========================================================================= */
 
 const TOKEN_KEY = 'cp_token';
-const PUESTO_LABELS = { admin: 'Administrador', residente: 'Residente', cabo: 'Cabo' };
+const PUESTO_LABELS = {
+  admin: 'Administrador', residente: 'Residente', cabo: 'Cabo',
+  compras: 'Compras', tesoreria: 'Tesorería', administracion: 'Administración', logistica: 'Logística',
+};
 
 const state = {
   projects: [],
@@ -280,7 +283,16 @@ function showClientGallery() {
 }
 
 function isAdmin() { return !!state.user && state.user.puesto === 'admin'; }
-function canManageDestajo() { return !!state.user && (state.user.puesto === 'admin' || state.user.puesto === 'residente'); }
+function canManageDestajo() { return !!state.user && ['admin', 'residente'].includes(state.user.puesto); }
+function puedeGenerarOC() { return !!state.user && ['admin', 'compras'].includes(state.user.puesto); }
+function puedeAutorizarRequisicion() { return !!state.user && ['admin', 'logistica'].includes(state.user.puesto); }
+function puedeVerPrecios() { return !!state.user && state.user.puesto !== 'cabo'; }
+function puedeCrearRequisicion() { return !!state.user && ['admin', 'residente', 'cabo', 'compras'].includes(state.user.puesto); }
+function puedeVerImportesRequisicion() { return !!state.user && !['residente', 'cabo'].includes(state.user.puesto); }
+function puedeRegistrarPago() { return !!state.user && ['admin', 'tesoreria'].includes(state.user.puesto); }
+function puedeVerImportesAvance() { return !!state.user && state.user.puesto !== 'cabo'; }
+function puedeEditarAvance() { return !!state.user && ['admin', 'residente', 'cabo'].includes(state.user.puesto); }
+function puedeGestionarUsuarios() { return !!state.user && ['admin', 'administracion'].includes(state.user.puesto); }
 
 function applySession(user, tabs) {
   state.user = user;
@@ -1655,7 +1667,7 @@ function paintInsumos(insumos) {
       </div>
       <div class="row between">
         <span class="muted">Presupuestado</span>
-        <span>${fmtNum(i.cantidad_presupuesto, 3)} ${esc(i.unidad || '')} &nbsp;·&nbsp; ${fmtMoney(i.precio_presupuesto)}/u</span>
+        <span>${fmtNum(i.cantidad_presupuesto, 3)} ${esc(i.unidad || '')}${puedeVerPrecios() && i.precio_presupuesto != null ? ` &nbsp;·&nbsp; ${fmtMoney(i.precio_presupuesto)}/u` : ''}</span>
       </div>
       <div class="row between">
         <span class="muted">Requisitado a la fecha</span>
@@ -1670,9 +1682,7 @@ function paintInsumos(insumos) {
           <span class="muted" style="font-size:0.78rem">%</span>
         </span>
       </div>` : ''}
-      <div class="row end">
-        <button class="btn small btn-primary" data-add="${i.id}">+ Agregar a requisición</button>
-      </div>
+      ${puedeCrearRequisicion() ? `<div class="row end"><button class="btn small btn-primary" data-add="${i.id}">+ Agregar a requisición</button></div>` : ''}
     </div>`;
   }).join('');
 
@@ -1728,7 +1738,7 @@ function ivaBreakdown(items, incluyeIva) {
 let mapeoSelectedConceptoId = null;
 
 async function renderMapeo(view) {
-  if (!isAdmin()) {
+  if (!puedeGestionarUsuarios()) {
     view.innerHTML = `<div class="alert-box danger">⚠️ No tienes permiso para ver esta sección.</div>`;
     return;
   }
@@ -2023,8 +2033,9 @@ async function openRequisicionDetail(reqId) {
   try {
     const r = await api(`/projects/${state.projectId}/requisiciones/${reqId}`);
     const estadosAdmin = ['borrador', 'enviada', 'autorizada', 'rechazada', 'cancelada'];
+    const estadosLogistica = ['borrador', 'enviada', 'autorizada', 'cancelada'];
     const estadosNoAdmin = ['borrador', 'enviada', 'cancelada'];
-    const estados = isAdmin() ? estadosAdmin : estadosNoAdmin;
+    const estados = isAdmin() ? estadosAdmin : (puedeAutorizarRequisicion() ? estadosLogistica : estadosNoAdmin);
     const estadoBadgeMap = { borrador: 'muted', enviada: 'yellow', autorizada: 'green', rechazada: 'red', cancelada: 'red' };
     openModal(`
       <h3>${esc(r.folio || `Requisición #${r.id}`)}</h3>
@@ -2033,15 +2044,15 @@ async function openRequisicionDetail(reqId) {
       <div id="reqItemsDetail"></div>
       <div class="card" style="margin-top:14px">
         <h4 style="margin:0 0 4px;font-size:0.9rem">Estado de la requisición</h4>
-        <p class="muted" style="font-size:0.78rem;margin:0 0 10px">${isAdmin() ? 'Cambia el estado para avanzar el flujo de compra: envíala, autorízala (necesario para poder generar una Orden de Compra), recházala o cancélala.' : 'Envía la requisición para que un Administrador la autorice. Solo un Administrador puede autorizar, rechazar o generar la Orden de Compra.'}</p>
-        ${r.estado === 'enviada' && !isAdmin() ? `<span class="badge yellow">Pendiente de autorización</span>` : ''}
+        <p class="muted" style="font-size:0.78rem;margin:0 0 10px">${puedeAutorizarRequisicion() ? 'Cambia el estado para avanzar el flujo de compra: envíala, autorízala (necesario para generar una Orden de Compra) o cancélala.' : 'Envía la requisición para que sea autorizada. Solo Logística o el Administrador pueden autorizar.'}</p>
+        ${r.estado === 'enviada' && !puedeAutorizarRequisicion() ? `<span class="badge yellow">Pendiente de autorización</span>` : ''}
         ${r.estado === 'rechazada' ? `<span class="badge red">Rechazada por el Administrador</span>` : ''}
         <select id="estadoSelect">${estados.map((e) => `<option value="${e}" ${e === r.estado ? 'selected' : ''}>${e}</option>`).join('')}</select>
       </div>
       <div class="modal-actions">
         ${r.estado === 'borrador' ? '<button class="btn btn-danger" id="btnDeleteReq">Eliminar</button>' : ''}
         ${r.estado === 'borrador' ? '<button class="btn" id="btnEditReq">Editar</button>' : ''}
-        ${r.estado === 'autorizada' ? '<button class="btn btn-primary" id="btnGenerarOC">Generar Orden de Compra</button>' : ''}
+        ${r.estado === 'autorizada' && puedeGenerarOC() ? '<button class="btn btn-primary" id="btnGenerarOC">Generar Orden de Compra</button>' : ''}
         <button class="btn" id="btnCloseDetail">Cerrar</button>
       </div>
     `);
@@ -2049,11 +2060,11 @@ async function openRequisicionDetail(reqId) {
       <div class="req-item-row">
         <div class="row between">
           <div style="font-weight:600;font-size:0.88rem">${esc(it.insumo_concepto)}</div>
-          <span>${fmtMoney(it.importe)}</span>
+          ${puedeVerImportesRequisicion() && it.importe != null ? `<span>${fmtMoney(it.importe)}</span>` : ''}
         </div>
         <div class="muted code">${esc(it.insumo_codigo)} · ${esc(it.unidad || '')}</div>
-        <div class="row between"><span class="muted">Solicitado</span><span>${fmtNum(it.cantidad_solicitada, 3)} ${esc(it.unidad || '')} a ${fmtMoney(it.precio_solicitado)}</span></div>
-        <div class="row between"><span class="muted">Presupuestado</span><span>${fmtNum(it.cantidad_presupuesto, 3)} ${esc(it.unidad || '')} a ${fmtMoney(it.precio_presupuesto)}</span></div>
+        <div class="row between"><span class="muted">Solicitado</span><span>${fmtNum(it.cantidad_solicitada, 3)} ${esc(it.unidad || '')}${puedeVerImportesRequisicion() && it.precio_solicitado != null ? ` a ${fmtMoney(it.precio_solicitado)}` : ''}</span></div>
+        <div class="row between"><span class="muted">Presupuestado</span><span>${fmtNum(it.cantidad_presupuesto, 3)} ${esc(it.unidad || '')}${puedeVerImportesRequisicion() && it.precio_presupuesto != null ? ` a ${fmtMoney(it.precio_presupuesto)}` : ''}</span></div>
         ${it.alerta_cantidad ? `<div class="alert-box danger">⚠️ Cantidad acumulada sobrepasa lo presupuestado</div>` : ''}
         ${it.alerta_precio ? `<div class="alert-box warn">⚠️ Precio solicitado sobrepasa el precio presupuestado</div>` : ''}
         ${it.observaciones ? `<div class="muted">${esc(it.observaciones)}</div>` : ''}
@@ -2423,9 +2434,10 @@ async function openOrdenDetalle(ocId) {
   try {
     const o = await api(`/projects/${state.projectId}/ordenes/${ocId}`);
     const estadosAdmin = ['borrador', 'enviada', 'confirmada', 'rechazada', 'cancelada'];
-    const estadosNoAdmin = ['borrador', 'enviada', 'cancelada'];
+    const estadosCompras = ['borrador', 'enviada', 'cancelada'];
     const todosEstados = ['borrador', 'enviada', 'confirmada', 'rechazada', 'cancelada'];
-    const estados = isAdmin() ? estadosAdmin : estadosNoAdmin;
+    const puedeConfirmarOC = isAdmin() || state.user?.puesto === 'tesoreria';
+    const estados = puedeConfirmarOC ? estadosAdmin : estadosCompras;
     const esEstadoRecepcion = !todosEstados.includes(o.estado);
     const puedeRecibir = ['confirmada', 'recibida_parcial'].includes(o.estado);
     openModal(`
@@ -2440,7 +2452,7 @@ async function openOrdenDetalle(ocId) {
         ${esEstadoRecepcion
           ? `<p class="muted">${esc(o.estado)} — este estado lo controla la recepción de mercancía, no se puede cambiar aquí.</p>`
           : `${o.estado === 'enviada' && !isAdmin() ? '<span class="badge yellow">Pendiente de autorización</span>' : ''}
-             ${!isAdmin() ? '<p class="muted" style="font-size:0.78rem">Solo un Administrador puede confirmar o rechazar la orden.</p>' : ''}
+             ${!puedeConfirmarOC ? '<p class="muted" style="font-size:0.78rem">Solo un Administrador o Tesorería puede confirmar o rechazar la orden.</p>' : ''}
              <select id="ocEstadoSelect">${estados.map((e) => `<option value="${e}" ${e === o.estado ? 'selected' : ''}>${e}</option>`).join('')}</select>`}
       </div>
       <div id="ocItemsDetail"></div>
@@ -2457,7 +2469,7 @@ async function openOrdenDetalle(ocId) {
 
       <h3 class="section-title">Pagos</h3>
       <div id="ocPagosList"><div class="spinner"></div></div>
-      ${isAdmin() && ['enviada', 'confirmada', 'recibida_parcial', 'recibida_completa'].includes(o.estado) ? '<div class="row end" style="margin-top:8px"><button class="btn small btn-primary" id="btnRegistrarPago">Registrar pago</button></div>' : ''}
+      ${puedeRegistrarPago() && ['enviada', 'confirmada', 'recibida_parcial', 'recibida_completa'].includes(o.estado) ? '<div class="row end" style="margin-top:8px"><button class="btn small btn-primary" id="btnRegistrarPago">Registrar pago</button></div>' : ''}
 
       <div class="modal-actions">
         ${o.estado === 'borrador' ? '<button class="btn btn-danger" id="btnDeleteOC">Eliminar</button>' : ''}
@@ -2791,10 +2803,10 @@ function paintAvanceTable(avances, presupuestoTotal) {
     <tr data-semana="${a.semana}">
       <td>${a.semana}</td>
       <td>${fmtDate(a.fecha_inicio)} – ${fmtDate(a.fecha_fin)}</td>
-      <td class="num">${fmtMoney(importePeriodo)}<br><span class="muted" style="font-size:0.7rem">(${fmtPct(pctPeriodo)} del total)</span></td>
+      ${puedeVerImportesAvance() ? `<td class="num">${fmtMoney(importePeriodo)}<br><span class="muted" style="font-size:0.7rem">(${fmtPct(pctPeriodo)} del total)</span></td>` : '<td class="num">—</td>'}
       <td class="num">${fmtPct(a.avance_financiero_programado)}</td>
-      <td class="num"><input type="number" min="0" max="100" step="0.1" data-field="avance_fisico_real" value="${a.avance_fisico_real ?? ''}" style="width:84px;text-align:right" /></td>
-      <td class="num"><input type="number" min="0" max="100" step="0.1" data-field="avance_financiero_real" value="${a.avance_financiero_real ?? ''}" style="width:84px;text-align:right" /></td>
+      <td class="num"><input type="number" min="0" max="100" step="0.1" data-field="avance_fisico_real" value="${a.avance_fisico_real ?? ''}" style="width:84px;text-align:right" ${!puedeEditarAvance() ? 'disabled' : ''} /></td>
+      <td class="num">${puedeVerImportesAvance() ? `<input type="number" min="0" max="100" step="0.1" data-field="avance_financiero_real" value="${a.avance_financiero_real ?? ''}" style="width:84px;text-align:right" ${!puedeEditarAvance() ? 'disabled' : ''} />` : '—'}</td>
       <td>
         <span class="badge ${autBadge}">${autLabel}</span>
         ${isAdmin() && estadoAut === 'pendiente_autorizacion' ? `
@@ -2804,10 +2816,10 @@ function paintAvanceTable(avances, presupuestoTotal) {
         </div>` : ''}
       </td>
       <td>
-        <div class="row" style="flex-wrap:nowrap;gap:6px">
+        ${puedeEditarAvance() ? `<div class="row" style="flex-wrap:nowrap;gap:6px">
           <button class="btn small" data-detalle="${a.semana}" title="Capturar avance por concepto">Por concepto</button>
           <button class="btn small btn-primary" data-save="${a.semana}">Guardar</button>
-        </div>
+        </div>` : ''}
       </td>
     </tr>
   `;
@@ -3357,7 +3369,7 @@ async function openDestajoSemanaModal(destId, semana, nombre) {
   // permisos que Avance regular) — un 'cabo' solo puede capturar valores
   // nuevos; el backend es la autoridad real, esto es solo UX preventiva.
   const yaCapturado = (it) => it.cantidad_ejecutada_periodo != null && it.cantidad_ejecutada_periodo !== '';
-  const soloLecturaParaMi = (it) => state.user.puesto === 'cabo' && yaCapturado(it);
+  const soloLecturaParaMi = (it) => ['cabo', 'administracion'].includes(state.user.puesto) && yaCapturado(it);
 
   $('#destAvcList').innerHTML = items.map((it) => `
     <div class="req-item-row">
@@ -3711,7 +3723,7 @@ function openPostUploadModal(result) {
 // VISTA: Usuarios (solo Administrador) — alta, edición y baja de cuentas
 // =========================================================================
 async function renderUsuarios(view) {
-  if (!isAdmin()) {
+  if (!puedeGestionarUsuarios()) {
     view.innerHTML = `<div class="alert-box danger">⚠️ No tienes permiso para ver esta sección.</div>`;
     return;
   }
@@ -3743,7 +3755,7 @@ function paintUsuariosList(usuarios) {
           <div class="muted" style="font-size:0.8rem">@${esc(u.usuario)}</div>
         </div>
         <div class="row" style="gap:6px;flex-wrap:nowrap">
-          <span class="badge ${u.puesto === 'admin' ? 'green' : 'muted'}">${esc(PUESTO_LABELS[u.puesto] || u.puesto)}</span>
+          <span class="badge ${u.puesto === 'admin' ? 'green' : u.puesto === 'logistica' ? 'yellow' : 'muted'}">${esc(PUESTO_LABELS[u.puesto] || u.puesto)}</span>
           ${!u.activo ? '<span class="badge red">Inactivo</span>' : ''}
         </div>
       </div>
@@ -3805,7 +3817,7 @@ async function openUsuarioModal(usuario) {
         <input id="uActivo" type="checkbox" style="width:auto" ${usuario.activo ? 'checked' : ''} /> Cuenta activa
       </label>
     </div>` : ''}
-    <div class="field" id="uProyectosField" style="${puestoInicial === 'admin' ? 'display:none' : ''}">
+    <div class="field" id="uProyectosField" style="${puestoInicial === 'admin' ? 'display:none' : ''}" data-admin-hide="true">
       <label>Obras asignadas</label>
       <p class="muted" style="font-size:0.76rem;margin:0 0 6px">Solo verá y podrá operar en las obras marcadas aquí.</p>
       ${allProjects.length ? `
@@ -3870,7 +3882,7 @@ async function renderProveedores(view) {
     <h2 class="section-title">Proveedores</h2>
     <p class="muted">Catálogo compartido entre todas las obras, usado al generar órdenes de compra.</p>
     <div class="section-actions">
-      ${isAdmin() ? '<button class="btn btn-primary" id="btnNuevoProveedor">+ Nuevo proveedor</button>' : ''}
+      ${(isAdmin() || state.user?.puesto === 'compras') ? '<button class="btn btn-primary" id="btnNuevoProveedor">+ Nuevo proveedor</button>' : ''}
       <button class="btn" id="btnExportProveedores">⭳ Exportar a Excel</button>
     </div>
     <div id="proveedoresList"></div>

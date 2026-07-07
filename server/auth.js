@@ -15,9 +15,13 @@ const TOKEN_TTL = '30d';
 // Puestos y qué pestañas puede ver cada uno. 'admin' tiene acceso total
 // (se resuelve aparte en allow(), no necesita listarse en cada pestaña).
 const PERMISSIONS = {
-  admin: { label: 'Administrador', tabs: ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'finanzas', 'mapeo'] },
-  residente: { label: 'Residente', tabs: ['contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'destajo', 'finanzas'] },
-  cabo: { label: 'Cabo', tabs: ['destajo'] },
+  admin:          { label: 'Administrador', tabs: ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'finanzas', 'mapeo'] },
+  residente:      { label: 'Residente',     tabs: ['programa', 'avance', 'destajo', 'requisiciones', 'insumos', 'ordenes'] },
+  cabo:           { label: 'Cabo',          tabs: ['destajo', 'insumos', 'avance', 'requisiciones'] },
+  compras:        { label: 'Compras',       tabs: ['programa', 'requisiciones', 'insumos', 'ordenes', 'proveedores'] },
+  tesoreria:      { label: 'Tesorería',     tabs: ['resumen', 'finanzas', 'ordenes', 'contrato', 'impuestos', 'proveedores'] },
+  administracion: { label: 'Administración',tabs: ['resumen', 'programa', 'destajo', 'ordenes', 'proveedores', 'contrato', 'impuestos', 'usuarios', 'mapeo'] },
+  logistica:      { label: 'Logística',     tabs: ['programa', 'avance', 'requisiciones', 'insumos', 'ordenes'] },
 };
 const PUESTOS = Object.keys(PERMISSIONS);
 

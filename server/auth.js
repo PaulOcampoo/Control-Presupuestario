@@ -46,15 +46,32 @@ function signToken(user) {
 }
 
 // Exige un token válido en Authorization: Bearer <token>; deja al usuario en req.user.
-function requireAuth(req, res, next) {
+// Verifica además que el token no fue revocado (iat > token_valid_since en DB).
+async function requireAuth(req, res, next) {
   const header = req.headers.authorization || '';
   const token = header.startsWith('Bearer ') ? header.slice(7) : null;
   if (!token) return res.status(401).json({ error: 'No autenticado' });
+  let decoded;
   try {
-    req.user = jwt.verify(token, SESSION_SECRET);
+    decoded = jwt.verify(token, SESSION_SECRET);
+  } catch {
+    return res.status(401).json({ error: 'Sesión inválida o expirada, inicia sesión de nuevo' });
+  }
+  try {
+    const { rows } = await db.pool.query(
+      'SELECT token_valid_since FROM usuarios WHERE id = $1 AND activo = true',
+      [decoded.id]
+    );
+    if (!rows[0]) return res.status(401).json({ error: 'Sesión inválida' });
+    const validSinceMs = new Date(rows[0].token_valid_since).getTime();
+    // iat es en segundos; si fue emitido en el mismo instante o antes de la revocación, se rechaza
+    if (decoded.iat * 1000 <= validSinceMs) {
+      return res.status(401).json({ error: 'Sesión revocada, inicia sesión de nuevo' });
+    }
+    req.user = decoded;
     next();
   } catch (err) {
-    return res.status(401).json({ error: 'Sesión inválida o expirada, inicia sesión de nuevo' });
+    next(err);
   }
 }
 

@@ -453,8 +453,11 @@ body.modal-open { overflow: hidden; }
   width: 100%; max-width: 720px; background: var(--bg-surface); border: 1px solid var(--border-color);
   border-radius: 18px; padding: 28px 24px; box-shadow: 0 20px 60px rgba(0,0,0,0.45);
 }
-.gallery-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px; }
+.gallery-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
 .gallery-card h1 { font-size: 1.2rem; margin: 4px 0; }
+.gallery-greeting { margin-bottom: 16px; }
+.gallery-greeting h2 { font-size: 1.3rem; font-weight: 700; color: var(--accent-gold); margin: 0 0 3px; }
+.gallery-greeting .muted { font-size: 0.85rem; margin: 0; }
 .cliente-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; margin-top: 14px; }
 .cliente-card {
   background: var(--bg-surface-2); border: 1px solid var(--border-color); border-radius: var(--radius);
@@ -893,6 +896,9 @@ body.modal-open { overflow: hidden; }
   .topbar .topbar-brand { display: none !important; }
   /* Hace el título tappable para abrir el drawer de presupuestos */
   .topbar-title { cursor: pointer; user-select: none; }
+  /* Ocultar el FAB de escritorio — en móvil las acciones rápidas van en el
+     botón "+" de la barra inferior; sin esto el FAB asoma sobre la nav bar */
+  .fab { display: none !important; }
 }
 
 /* ── Reduced motion ───────────────────────────────────────────────────── */

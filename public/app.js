@@ -73,6 +73,8 @@ const ICON_SVG = {
   building:      '<rect x="4" y="2" width="16" height="20"/><path d="M9 22V12h6v10"/><path d="M2 22h20"/><line x1="9" y1="7" x2="9.01" y2="7"/><line x1="15" y1="7" x2="15.01" y2="7"/>',
   bell:          '<path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/>',
   'log-out':     '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>',
+  home:          '<path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>',
+  settings:      '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>',
 };
 
 function icon(name, size = 18) {
@@ -674,6 +676,8 @@ function renderSidebar() {
 // Mobile nav — actualiza estados activos
 // ---------------------------------------------------------------------------
 function renderMobileNav() {
+  const iniBtn = $('#mobileNavInicio');
+  if (iniBtn) iniBtn.classList.toggle('active', !state.projectId && !$('#app').style.display);
   const resBtn = $('#mobileNavResumen');
   if (resBtn) resBtn.classList.toggle('active', state.view === 'resumen');
 }
@@ -745,12 +749,12 @@ function closeQuickActionMenu() {
 }
 
 // ---------------------------------------------------------------------------
-// Perfil móvil (abre modal con tema + logout)
+// Ajustes móvil (perfil, tema, mi cuenta, cerrar sesión)
 // ---------------------------------------------------------------------------
-function openMobileProfile() {
+function openMobileAjustes() {
   const pref = getTheme();
   openModal(`
-    <h3>Perfil</h3>
+    <h3>Ajustes</h3>
     <div style="margin-bottom:14px;line-height:1.4">
       <strong>${esc(state.user?.nombre || '')}</strong>
       <div class="muted">${esc(PUESTO_LABELS[state.user?.puesto] || '')}</div>
@@ -937,6 +941,7 @@ async function bootApp() {
       api('/bienvenida').catch(() => []),
     ]);
     showClientGallery();
+    renderGalleryGreeting();
     renderClientGallery();
     renderBienvenidaSummary(bienvenida);
   } catch (err) {
@@ -1053,11 +1058,13 @@ $('#btnVolverClientes').addEventListener('click', async () => {
       api('/bienvenida').catch(() => []),
     ]);
     showClientGallery();
+    renderGalleryGreeting();
     renderClientGallery();
     renderBienvenidaSummary(bienvenida);
   } catch (err) {
     toast(err.message, 'danger');
     showClientGallery();
+    renderGalleryGreeting();
     renderClientGallery();
   }
 });
@@ -1206,41 +1213,49 @@ function renderClientGallery() {
   $('#btnCargarContratoGallery').style.display = isAdmin() ? '' : 'none';
 }
 
+function renderGalleryGreeting() {
+  const el = $('#galleryGreeting');
+  if (!el || !state.user) return;
+  const nombre = state.user.nombre || state.user.usuario || '';
+  const now = new Date();
+  const fecha = `${DIAS_ES[now.getDay()]}, ${now.getDate()} de ${MESES_ES[now.getMonth()]} de ${now.getFullYear()}`;
+  el.innerHTML = `<h2>Bienvenido/a, ${esc(nombre)}</h2><p class="muted">${fecha}</p>`;
+}
+
 function renderBienvenidaSummary(proyectos) {
   const el = $('#bienvenidaSummary');
   if (!el) return;
   if (!proyectos || !proyectos.length) { el.innerHTML = ''; return; }
 
-  const byCliente = new Map();
-  for (const p of proyectos) {
-    const cid = p.cliente_id != null ? p.cliente_id : 'sin-cliente';
-    const cname = p.cliente_nombre || 'Sin cliente';
-    if (!byCliente.has(cid)) byCliente.set(cid, { nombre: cname, proyectos: [] });
-    byCliente.get(cid).proyectos.push(p);
-  }
+  // Top-2 por mayor % de avance; desempate por presupuesto mayor
+  const top2 = [...proyectos]
+    .sort((a, b) => {
+      const pa = Number(a.avance_financiero_ejecutado) || 0;
+      const pb = Number(b.avance_financiero_ejecutado) || 0;
+      if (pb !== pa) return pb - pa;
+      return (Number(b.presupuesto_total) || 0) - (Number(a.presupuesto_total) || 0);
+    })
+    .slice(0, 2);
 
-  let html = `<div class="bienvenida-summary-title">Resumen de presupuestos</div>`;
-  for (const [cid, grupo] of byCliente) {
-    html += `<div class="bienvenida-cliente-group">
-      <div class="bienvenida-cliente-header">${esc(grupo.nombre)}</div>
-      <div class="bienvenida-client-grid">`;
-    for (const p of grupo.proyectos) {
-      const pct = Math.min(100, Math.max(0, Number(p.avance_financiero_ejecutado) || 0));
-      const totalFmt = p.presupuesto_total ? fmtMoney(p.presupuesto_total) : '—';
-      html += `
-        <div class="welcome-project-card bienvenida-proj-card" data-pid="${p.id}" data-cid="${p.cliente_id != null ? p.cliente_id : ''}">
-          <div class="wpc-nombre">${esc(p.nombre)}</div>
-          <div class="wpc-progress-bar"><div class="wpc-progress-fill" style="width:${pct}%"></div></div>
-          <div class="wpc-stats">
-            <span class="wpc-pct">${pct.toFixed(1)}%</span>
-            <span class="wpc-total">${totalFmt}</span>
-          </div>
-        </div>`;
-    }
-    html += `</div></div>`;
-  }
+  let cardsHtml = top2.map((p) => {
+    const pct = Math.min(100, Math.max(0, Number(p.avance_financiero_ejecutado) || 0));
+    const totalFmt = p.presupuesto_total ? fmtMoney(p.presupuesto_total) : '—';
+    return `
+      <div class="welcome-project-card bienvenida-proj-card" data-pid="${p.id}" data-cid="${p.cliente_id != null ? p.cliente_id : ''}">
+        ${p.cliente_nombre ? `<div class="wpc-client">${esc(p.cliente_nombre)}</div>` : ''}
+        <div class="wpc-nombre">${esc(p.nombre)}</div>
+        <div class="wpc-progress-bar"><div class="wpc-progress-fill" style="width:${pct}%"></div></div>
+        <div class="wpc-stats">
+          <span class="wpc-pct">${pct.toFixed(1)}% ejecutado</span>
+          <span class="wpc-total">${totalFmt}</span>
+        </div>
+      </div>`;
+  }).join('');
 
-  el.innerHTML = `<div class="bienvenida-summary">${html}</div>`;
+  el.innerHTML = `<div class="bienvenida-summary">
+    <div class="bienvenida-summary-title">Mayor avance</div>
+    <div class="bienvenida-client-grid">${cardsHtml}</div>
+  </div>`;
 
   $$('.bienvenida-proj-card', el).forEach((card) => {
     card.addEventListener('click', () => {
@@ -4853,11 +4868,28 @@ $('#btnMiCuentaPopover').addEventListener('click', () => { closeUserPopover(); o
 
 // Barra inferior móvil
 (function () {
-  const ri = $('#mobileNavResumenIcon'); if (ri) ri.innerHTML = icon('resumen', 20);
-  const ni = $('#mobileNavNotifIcon');   if (ni) ni.innerHTML = icon('bell', 20);
-  const pi = $('#mobileNavProfileIcon'); if (pi) pi.innerHTML = icon('usuarios', 20);
+  const ii = $('#mobileNavInicioIcon');   if (ii) ii.innerHTML = icon('home', 20);
+  const ri = $('#mobileNavResumenIcon');  if (ri) ri.innerHTML = icon('resumen', 20);
+  const ni = $('#mobileNavNotifIcon');    if (ni) ni.innerHTML = icon('bell', 20);
+  const ai = $('#mobileNavAjustesIcon');  if (ai) ai.innerHTML = icon('settings', 20);
 })();
 
+$('#mobileNavInicio').addEventListener('click', async () => {
+  try {
+    const [, bienvenida] = await Promise.all([
+      refreshClientList(),
+      api('/bienvenida').catch(() => []),
+    ]);
+    showClientGallery();
+    renderGalleryGreeting();
+    renderClientGallery();
+    renderBienvenidaSummary(bienvenida);
+  } catch (_) {
+    showClientGallery();
+    renderGalleryGreeting();
+    renderClientGallery();
+  }
+});
 $('#mobileNavResumen').addEventListener('click', () => {
   if (state.allowedTabs.includes('resumen') && state.projectId) switchToView('resumen');
   else if (state.projectId) switchToView('inicio');
@@ -4868,7 +4900,7 @@ $('#btnMobileNotif').addEventListener('click', (e) => {
   $('#notifDropdown').classList.toggle('show');
   if ($('#notifDropdown').classList.contains('show')) renderNotifList();
 });
-$('#btnMobileProfile').addEventListener('click', openMobileProfile);
+$('#mobileNavAjustes').addEventListener('click', openMobileAjustes);
 $('#quickActionBackdrop').addEventListener('click', closeQuickActionMenu);
 
 // ---------------------------------------------------------------------------

@@ -45,6 +45,7 @@
         </div>
         <button id="btnGalleryLogout" class="btn small">Salir</button>
       </div>
+      <div id="galleryGreeting" class="gallery-greeting"></div>
       <h1>Selecciona un cliente</h1>
       <p class="muted">Elige el cliente para ver sus presupuestos.</p>
       <div id="clienteGrid" class="cliente-grid"></div>
@@ -162,6 +163,10 @@
 
     <!-- ── BARRA INFERIOR MÓVIL ────────────────────────────────────────── -->
     <nav id="mobileNav" class="mobile-nav" aria-label="Navegación móvil">
+      <button class="mobile-nav-item" id="mobileNavInicio">
+        <span id="mobileNavInicioIcon"></span>
+        <span>Inicio</span>
+      </button>
       <button class="mobile-nav-item" id="mobileNavResumen">
         <span id="mobileNavResumenIcon"></span>
         <span>Resumen</span>
@@ -176,9 +181,9 @@
         </button>
         <span id="notifBadgeMobile" class="notif-badge" style="display:none">0</span>
       </div>
-      <button class="mobile-nav-item" id="btnMobileProfile">
-        <span id="mobileNavProfileIcon"></span>
-        <span>Perfil</span>
+      <button class="mobile-nav-item" id="mobileNavAjustes">
+        <span id="mobileNavAjustesIcon"></span>
+        <span>Ajustes</span>
       </button>
     </nav>
 

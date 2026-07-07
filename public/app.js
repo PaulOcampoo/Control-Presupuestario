@@ -58,6 +58,10 @@ const ICON_SVG = {
   mapeo:         '<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>',
   usuarios:      '<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
   lock:          '<rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>',
+  'chevron-down':  '<polyline points="6 9 12 15 18 9"/>',
+  'chevron-left':  '<polyline points="15 18 9 12 15 6"/>',
+  'chevron-right': '<polyline points="9 18 15 12 9 6"/>',
+  monitor:         '<rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>',
   warning:       '<path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>',
   check:         '<polyline points="20 6 9 17 4 12"/>',
   x:             '<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>',
@@ -77,19 +81,26 @@ function icon(name, size = 18) {
 }
 
 // ---------------------------------------------------------------------------
-// Tema claro/oscuro — persiste en localStorage; el atributo data-theme en
-// <html> ya se aplica de forma síncrona en un <script> inline en index.html
-// (antes de pintar, para evitar parpadeo). Aquí solo se sincroniza el botón
-// y se conecta el toggle.
+// Tema — 3 modos: 'light' | 'dark' | 'system'. El modo 'system' sigue la
+// preferencia del SO via matchMedia. El atributo data-theme en <html> ya se
+// aplica de forma síncrona en el <script> inline de index.html (antes de
+// pintar, para evitar parpadeo). Aquí se gestiona el runtime completo.
 // ---------------------------------------------------------------------------
 const THEME_KEY = 'cp_theme';
+const _mqDark = window.matchMedia('(prefers-color-scheme: dark)');
 
 function getTheme() {
   return localStorage.getItem(THEME_KEY) || 'light';
 }
 
+function getEffectiveTheme() {
+  const t = getTheme();
+  if (t === 'system') return _mqDark.matches ? 'dark' : 'light';
+  return t;
+}
+
 function chartColors() {
-  const light = getTheme() === 'light';
+  const light = getEffectiveTheme() === 'light';
   return {
     text: light ? '#334155' : '#e2e8f0',
     grid: light ? '#e2e8f0' : '#334155',
@@ -97,19 +108,34 @@ function chartColors() {
   };
 }
 
-function applyTheme(theme) {
-  document.documentElement.setAttribute('data-theme', theme);
+function applyTheme(pref) {
+  const effective = pref === 'system' ? (_mqDark.matches ? 'dark' : 'light') : pref;
+  document.documentElement.setAttribute('data-theme', effective);
   const btn = $('#btnThemeToggle');
-  if (btn) btn.innerHTML = theme === 'light' ? icon('moon', 16) : icon('sun', 16);
+  if (btn) btn.innerHTML = effective === 'light' ? icon('moon', 16) : icon('sun', 16);
   const meta = document.querySelector('meta[name="theme-color"]');
-  if (meta) meta.setAttribute('content', theme === 'light' ? '#EAEEF5' : '#0B1220');
+  if (meta) meta.setAttribute('content', effective === 'light' ? '#EAEEF5' : '#0B1220');
+  // Actualizar botones activos en el popover
+  $$('.theme-opt').forEach((el) => el.classList.toggle('active', el.dataset.themeSet === pref));
+  // Actualizar íconos en el popover
+  const li = $('#themeIconLight'); if (li) li.innerHTML = icon('sun', 14);
+  const di = $('#themeIconDark');  if (di) di.innerHTML = icon('moon', 14);
+  const si = $('#themeIconSystem');if (si) si.innerHTML = icon('monitor', 14);
+}
+
+function setTheme(pref) {
+  localStorage.setItem(THEME_KEY, pref);
+  applyTheme(pref);
 }
 
 function toggleTheme() {
-  const next = getTheme() === 'light' ? 'dark' : 'light';
-  localStorage.setItem(THEME_KEY, next);
-  applyTheme(next);
+  // Toggle de 2 pasos para el botón del topbar (acceso rápido móvil)
+  const next = getEffectiveTheme() === 'light' ? 'dark' : 'light';
+  setTheme(next);
 }
+
+// Actualizar en vivo cuando el SO cambia y el usuario eligió 'system'
+_mqDark.addEventListener('change', () => { if (getTheme() === 'system') applyTheme('system'); });
 
 applyTheme(getTheme());
 $('#btnThemeToggle').addEventListener('click', toggleTheme);
@@ -301,11 +327,11 @@ function applySession(user, tabs) {
   $('#btnUpload').style.display = isAdmin ? '' : 'none';
   $('#btnUploadDrawer').style.display = isAdmin ? '' : 'none';
   renderDrawerAccount();
-  // Un rol con una sola pestaña permitida (ej. Cabo → solo Destajo) no gana
-  // nada viendo la pantalla de secciones antes: va directo a su única vista.
   state.view = tabs.length <= 1 ? (tabs[0] || 'inicio') : 'inicio';
   state.section = VIEW_TO_SECTION[state.view] || null;
   startNotifPolling();
+  renderSidebar();
+  renderMobileNav();
 }
 
 // ---------------------------------------------------------------------------
@@ -342,12 +368,13 @@ async function refreshNotificaciones() {
 }
 
 function renderNotifBadge() {
-  const badge = $('#notifBadge');
-  if (state.notifNoLeidas > 0) {
-    badge.style.display = '';
-    badge.textContent = state.notifNoLeidas > 9 ? '9+' : String(state.notifNoLeidas);
-  } else {
-    badge.style.display = 'none';
+  const count = state.notifNoLeidas;
+  const text = count > 9 ? '9+' : String(count);
+  for (const id of ['#notifBadge', '#notifBadgeMobile']) {
+    const el = $(id);
+    if (!el) continue;
+    el.style.display = count > 0 ? '' : 'none';
+    if (count > 0) el.textContent = text;
   }
 }
 
@@ -388,11 +415,11 @@ const TAB_POR_TIPO_NOTIF = {
 // def.tabs.length === 0 es 100% futura (hoy solo Maquinaria).
 // ---------------------------------------------------------------------------
 const SECTION_DEFS = {
-  obra:          { label: 'Obra',           icon: '🏗️', tabs: ['programa', 'avance', 'destajo', 'requisiciones'], proximamente: ['Estimaciones'] },
-  compras:       { label: 'Compras',        icon: '🛒',  tabs: ['ordenes', 'proveedores', 'insumos'], proximamente: ['Subcontratos'] },
-  administracion:{ label: 'Administración', icon: '🗂️', tabs: ['usuarios', 'mapeo'], proximamente: ['Nóminas', 'Almacenes'] },
-  tesoreria:     { label: 'Tesorería',      icon: '💰',  tabs: ['finanzas'], proximamente: [] },
-  maquinaria:    { label: 'Maquinaria',     icon: '🚜',  tabs: [], proximamente: ['Maquinaria'] },
+  obra:          { label: 'Obra',           icon: 'obra',           tabs: ['programa', 'avance', 'destajo'],                     proximamente: ['Estimaciones'] },
+  compras:       { label: 'Compras',        icon: 'compras',        tabs: ['requisiciones', 'insumos', 'proveedores', 'ordenes'], proximamente: ['Subcontratos'] },
+  tesoreria:     { label: 'Tesorería',      icon: 'tesoreria',      tabs: ['finanzas', 'impuestos'],                             proximamente: [] },
+  administracion:{ label: 'Administración', icon: 'administracion', tabs: ['usuarios', 'mapeo', 'contrato'],                    proximamente: ['Nóminas', 'Almacenes'] },
+  maquinaria:    { label: 'Maquinaria',     icon: 'maquinaria',     tabs: [],                                                    proximamente: ['Maquinaria'] },
 };
 
 const TAB_ICONS = {
@@ -437,6 +464,8 @@ window.addEventListener('popstate', (ev) => {
   state.view = s.view;
   state.section = s.section;
   renderTabsBar();
+  renderSidebar();
+  renderMobileNav();
   renderView();
 });
 
@@ -447,6 +476,8 @@ function switchToView(viewId) {
   state.view = viewId;
   state.section = VIEW_TO_SECTION[viewId] || null;
   renderTabsBar();
+  renderSidebar();
+  renderMobileNav();
   renderView();
   pushTabHistory();
 }
@@ -485,6 +516,255 @@ function renderTabsBar() {
   nav.innerHTML = html;
   $$('.tab[data-goto]', nav).forEach((btn) => btn.addEventListener('click', () => switchToView(btn.dataset.goto)));
   $$('.tab[data-soon]', nav).forEach((btn) => btn.addEventListener('click', () => toast(`${btn.dataset.soon} estará disponible próximamente`, '')));
+}
+
+// ---------------------------------------------------------------------------
+// Sidebar colapsable — funciones de renderizado y control
+// ---------------------------------------------------------------------------
+const SIDEBAR_COLLAPSED_KEY = 'cp_sidebar_collapsed';
+
+function isSidebarCollapsed() { return localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === '1'; }
+
+function applySidebarCollapse() {
+  const collapsed = isSidebarCollapsed();
+  const sb = $('#sidebar'); if (!sb) return;
+  sb.classList.toggle('collapsed', collapsed);
+  const btn = $('#btnSidebarCollapse');
+  if (btn) btn.innerHTML = icon(collapsed ? 'chevron-right' : 'chevron-left', 16);
+}
+
+function toggleSidebarCollapse() {
+  localStorage.setItem(SIDEBAR_COLLAPSED_KEY, isSidebarCollapsed() ? '0' : '1');
+  applySidebarCollapse();
+}
+
+function openSidebar() {
+  $('#sidebar').classList.add('mobile-open');
+  $('#sidebarOverlay').classList.add('show');
+}
+
+function closeSidebar() {
+  $('#sidebar').classList.remove('mobile-open');
+  $('#sidebarOverlay').classList.remove('show');
+}
+
+function renderSidebar() {
+  const nav = $('#sidebarNav');
+  if (!nav) return;
+
+  // Actualizar info de perfil (siempre, incluso si aún no hay proyecto)
+  if (state.user) {
+    const initials = state.user.nombre.split(' ').map((w) => w[0]).filter(Boolean).slice(0, 2).join('').toUpperCase();
+    const av = $('#sidebarAvatar');      if (av) av.textContent = initials;
+    const nm = $('#sidebarProfileName'); if (nm) nm.textContent = state.user.nombre;
+    const rl = $('#sidebarProfileRole'); if (rl) rl.textContent = PUESTO_LABELS[state.user.puesto] || state.user.puesto;
+    const pn = $('#popoverName');        if (pn) pn.textContent = state.user.nombre;
+    const pr = $('#popoverRole');        if (pr) pr.textContent = PUESTO_LABELS[state.user.puesto] || state.user.puesto;
+  }
+  // Ícono del proyecto en sidebar
+  const pi = $('#sidebarProjectIcon'); if (pi) pi.innerHTML = icon('building', 16);
+  const pc = $('#sidebarProjectChevron'); if (pc) pc.innerHTML = icon('chevron-down', 13);
+  const pch = $('#sidebarProfileChevron'); if (pch) pch.innerHTML = icon('chevron-down', 13);
+
+  if (!state.user) { nav.innerHTML = ''; return; }
+
+  let html = '';
+
+  // Resumen — ítem suelto
+  if (state.allowedTabs.includes('resumen')) {
+    const active = state.view === 'resumen' ? 'active' : '';
+    html += `<button class="sbar-item ${active}" data-sbar-goto="resumen" title="Resumen">
+      <span class="sbar-icon">${icon('resumen', 18)}</span>
+      <span class="sbar-label">Resumen</span>
+    </button>`;
+  }
+
+  // Grupos de sección
+  Object.entries(SECTION_DEFS).forEach(([sectionId, def]) => {
+    if (def.tabs.length === 0) {
+      // Sección futura (Maquinaria)
+      html += `<button class="sbar-item sbar-disabled" disabled title="${esc(def.label)} — Próximamente">
+        <span class="sbar-icon">${icon(def.icon, 18)}</span>
+        <span class="sbar-label">${esc(def.label)}</span>
+        <span class="sbar-badge-soon">Pronto</span>
+      </button>`;
+      return;
+    }
+    const visibleTabs = def.tabs.filter((t) => state.allowedTabs.includes(t));
+    if (!visibleTabs.length) return; // sin acceso a ningún tab del grupo
+
+    const isActive = state.section === sectionId;
+    html += `<div class="sbar-group ${isActive ? 'open' : ''}">
+      <button class="sbar-group-header ${isActive ? 'active' : ''}" data-sbar-group="${sectionId}" title="${esc(def.label)}">
+        <span class="sbar-icon">${icon(def.icon, 18)}</span>
+        <span class="sbar-label">${esc(def.label)}</span>
+        <span class="sbar-chevron">${icon('chevron-down', 13)}</span>
+      </button>
+      <div class="sbar-group-body"><div>`;
+    visibleTabs.forEach((t) => {
+      const a = state.view === t ? 'active' : '';
+      html += `<button class="sbar-item sbar-subitem ${a}" data-sbar-goto="${t}" title="${esc(TAB_LABELS[t])}">
+        <span class="sbar-icon">${icon(t, 15)}</span>
+        <span class="sbar-label">${esc(TAB_LABELS[t])}</span>
+      </button>`;
+    });
+    def.proximamente.forEach((nombre) => {
+      html += `<span class="sbar-item sbar-subitem sbar-soon" title="${esc(nombre)} — Próximamente">
+        <span class="sbar-icon">${icon('lock', 13)}</span>
+        <span class="sbar-label">${esc(nombre)}</span>
+      </span>`;
+    });
+    html += '</div></div></div>';
+  });
+
+  nav.innerHTML = html;
+
+  // Toggle de grupo
+  $$('.sbar-group-header', nav).forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const group = btn.closest('.sbar-group');
+      const sectionId = btn.dataset.sbarGroup;
+      const isCollapsed = $('#sidebar').classList.contains('collapsed');
+
+      // En sidebar colapsada: navegar directamente sin expandir
+      if (isCollapsed) {
+        const def = SECTION_DEFS[sectionId];
+        const firstTab = def.tabs.find((t) => state.allowedTabs.includes(t));
+        if (firstTab) switchToView(firstTab);
+        return;
+      }
+
+      const wasClosed = !group.classList.contains('open');
+      // Cerrar todos los grupos
+      $$('.sbar-group', nav).forEach((g) => g.classList.remove('open'));
+      $$('.sbar-group-header', nav).forEach((h) => h.classList.remove('active'));
+      if (wasClosed) {
+        group.classList.add('open');
+        btn.classList.add('active');
+        // Navegar al primer tab si el usuario no está ya en este grupo
+        if (state.section !== sectionId) {
+          const def = SECTION_DEFS[sectionId];
+          const firstTab = def.tabs.find((t) => state.allowedTabs.includes(t));
+          if (firstTab) switchToView(firstTab);
+        }
+      }
+      // Si estaba abierto y se cerró: no navegar, solo colapsar visualmente
+    });
+  });
+
+  // Navegación directa a tabs
+  $$('[data-sbar-goto]', nav).forEach((btn) => {
+    btn.addEventListener('click', () => {
+      switchToView(btn.dataset.sbarGoto);
+      closeSidebar(); // cierra en móvil; no hace nada en desktop
+    });
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Mobile nav — actualiza estados activos
+// ---------------------------------------------------------------------------
+function renderMobileNav() {
+  const resBtn = $('#mobileNavResumen');
+  if (resBtn) resBtn.classList.toggle('active', state.view === 'resumen');
+  const cmpBtn = $('#mobileNavCompras');
+  if (cmpBtn) cmpBtn.classList.toggle('active', state.section === 'compras');
+}
+
+// ---------------------------------------------------------------------------
+// Popover de perfil (desktop)
+// ---------------------------------------------------------------------------
+function openUserPopover() {
+  const pop = $('#userPopover'); if (!pop) return;
+  pop.style.display = '';
+  // Posicionar el popover encima del botón de perfil
+  const btn = $('#btnUserProfile');
+  if (btn) {
+    const r = btn.getBoundingClientRect();
+    pop.style.bottom = (window.innerHeight - r.top + 10) + 'px';
+    pop.style.left = r.left + 'px';
+    // Asegurarse que no quede fuera del viewport
+    const popW = pop.offsetWidth || (parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--sidebar-w')) || 248);
+    if (r.left + popW > window.innerWidth - 8) {
+      pop.style.left = Math.max(8, window.innerWidth - popW - 8) + 'px';
+    }
+  }
+  requestAnimationFrame(() => pop.classList.add('show'));
+  // Marcar tema activo
+  applyTheme(getTheme());
+}
+
+function closeUserPopover() {
+  const pop = $('#userPopover'); if (!pop) return;
+  pop.classList.remove('show');
+  setTimeout(() => { if (!pop.classList.contains('show')) pop.style.display = 'none'; }, 160);
+}
+
+// ---------------------------------------------------------------------------
+// Quick action menu (móvil)
+// ---------------------------------------------------------------------------
+function openQuickActionMenu() {
+  if (!state.projectId) { toast('Selecciona un presupuesto primero', ''); return; }
+  const menu = $('#quickActionMenu'); if (!menu) return;
+  const list = $('#quickActionList'); if (!list) return;
+
+  const actions = [];
+  if (puedeCrearRequisicion() && state.allowedTabs.includes('requisiciones'))
+    actions.push({ label: 'Nueva Requisición',    icon: 'requisiciones', goto: 'requisiciones' });
+  if (puedeEditarAvance() && state.allowedTabs.includes('avance'))
+    actions.push({ label: 'Registrar Avance',     icon: 'avance',        goto: 'avance' });
+  if (puedeGenerarOC() && state.allowedTabs.includes('ordenes'))
+    actions.push({ label: 'Nueva Orden de Compra', icon: 'ordenes',      goto: 'ordenes' });
+
+  list.innerHTML = actions.length
+    ? actions.map((a) => `
+      <button class="quick-action-item" data-goto="${a.goto}">
+        ${icon(a.icon, 20)}<span>${esc(a.label)}</span>
+      </button>`).join('')
+    : '<p class="muted" style="padding:8px 0">No hay acciones disponibles para tu rol.</p>';
+
+  $$('.quick-action-item', list).forEach((btn) => {
+    btn.addEventListener('click', () => { closeQuickActionMenu(); switchToView(btn.dataset.goto); });
+  });
+
+  menu.style.display = '';
+  requestAnimationFrame(() => menu.classList.add('show'));
+}
+
+function closeQuickActionMenu() {
+  const menu = $('#quickActionMenu'); if (!menu) return;
+  menu.classList.remove('show');
+  setTimeout(() => { if (!menu.classList.contains('show')) menu.style.display = 'none'; }, 220);
+}
+
+// ---------------------------------------------------------------------------
+// Perfil móvil (abre modal con tema + logout)
+// ---------------------------------------------------------------------------
+function openMobileProfile() {
+  const pref = getTheme();
+  openModal(`
+    <h3>Perfil</h3>
+    <div style="margin-bottom:14px;line-height:1.4">
+      <strong>${esc(state.user?.nombre || '')}</strong>
+      <div class="muted">${esc(PUESTO_LABELS[state.user?.puesto] || '')}</div>
+    </div>
+    <label style="margin-bottom:6px;display:block">Tema</label>
+    <div class="theme-selector" style="margin-bottom:16px">
+      <button class="theme-opt ${pref==='light'?'active':''}" data-theme-set="light">${icon('sun',14)} Claro</button>
+      <button class="theme-opt ${pref==='dark'?'active':''}" data-theme-set="dark">${icon('moon',14)} Oscuro</button>
+      <button class="theme-opt ${pref==='system'?'active':''}" data-theme-set="system">${icon('monitor',14)} Sistema</button>
+    </div>
+    <button class="btn btn-danger full" id="btnLogoutModal">Cerrar sesión</button>
+    <div class="modal-actions"><button class="btn" id="btnCloseProfile">Cerrar</button></div>
+  `);
+  $$('.theme-opt', $('#modal')).forEach((btn) => {
+    btn.addEventListener('click', () => {
+      setTheme(btn.dataset.themeSet);
+      $$('.theme-opt', $('#modal')).forEach((b) => b.classList.toggle('active', b.dataset.themeSet === btn.dataset.themeSet));
+    });
+  });
+  $('#btnLogoutModal').addEventListener('click', () => { closeModal(); logout(); });
+  $('#btnCloseProfile').addEventListener('click', closeModal);
 }
 
 async function navigateFromNotif(notif) {
@@ -730,7 +1010,13 @@ $('#modalOverlay').addEventListener('click', closeModal);
 // ---------------------------------------------------------------------------
 function openDrawer() { $('#drawer').classList.add('open'); $('#drawerOverlay').classList.add('show'); }
 function closeDrawer() { $('#drawer').classList.remove('open'); $('#drawerOverlay').classList.remove('show'); }
-$('#btnMenu').addEventListener('click', openDrawer);
+$('#btnMenu').addEventListener('click', () => {
+  if (window.innerWidth <= 860) {
+    openDrawer(); // móvil: abre el drawer de presupuestos (comportamiento original)
+  } else {
+    toggleSidebarCollapse(); // desktop: colapsa/expande el sidebar
+  }
+});
 $('#btnCloseDrawer').addEventListener('click', closeDrawer);
 $('#drawerOverlay').addEventListener('click', closeDrawer);
 $('#btnVolverClientes').addEventListener('click', async () => {
@@ -838,18 +1124,13 @@ function selectProject(id, targetView) {
   state.cache[id] = state.cache[id] || {};
   const p = state.projects.find((x) => x.id === id);
   $('#projectName').textContent = p ? p.nombre : '';
-  // Cada vez que se entra a un presupuesto (posiblemente distinto al
-  // anterior) se aterriza en la pantalla de inicio con las secciones —
-  // salvo que el llamador pida una vista puntual (targetView, usado por el
-  // deep-link de notificaciones) para no disparar un renderView() extra
-  // hacia 'inicio' que compita en la carrera con el de la vista destino.
+  const sn = $('#sidebarProjectName'); if (sn) sn.textContent = p ? p.nombre : 'Sin presupuesto';
   state.view = targetView || (state.allowedTabs.length <= 1 ? (state.allowedTabs[0] || 'inicio') : 'inicio');
   state.section = VIEW_TO_SECTION[state.view] || null;
   renderProjectList();
   renderTabsBar();
-  // Reinicia el historial de pestañas al entrar/cambiar de presupuesto (ver
-  // pushTabHistory/replaceTabHistory arriba): "atrás" solo debe deshacer
-  // cambios de pestaña dentro de este presupuesto, no saltar a uno anterior.
+  renderSidebar();
+  renderMobileNav();
   replaceTabHistory();
   return renderView();
 }
@@ -1111,24 +1392,16 @@ function seccionesGridHtml() {
     <div class="section-grid">
       ${Object.entries(SECTION_DEFS).map(([id, def]) => {
         const esFutura = def.tabs.length === 0;
+        // Solo mostrar si el usuario tiene acceso a al menos un tab, o si es sección futura
+        const tieneAcceso = esFutura || def.tabs.some((t) => state.allowedTabs.includes(t));
+        if (!tieneAcceso) return '';
         return `
         <div class="section-card ${esFutura ? 'disabled' : ''}" data-section="${id}">
-          <span class="section-icon">${def.icon}</span>
+          <span class="section-icon">${icon(def.icon, 26)}</span>
           <span class="section-nombre">${esc(def.label)}</span>
           ${esFutura ? '<span class="section-soon-badge">Próximamente</span>' : ''}
         </div>`;
       }).join('')}
-    </div>
-  `;
-}
-
-function quickAccessHtml() {
-  const quickTabs = ['contrato', 'impuestos'].filter((t) => state.allowedTabs.includes(t));
-  if (!quickTabs.length) return '';
-  return `
-    <h3 class="section-title">Accesos rápidos</h3>
-    <div class="row" style="gap:8px;flex-wrap:wrap;margin-bottom:4px">
-      ${quickTabs.map((t) => `<button class="btn" data-goto="${t}">${TAB_ICONS[t]} ${TAB_LABELS[t]}</button>`).join('')}
     </div>
   `;
 }
@@ -1185,7 +1458,6 @@ async function renderInicio(view) {
 
   view.innerHTML = `
     ${puedeVerResumen ? '' : '<h2 class="section-title">Inicio</h2>'}
-    ${quickAccessHtml()}
     <h3 class="section-title">Secciones</h3>
     ${seccionesGridHtml()}
     ${puedeVerResumen ? dashboardHtml : ''}
@@ -4250,6 +4522,57 @@ document.addEventListener('focus', (e) => {
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(() => {}));
 }
+
+// ---------------------------------------------------------------------------
+// Sidebar — inicialización y event listeners
+// ---------------------------------------------------------------------------
+applySidebarCollapse();
+
+$('#btnSidebarCollapse').addEventListener('click', toggleSidebarCollapse);
+$('#btnSidebarProject').addEventListener('click', openDrawer);
+$('#sidebarOverlay').addEventListener('click', closeSidebar);
+
+// Popover de perfil (desktop)
+$('#btnUserProfile').addEventListener('click', (e) => {
+  e.stopPropagation();
+  const pop = $('#userPopover');
+  if (pop && pop.classList.contains('show')) { closeUserPopover(); } else { openUserPopover(); }
+});
+document.addEventListener('click', (e) => {
+  const pop = $('#userPopover');
+  if (pop && pop.classList.contains('show') && !pop.contains(e.target) && e.target !== $('#btnUserProfile')) {
+    closeUserPopover();
+  }
+});
+$$('[data-theme-set]').forEach((btn) => {
+  btn.addEventListener('click', () => setTheme(btn.dataset.themeSet));
+});
+$('#btnLogoutPopover').addEventListener('click', () => { closeUserPopover(); logout(); });
+
+// Barra inferior móvil
+(function () {
+  const ri = $('#mobileNavResumenIcon'); if (ri) ri.innerHTML = icon('resumen', 20);
+  const ci = $('#mobileNavComprasIcon'); if (ci) ci.innerHTML = icon('compras', 20);
+  const qi = $('#mobileQuickIcon');      if (qi) qi.innerHTML = icon('x', 20); // reemplazado al abrir
+  const ni = $('#mobileNavNotifIcon');   if (ni) ni.innerHTML = icon('bell', 20);
+  const pi = $('#mobileNavProfileIcon'); if (pi) pi.innerHTML = icon('usuarios', 20);
+})();
+
+$('#mobileNavResumen').addEventListener('click', () => {
+  if (state.allowedTabs.includes('resumen') && state.projectId) switchToView('resumen');
+  else if (state.projectId) switchToView('inicio');
+});
+$('#mobileNavCompras').addEventListener('click', () => {
+  if (state.projectId) goToSection('compras');
+});
+$('#btnMobileQuick').addEventListener('click', openQuickActionMenu);
+$('#btnMobileNotif').addEventListener('click', (e) => {
+  e.stopPropagation();
+  $('#notifDropdown').classList.toggle('show');
+  if ($('#notifDropdown').classList.contains('show')) renderNotifList();
+});
+$('#btnMobileProfile').addEventListener('click', openMobileProfile);
+$('#quickActionBackdrop').addEventListener('click', closeQuickActionMenu);
 
 // ---------------------------------------------------------------------------
 // Boot

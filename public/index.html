@@ -11,16 +11,18 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <!-- Aplica el tema guardado antes de pintar, para evitar un parpadeo del
-       tema equivocado (ver toggleTheme()/applyTheme() en app.js). -->
+       tema equivocado. 'system' se resuelve aquí con matchMedia. -->
   <script>
     (function () {
-      document.documentElement.setAttribute('data-theme', localStorage.getItem('cp_theme') || 'light');
+      var p = localStorage.getItem('cp_theme') || 'light';
+      if (p === 'system') p = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+      document.documentElement.setAttribute('data-theme', p);
     })();
   </script>
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
-  <!-- Pantalla de login: filtra el acceso por usuario y puesto -->
+  <!-- Pantalla de login -->
   <div id="loginScreen" class="login-screen">
     <form id="loginForm" class="login-card">
       <img class="login-logo" src="/assets/logo-roforb.png" alt="Grupo Roforb" />
@@ -33,7 +35,7 @@
     </form>
   </div>
 
-  <!-- Galería de clientes: pantalla intermedia entre login y selección de proyecto -->
+  <!-- Galería de clientes -->
   <div id="clientGalleryScreen" class="gallery-screen" style="display:none">
     <div class="gallery-card">
       <div class="gallery-header">
@@ -52,60 +54,130 @@
   </div>
 
   <div id="app" style="display:none">
-    <header class="topbar">
-      <button id="btnMenu" class="icon-btn" aria-label="Menú">☰</button>
-      <div class="topbar-title">
-        <div class="topbar-brand">
-          <img src="/assets/logo-roforb-icon.png" alt="" class="topbar-logo" />
-          <strong>Grupo Roforb</strong>
-        </div>
-        <span id="projectName" class="muted">Selecciona un presupuesto</span>
-      </div>
-      <button id="btnSync" class="icon-btn" aria-label="Sincronizar" title="Sincronizar datos">↺</button>
-      <button id="btnUpload" class="icon-btn" aria-label="Cargar presupuesto" title="Cargar presupuesto">＋</button>
-      <div class="notif-wrap">
-        <button id="btnNotif" class="icon-btn" aria-label="Notificaciones" title="Notificaciones">🔔</button>
-        <span id="notifBadge" class="notif-badge" style="display:none">0</span>
-        <div id="notifDropdown" class="notif-dropdown">
-          <div class="notif-dropdown-header">
-            <strong>Notificaciones</strong>
-            <button id="btnMarcarTodasLeidas" class="btn small">Marcar todas como leídas</button>
-          </div>
-          <div id="notifList" class="notif-list"></div>
-        </div>
-      </div>
-      <button id="btnThemeToggle" class="icon-btn" aria-label="Cambiar tema" title="Cambiar tema claro/oscuro">🌙</button>
-      <button id="btnLogout" class="icon-btn" aria-label="Cerrar sesión" title="Cerrar sesión">🚪</button>
-    </header>
 
-    <!-- Banner de instalación PWA: oculto hasta que haya un prompt nativo
-         (Android/Chrome) o se detecte iOS Safari (sin evento nativo, solo
-         instrucciones) — ver lógica en app.js. -->
-    <div id="installBanner" class="install-banner" style="display:none">
-      <span id="installBannerText" class="install-banner-text"></span>
-      <div class="install-banner-actions">
-        <button id="btnInstallApp" class="btn small btn-primary">Instalar app</button>
-        <button id="btnDismissInstall" class="icon-btn small" aria-label="Cerrar aviso de instalación">✕</button>
+    <!-- ── SIDEBAR (navegación principal desktop) ─────────────────────── -->
+    <aside id="sidebar" class="sidebar" aria-label="Navegación principal">
+      <div class="sidebar-header">
+        <div class="sidebar-brand">
+          <img src="/assets/logo-roforb-icon.png" alt="" class="sidebar-brand-logo" />
+          <strong class="sidebar-brand-name">Grupo Roforb</strong>
+        </div>
+        <button id="btnSidebarCollapse" class="icon-btn sidebar-collapse-btn" aria-label="Colapsar menú"></button>
+      </div>
+
+      <button id="btnSidebarProject" class="sidebar-project-btn" aria-label="Cambiar presupuesto">
+        <span class="sidebar-project-icon" id="sidebarProjectIcon"></span>
+        <span class="sidebar-project-name" id="sidebarProjectName">Sin presupuesto</span>
+        <span class="sidebar-project-chevron" id="sidebarProjectChevron"></span>
+      </button>
+
+      <nav class="sidebar-nav" id="sidebarNav"></nav>
+
+      <div class="sidebar-footer">
+        <button id="btnUserProfile" class="sidebar-profile-btn" aria-label="Perfil de usuario">
+          <div class="sidebar-avatar" id="sidebarAvatar"></div>
+          <div class="sidebar-profile-info">
+            <span class="sidebar-profile-name" id="sidebarProfileName"></span>
+            <span class="sidebar-profile-role" id="sidebarProfileRole"></span>
+          </div>
+          <span class="sidebar-profile-chevron" id="sidebarProfileChevron"></span>
+        </button>
+      </div>
+    </aside>
+
+    <!-- Overlay para cerrar sidebar en móvil -->
+    <div id="sidebarOverlay" class="sidebar-overlay"></div>
+
+    <!-- Popover de perfil de usuario (desktop) -->
+    <div id="userPopover" class="user-popover" style="display:none" role="dialog" aria-label="Perfil">
+      <div class="user-popover-info">
+        <strong id="popoverName"></strong>
+        <span class="muted" id="popoverRole"></span>
+      </div>
+      <div class="theme-selector" id="themeSelector">
+        <button class="theme-opt" data-theme-set="light"><span id="themeIconLight"></span>Claro</button>
+        <button class="theme-opt" data-theme-set="dark"><span id="themeIconDark"></span>Oscuro</button>
+        <button class="theme-opt" data-theme-set="system"><span id="themeIconSystem"></span>Sistema</button>
+      </div>
+      <button id="btnLogoutPopover" class="btn full">Cerrar sesión</button>
+    </div>
+
+    <!-- ── ÁREA PRINCIPAL ─────────────────────────────────────────────── -->
+    <div class="main-area">
+      <header class="topbar">
+        <button id="btnMenu" class="icon-btn" aria-label="Menú">☰</button>
+        <div class="topbar-title">
+          <div class="topbar-brand">
+            <img src="/assets/logo-roforb-icon.png" alt="" class="topbar-logo" />
+            <strong>Grupo Roforb</strong>
+          </div>
+          <span id="projectName" class="muted">Selecciona un presupuesto</span>
+        </div>
+        <button id="btnSync" class="icon-btn" aria-label="Sincronizar" title="Sincronizar datos">↺</button>
+        <button id="btnUpload" class="icon-btn" aria-label="Cargar presupuesto" title="Cargar presupuesto">＋</button>
+        <div class="notif-wrap">
+          <button id="btnNotif" class="icon-btn" aria-label="Notificaciones" title="Notificaciones">🔔</button>
+          <span id="notifBadge" class="notif-badge" style="display:none">0</span>
+          <div id="notifDropdown" class="notif-dropdown">
+            <div class="notif-dropdown-header">
+              <strong>Notificaciones</strong>
+              <button id="btnMarcarTodasLeidas" class="btn small">Marcar todas como leídas</button>
+            </div>
+            <div id="notifList" class="notif-list"></div>
+          </div>
+        </div>
+        <button id="btnThemeToggle" class="icon-btn" aria-label="Cambiar tema" title="Cambiar tema claro/oscuro">🌙</button>
+        <button id="btnLogout" class="icon-btn" aria-label="Cerrar sesión" title="Cerrar sesión">🚪</button>
+      </header>
+
+      <div id="installBanner" class="install-banner" style="display:none">
+        <span id="installBannerText" class="install-banner-text"></span>
+        <div class="install-banner-actions">
+          <button id="btnInstallApp" class="btn small btn-primary">Instalar app</button>
+          <button id="btnDismissInstall" class="icon-btn small" aria-label="Cerrar aviso de instalación">✕</button>
+        </div>
+      </div>
+
+      <nav id="tabs" class="tabs" style="display:none"></nav>
+
+      <main id="view"></main>
+    </div>
+
+    <!-- ── BARRA INFERIOR MÓVIL ────────────────────────────────────────── -->
+    <nav id="mobileNav" class="mobile-nav" aria-label="Navegación móvil">
+      <button class="mobile-nav-item" id="mobileNavResumen">
+        <span id="mobileNavResumenIcon"></span>
+        <span>Resumen</span>
+      </button>
+      <button class="mobile-nav-item" id="mobileNavCompras">
+        <span id="mobileNavComprasIcon"></span>
+        <span>Compras</span>
+      </button>
+      <button class="mobile-nav-fab" id="btnMobileQuick" aria-label="Acciones rápidas">
+        <span id="mobileQuickIcon"></span>
+      </button>
+      <div class="mobile-notif-wrap notif-wrap">
+        <button class="mobile-nav-item" id="btnMobileNotif">
+          <span id="mobileNavNotifIcon"></span>
+          <span>Alertas</span>
+        </button>
+        <span id="notifBadgeMobile" class="notif-badge" style="display:none">0</span>
+      </div>
+      <button class="mobile-nav-item" id="btnMobileProfile">
+        <span id="mobileNavProfileIcon"></span>
+        <span>Perfil</span>
+      </button>
+    </nav>
+
+    <!-- Menú de acciones rápidas (móvil) -->
+    <div id="quickActionMenu" class="quick-action-menu" style="display:none">
+      <div class="quick-action-backdrop" id="quickActionBackdrop"></div>
+      <div class="quick-action-sheet">
+        <div class="quick-action-title">Acción rápida</div>
+        <div id="quickActionList" class="quick-action-list"></div>
       </div>
     </div>
 
-    <!--
-      Orden por flujo real de la operación (no alfabético, no el orden en que
-      se fueron agregando las features): primero el panorama (Resumen), luego
-      el catálogo base (Insumos), luego el ciclo de compra completo
-      (Requisiciones → Proveedores → Órdenes de Compra, en ese orden porque
-      hace falta un proveedor antes de poder generar una OC), luego ejecución
-      en obra (Programa alimenta los periodos que usan Avance y Destajo),
-      y al final el clúster de administración/solo-admin (Finanzas → Mapeo →
-      Usuarios).
-    -->
-    <!-- Contenido generado dinámicamente por renderTabsBar() en app.js:
-         oculto en 'inicio' (la navegación ahí es por las tarjetas de
-         sección), o botón "← Secciones"/"← Inicio" + tabs de la sección
-         activa en el resto de las vistas. -->
-    <nav id="tabs" class="tabs" style="display:none"></nav>
-
-    <main id="view"></main>
   </div>
 
   <!-- Drawer: lista de presupuestos -->

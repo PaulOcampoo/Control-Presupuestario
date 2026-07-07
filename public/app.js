@@ -286,7 +286,7 @@ function toast(msg, kind = '') {
   el.textContent = msg;
   el.className = `toast show ${kind}`;
   clearTimeout(toast._t);
-  toast._t = setTimeout(() => { el.className = 'toast'; }, 3600);
+  toast._t = setTimeout(() => { el.className = 'toast'; }, 2500);
 }
 
 // ---------------------------------------------------------------------------
@@ -898,6 +898,7 @@ $('#btnNotif').addEventListener('click', (e) => {
 });
 document.addEventListener('click', (e) => {
   if (!e.target.closest('#notifDropdown') && !e.target.closest('#btnNotif')) closeNotifDropdown();
+  if (!e.target.closest('#toast')) { clearTimeout(toast._t); $('#toast').className = 'toast'; }
 });
 $('#btnMarcarTodasLeidas').addEventListener('click', async (e) => {
   e.stopPropagation();

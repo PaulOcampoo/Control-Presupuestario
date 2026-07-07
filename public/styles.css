@@ -154,6 +154,8 @@ button, a, select, label,
   background: var(--bg-surface-2); border-style: solid;
   border-radius: 10px; width: 40px; height: 40px; padding: 0;
   font-size: 1.1rem; flex-shrink: 0;
+  /* El .tab padre tiene inline-flex+align-items:center pero no justify-content */
+  display: flex; align-items: center; justify-content: center;
 }
 .tab-soon { opacity: 0.55; border-style: dashed; cursor: pointer; }
 
@@ -361,7 +363,7 @@ body.modal-open { overflow: hidden; }
 .toast.success { border-color: var(--green); color: #bbf7d0; }
 /* En móvil el toast debe quedar por encima de la barra de navegación inferior */
 @media (max-width: 860px) {
-  .toast { bottom: calc(var(--mobile-nav-h) + var(--safe-bottom) + 12px); }
+  .toast { bottom: calc(var(--mobile-nav-h) + var(--safe-bottom) + 20px); }
 }
 
 .spinner {

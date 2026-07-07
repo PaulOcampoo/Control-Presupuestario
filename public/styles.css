@@ -921,9 +921,21 @@ body.modal-open { overflow: hidden; }
 
 /* ── Móvil: sidebar overlay, bottom nav visible ───────────────────────── */
 @media (max-width: 860px) {
+  /* Convertir .main-area en el scroll container real, acotado al espacio
+     sobre la bottom nav. Así la scrollbar termina en el borde de la nav y
+     nunca se superpone con ella. Body/html se dejan sin scroll propio. */
+  html, body { overflow: hidden; }
+  #app { height: 100dvh; min-height: unset; }
+  .main-area {
+    height: calc(100dvh - var(--mobile-nav-h) - var(--safe-bottom));
+    overflow-y: auto;
+    overflow-x: clip;
+  }
+
   .mobile-nav { display: flex; }
-  /* Padding extra en #view para no quedar detrás de la bottom nav */
-  #view { padding-bottom: calc(var(--mobile-nav-h) + 24px + var(--safe-bottom)); }
+  /* Padding de #view: el offset del nav ya lo absorbe la altura de .main-area;
+     solo necesitamos un margen visual al fondo del contenido */
+  #view { padding-bottom: 28px; }
   /* Galería: en móvil usar flex-start para que el scroll funcione sin espacio
      en blanco (flex+center+overflow corta el top); el safe-area se aplica solo
      aquí, donde realmente hace falta (desktop no tiene notch) */

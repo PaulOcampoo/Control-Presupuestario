@@ -2752,7 +2752,10 @@ function paintFisFinChart(avances) {
   const labels = avances.map((a) => `S${a.semana}`);
   const programado = avances.map((a) => a.avance_financiero_programado);
   const ejecutado = avances.map((a) => a.avance_financiero_real);
-  const porEjecutar = avances.map((a) => (a.avance_financiero_real != null ? Math.max(0, 100 - a.avance_financiero_real) : null));
+  const porEjecutar = avances.map((a) => {
+    if (a.avance_financiero_programado == null) return null;
+    return Math.max(0, a.avance_financiero_programado - (a.avance_financiero_real ?? 0));
+  });
   const cc = chartColors();
   state.charts.fisfin = new Chart(ctx, {
     type: 'bar',

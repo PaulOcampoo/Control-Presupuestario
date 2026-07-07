@@ -90,7 +90,7 @@ function chartColors() {
   return {
     text: light ? '#334155' : '#e2e8f0',
     grid: light ? '#e2e8f0' : '#334155',
-    tick: light ? '#64748b' : '#94a3b8',
+    tick: light ? '#475569' : '#94a3b8',
   };
 }
 

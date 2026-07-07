@@ -92,7 +92,7 @@ function requireCronSecret(req, res, next) {
   next();
 }
 
-app.post('/api/cron/recordatorio-impuestos', requireCronSecret, h(async (req, res) => {
+app.get('/api/cron/recordatorio-impuestos', requireCronSecret, h(async (req, res) => {
   const ahora = new Date();
   const anio = ahora.getUTCFullYear();
   const mes = ahora.getUTCMonth() + 1;

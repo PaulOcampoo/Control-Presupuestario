@@ -465,6 +465,43 @@ app.post('/api/clientes', h(auth.allow()), h(async (req, res) => {
 }));
 
 // ---------------------------------------------------------------------------
+// Bienvenida — resumen ligero por proyecto para la pantalla de bienvenida
+// ---------------------------------------------------------------------------
+app.get('/api/bienvenida', h(auth.allow('residente', 'cabo', 'compras', 'tesoreria', 'administracion', 'logistica')), h(async (req, res) => {
+  const isAdminUser = req.user.puesto === 'admin';
+  const { rows: projects } = isAdminUser
+    ? await db.pool.query(`
+        SELECT p.id, p.nombre, p.cliente_id, c.nombre AS cliente_nombre
+        FROM proyectos p LEFT JOIN clientes c ON c.id = p.cliente_id
+        ORDER BY c.nombre NULLS LAST, p.nombre
+      `)
+    : await db.pool.query(`
+        SELECT p.id, p.nombre, p.cliente_id, c.nombre AS cliente_nombre
+        FROM proyectos p
+        LEFT JOIN clientes c ON c.id = p.cliente_id
+        JOIN usuario_proyectos up ON up.project_id = p.id AND up.usuario_id = $1
+        ORDER BY c.nombre NULLS LAST, p.nombre
+      `, [req.user.id]);
+
+  const enriched = await Promise.all(projects.map(async (p) => {
+    const [{ rows: metaRows }, { rows: avRows }] = await Promise.all([
+      db.pool.query("SELECT valor FROM meta WHERE project_id = $1 AND clave = 'total_sin_iva'", [p.id]),
+      db.pool.query(
+        'SELECT avance_financiero_real FROM avances_semanales WHERE project_id = $1 AND avance_financiero_real IS NOT NULL ORDER BY semana DESC LIMIT 1',
+        [p.id]
+      ),
+    ]);
+    return {
+      ...p,
+      presupuesto_total: metaRows[0] ? Number(metaRows[0].valor) : 0,
+      avance_financiero_ejecutado: avRows[0] ? Number(avRows[0].avance_financiero_real) : 0,
+    };
+  }));
+
+  res.json(enriched);
+}));
+
+// ---------------------------------------------------------------------------
 // Proyectos
 // ---------------------------------------------------------------------------
 app.get('/api/projects', h(auth.allow('residente', 'cabo', 'compras', 'tesoreria', 'administracion', 'logistica')), h(async (req, res) => {

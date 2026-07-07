@@ -469,6 +469,51 @@ body.modal-open { overflow: hidden; }
 .cliente-card .cliente-count { color: var(--text-secondary); font-size: 0.76rem; }
 .cliente-card-orphan { border-style: dashed; border-color: var(--yellow); }
 
+/* ── Pantalla de bienvenida ──────────────────────────────────────────────── */
+.welcome-screen {
+  position: fixed; inset: 0; z-index: 150;
+  display: flex; align-items: flex-start; justify-content: center;
+  background: radial-gradient(circle at 30% 20%, var(--bg-surface) 0%, var(--bg-primary) 60%);
+  padding: 24px 16px; overflow-y: auto;
+}
+.welcome-card {
+  width: 100%; max-width: 720px; background: var(--bg-surface);
+  border: 1px solid var(--border-color); border-radius: 18px;
+  padding: 32px 28px; box-shadow: 0 20px 60px rgba(0,0,0,0.45);
+  margin-bottom: 24px;
+}
+.welcome-logo-row { text-align: center; margin-bottom: 20px; }
+.welcome-logo { max-width: 200px; width: 60%; height: auto; display: block; margin: 0 auto; }
+.welcome-greeting { margin-bottom: 24px; }
+.welcome-greeting h1 { font-size: 1.55rem; font-weight: 700; color: var(--accent-gold); margin: 0 0 4px; }
+.welcome-greeting .muted { font-size: 0.9rem; margin: 0; }
+
+.welcome-proyectos { display: grid; gap: 12px; margin-bottom: 8px; }
+.welcome-proyectos.multi { grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
+
+.welcome-project-card {
+  background: var(--bg-surface-2); border: 1px solid var(--border-color);
+  border-radius: var(--radius); padding: 16px;
+  transition: border-color 0.2s, transform 0.15s, box-shadow 0.2s;
+}
+.welcome-proyectos.multi .welcome-project-card { cursor: pointer; }
+.welcome-proyectos.multi .welcome-project-card:hover {
+  border-color: var(--accent-gold);
+  box-shadow: 0 0 14px color-mix(in srgb, var(--accent-gold) 22%, transparent);
+  transform: translateY(-2px);
+}
+.welcome-proyectos.multi .welcome-project-card:active { transform: scale(0.98); }
+.wpc-client { font-size: 0.72rem; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 4px; }
+.wpc-nombre { font-size: 0.98rem; font-weight: 600; margin-bottom: 12px; line-height: 1.3; }
+.wpc-progress-bar { background: var(--border-color); border-radius: 4px; height: 8px; margin-bottom: 6px; overflow: hidden; }
+.wpc-progress-fill { height: 100%; background: var(--accent-gold); border-radius: 4px; transition: width 0.6s ease; }
+.wpc-stats { display: flex; justify-content: space-between; font-size: 0.8rem; }
+.wpc-pct { font-weight: 700; color: var(--accent-gold); }
+.wpc-total { color: var(--text-secondary); }
+
+.welcome-hint { font-size: 0.82rem; color: var(--text-secondary); margin: 8px 0 16px; text-align: center; }
+.welcome-card .btn.full { margin-top: 16px; }
+
 .drawer-account {
   display: flex; align-items: center; justify-content: space-between; gap: 8px;
   background: var(--bg-surface-2); border: 1px solid var(--border-color); border-radius: 10px;

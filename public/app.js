@@ -294,18 +294,27 @@ function toast(msg, kind = '') {
 function showLoginScreen() {
   $('#app').style.display = 'none';
   $('#clientGalleryScreen').style.display = 'none';
+  $('#welcomeScreen').style.display = 'none';
   $('#loginScreen').style.display = 'flex';
   $('#loginUsuario').focus();
 }
 function showApp() {
   $('#loginScreen').style.display = 'none';
   $('#clientGalleryScreen').style.display = 'none';
+  $('#welcomeScreen').style.display = 'none';
   $('#app').style.display = '';
 }
 function showClientGallery() {
   $('#loginScreen').style.display = 'none';
   $('#app').style.display = 'none';
+  $('#welcomeScreen').style.display = 'none';
   $('#clientGalleryScreen').style.display = 'flex';
+}
+function showWelcomeScreen() {
+  $('#loginScreen').style.display = 'none';
+  $('#clientGalleryScreen').style.display = 'none';
+  $('#app').style.display = 'none';
+  $('#welcomeScreen').style.display = 'flex';
 }
 
 function isAdmin() { return !!state.user && state.user.puesto === 'admin'; }
@@ -922,9 +931,13 @@ function handleSessionExpired() {
 async function bootApp() {
   destroyCharts();
   try {
-    await Promise.all([refreshClientList(), refreshProjectList()]);
-    showClientGallery();
-    renderClientGallery();
+    const [, , bienvenida] = await Promise.all([
+      refreshClientList(),
+      refreshProjectList(),
+      api('/bienvenida').catch(() => []),
+    ]);
+    showWelcomeScreen();
+    renderWelcomeScreen(bienvenida);
   } catch (err) {
     showApp();
     $('#view').innerHTML = `<div class="alert-box danger">⚠️ No se pudo conectar con el servidor: ${esc(err.message)}</div>`;
@@ -1216,6 +1229,83 @@ function openNuevoClienteModal() {
     }
   });
 }
+
+// ---------------------------------------------------------------------------
+// Pantalla de bienvenida
+// ---------------------------------------------------------------------------
+const DIAS_ES = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
+const MESES_ES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+
+function renderWelcomeScreen(proyectos) {
+  const u = state.user;
+  const nombre = u.nombre || u.usuario || '';
+  $('#welcomeTitle').textContent = `Bienvenido/a, ${nombre}`;
+
+  const now = new Date();
+  $('#welcomeDate').textContent = `${DIAS_ES[now.getDay()]}, ${now.getDate()} de ${MESES_ES[now.getMonth()]} de ${now.getFullYear()}`;
+
+  const multi = proyectos.length > 1;
+  const container = $('#welcomeProyectos');
+  container.className = `welcome-proyectos${multi ? ' multi' : ''}`;
+
+  if (!proyectos.length) {
+    container.innerHTML = `<div class="empty-state">No hay obras asignadas.</div>`;
+  } else {
+    container.innerHTML = proyectos.map((p) => {
+      const pct = Math.min(100, Math.max(0, Number(p.avance_financiero_ejecutado) || 0));
+      const totalFmt = p.presupuesto_total ? fmtMoney(p.presupuesto_total) : '—';
+      return `
+        <div class="welcome-project-card" data-pid="${p.id}" data-cid="${p.cliente_id || ''}">
+          ${p.cliente_nombre ? `<div class="wpc-client">${esc(p.cliente_nombre)}</div>` : ''}
+          <div class="wpc-nombre">${esc(p.nombre)}</div>
+          <div class="wpc-progress-bar"><div class="wpc-progress-fill" style="width:${pct}%"></div></div>
+          <div class="wpc-stats">
+            <span class="wpc-pct">${pct.toFixed(1)}% ejecutado</span>
+            <span class="wpc-total">${totalFmt}</span>
+          </div>
+        </div>`;
+    }).join('');
+
+    if (multi) {
+      $$('.welcome-project-card', container).forEach((el) => {
+        el.addEventListener('click', () => {
+          const pid = Number(el.dataset.pid);
+          const cid = el.dataset.cid ? Number(el.dataset.cid) : null;
+          state.clienteId = cid;
+          showApp();
+          selectProject(pid);
+        });
+      });
+    }
+  }
+
+  // Hint text and button label
+  let hint = $('#welcomeHint');
+  if (!hint) {
+    hint = document.createElement('p');
+    hint.id = 'welcomeHint';
+    hint.className = 'welcome-hint';
+    container.insertAdjacentElement('afterend', hint);
+  }
+  if (multi) {
+    hint.textContent = 'Haz clic en una obra para entrar directamente, o usa el botón para ver la galería completa.';
+    hint.style.display = '';
+    $('#btnWelcomeContinuar').textContent = 'Ver galería de obras →';
+  } else {
+    hint.style.display = 'none';
+    $('#btnWelcomeContinuar').textContent = 'Entrar a la obra →';
+  }
+}
+
+$('#btnWelcomeContinuar').addEventListener('click', () => {
+  if (state.projects.length === 1) {
+    showApp();
+    selectProject(state.projects[0].id);
+  } else {
+    showClientGallery();
+    renderClientGallery();
+  }
+});
 
 // ---------------------------------------------------------------------------
 // Upload flow

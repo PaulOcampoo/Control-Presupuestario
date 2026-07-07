@@ -48,6 +48,18 @@ body {
   background: var(--bg-primary);
   color: var(--text-primary);
   -webkit-tap-highlight-color: transparent;
+  /* Previene overflow horizontal que puede romper el viewport en móvil */
+  overflow-x: hidden;
+}
+
+/* Elimina el delay de 300ms en todos los elementos interactivos.
+   Con width=device-width en el viewport los navegadores modernos ya lo
+   hacen, pero touch-action:manipulation lo garantiza en todos los casos. */
+button, a, select, label,
+.tab, .sbar-item, .mobile-nav-item, .mobile-nav-fab,
+.section-item, .quick-action-item, .icon-btn,
+.cliente-item, .bienvenida-proj-card, .section-grid-item {
+  touch-action: manipulation;
 }
 
 #app { display: flex; flex-direction: column; min-height: 100dvh; }
@@ -136,7 +148,11 @@ body {
   background: var(--accent-gold); color: #04212f; border-color: var(--accent-gold); font-weight: 600;
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-gold) 35%, transparent);
 }
-.tab-back { background: transparent; border-style: dashed; }
+.tab-back {
+  background: var(--bg-surface-2); border-style: solid;
+  border-radius: 10px; width: 40px; height: 40px; padding: 0;
+  font-size: 1.1rem; flex-shrink: 0;
+}
 .tab-soon { opacity: 0.55; border-style: dashed; cursor: pointer; }
 
 /* Tarjetas de sección en la pantalla de inicio — mismo tratamiento visual
@@ -216,6 +232,14 @@ h3.section-title { margin: 18px 0 10px; font-size: 0.95rem; color: var(--text-se
 input, select, textarea {
   background: var(--bg-surface-2); color: var(--text-primary); border: 1px solid var(--border-color);
   border-radius: 10px; padding: 10px 12px; font-size: 0.92rem; width: 100%;
+}
+/* iOS Safari hace auto-zoom cuando un input tiene font-size < 16px.
+   Fijar el mínimo en móvil elimina ese comportamiento sin afectar desktop. */
+@media screen and (max-width: 768px) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+  select, textarea {
+    font-size: max(16px, 0.92rem);
+  }
 }
 label { display: block; font-size: 0.8rem; color: var(--text-secondary); margin: 10px 0 4px; }
 .field { margin-bottom: 6px; }
@@ -803,7 +827,7 @@ body.modal-open { overflow: hidden; }
   background: var(--accent-gold); color: #04212f;
   display: flex; align-items: center; justify-content: center;
   font-size: 1.6rem; font-weight: 700; line-height: 1;
-  box-shadow: 0 4px 16px color-mix(in srgb, var(--accent-gold) 40%, transparent);
+  box-shadow: 0 -4px 16px color-mix(in srgb, var(--accent-gold) 35%, transparent);
   cursor: pointer; margin: 0 4px; margin-bottom: 4px;
   transition: transform 0.15s;
 }
@@ -925,3 +949,21 @@ body.modal-open { overflow: hidden; }
     transition: none;
   }
 }
+
+/* ── Trabajadores / Nóminas ────────────────────────────────────────────── */
+.card-inactive { opacity: 0.65; }
+
+.nominas-subnav {
+  display: flex; gap: 8px; margin: 12px 0 4px;
+}
+
+.asistencia-table {
+  width: 100%; border-collapse: collapse; font-size: 0.88rem;
+}
+.asistencia-table th,
+.asistencia-table td {
+  padding: 6px 10px; border-bottom: 1px solid var(--border-color); text-align: left;
+}
+.asistencia-table thead th { font-weight: 600; color: var(--text-secondary); }
+.asistencia-table tbody tr:last-child td { border-bottom: none; }
+.asistencia-table input[type="checkbox"] { width: 18px; height: 18px; cursor: pointer; }

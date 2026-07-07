@@ -330,6 +330,10 @@ function puedeRegistrarPago() { return !!state.user && ['admin', 'tesoreria'].in
 function puedeVerImportesAvance() { return !!state.user && state.user.puesto !== 'cabo'; }
 function puedeEditarAvance() { return !!state.user && ['admin', 'residente', 'cabo'].includes(state.user.puesto); }
 function puedeGestionarUsuarios() { return !!state.user && ['admin', 'administracion'].includes(state.user.puesto); }
+function puedeGestionarTrabajadores() { return !!state.user && state.user.puesto === 'admin'; }
+function puedeVerNominas() { return !!state.user && ['admin', 'residente'].includes(state.user.puesto); }
+function puedeCapturarAsistencia() { return !!state.user && ['admin', 'residente'].includes(state.user.puesto); }
+function puedeAprobarNomina() { return !!state.user && state.user.puesto === 'admin'; }
 
 function applySession(user, tabs) {
   state.user = user;
@@ -429,19 +433,20 @@ const SECTION_DEFS = {
   obra:          { label: 'Obra',           icon: 'obra',           emoji: '🏗️',  tabs: ['programa', 'avance', 'destajo'],                     proximamente: ['Estimaciones'] },
   compras:       { label: 'Compras',        icon: 'compras',        emoji: '🛒',   tabs: ['requisiciones', 'insumos', 'proveedores', 'ordenes'], proximamente: ['Subcontratos'] },
   tesoreria:     { label: 'Tesorería',      icon: 'tesoreria',      emoji: '💰',   tabs: ['finanzas', 'impuestos'],                             proximamente: [] },
-  administracion:{ label: 'Administración', icon: 'administracion', emoji: '⚙️',  tabs: ['usuarios', 'mapeo', 'contrato'],                    proximamente: ['Nóminas', 'Almacenes'] },
+  administracion:{ label: 'Administración', icon: 'administracion', emoji: '⚙️',  tabs: ['usuarios', 'mapeo', 'contrato'],                    proximamente: ['Almacenes'] },
+  personal:      { label: 'Personal',       icon: 'usuarios',       emoji: '👷',   tabs: ['trabajadores', 'nominas'],                           proximamente: [] },
   maquinaria:    { label: 'Maquinaria',     icon: 'maquinaria',     emoji: '🚜',   tabs: [],                                                    proximamente: ['Maquinaria'] },
 };
 
 const TAB_ICONS = {
   resumen: '📊', contrato: '📄', impuestos: '🧾', insumos: '📦', requisiciones: '🧾',
   proveedores: '🏭', ordenes: '🛒', programa: '🗓️', avance: '📈', destajo: '👷',
-  finanzas: '💰', mapeo: '🔗', usuarios: '👤',
+  finanzas: '💰', mapeo: '🔗', usuarios: '👤', trabajadores: '👷', nominas: '💵',
 };
 const TAB_LABELS = {
   resumen: 'Resumen', contrato: 'Contrato', impuestos: 'Impuestos', insumos: 'Insumos', requisiciones: 'Requisiciones',
   proveedores: 'Proveedores', ordenes: 'Órdenes de Compra', programa: 'Programa', avance: 'Avance', destajo: 'Destajo',
-  finanzas: 'Finanzas', mapeo: 'Mapeo', usuarios: 'Usuarios',
+  finanzas: 'Finanzas', mapeo: 'Mapeo', usuarios: 'Usuarios', trabajadores: 'Trabajadores', nominas: 'Nóminas',
 };
 
 const VIEW_TO_SECTION = {};
@@ -514,7 +519,7 @@ function renderTabsBar() {
   let html = '';
   if (state.section) {
     const def = SECTION_DEFS[state.section];
-    html += `<button class="tab tab-back" data-goto="inicio"><span class="tab-icon">←</span><span class="tab-label">Secciones</span></button>`;
+    html += `<button class="tab tab-back" data-goto="inicio">←</button>`;
     def.tabs.filter((t) => state.allowedTabs.includes(t)).forEach((t) => {
       html += `<button class="tab ${state.view === t ? 'active' : ''}" data-goto="${t}"><span class="tab-icon">${TAB_ICONS[t]}</span><span class="tab-label">${TAB_LABELS[t]}</span></button>`;
     });
@@ -522,7 +527,7 @@ function renderTabsBar() {
       html += `<button class="tab tab-soon" data-soon="${esc(nombre)}"><span class="tab-icon">🔒</span><span class="tab-label">${esc(nombre)}</span></button>`;
     });
   } else {
-    html += `<button class="tab tab-back" data-goto="inicio"><span class="tab-icon">←</span><span class="tab-label">Inicio</span></button>`;
+    html += `<button class="tab tab-back" data-goto="inicio">←</button>`;
   }
   nav.innerHTML = html;
   $$('.tab[data-goto]', nav).forEach((btn) => btn.addEventListener('click', () => switchToView(btn.dataset.goto)));
@@ -935,7 +940,7 @@ function handleSessionExpired() {
 
 async function bootApp() {
   destroyCharts();
-  try {
+  async function attempt() {
     const [, , bienvenida] = await Promise.all([
       refreshClientList(),
       refreshProjectList(),
@@ -945,9 +950,17 @@ async function bootApp() {
     renderGalleryGreeting();
     renderClientGallery();
     renderBienvenidaSummary(bienvenida);
-  } catch (err) {
-    showApp();
-    $('#view').innerHTML = `<div class="alert-box danger">⚠️ No se pudo conectar con el servidor: ${esc(err.message)}</div>`;
+  }
+  try {
+    await attempt();
+  } catch {
+    try {
+      await new Promise((r) => setTimeout(r, 3000));
+      await attempt();
+    } catch (err2) {
+      showApp();
+      $('#view').innerHTML = `<div class="alert-box danger">⚠️ El servidor está iniciando. Espera unos segundos y recarga la página. (${esc(err2.message)})</div>`;
+    }
   }
 }
 
@@ -1545,6 +1558,8 @@ async function renderView() {
       case 'destajo': await renderDestajo(view); break;
       case 'finanzas': await renderFinanzas(view); break;
       case 'mapeo': await renderMapeo(view); break;
+      case 'trabajadores': await renderTrabajadores(view); break;
+      case 'nominas': await renderNominas(view); break;
       default: view.innerHTML = '';
     }
   } catch (err) {
@@ -4921,6 +4936,623 @@ $('#btnMobileNotif').addEventListener('click', async () => {
 });
 $('#mobileNavAjustes').addEventListener('click', openMobileAjustes);
 $('#quickActionBackdrop').addEventListener('click', closeQuickActionMenu);
+
+// ---------------------------------------------------------------------------
+// Trabajadores
+// ---------------------------------------------------------------------------
+
+const TIPO_PAGO_LABELS = { jornal: 'Jornal fijo', destajo: 'Destajo', mixto: 'Mixto' };
+const PERIODICIDAD_LABELS = { semanal: 'Semanal', quincenal: 'Quincenal', mensual: 'Mensual' };
+const TIPO_DOC_LABELS = { ine_frente: 'INE frente', ine_reverso: 'INE reverso', curp_doc: 'CURP', domicilio: 'Comprobante domicilio', otro: 'Otro' };
+
+async function renderTrabajadores(view) {
+  if (!isAdmin()) {
+    view.innerHTML = `<div class="alert-box danger">⚠️ No tienes permiso para ver esta sección.</div>`;
+    return;
+  }
+  let mostrarInactivos = false;
+  async function repaint() {
+    const trabajadores = await api(`/projects/${state.projectId}/trabajadores${mostrarInactivos ? '' : '?activo=1'}`);
+    const listEl = $('#trabajadoresList');
+    if (!listEl) return;
+    paintTrabajadoresList(trabajadores, listEl, repaint);
+  }
+
+  view.innerHTML = `
+    <h2 class="section-title">Trabajadores</h2>
+    <p class="muted">Expediente de personal asignado a esta obra.</p>
+    <div class="section-actions" style="flex-wrap:wrap;gap:8px">
+      ${puedeGestionarTrabajadores() ? `<button class="btn btn-primary" id="btnNuevoTrabajador">+ Nuevo trabajador</button>` : ''}
+      <label style="display:flex;align-items:center;gap:6px;font-size:0.88rem;cursor:pointer">
+        <input type="checkbox" id="chkVerInactivos" style="width:auto"> Ver inactivos
+      </label>
+    </div>
+    <div id="trabajadoresList"><div class="empty-state">Cargando…</div></div>
+  `;
+
+  $('#btnNuevoTrabajador')?.addEventListener('click', () => openTrabajadorModal(null, repaint));
+  $('#chkVerInactivos')?.addEventListener('change', async (e) => {
+    mostrarInactivos = e.target.checked;
+    await repaint();
+  });
+  await repaint();
+}
+
+function paintTrabajadoresList(trabajadores, listEl, repaint) {
+  if (!trabajadores.length) {
+    listEl.innerHTML = '<div class="empty-state">No hay trabajadores registrados.</div>';
+    return;
+  }
+  listEl.innerHTML = trabajadores.map((t) => `
+    <div class="card ${!t.activo ? 'card-inactive' : ''}">
+      <div class="row between" style="align-items:flex-start">
+        <div>
+          <strong>${esc(t.nombre)}</strong>
+          ${t.puesto ? `<div class="muted" style="font-size:0.8rem">${esc(t.puesto)}</div>` : ''}
+          <div style="margin-top:4px;font-size:0.8rem">
+            <span class="badge muted">${esc(TIPO_PAGO_LABELS[t.tipo_pago] || t.tipo_pago)}</span>
+            <span class="badge muted">${esc(PERIODICIDAD_LABELS[t.periodicidad] || t.periodicidad)}</span>
+            ${!t.activo ? `<span class="badge red">Inactivo</span>` : ''}
+          </div>
+        </div>
+        <div class="row" style="gap:6px;flex-wrap:nowrap;align-items:flex-start">
+          ${puedeGestionarTrabajadores() ? `
+            <button class="btn small" data-edit-trab="${t.id}">Editar</button>
+            <button class="btn small" data-docs-trab="${t.id}" data-docs-nombre="${esc(t.nombre)}">Docs</button>
+            ${t.activo
+              ? `<button class="btn small btn-danger" data-baja-trab="${t.id}" data-baja-nombre="${esc(t.nombre)}">Dar baja</button>`
+              : `<button class="btn small" data-reactiva-trab="${t.id}">Reactivar</button>
+                 <button class="btn small btn-danger" data-del-trab="${t.id}" data-del-nombre="${esc(t.nombre)}">Eliminar</button>`
+            }` : ''}
+        </div>
+      </div>
+      ${t.tipo_pago !== 'destajo' ? `
+        <div class="muted" style="font-size:0.78rem;margin-top:4px">
+          Tarifa jornal: $${Number(t.tarifa_jornal || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })} / día
+        </div>` : ''}
+    </div>
+  `).join('');
+
+  $$('[data-edit-trab]', listEl).forEach((btn) => {
+    const t = trabajadores.find((x) => x.id === Number(btn.dataset.editTrab));
+    if (t) btn.addEventListener('click', () => openTrabajadorModal(t, repaint));
+  });
+  $$('[data-docs-trab]', listEl).forEach((btn) => {
+    btn.addEventListener('click', () => openDocumentosModal(Number(btn.dataset.docsTrab), btn.dataset.docsNombre));
+  });
+  $$('[data-baja-trab]', listEl).forEach((btn) => {
+    btn.addEventListener('click', () => openBajaModal(Number(btn.dataset.bajaTrab), btn.dataset.bajaNombre, repaint));
+  });
+  $$('[data-reactiva-trab]', listEl).forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const id = Number(btn.dataset.reactivaTrab);
+      try {
+        await api(`/projects/${state.projectId}/trabajadores/${id}/reactivar`, { method: 'POST' });
+        toast('Trabajador reactivado', 'success');
+        await repaint();
+      } catch (err) { toast(err.message, 'danger'); }
+    });
+  });
+  $$('[data-del-trab]', listEl).forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const id = Number(btn.dataset.delTrab);
+      const nombre = btn.dataset.delNombre;
+      if (!confirm(`¿Eliminar permanentemente a "${nombre}"? Se borrarán su expediente y todos sus registros. Esta acción no se puede deshacer.`)) return;
+      try {
+        await api(`/projects/${state.projectId}/trabajadores/${id}`, { method: 'DELETE' });
+        toast('Trabajador eliminado', 'success');
+        await repaint();
+      } catch (err) { toast(err.message, 'danger'); }
+    });
+  });
+}
+
+async function openTrabajadorModal(trab, repaint) {
+  const isEdit = !!trab;
+  // Load destajistas for optional linking
+  let destajistas = [];
+  try { destajistas = await api(`/projects/${state.projectId}/destajistas`); } catch (_) {}
+
+  const tipoPagoOpts = Object.entries(TIPO_PAGO_LABELS)
+    .map(([v, l]) => `<option value="${v}" ${trab && trab.tipo_pago === v ? 'selected' : ''}>${l}</option>`).join('');
+  const periodicidadOpts = Object.entries(PERIODICIDAD_LABELS)
+    .map(([v, l]) => `<option value="${v}" ${trab && trab.periodicidad === v ? 'selected' : v === 'semanal' ? 'selected' : ''}>${l}</option>`).join('');
+  const destajistaOpts = `<option value="">— Sin vínculo —</option>` +
+    destajistas.map((d) => `<option value="${d.id}" ${trab && trab.destajista_id === d.id ? 'selected' : ''}>${esc(d.nombre)}</option>`).join('');
+
+  openModal(`
+    <h3>${isEdit ? 'Editar trabajador' : 'Nuevo trabajador'}</h3>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+      <div class="field" style="grid-column:1/-1"><label>Nombre completo *</label><input id="tNombre" value="${esc(trab?.nombre || '')}" /></div>
+      <div class="field"><label>Puesto</label><input id="tPuesto" value="${esc(trab?.puesto || '')}" /></div>
+      <div class="field"><label>Fecha de ingreso</label><input id="tFechaIngreso" type="date" value="${trab?.fecha_ingreso ? trab.fecha_ingreso.slice(0,10) : ''}" /></div>
+      <div class="field"><label>Tipo de pago *</label><select id="tTipoPago">${tipoPagoOpts}</select></div>
+      <div class="field"><label>Periodicidad *</label><select id="tPeriodicidad">${periodicidadOpts}</select></div>
+      <div class="field" id="tTarifaField" style="grid-column:1/-1"><label>Tarifa jornal ($/día)</label><input id="tTarifa" type="number" min="0" step="0.01" value="${trab?.tarifa_jornal ?? ''}" /></div>
+      <div class="field" style="grid-column:1/-1">
+        <label>Vínculo con destajista (opcional)</label>
+        <select id="tDestajista">${destajistaOpts}</select>
+        <p class="muted" style="font-size:0.76rem;margin:2px 0 0">Permite importar producción de destajo al calcular nómina.</p>
+      </div>
+      <div class="field"><label>CURP</label><input id="tCurp" value="${esc(trab?.curp || '')}" /></div>
+      <div class="field"><label>RFC</label><input id="tRfc" value="${esc(trab?.rfc || '')}" /></div>
+      <div class="field"><label>NSS</label><input id="tNss" value="${esc(trab?.nss || '')}" /></div>
+      <div class="field"><label>Teléfono</label><input id="tTelefono" value="${esc(trab?.telefono || '')}" /></div>
+      <div class="field" style="grid-column:1/-1"><label>Dirección</label><input id="tDireccion" value="${esc(trab?.direccion || '')}" /></div>
+      <div class="field" style="grid-column:1/-1"><label>Contacto de emergencia</label><input id="tContacto" value="${esc(trab?.contacto_emergencia || '')}" /></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" id="btnCancelTrab">Cancelar</button>
+      <button class="btn btn-primary" id="btnSaveTrab">${isEdit ? 'Guardar cambios' : 'Crear trabajador'}</button>
+    </div>
+  `);
+
+  function syncTarifaField() {
+    const tipo = $('#tTipoPago').value;
+    $('#tTarifaField').style.display = tipo === 'destajo' ? 'none' : '';
+  }
+  syncTarifaField();
+  $('#tTipoPago').addEventListener('change', syncTarifaField);
+  $('#btnCancelTrab').addEventListener('click', closeModal);
+  $('#btnSaveTrab').addEventListener('click', async () => {
+    const nombre = $('#tNombre').value.trim();
+    if (!nombre) { toast('El nombre es obligatorio', 'danger'); return; }
+    const body = {
+      nombre,
+      puesto: $('#tPuesto').value.trim() || null,
+      fecha_ingreso: $('#tFechaIngreso').value || null,
+      tipo_pago: $('#tTipoPago').value,
+      periodicidad: $('#tPeriodicidad').value,
+      tarifa_jornal: parseFloat($('#tTarifa').value) || 0,
+      destajista_id: Number($('#tDestajista').value) || null,
+      curp: $('#tCurp').value.trim() || null,
+      rfc: $('#tRfc').value.trim() || null,
+      nss: $('#tNss').value.trim() || null,
+      telefono: $('#tTelefono').value.trim() || null,
+      direccion: $('#tDireccion').value.trim() || null,
+      contacto_emergencia: $('#tContacto').value.trim() || null,
+    };
+    const btn = $('#btnSaveTrab');
+    btn.disabled = true;
+    try {
+      if (isEdit) {
+        await api(`/projects/${state.projectId}/trabajadores/${trab.id}`, { method: 'PUT', body });
+      } else {
+        await api(`/projects/${state.projectId}/trabajadores`, { method: 'POST', body });
+      }
+      toast(isEdit ? 'Trabajador actualizado' : 'Trabajador creado', 'success');
+      closeModal();
+      await repaint();
+    } catch (err) { toast(err.message, 'danger'); btn.disabled = false; }
+  });
+}
+
+async function openBajaModal(id, nombre, repaint) {
+  openModal(`
+    <h3>Dar de baja a ${esc(nombre)}</h3>
+    <p class="muted">El trabajador quedará inactivo. Su expediente e historial se conservan. Puedes reactivarlo en cualquier momento.</p>
+    <div class="field"><label>Motivo de baja</label><textarea id="tMotivoBaja" rows="3" placeholder="Opcional — terminación de contrato, renuncia, etc."></textarea></div>
+    <div class="modal-actions">
+      <button class="btn" id="btnCancelBaja">Cancelar</button>
+      <button class="btn btn-danger" id="btnConfirmBaja">Dar de baja</button>
+    </div>
+  `);
+  $('#btnCancelBaja').addEventListener('click', closeModal);
+  $('#btnConfirmBaja').addEventListener('click', async () => {
+    const btn = $('#btnConfirmBaja');
+    btn.disabled = true;
+    try {
+      await api(`/projects/${state.projectId}/trabajadores/${id}/baja`, {
+        method: 'POST',
+        body: { motivo: $('#tMotivoBaja').value.trim() || null },
+      });
+      toast('Trabajador dado de baja', 'success');
+      closeModal();
+      await repaint();
+    } catch (err) { toast(err.message, 'danger'); btn.disabled = false; }
+  });
+}
+
+async function openDocumentosModal(trabajadorId, nombreTrab) {
+  openModal(`
+    <h3>Documentos — ${esc(nombreTrab)}</h3>
+    <div id="docsListEl"><div class="empty-state">Cargando…</div></div>
+    ${puedeGestionarTrabajadores() ? `
+    <div style="margin-top:12px;border-top:1px solid var(--border-color);padding-top:12px">
+      <p class="muted" style="font-size:0.85rem;margin:0 0 8px">Subir nuevo documento (INE, CURP, comprobante de domicilio)</p>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+        <div class="field"><label>Tipo</label>
+          <select id="docTipo">
+            ${Object.entries(TIPO_DOC_LABELS).map(([v, l]) => `<option value="${v}">${l}</option>`).join('')}
+          </select>
+        </div>
+        <div class="field"><label>Archivo</label><input id="docFile" type="file" accept="image/*,.pdf" /></div>
+      </div>
+      <button class="btn btn-primary" id="btnSubirDoc">Subir documento</button>
+    </div>` : ''}
+    <div class="modal-actions"><button class="btn" id="btnCerrarDocs">Cerrar</button></div>
+  `);
+  $('#btnCerrarDocs').addEventListener('click', closeModal);
+
+  async function loadDocs() {
+    const docs = await api(`/projects/${state.projectId}/trabajadores/${trabajadorId}/documentos`);
+    const el = $('#docsListEl');
+    if (!el) return;
+    if (!docs.length) { el.innerHTML = '<div class="empty-state">Sin documentos cargados.</div>'; return; }
+    el.innerHTML = docs.map((d) => `
+      <div class="row between" style="padding:6px 0;border-bottom:1px solid var(--border-color)">
+        <span style="font-size:0.85rem">${esc(TIPO_DOC_LABELS[d.tipo_doc] || d.tipo_doc)} — ${esc(d.nombre_original)}</span>
+        <div class="row" style="gap:6px">
+          <button class="btn small" data-dl-doc="${d.id}" data-dl-nombre="${esc(d.nombre_original)}">Descargar</button>
+          ${puedeGestionarTrabajadores() ? `<button class="btn small btn-danger" data-del-doc="${d.id}">Eliminar</button>` : ''}
+        </div>
+      </div>
+    `).join('');
+
+    $$('[data-dl-doc]', el).forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        try {
+          await apiDownload(`/projects/${state.projectId}/trabajadores/${trabajadorId}/documentos/${btn.dataset.dlDoc}/download`, btn.dataset.dlNombre);
+        } catch (err) { toast(err.message, 'danger'); }
+      });
+    });
+    $$('[data-del-doc]', el).forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        if (!confirm('¿Eliminar este documento?')) return;
+        try {
+          await api(`/projects/${state.projectId}/trabajadores/${trabajadorId}/documentos/${btn.dataset.delDoc}`, { method: 'DELETE' });
+          toast('Documento eliminado', 'success');
+          await loadDocs();
+        } catch (err) { toast(err.message, 'danger'); }
+      });
+    });
+  }
+  await loadDocs();
+
+  $('#btnSubirDoc')?.addEventListener('click', async () => {
+    const fileInput = $('#docFile');
+    const file = fileInput?.files?.[0];
+    if (!file) { toast('Selecciona un archivo', 'danger'); return; }
+    const tipo = $('#docTipo').value;
+    const btn = $('#btnSubirDoc');
+    btn.disabled = true;
+    btn.textContent = 'Subiendo…';
+    try {
+      const blob = await VercelBlobClient.upload(file.name, file, {
+        access: 'private',
+        handleUploadUrl: `/api/projects/${state.projectId}/trabajadores/${trabajadorId}/documentos/upload-token`,
+        headers: state.token ? { Authorization: `Bearer ${state.token}` } : {},
+        clientPayload: JSON.stringify({ tipo_doc: tipo }),
+      });
+      await api(`/projects/${state.projectId}/trabajadores/${trabajadorId}/documentos`, {
+        method: 'POST',
+        body: { blob_url: blob.url, nombre_original: file.name, tipo_doc: tipo },
+      });
+      toast('Documento subido', 'success');
+      fileInput.value = '';
+      await loadDocs();
+    } catch (err) { toast(err.message, 'danger'); }
+    btn.disabled = false;
+    btn.textContent = 'Subir documento';
+  });
+}
+
+// Downloads a file through an authenticated endpoint and triggers browser save.
+async function apiDownload(path, fallbackName) {
+  const res = await fetch(`/api${path}`, {
+    headers: state.token ? { Authorization: `Bearer ${state.token}` } : {},
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `Error ${res.status}`);
+  }
+  const blob = await res.blob();
+  const disposition = res.headers.get('Content-Disposition') || '';
+  const match = disposition.match(/filename="?([^";]+)"?/);
+  const filename = match ? match[1] : fallbackName;
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename; a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+}
+
+// ---------------------------------------------------------------------------
+// Nóminas
+// ---------------------------------------------------------------------------
+
+const NOMINA_ESTADO_LABELS = {
+  borrador: 'Borrador', revision: 'En revisión', aprobada: 'Aprobada', rechazada: 'Rechazada',
+};
+const NOMINA_ESTADO_BADGE = {
+  borrador: 'muted', revision: 'yellow', aprobada: 'green', rechazada: 'red',
+};
+
+async function renderNominas(view) {
+  if (!puedeVerNominas()) {
+    view.innerHTML = `<div class="alert-box danger">⚠️ No tienes permiso para ver esta sección.</div>`;
+    return;
+  }
+
+  // Sub-view: 'asistencia' | 'nominas'
+  let subView = 'asistencia';
+
+  function renderSubNav() {
+    return `
+      <div class="nominas-subnav">
+        <button class="btn ${subView === 'asistencia' ? 'btn-primary' : ''}" id="btnSubAsistencia">Asistencia diaria</button>
+        <button class="btn ${subView === 'nominas' ? 'btn-primary' : ''}" id="btnSubNominas">Nóminas</button>
+      </div>
+    `;
+  }
+
+  async function showAsistencia() {
+    subView = 'asistencia';
+    const today = new Date().toISOString().slice(0, 10);
+    view.innerHTML = `
+      <h2 class="section-title">Personal</h2>
+      ${renderSubNav()}
+      <div class="card" style="margin-top:12px">
+        <div class="row between" style="flex-wrap:wrap;gap:8px;align-items:flex-end">
+          <div class="field" style="margin:0">
+            <label>Fecha</label>
+            <input type="date" id="asistenciaFecha" value="${today}" style="width:auto" />
+          </div>
+          <button class="btn btn-primary" id="btnCargarAsistencia">Cargar</button>
+        </div>
+      </div>
+      <div id="asistenciaPanel"></div>
+    `;
+    bindSubNav();
+    $('#btnCargarAsistencia').addEventListener('click', () => loadAsistencia($('#asistenciaFecha').value));
+    await loadAsistencia(today);
+  }
+
+  async function loadAsistencia(fecha) {
+    const panel = $('#asistenciaPanel');
+    if (!panel) return;
+    panel.innerHTML = '<div class="empty-state">Cargando…</div>';
+    try {
+      const data = await api(`/projects/${state.projectId}/asistencia?fecha=${fecha}`);
+      if (!data.trabajadores?.length) {
+        panel.innerHTML = '<div class="empty-state">No hay trabajadores activos en esta obra.</div>';
+        return;
+      }
+      panel.innerHTML = `
+        <div class="card" style="margin-top:8px">
+          <table class="asistencia-table">
+            <thead><tr><th>Trabajador</th><th>Puesto</th><th style="text-align:center">Asistió</th></tr></thead>
+            <tbody>
+              ${data.trabajadores.map((t) => `
+                <tr>
+                  <td>${esc(t.nombre)}</td>
+                  <td class="muted" style="font-size:0.8rem">${esc(t.puesto || '—')}</td>
+                  <td style="text-align:center">
+                    <input type="checkbox" class="asistencia-check" data-tid="${t.id}"
+                      ${t.presente ? 'checked' : ''} ${!puedeCapturarAsistencia() ? 'disabled' : ''} />
+                  </td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+          ${puedeCapturarAsistencia() ? `
+            <div class="row end" style="margin-top:12px">
+              <button class="btn btn-primary" id="btnGuardarAsistencia">Guardar asistencia</button>
+            </div>` : ''}
+        </div>
+      `;
+      $('#btnGuardarAsistencia')?.addEventListener('click', async () => {
+        const asistencia = $$('.asistencia-check', panel).map((chk) => ({
+          trabajador_id: Number(chk.dataset.tid),
+          presente: chk.checked,
+        }));
+        const btn = $('#btnGuardarAsistencia');
+        btn.disabled = true;
+        try {
+          await api(`/projects/${state.projectId}/asistencia`, {
+            method: 'PUT',
+            body: { fecha, asistencia },
+          });
+          toast('Asistencia guardada', 'success');
+        } catch (err) { toast(err.message, 'danger'); }
+        btn.disabled = false;
+      });
+    } catch (err) {
+      panel.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+    }
+  }
+
+  async function showNominas() {
+    subView = 'nominas';
+    view.innerHTML = `
+      <h2 class="section-title">Personal</h2>
+      ${renderSubNav()}
+      <div class="section-actions" style="margin-top:12px">
+        ${puedeCapturarAsistencia() ? `<button class="btn btn-primary" id="btnNuevaNomina">+ Nueva nómina</button>` : ''}
+      </div>
+      <div id="nominasList"><div class="empty-state">Cargando…</div></div>
+    `;
+    bindSubNav();
+    $('#btnNuevaNomina')?.addEventListener('click', () => openNominaModal(null, showNominas));
+    await loadNominas();
+  }
+
+  async function loadNominas() {
+    const el = $('#nominasList');
+    if (!el) return;
+    try {
+      const nominas = await api(`/projects/${state.projectId}/nominas`);
+      if (!nominas.length) { el.innerHTML = '<div class="empty-state">No hay nóminas registradas.</div>'; return; }
+      el.innerHTML = nominas.map((n) => `
+        <div class="card">
+          <div class="row between" style="flex-wrap:wrap;gap:6px">
+            <div>
+              <strong>${esc(n.fecha_inicio)} al ${esc(n.fecha_fin)}</strong>
+              <div class="muted" style="font-size:0.8rem">${n.num_trabajadores} trabajadores · $${Number(n.total_nomina || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })}</div>
+            </div>
+            <div class="row" style="gap:6px;align-items:center">
+              <span class="badge ${NOMINA_ESTADO_BADGE[n.estado] || 'muted'}">${esc(NOMINA_ESTADO_LABELS[n.estado] || n.estado)}</span>
+            </div>
+          </div>
+          ${n.nota_rechazo ? `<div class="muted" style="font-size:0.8rem;margin-top:4px">Nota: ${esc(n.nota_rechazo)}</div>` : ''}
+          <div class="row end" style="margin-top:8px;gap:6px;flex-wrap:wrap">
+            <button class="btn small" data-ver-nomina="${n.id}">Ver detalle</button>
+            ${n.estado === 'borrador' && puedeCapturarAsistencia() ? `<button class="btn small btn-primary" data-calcular-nomina="${n.id}">Calcular</button>` : ''}
+            ${n.estado === 'borrador' && puedeCapturarAsistencia() ? `<button class="btn small" data-enviar-nomina="${n.id}">Enviar a revisión</button>` : ''}
+            ${n.estado === 'revision' && puedeAprobarNomina() ? `
+              <button class="btn small btn-primary" data-aprobar-nomina="${n.id}">Aprobar</button>
+              <button class="btn small btn-danger" data-rechazar-nomina="${n.id}">Rechazar</button>` : ''}
+            ${n.estado === 'aprobada' && puedeAprobarNomina() ? `<button class="btn small" data-reabrir-nomina="${n.id}">Reabrir</button>` : ''}
+            ${n.estado === 'aprobada' ? `<button class="btn small btn-primary" data-exportar-nomina="${n.id}" data-exportar-nombre="Nomina_${n.id}">Exportar Excel</button>` : ''}
+          </div>
+        </div>
+      `).join('');
+
+      $$('[data-ver-nomina]', el).forEach((btn) => {
+        btn.addEventListener('click', () => openVerNominaModal(Number(btn.dataset.verNomina)));
+      });
+      $$('[data-calcular-nomina]', el).forEach((btn) => {
+        btn.addEventListener('click', async () => {
+          btn.disabled = true;
+          try {
+            await api(`/projects/${state.projectId}/nominas/${btn.dataset.calcularNomina}/calcular`, { method: 'POST' });
+            toast('Nómina calculada', 'success');
+            await loadNominas();
+          } catch (err) { toast(err.message, 'danger'); btn.disabled = false; }
+        });
+      });
+      $$('[data-enviar-nomina]', el).forEach((btn) => {
+        btn.addEventListener('click', () => openCambioEstadoModal(Number(btn.dataset.enviarNomina), 'revision', null, loadNominas));
+      });
+      $$('[data-aprobar-nomina]', el).forEach((btn) => {
+        btn.addEventListener('click', () => openCambioEstadoModal(Number(btn.dataset.aprobarNomina), 'aprobada', null, loadNominas));
+      });
+      $$('[data-rechazar-nomina]', el).forEach((btn) => {
+        btn.addEventListener('click', () => openCambioEstadoModal(Number(btn.dataset.rechazarNomina), 'rechazada', true, loadNominas));
+      });
+      $$('[data-reabrir-nomina]', el).forEach((btn) => {
+        btn.addEventListener('click', () => openCambioEstadoModal(Number(btn.dataset.reabrirNomina), 'borrador', null, loadNominas));
+      });
+      $$('[data-exportar-nomina]', el).forEach((btn) => {
+        btn.addEventListener('click', async () => {
+          btn.disabled = true;
+          try {
+            await apiDownload(`/projects/${state.projectId}/nominas/${btn.dataset.exportarNomina}/export`, `${btn.dataset.exportarNombre}.xlsx`);
+          } catch (err) { toast(err.message, 'danger'); }
+          btn.disabled = false;
+        });
+      });
+    } catch (err) {
+      el.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+    }
+  }
+
+  function bindSubNav() {
+    $('#btnSubAsistencia')?.addEventListener('click', showAsistencia);
+    $('#btnSubNominas')?.addEventListener('click', showNominas);
+  }
+
+  await showAsistencia();
+}
+
+async function openNominaModal(nomina, onSave) {
+  openModal(`
+    <h3>Nueva nómina</h3>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+      <div class="field"><label>Fecha inicio *</label><input id="nFechaInicio" type="date" /></div>
+      <div class="field"><label>Fecha fin *</label><input id="nFechaFin" type="date" /></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" id="btnCancelNomina">Cancelar</button>
+      <button class="btn btn-primary" id="btnSaveNomina">Crear nómina</button>
+    </div>
+  `);
+  $('#btnCancelNomina').addEventListener('click', closeModal);
+  $('#btnSaveNomina').addEventListener('click', async () => {
+    const fecha_inicio = $('#nFechaInicio').value;
+    const fecha_fin = $('#nFechaFin').value;
+    if (!fecha_inicio || !fecha_fin) { toast('Las fechas de inicio y fin son obligatorias', 'danger'); return; }
+    if (fecha_fin < fecha_inicio) { toast('La fecha fin debe ser igual o posterior a inicio', 'danger'); return; }
+    const btn = $('#btnSaveNomina');
+    btn.disabled = true;
+    try {
+      await api(`/projects/${state.projectId}/nominas`, {
+        method: 'POST',
+        body: { fecha_inicio, fecha_fin },
+      });
+      toast('Nómina creada', 'success');
+      closeModal();
+      if (onSave) await onSave();
+    } catch (err) { toast(err.message, 'danger'); btn.disabled = false; }
+  });
+}
+
+async function openVerNominaModal(nominaId) {
+  openModal(`<h3>Detalle de nómina</h3><div id="verNominaBody"><div class="empty-state">Cargando…</div></div><div class="modal-actions"><button class="btn" id="btnCerrarVerNomina">Cerrar</button></div>`);
+  $('#btnCerrarVerNomina').addEventListener('click', closeModal);
+  try {
+    // GET /nominas/:nomId returns { ...nom, items: [...] }
+    const data = await api(`/projects/${state.projectId}/nominas/${nominaId}`);
+    const items = data.items || [];
+    const el = $('#verNominaBody');
+    if (!el) return;
+    if (!items.length) { el.innerHTML = '<div class="empty-state">Sin líneas calculadas. Usa el botón Calcular primero.</div>'; return; }
+    const total = items.reduce((s, i) => s + Number(i.monto_total || 0), 0);
+    el.innerHTML = `
+      <div class="muted" style="font-size:0.82rem;margin-bottom:8px">${esc(data.fecha_inicio)} al ${esc(data.fecha_fin)}</div>
+      <table style="width:100%;font-size:0.85rem;border-collapse:collapse">
+        <thead><tr>
+          <th style="text-align:left;padding:4px 8px;border-bottom:1px solid var(--border-color)">Trabajador</th>
+          <th style="text-align:right;padding:4px 8px;border-bottom:1px solid var(--border-color)">Días</th>
+          <th style="text-align:right;padding:4px 8px;border-bottom:1px solid var(--border-color)">Monto</th>
+        </tr></thead>
+        <tbody>
+          ${items.map((i) => `
+            <tr>
+              <td style="padding:4px 8px">${esc(i.trabajador_nombre || i.nombre_trabajador || '—')}</td>
+              <td style="padding:4px 8px;text-align:right">${i.dias_trabajados ?? '—'}</td>
+              <td style="padding:4px 8px;text-align:right">$${Number(i.monto_total || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+        <tfoot><tr>
+          <td colspan="2" style="padding:6px 8px;font-weight:600;border-top:2px solid var(--border-color)">Total</td>
+          <td style="padding:6px 8px;font-weight:600;text-align:right;border-top:2px solid var(--border-color)">$${total.toLocaleString('es-MX', { minimumFractionDigits: 2 })}</td>
+        </tr></tfoot>
+      </table>
+    `;
+  } catch (err) {
+    const el = $('#verNominaBody');
+    if (el) el.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+  }
+}
+
+async function openCambioEstadoModal(nominaId, nuevoEstado, pedirNota, onDone) {
+  const accionLabel = { revision: 'Enviar a revisión', aprobada: 'Aprobar nómina', rechazada: 'Rechazar nómina', borrador: 'Reabrir nómina' }[nuevoEstado];
+  openModal(`
+    <h3>${accionLabel}</h3>
+    ${pedirNota ? `<div class="field"><label>Nota para el residente (opcional)</label><textarea id="estadoNota" rows="3"></textarea></div>` : ''}
+    <p class="muted" style="font-size:0.88rem">¿Confirmas el cambio de estado?</p>
+    <div class="modal-actions">
+      <button class="btn" id="btnCancelEstado">Cancelar</button>
+      <button class="btn btn-primary" id="btnConfirmEstado">Confirmar</button>
+    </div>
+  `);
+  $('#btnCancelEstado').addEventListener('click', closeModal);
+  $('#btnConfirmEstado').addEventListener('click', async () => {
+    const btn = $('#btnConfirmEstado');
+    btn.disabled = true;
+    const nota = pedirNota ? ($('#estadoNota')?.value.trim() || null) : null;
+    try {
+      await api(`/projects/${state.projectId}/nominas/${nominaId}/estado`, {
+        method: 'PUT',
+        body: { estado: nuevoEstado, nota },
+      });
+      toast('Estado actualizado', 'success');
+      closeModal();
+      if (onDone) await onDone();
+    } catch (err) { toast(err.message, 'danger'); btn.disabled = false; }
+  });
+}
 
 // ---------------------------------------------------------------------------
 // Boot

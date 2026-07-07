@@ -2852,6 +2852,465 @@ app.put('/api/projects/:id/destajistas/:destId/avance/:semana', h(auth.allow('re
   res.json({ ok: true, semana, omitidos });
 }));
 
+// ===========================================================================
+// TRABAJADORES — catálogo formal por obra (solo Admin)
+// ===========================================================================
+const TIPOS_PAGO = ['jornal', 'destajo', 'mixto'];
+const PERIODICIDADES = ['semanal', 'quincenal', 'mensual'];
+const TIPOS_DOC = ['ine_frente', 'ine_reverso', 'curp_doc', 'comprobante_domicilio', 'otro'];
+
+app.get('/api/projects/:id/trabajadores', h(auth.allow()), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  const { activo } = req.query;
+  let sql = `SELECT t.*, d.nombre AS destajista_nombre
+             FROM trabajadores t
+             LEFT JOIN destajistas d ON d.id = t.destajista_id
+             WHERE t.project_id = $1`;
+  const params = [req.project.id];
+  if (activo === '1') { sql += ' AND t.activo = true'; }
+  else if (activo === '0') { sql += ' AND t.activo = false'; }
+  sql += ' ORDER BY t.orden, t.nombre';
+  const { rows } = await db.pool.query(sql, params);
+  res.json(rows);
+}));
+
+app.post('/api/projects/:id/trabajadores', h(auth.allow()), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  const { nombre, puesto, tipo_pago, tarifa_jornal, periodicidad, curp, rfc, nss,
+          telefono, direccion, contacto_emergencia, fecha_ingreso, destajista_id } = req.body || {};
+  if (!nombre?.trim()) return res.status(400).json({ error: 'El nombre es requerido' });
+  if (!TIPOS_PAGO.includes(tipo_pago)) return res.status(400).json({ error: 'tipo_pago inválido' });
+  if (!PERIODICIDADES.includes(periodicidad)) return res.status(400).json({ error: 'periodicidad inválida' });
+  const destId = destajista_id ? Number(destajista_id) : null;
+  if (destId) {
+    const { rows: dRows } = await db.pool.query('SELECT id FROM destajistas WHERE id=$1 AND project_id=$2', [destId, req.project.id]);
+    if (!dRows[0]) return res.status(400).json({ error: 'Destajista vinculado no pertenece a esta obra' });
+  }
+  const { rows } = await db.pool.query(`
+    INSERT INTO trabajadores
+      (project_id, destajista_id, nombre, puesto, tipo_pago, tarifa_jornal, periodicidad,
+       curp, rfc, nss, telefono, direccion, contacto_emergencia, fecha_ingreso)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING *`,
+    [req.project.id, destId, nombre.trim(), puesto?.trim()||null, tipo_pago,
+     Math.max(0, Number(tarifa_jornal)||0), periodicidad,
+     curp?.trim()||null, rfc?.trim()||null, nss?.trim()||null,
+     telefono?.trim()||null, direccion?.trim()||null, contacto_emergencia?.trim()||null,
+     fecha_ingreso||null]
+  );
+  res.status(201).json(rows[0]);
+}));
+
+app.put('/api/projects/:id/trabajadores/:wId', h(auth.allow()), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  const wId = Number(req.params.wId);
+  const { nombre, puesto, tipo_pago, tarifa_jornal, periodicidad, curp, rfc, nss,
+          telefono, direccion, contacto_emergencia, fecha_ingreso, destajista_id } = req.body || {};
+  if (!nombre?.trim()) return res.status(400).json({ error: 'El nombre es requerido' });
+  if (!TIPOS_PAGO.includes(tipo_pago)) return res.status(400).json({ error: 'tipo_pago inválido' });
+  if (!PERIODICIDADES.includes(periodicidad)) return res.status(400).json({ error: 'periodicidad inválida' });
+  const destId = destajista_id ? Number(destajista_id) : null;
+  if (destId) {
+    const { rows: dRows } = await db.pool.query('SELECT id FROM destajistas WHERE id=$1 AND project_id=$2', [destId, req.project.id]);
+    if (!dRows[0]) return res.status(400).json({ error: 'Destajista vinculado no pertenece a esta obra' });
+  }
+  const { rows } = await db.pool.query(`
+    UPDATE trabajadores SET
+      destajista_id=$1, nombre=$2, puesto=$3, tipo_pago=$4, tarifa_jornal=$5,
+      periodicidad=$6, curp=$7, rfc=$8, nss=$9, telefono=$10, direccion=$11,
+      contacto_emergencia=$12, fecha_ingreso=$13
+    WHERE id=$14 AND project_id=$15 RETURNING *`,
+    [destId, nombre.trim(), puesto?.trim()||null, tipo_pago,
+     Math.max(0, Number(tarifa_jornal)||0), periodicidad,
+     curp?.trim()||null, rfc?.trim()||null, nss?.trim()||null,
+     telefono?.trim()||null, direccion?.trim()||null, contacto_emergencia?.trim()||null,
+     fecha_ingreso||null, wId, req.project.id]
+  );
+  if (!rows[0]) return res.status(404).json({ error: 'Trabajador no encontrado' });
+  res.json(rows[0]);
+}));
+
+app.post('/api/projects/:id/trabajadores/:wId/baja', h(auth.allow()), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  const wId = Number(req.params.wId);
+  const { motivo } = req.body || {};
+  const { rows } = await db.pool.query(
+    `UPDATE trabajadores SET activo=false, fecha_baja=CURRENT_DATE, motivo_baja=$1
+     WHERE id=$2 AND project_id=$3 AND activo=true RETURNING *`,
+    [motivo?.trim()||null, wId, req.project.id]
+  );
+  if (!rows[0]) return res.status(404).json({ error: 'Trabajador no encontrado o ya dado de baja' });
+  res.json(rows[0]);
+}));
+
+app.post('/api/projects/:id/trabajadores/:wId/reactivar', h(auth.allow()), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  const wId = Number(req.params.wId);
+  const { rows } = await db.pool.query(
+    `UPDATE trabajadores SET activo=true, fecha_baja=NULL, motivo_baja=NULL
+     WHERE id=$1 AND project_id=$2 AND activo=false RETURNING *`,
+    [wId, req.project.id]
+  );
+  if (!rows[0]) return res.status(404).json({ error: 'Trabajador no encontrado o ya activo' });
+  res.json(rows[0]);
+}));
+
+app.delete('/api/projects/:id/trabajadores/:wId', h(auth.allow()), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  const wId = Number(req.params.wId);
+  const { rows: trabRows } = await db.pool.query(
+    'SELECT activo FROM trabajadores WHERE id=$1 AND project_id=$2',
+    [wId, req.project.id]
+  );
+  if (!trabRows[0]) return res.status(404).json({ error: 'Trabajador no encontrado' });
+  // Paso 1: debe estar previamente dado de baja
+  if (trabRows[0].activo) return res.status(409).json({ error: 'Da de baja al trabajador antes de eliminarlo permanentemente' });
+  // Paso 2: no debe tener ningún historial (asistencia ni nómina)
+  // — asistencia_diaria tiene ON DELETE CASCADE, lo que borraría historia silenciosamente
+  // — nomina_items no tiene ON DELETE, lo que lanzaría una FK violation (500) sin este guard
+  const { rows: historial } = await db.pool.query(`
+    SELECT 1 FROM asistencia_diaria WHERE trabajador_id=$1
+    UNION ALL
+    SELECT 1 FROM nomina_items     WHERE trabajador_id=$1
+    LIMIT 1`,
+    [wId]
+  );
+  if (historial.length) {
+    return res.status(409).json({ error: 'No se puede eliminar: el trabajador tiene historial de asistencia o nómina registrado' });
+  }
+  // Sin historial: eliminar documentos del blob y luego el registro
+  const { rows: docs } = await db.pool.query('SELECT blob_url FROM trabajador_documentos WHERE trabajador_id=$1', [wId]);
+  await Promise.all(docs.map((d) => del(d.blob_url).catch(() => {})));
+  const { rowCount } = await db.pool.query('DELETE FROM trabajadores WHERE id=$1 AND project_id=$2', [wId, req.project.id]);
+  if (rowCount === 0) return res.status(404).json({ error: 'Trabajador no encontrado' });
+  res.json({ ok: true });
+}));
+
+// --- Documentos de identidad (Vercel Blob privado) ---
+app.post('/api/projects/:id/trabajadores/:wId/documentos/upload-token', h(auth.allow()), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  const wId = Number(req.params.wId);
+  const { rows } = await db.pool.query('SELECT id FROM trabajadores WHERE id=$1 AND project_id=$2', [wId, req.project.id]);
+  if (!rows[0]) return res.status(404).json({ error: 'Trabajador no encontrado' });
+  try {
+    const jsonResponse = await handleUpload({
+      body: req.body,
+      request: req,
+      onBeforeGenerateToken: async (pathname) => {
+        const ext = (pathname.split('.').pop() || '').toLowerCase();
+        const allowed = ['jpg', 'jpeg', 'png', 'pdf', 'heic', 'webp'];
+        if (!allowed.includes(ext)) throw new Error('Solo se admiten imágenes (JPG/PNG/HEIC/WEBP) o PDF');
+        return {
+          access: 'private',
+          addRandomSuffix: true,
+          maximumSizeInBytes: 15 * 1024 * 1024,
+        };
+      },
+    });
+    res.json(jsonResponse);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+}));
+
+app.post('/api/projects/:id/trabajadores/:wId/documentos', h(auth.allow()), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  const wId = Number(req.params.wId);
+  const { tipo, nombre_archivo, blob_url } = req.body || {};
+  if (!blob_url) return res.status(400).json({ error: 'blob_url es requerido' });
+  if (!TIPOS_DOC.includes(tipo)) return res.status(400).json({ error: 'tipo de documento inválido' });
+  const { rows: wRows } = await db.pool.query('SELECT id FROM trabajadores WHERE id=$1 AND project_id=$2', [wId, req.project.id]);
+  if (!wRows[0]) return res.status(404).json({ error: 'Trabajador no encontrado' });
+  const { rows } = await db.pool.query(
+    'INSERT INTO trabajador_documentos (trabajador_id, tipo, nombre_archivo, blob_url, subido_por) VALUES ($1,$2,$3,$4,$5) RETURNING *',
+    [wId, tipo, nombre_archivo?.trim()||'documento', blob_url, req.user.id]
+  );
+  res.status(201).json(rows[0]);
+}));
+
+app.get('/api/projects/:id/trabajadores/:wId/documentos', h(auth.allow()), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  const wId = Number(req.params.wId);
+  const { rows } = await db.pool.query(
+    'SELECT id, tipo, nombre_archivo, subido_en FROM trabajador_documentos WHERE trabajador_id=$1 ORDER BY subido_en DESC',
+    [wId]
+  );
+  res.json(rows);
+}));
+
+app.get('/api/projects/:id/trabajadores/:wId/documentos/:docId/download', h(auth.allow()), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  const wId = Number(req.params.wId);
+  const docId = Number(req.params.docId);
+  const { rows } = await db.pool.query(
+    'SELECT d.* FROM trabajador_documentos d JOIN trabajadores t ON t.id=d.trabajador_id WHERE d.id=$1 AND t.id=$2 AND t.project_id=$3',
+    [docId, wId, req.project.id]
+  );
+  if (!rows[0]) return res.status(404).json({ error: 'Documento no encontrado' });
+  const blobResult = await get(rows[0].blob_url, { access: 'private' });
+  if (!blobResult) return res.status(404).json({ error: 'Archivo no encontrado en almacenamiento' });
+  const ext = (rows[0].nombre_archivo.split('.').pop() || 'bin').toLowerCase();
+  const mimeMap = { pdf: 'application/pdf', jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', heic: 'image/heic', webp: 'image/webp' };
+  res.setHeader('Content-Type', mimeMap[ext] || 'application/octet-stream');
+  res.setHeader('Content-Disposition', `inline; filename="${rows[0].nombre_archivo}"`);
+  const { pipeline: pipe } = require('stream/promises');
+  await pipe(Readable.fromWeb(blobResult.stream), res);
+}));
+
+app.delete('/api/projects/:id/trabajadores/:wId/documentos/:docId', h(auth.allow()), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  const wId = Number(req.params.wId);
+  const docId = Number(req.params.docId);
+  const { rows } = await db.pool.query(
+    'SELECT d.blob_url FROM trabajador_documentos d JOIN trabajadores t ON t.id=d.trabajador_id WHERE d.id=$1 AND t.id=$2 AND t.project_id=$3',
+    [docId, wId, req.project.id]
+  );
+  if (!rows[0]) return res.status(404).json({ error: 'Documento no encontrado' });
+  await del(rows[0].blob_url).catch(() => {});
+  await db.pool.query('DELETE FROM trabajador_documentos WHERE id=$1', [docId]);
+  res.json({ ok: true });
+}));
+
+// ===========================================================================
+// ASISTENCIA DIARIA
+// ===========================================================================
+app.get('/api/projects/:id/asistencia', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  const { fecha } = req.query;
+  if (!fecha || !/^\d{4}-\d{2}-\d{2}$/.test(fecha)) return res.status(400).json({ error: 'fecha requerida (YYYY-MM-DD)' });
+  // Todos los trabajadores activos + su registro de asistencia para esa fecha
+  const { rows } = await db.pool.query(`
+    SELECT t.id, t.nombre, t.puesto, t.tipo_pago,
+           COALESCE(a.presente, false) AS presente,
+           a.id AS asistencia_id
+    FROM trabajadores t
+    LEFT JOIN asistencia_diaria a ON a.trabajador_id = t.id AND a.project_id = $1 AND a.fecha = $2
+    WHERE t.project_id = $1 AND t.activo = true
+    ORDER BY t.orden, t.nombre`,
+    [req.project.id, fecha]
+  );
+  res.json({ fecha, trabajadores: rows });
+}));
+
+app.put('/api/projects/:id/asistencia', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  const { fecha, asistencia } = req.body || {};
+  if (!fecha || !/^\d{4}-\d{2}-\d{2}$/.test(fecha)) return res.status(400).json({ error: 'fecha inválida' });
+  if (!Array.isArray(asistencia)) return res.status(400).json({ error: 'asistencia debe ser un arreglo' });
+  // Verificar que la fecha no caiga dentro de una nómina aprobada
+  const { rows: bloqRows } = await db.pool.query(
+    `SELECT id FROM nominas WHERE project_id=$1 AND estado='aprobada' AND fecha_inicio<=$2 AND fecha_fin>=$2`,
+    [req.project.id, fecha]
+  );
+  if (bloqRows.length) return res.status(409).json({ error: 'Esta fecha está cubierta por una nómina aprobada y no puede modificarse' });
+
+  await db.withTransaction(async (client) => {
+    for (const item of asistencia) {
+      const wId = Number(item.trabajador_id);
+      const presente = Boolean(item.presente);
+      await client.query(`
+        INSERT INTO asistencia_diaria (project_id, trabajador_id, fecha, presente, capturado_por, actualizado_en)
+        VALUES ($1,$2,$3,$4,$5,NOW())
+        ON CONFLICT (project_id, trabajador_id, fecha)
+        DO UPDATE SET presente=EXCLUDED.presente, capturado_por=EXCLUDED.capturado_por, actualizado_en=NOW()`,
+        [req.project.id, wId, fecha, presente, req.user.id]
+      );
+    }
+  });
+  res.json({ ok: true, fecha, guardados: asistencia.length });
+}));
+
+// ===========================================================================
+// NÓMINAS
+// ===========================================================================
+const ESTADOS_NOMINA = ['borrador', 'revision', 'aprobada', 'rechazada'];
+
+app.get('/api/projects/:id/nominas', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  const { rows } = await db.pool.query(`
+    SELECT n.*,
+           u.nombre AS aprobada_por_nombre,
+           c.nombre AS creado_por_nombre,
+           COUNT(ni.id)::int AS num_trabajadores,
+           COALESCE(SUM(ni.monto_total), 0) AS total_nomina
+    FROM nominas n
+    LEFT JOIN usuarios u ON u.id = n.aprobada_por
+    LEFT JOIN usuarios c ON c.id = n.creado_por
+    LEFT JOIN nomina_items ni ON ni.nomina_id = n.id
+    WHERE n.project_id = $1
+    GROUP BY n.id, u.nombre, c.nombre
+    ORDER BY n.fecha_inicio DESC`,
+    [req.project.id]
+  );
+  res.json(rows);
+}));
+
+app.post('/api/projects/:id/nominas', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  const { fecha_inicio, fecha_fin } = req.body || {};
+  if (!fecha_inicio || !fecha_fin) return res.status(400).json({ error: 'fecha_inicio y fecha_fin son requeridas' });
+  if (fecha_inicio > fecha_fin) return res.status(400).json({ error: 'fecha_inicio debe ser anterior a fecha_fin' });
+  // Evitar solapamiento con nóminas aprobadas existentes
+  const { rows: solap } = await db.pool.query(
+    `SELECT id FROM nominas WHERE project_id=$1 AND estado='aprobada' AND fecha_inicio<=$2 AND fecha_fin>=$3`,
+    [req.project.id, fecha_fin, fecha_inicio]
+  );
+  if (solap.length) return res.status(409).json({ error: 'El periodo se solapa con una nómina ya aprobada' });
+  const { rows } = await db.pool.query(
+    'INSERT INTO nominas (project_id, fecha_inicio, fecha_fin, creado_por) VALUES ($1,$2,$3,$4) RETURNING *',
+    [req.project.id, fecha_inicio, fecha_fin, req.user.id]
+  );
+  res.status(201).json(rows[0]);
+}));
+
+app.get('/api/projects/:id/nominas/:nomId', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  const nomId = Number(req.params.nomId);
+  const { rows: nomRows } = await db.pool.query(
+    'SELECT n.*, u.nombre AS aprobada_por_nombre FROM nominas n LEFT JOIN usuarios u ON u.id=n.aprobada_por WHERE n.id=$1 AND n.project_id=$2',
+    [nomId, req.project.id]
+  );
+  if (!nomRows[0]) return res.status(404).json({ error: 'Nómina no encontrada' });
+  const { rows: items } = await db.pool.query(`
+    SELECT ni.*, t.nombre AS trabajador_nombre, t.tipo_pago, t.tarifa_jornal, t.periodicidad
+    FROM nomina_items ni
+    JOIN trabajadores t ON t.id = ni.trabajador_id
+    WHERE ni.nomina_id = $1
+    ORDER BY t.nombre`,
+    [nomId]
+  );
+  res.json({ ...nomRows[0], items });
+}));
+
+app.post('/api/projects/:id/nominas/:nomId/calcular', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  const nomId = Number(req.params.nomId);
+  const { rows: nomRows } = await db.pool.query(
+    'SELECT * FROM nominas WHERE id=$1 AND project_id=$2',
+    [nomId, req.project.id]
+  );
+  if (!nomRows[0]) return res.status(404).json({ error: 'Nómina no encontrada' });
+  if (nomRows[0].estado === 'aprobada') return res.status(409).json({ error: 'No se puede recalcular una nómina aprobada' });
+  const nom = nomRows[0];
+
+  // Obtener todos los trabajadores activos (y los que ya tenían item aunque se hayan dado de baja)
+  const { rows: trabajadores } = await db.pool.query(
+    'SELECT * FROM trabajadores WHERE project_id=$1 AND activo=true ORDER BY nombre',
+    [req.project.id]
+  );
+
+  // Días de asistencia por trabajador en el periodo
+  const { rows: asistRows } = await db.pool.query(`
+    SELECT trabajador_id, COUNT(*) FILTER (WHERE presente=true)::int AS dias_presentes
+    FROM asistencia_diaria
+    WHERE project_id=$1 AND fecha>=$2 AND fecha<=$3
+    GROUP BY trabajador_id`,
+    [req.project.id, nom.fecha_inicio, nom.fecha_fin]
+  );
+  const asistMap = new Map(asistRows.map((r) => [r.trabajador_id, r.dias_presentes]));
+
+  // Destajo acumulado por trabajador (desde avance_destajo para semanas que solapan el periodo)
+  const { rows: destajoRows } = await db.pool.query(`
+    SELECT t.id AS trabajador_id, COALESCE(SUM(ad.cantidad_ejecutada * di.precio_destajo), 0) AS monto_destajo
+    FROM trabajadores t
+    JOIN destajistas dest ON dest.id = t.destajista_id
+    JOIN destajo_items di ON di.destajista_id = dest.id
+    JOIN avance_destajo ad ON ad.destajo_item_id = di.id
+    JOIN avances_semanales av ON av.semana = ad.semana AND av.project_id = $1
+    WHERE t.project_id = $1 AND t.id = ANY($4::int[])
+      AND av.fecha_inicio <= $3 AND av.fecha_fin >= $2
+    GROUP BY t.id`,
+    [req.project.id, nom.fecha_inicio, nom.fecha_fin, trabajadores.map((t) => t.id)]
+  );
+  const destajoMap = new Map(destajoRows.map((r) => [r.trabajador_id, Number(r.monto_destajo)]));
+
+  await db.withTransaction(async (client) => {
+    // Eliminar items previos para recalcular limpio
+    await client.query('DELETE FROM nomina_items WHERE nomina_id=$1', [nomId]);
+    for (const t of trabajadores) {
+      const dias = asistMap.get(t.id) || 0;
+      const montoDest = (t.tipo_pago === 'destajo' || t.tipo_pago === 'mixto') ? (destajoMap.get(t.id) || 0) : 0;
+      const montoJornal = (t.tipo_pago === 'jornal' || t.tipo_pago === 'mixto') ? dias * Number(t.tarifa_jornal) : 0;
+      const total = montoJornal + montoDest;
+      await client.query(`
+        INSERT INTO nomina_items (nomina_id, trabajador_id, dias_trabajados, monto_jornal, monto_destajo, monto_total)
+        VALUES ($1,$2,$3,$4,$5,$6)`,
+        [nomId, t.id, dias, montoJornal, montoDest, total]
+      );
+    }
+  });
+
+  // Devolver nómina actualizada con items
+  const { rows: updItems } = await db.pool.query(`
+    SELECT ni.*, t.nombre AS trabajador_nombre, t.tipo_pago, t.tarifa_jornal
+    FROM nomina_items ni JOIN trabajadores t ON t.id=ni.trabajador_id
+    WHERE ni.nomina_id=$1 ORDER BY t.nombre`, [nomId]
+  );
+  res.json({ nomina: nomRows[0], items: updItems, total: updItems.reduce((s, i) => s + Number(i.monto_total), 0) });
+}));
+
+app.put('/api/projects/:id/nominas/:nomId/estado', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  const nomId = Number(req.params.nomId);
+  const { estado, nota_rechazo } = req.body || {};
+  if (!ESTADOS_NOMINA.includes(estado)) return res.status(400).json({ error: 'Estado inválido' });
+  const { rows: nomRows } = await db.pool.query('SELECT * FROM nominas WHERE id=$1 AND project_id=$2', [nomId, req.project.id]);
+  if (!nomRows[0]) return res.status(404).json({ error: 'Nómina no encontrada' });
+  const nom = nomRows[0];
+  const esAdmin = req.user.puesto === 'admin';
+  const esResidente = req.user.puesto === 'residente';
+
+  // Máquina de estados y validación de rol
+  const transicionesPermitidas = {
+    borrador:  { revision: true },                    // residente o admin
+    revision:  { aprobada: esAdmin, rechazada: esAdmin, borrador: esAdmin },
+    rechazada: { borrador: true },                    // residente o admin
+    aprobada:  { borrador: esAdmin },                 // solo admin puede reabrir
+  };
+  if (!transicionesPermitidas[nom.estado]?.[estado]) {
+    return res.status(403).json({ error: `No puedes cambiar de '${nom.estado}' a '${estado}'` });
+  }
+  // Residente solo puede enviar a revisión o regresar de rechazada
+  if (esResidente && !['revision'].includes(estado)) {
+    return res.status(403).json({ error: 'Residente solo puede enviar la nómina a revisión' });
+  }
+
+  const aprobadaPor = estado === 'aprobada' ? req.user.id : null;
+  const aprobadaEn = estado === 'aprobada' ? 'NOW()' : 'NULL';
+  const { rows } = await db.pool.query(`
+    UPDATE nominas SET estado=$1, nota_rechazo=$2,
+      aprobada_por=${estado === 'aprobada' ? '$4' : 'NULL'},
+      aprobada_en=${estado === 'aprobada' ? 'NOW()' : 'NULL'}
+    WHERE id=$3 RETURNING *`,
+    estado === 'aprobada'
+      ? [estado, nota_rechazo?.trim()||null, nomId, aprobadaPor]
+      : [estado, nota_rechazo?.trim()||null, nomId]
+  );
+  res.json(rows[0]);
+}));
+
+app.delete('/api/projects/:id/nominas/:nomId', h(auth.allow()), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  const nomId = Number(req.params.nomId);
+  const { rows: nomRows } = await db.pool.query('SELECT estado FROM nominas WHERE id=$1 AND project_id=$2', [nomId, req.project.id]);
+  if (!nomRows[0]) return res.status(404).json({ error: 'Nómina no encontrada' });
+  if (nomRows[0].estado === 'aprobada') return res.status(409).json({ error: 'No se puede eliminar una nómina aprobada' });
+  await db.pool.query('DELETE FROM nominas WHERE id=$1', [nomId]);
+  res.json({ ok: true });
+}));
+
+app.get('/api/projects/:id/nominas/:nomId/export', h(auth.allow()), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  const nomId = Number(req.params.nomId);
+  const { rows: nomRows } = await db.pool.query('SELECT * FROM nominas WHERE id=$1 AND project_id=$2', [nomId, req.project.id]);
+  if (!nomRows[0]) return res.status(404).json({ error: 'Nómina no encontrada' });
+  if (nomRows[0].estado !== 'aprobada') return res.status(409).json({ error: 'Solo se puede exportar una nómina aprobada' });
+  const { rows: items } = await db.pool.query(`
+    SELECT t.nombre AS trabajador, t.puesto, t.tipo_pago, t.periodicidad,
+           ni.dias_trabajados, ni.monto_jornal, ni.monto_destajo, ni.monto_total
+    FROM nomina_items ni JOIN trabajadores t ON t.id=ni.trabajador_id
+    WHERE ni.nomina_id=$1 ORDER BY t.nombre`, [nomId]
+  );
+  const nom = nomRows[0];
+  const filename = buildExportFilename(`Nomina_${nom.fecha_inicio}_${nom.fecha_fin}`, req.project.nombre);
+  await sendXlsxExport(res, {
+    filename,
+    sheets: [{
+      sheetName: 'Nómina',
+      columns: [
+        { header: 'Trabajador', key: 'trabajador', width: 30 },
+        { header: 'Puesto', key: 'puesto', width: 20 },
+        { header: 'Tipo pago', key: 'tipo_pago', width: 14 },
+        { header: 'Periodicidad', key: 'periodicidad', width: 14 },
+        { header: 'Días trabajados', key: 'dias_trabajados', width: 16, format: 'int' },
+        { header: 'Monto jornal', key: 'monto_jornal', width: 16, format: 'money' },
+        { header: 'Monto destajo', key: 'monto_destajo', width: 16, format: 'money' },
+        { header: 'Total', key: 'monto_total', width: 16, format: 'money' },
+      ],
+      rows: items,
+    }],
+  });
+}));
+
 // ---------------------------------------------------------------------------
 app.get('/health', (_req, res) => res.json({ ok: true }));
 

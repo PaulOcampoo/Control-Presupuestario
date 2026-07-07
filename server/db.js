@@ -13,7 +13,7 @@ const pool = new Pool({
   ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
   max: 10,
   idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 10000,
+  connectionTimeoutMillis: 30000,
 });
 
 const SCHEMA = `
@@ -415,6 +415,85 @@ const SCHEMA = `
     UNIQUE(usuario_id, cliente_id)
   );
   CREATE INDEX IF NOT EXISTS idx_ultima_visita_usuario_cliente ON ultima_visita(usuario_id, cliente_id);
+
+  -- Catálogo formal de trabajadores por obra (expediente personal). Coexiste
+  -- con 'destajistas' (rol en obra); el vínculo es opcional vía destajista_id.
+  CREATE TABLE IF NOT EXISTS trabajadores (
+    id SERIAL PRIMARY KEY,
+    project_id INTEGER NOT NULL REFERENCES proyectos(id) ON DELETE CASCADE,
+    destajista_id INTEGER REFERENCES destajistas(id) ON DELETE SET NULL,
+    nombre TEXT NOT NULL,
+    puesto TEXT,
+    tipo_pago TEXT NOT NULL DEFAULT 'jornal',
+    tarifa_jornal DOUBLE PRECISION DEFAULT 0,
+    periodicidad TEXT NOT NULL DEFAULT 'semanal',
+    curp TEXT,
+    rfc TEXT,
+    nss TEXT,
+    telefono TEXT,
+    direccion TEXT,
+    contacto_emergencia TEXT,
+    fecha_ingreso DATE,
+    activo BOOLEAN NOT NULL DEFAULT true,
+    fecha_baja DATE,
+    motivo_baja TEXT,
+    orden INTEGER DEFAULT 0,
+    creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
+  CREATE INDEX IF NOT EXISTS idx_trabajadores_project ON trabajadores(project_id);
+
+  -- Documentos de identidad (Vercel Blob privado — nunca URL pública directa)
+  CREATE TABLE IF NOT EXISTS trabajador_documentos (
+    id SERIAL PRIMARY KEY,
+    trabajador_id INTEGER NOT NULL REFERENCES trabajadores(id) ON DELETE CASCADE,
+    tipo TEXT NOT NULL,
+    nombre_archivo TEXT NOT NULL,
+    blob_url TEXT NOT NULL,
+    subido_por INTEGER REFERENCES usuarios(id),
+    subido_en TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
+  CREATE INDEX IF NOT EXISTS idx_trabajador_docs ON trabajador_documentos(trabajador_id);
+
+  -- Asistencia diaria (checklist por trabajador × fecha)
+  CREATE TABLE IF NOT EXISTS asistencia_diaria (
+    id SERIAL PRIMARY KEY,
+    project_id INTEGER NOT NULL REFERENCES proyectos(id) ON DELETE CASCADE,
+    trabajador_id INTEGER NOT NULL REFERENCES trabajadores(id) ON DELETE CASCADE,
+    fecha DATE NOT NULL,
+    presente BOOLEAN NOT NULL DEFAULT false,
+    capturado_por INTEGER REFERENCES usuarios(id),
+    actualizado_en TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(project_id, trabajador_id, fecha)
+  );
+  CREATE INDEX IF NOT EXISTS idx_asistencia_fecha ON asistencia_diaria(project_id, fecha);
+
+  -- Nóminas — cabecera de periodo de pago con flujo de autorización
+  CREATE TABLE IF NOT EXISTS nominas (
+    id SERIAL PRIMARY KEY,
+    project_id INTEGER NOT NULL REFERENCES proyectos(id) ON DELETE CASCADE,
+    fecha_inicio DATE NOT NULL,
+    fecha_fin DATE NOT NULL,
+    estado TEXT NOT NULL DEFAULT 'borrador',
+    nota_rechazo TEXT,
+    aprobada_por INTEGER REFERENCES usuarios(id),
+    aprobada_en TIMESTAMPTZ,
+    creado_por INTEGER REFERENCES usuarios(id),
+    creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
+  CREATE INDEX IF NOT EXISTS idx_nominas_project ON nominas(project_id);
+
+  -- Items de nómina — uno por trabajador por periodo
+  CREATE TABLE IF NOT EXISTS nomina_items (
+    id SERIAL PRIMARY KEY,
+    nomina_id INTEGER NOT NULL REFERENCES nominas(id) ON DELETE CASCADE,
+    trabajador_id INTEGER NOT NULL REFERENCES trabajadores(id),
+    dias_trabajados INTEGER DEFAULT 0,
+    monto_jornal DOUBLE PRECISION DEFAULT 0,
+    monto_destajo DOUBLE PRECISION DEFAULT 0,
+    monto_total DOUBLE PRECISION DEFAULT 0,
+    UNIQUE(nomina_id, trabajador_id)
+  );
+  CREATE INDEX IF NOT EXISTS idx_nomina_items_nomina ON nomina_items(nomina_id);
 `;
 
 async function initSchema() {

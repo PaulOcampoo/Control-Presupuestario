@@ -787,6 +787,7 @@ async function navigateFromNotif(notif) {
   if (!proj) return;
   closeNotifDropdown();
   closeDrawer();
+  closeModal();
   showApp();
   await selectProject(notif.project_id, tab);
   await abrirRegistroDesdeNotif(notif);
@@ -842,8 +843,8 @@ async function resaltarFilaDestajo(destId) {
   scrollAndFlash(row || card);
 }
 
-function renderNotifList() {
-  const list = $('#notifList');
+function renderNotifList(targetEl) {
+  const list = targetEl || $('#notifList');
   if (!state.notificaciones.length) {
     list.innerHTML = '<div class="empty-state" style="padding:24px 12px">Sin notificaciones.</div>';
     return;
@@ -867,7 +868,7 @@ function renderNotifList() {
         notif.leida = true;
         state.notifNoLeidas = Math.max(0, state.notifNoLeidas - 1);
         renderNotifBadge();
-        renderNotifList();
+        renderNotifList(targetEl);
       } catch (err) { toast(err.message, 'danger'); }
     });
   });
@@ -1532,6 +1533,7 @@ async function renderView() {
   view.innerHTML = '<div class="spinner"></div>';
   try {
     switch (state.view) {
+      case 'resumen':
       case 'inicio': await renderInicio(view); break;
       case 'contrato': await renderContrato(view); break;
       case 'impuestos': await renderImpuestos(view); break;
@@ -4891,14 +4893,31 @@ $('#mobileNavInicio').addEventListener('click', async () => {
   }
 });
 $('#mobileNavResumen').addEventListener('click', () => {
-  if (state.allowedTabs.includes('resumen') && state.projectId) switchToView('resumen');
-  else if (state.projectId) switchToView('inicio');
+  if (!state.projectId) { toast('Selecciona un presupuesto primero', ''); return; }
+  switchToView(state.allowedTabs.includes('resumen') ? 'resumen' : 'inicio');
 });
 $('#btnMobileQuick').addEventListener('click', openQuickActionMenu);
-$('#btnMobileNotif').addEventListener('click', (e) => {
-  e.stopPropagation();
-  $('#notifDropdown').classList.toggle('show');
-  if ($('#notifDropdown').classList.contains('show')) renderNotifList();
+$('#btnMobileNotif').addEventListener('click', async () => {
+  await refreshNotificaciones().catch(() => {});
+  openModal(`
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <h3 style="margin:0">Notificaciones</h3>
+      <button class="btn small" id="btnMarcarMobileLeidas">Todas leídas</button>
+    </div>
+    <div id="mobileNotifListEl" class="notif-list" style="max-height:55vh;overflow-y:auto"></div>
+    <div class="modal-actions"><button class="btn" id="btnCerrarNotifMobile">Cerrar</button></div>
+  `);
+  renderNotifList($('#mobileNotifListEl'));
+  $('#btnMarcarMobileLeidas')?.addEventListener('click', async () => {
+    try {
+      await api('/notificaciones/leer-todas', { method: 'PUT' });
+      state.notificaciones.forEach((n) => { n.leida = true; });
+      state.notifNoLeidas = 0;
+      renderNotifBadge();
+      renderNotifList($('#mobileNotifListEl'));
+    } catch (err) { toast(err.message, 'danger'); }
+  });
+  $('#btnCerrarNotifMobile')?.addEventListener('click', closeModal);
 });
 $('#mobileNavAjustes').addEventListener('click', openMobileAjustes);
 $('#quickActionBackdrop').addEventListener('click', closeQuickActionMenu);

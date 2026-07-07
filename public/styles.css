@@ -895,8 +895,21 @@ body.modal-open { overflow: hidden; }
   .topbar .notif-wrap { display: none !important; }
   .sidebar-footer { display: none; }
   .topbar .topbar-brand { display: none !important; }
-  /* Hace el título tappable para abrir el drawer de presupuestos */
-  .topbar-title { cursor: pointer; user-select: none; }
+  /* Título de proyecto: pill interactiva con chevron — indica que es tappable */
+  .topbar-title {
+    cursor: pointer; user-select: none;
+    flex-direction: row; align-items: center;
+    background: var(--bg-surface-2); border: 1px solid var(--border-color);
+    border-radius: 10px; height: 40px;
+    padding: 0 8px 0 12px;
+  }
+  .topbar-title span { flex: 1; min-width: 0; }
+  .topbar-title::after {
+    content: '⌄';
+    color: var(--text-secondary); font-size: 0.9rem;
+    flex-shrink: 0; margin-left: 4px; line-height: 1;
+  }
+  .topbar-title:active { opacity: 0.7; }
   /* Ocultar el FAB de escritorio — en móvil las acciones rápidas van en el
      botón "+" de la barra inferior; sin esto el FAB asoma sobre la nav bar */
   .fab { display: none !important; }

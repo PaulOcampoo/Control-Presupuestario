@@ -48,8 +48,10 @@ body {
   background: var(--bg-primary);
   color: var(--text-primary);
   -webkit-tap-highlight-color: transparent;
-  /* Previene overflow horizontal que puede romper el viewport en móvil */
-  overflow-x: hidden;
+  /* clip (no hidden) para evitar que body se convierta en scroll-container
+     (overflow-x:hidden eleva implícitamente overflow-y a auto, creando un
+     doble scroll cuando hay elementos fixed con overflow-y:auto propios) */
+  overflow-x: clip;
 }
 
 /* Elimina el delay de 300ms en todos los elementos interactivos.
@@ -352,10 +354,15 @@ body.modal-open { overflow: hidden; }
   background: var(--bg-surface-2); border: 1px solid var(--border-color); color: var(--text-primary);
   padding: 12px 18px; border-radius: 12px; font-size: 0.86rem; z-index: 80; max-width: 90vw;
   transition: transform 0.25s ease; box-shadow: 0 8px 30px rgba(0,0,0,0.4);
+  cursor: pointer;
 }
 .toast.show { transform: translateX(-50%) translateY(0); }
 .toast.danger { border-color: var(--red); color: #fecaca; }
 .toast.success { border-color: var(--green); color: #bbf7d0; }
+/* En móvil el toast debe quedar por encima de la barra de navegación inferior */
+@media (max-width: 860px) {
+  .toast { bottom: calc(var(--mobile-nav-h) + var(--safe-bottom) + 12px); }
+}
 
 .spinner {
   width: 28px; height: 28px; border-radius: 50%;
@@ -472,6 +479,8 @@ body.modal-open { overflow: hidden; }
   position: fixed; inset: 0; z-index: 100; display: flex; align-items: center; justify-content: center;
   background: radial-gradient(circle at 30% 20%, var(--bg-surface) 0%, var(--bg-primary) 60%);
   padding: 20px; overflow-y: auto;
+  /* Evita que el scroll de rubber-band de iOS se propague al body */
+  overscroll-behavior-y: contain;
 }
 .gallery-card {
   width: 100%; max-width: 720px; background: var(--bg-surface); border: 1px solid var(--border-color);
@@ -502,6 +511,7 @@ body.modal-open { overflow: hidden; }
   display: flex; align-items: flex-start; justify-content: center;
   background: radial-gradient(circle at 30% 20%, var(--bg-surface) 0%, var(--bg-primary) 60%);
   padding: 24px 16px; overflow-y: auto;
+  overscroll-behavior-y: contain;
 }
 .welcome-card {
   width: 100%; max-width: 720px; background: var(--bg-surface);

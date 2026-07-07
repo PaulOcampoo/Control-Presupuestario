@@ -759,7 +759,10 @@ function closeQuickActionMenu() {
 function openMobileAjustes() {
   const pref = getTheme();
   openModal(`
-    <h3>Ajustes</h3>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+      <h3 style="margin:0">Ajustes</h3>
+      <button class="icon-btn" id="btnCloseProfile" aria-label="Cerrar" style="width:32px;height:32px;font-size:1rem">✕</button>
+    </div>
     <div style="margin-bottom:14px;line-height:1.4">
       <strong>${esc(state.user?.nombre || '')}</strong>
       <div class="muted">${esc(PUESTO_LABELS[state.user?.puesto] || '')}</div>
@@ -772,7 +775,6 @@ function openMobileAjustes() {
     </div>
     <button class="btn full" id="btnMiCuentaModal" style="margin-bottom:6px">Mi cuenta</button>
     <button class="btn btn-danger full" id="btnLogoutModal">Cerrar sesión</button>
-    <div class="modal-actions"><button class="btn" id="btnCloseProfile">Cerrar</button></div>
   `);
   $$('.theme-opt', $('#modal')).forEach((btn) => {
     btn.addEventListener('click', () => {
@@ -4936,6 +4938,7 @@ $('#btnMobileNotif').addEventListener('click', async () => {
 });
 $('#mobileNavAjustes').addEventListener('click', openMobileAjustes);
 $('#quickActionBackdrop').addEventListener('click', closeQuickActionMenu);
+$('#toast').addEventListener('click', () => { clearTimeout(toast._t); $('#toast').className = 'toast'; });
 
 // ---------------------------------------------------------------------------
 // Trabajadores

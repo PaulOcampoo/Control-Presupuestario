@@ -891,8 +891,9 @@ body.modal-open { overflow: hidden; }
 
   /* Topbar: solo mostrar el nombre del proyecto/cliente — ocultar todos los
      controles de acción para no duplicar lo que ya vive en la barra inferior */
-  .topbar .icon-btn,
+  .topbar .icon-btn:not(#btnMenu),
   .topbar .notif-wrap { display: none !important; }
+  .sidebar-footer { display: none; }
   .topbar .topbar-brand { display: none !important; }
   /* Hace el título tappable para abrir el drawer de presupuestos */
   .topbar-title { cursor: pointer; user-select: none; }

@@ -1037,7 +1037,7 @@ function openDrawer() { $('#drawer').classList.add('open'); $('#drawerOverlay').
 function closeDrawer() { $('#drawer').classList.remove('open'); $('#drawerOverlay').classList.remove('show'); }
 $('#btnMenu').addEventListener('click', () => {
   if (window.innerWidth <= 860) {
-    openDrawer();
+    openSidebar();
   } else {
     toggleSidebarCollapse();
   }

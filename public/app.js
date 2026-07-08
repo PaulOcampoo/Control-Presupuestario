@@ -5628,15 +5628,22 @@ function initDebugBadge() {
   document.body.appendChild(badge);
 
   const render = (label, swLine) => {
-    const cs = getComputedStyle(document.documentElement);
+    const cs  = getComputedStyle(document.documentElement);
     const th  = cs.getPropertyValue('--topbar-h').trim() || '(no set)';
     const tbh = cs.getPropertyValue('--tabs-h').trim()   || '(no set)';
     const st  = cs.getPropertyValue('--safe-top').trim() || '(no set)';
+    const tbEl  = document.querySelector('.topbar');
+    const tabsEl = document.querySelector('#tabs');
+    const tbR  = tbEl  ? tbEl.getBoundingClientRect()  : null;
+    const tabR = tabsEl ? tabsEl.getBoundingClientRect() : null;
+    const fmt  = (r) => r ? `top=${Math.round(r.top)} h=${Math.round(r.height)}` : 'null';
     badge.innerHTML =
       `<b>DEBUG ${label}</b><br>` +
       `--topbar-h: ${th}<br>` +
       `--tabs-h: ${tbh}<br>` +
       `--safe-top: ${st}<br>` +
+      `topbar BCR: ${fmt(tbR)}<br>` +
+      `#tabs BCR: ${fmt(tabR)}<br>` +
       `SW: ${swLine}`;
   };
 

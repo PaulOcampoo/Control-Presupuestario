@@ -152,7 +152,7 @@ button, a, select, label,
 }
 .tab-back {
   background: var(--bg-surface-2); border-style: solid;
-  border-radius: 10px; width: 40px; height: 40px; padding: 0;
+  border-radius: 10px; width: 40px; height: 38px; padding: 0;
   font-size: 1.1rem; flex-shrink: 0;
   /* El .tab padre tiene inline-flex+align-items:center pero no justify-content */
   display: flex; align-items: center; justify-content: center;

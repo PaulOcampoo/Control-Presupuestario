@@ -140,7 +140,7 @@ button, a, select, label,
 }
 .tab {
   flex: 0 0 auto; display: inline-flex; align-items: center; gap: 6px;
-  padding: 8px 16px; border-radius: 999px; border: 1px solid var(--border-color);
+  height: 38px; padding: 0 16px; border-radius: 999px; border: 1px solid var(--border-color);
   background: var(--bg-surface-2); color: var(--text-secondary); font-size: 0.86rem; cursor: pointer; white-space: nowrap;
   transition: background 0.15s, border-color 0.15s, color 0.15s;
 }
@@ -922,6 +922,17 @@ body.modal-open { overflow: hidden; }
 
 /* ── Móvil: sidebar overlay, bottom nav visible ───────────────────────── */
 @media (max-width: 860px) {
+  /* Altura de la topbar en móvil: determinista — 10px pad-top + safe-area +
+     40px content (btnMenu + topbar-title, ambos height:40px) + 10px pad-bottom
+     + 1px border. Se define aquí con env() directo para evitar race conditions
+     del ResizeObserver y el bug de env() dentro de custom properties en iOS ≤14.
+     Tabs: 10px pad-top + 38px (.tab height fijo) + 10px pad-bottom + 1px border.
+     Estas variables solo aplican en móvil; en desktop los fallbacks del CSS bastan. */
+  :root {
+    --topbar-h: calc(61px + env(safe-area-inset-top, 0px));
+    --tabs-h: 59px;
+  }
+
   /* .main-area como scroll container, acotado encima de la bottom nav.
      Usamos height:100% + padding-bottom en #app en vez de 100dvh en
      .main-area, para evitar diferencias de dvh vs alto real de pantalla

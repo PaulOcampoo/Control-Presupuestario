@@ -514,8 +514,8 @@ window.addEventListener('popstate', (ev) => {
 function switchToView(viewId) {
   state.view = viewId;
   state.section = VIEW_TO_SECTION[viewId] || null;
-  const ma = document.querySelector('.main-area');
-  if (ma) ma.scrollTop = 0;
+  const ms = document.querySelector('.main-scroll') || document.querySelector('.main-area');
+  if (ms) ms.scrollTop = 0;
   renderTabsBar();
   renderSidebar();
   renderMobileNav();

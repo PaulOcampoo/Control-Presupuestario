@@ -644,6 +644,7 @@ body.modal-open { overflow: hidden; }
 
 /* ── Layout base ──────────────────────────────────────────────────────── */
 .main-area { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.main-scroll { flex: 1; min-width: 0; }
 
 /* ── Sidebar ──────────────────────────────────────────────────────────── */
 #sidebar {
@@ -946,11 +947,19 @@ body.modal-open { overflow: hidden; }
   .main-area {
     flex: 1;
     min-height: 0;         /* permite que el flex-item no exceda su contenedor */
+    overflow: visible;     /* ya no es el scroll container — .main-scroll lo es */
+  }
+  .main-scroll {
+    flex: 1;
+    min-height: 0;
     overflow-y: auto;
     overflow-x: clip;
   }
 
   .mobile-nav { display: flex; }
+  /* .sticky-filters: ahora es relativo al viewport de .main-scroll (no de
+     .main-area), así que top:0 lo pega al borde superior del scroll container */
+  .sticky-filters { top: 0; }
   /* Padding de #view: el offset del nav ya lo absorbe la altura de .main-area;
      solo necesitamos un margen visual al fondo del contenido */
   #view { padding-bottom: 28px; }

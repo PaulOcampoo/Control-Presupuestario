@@ -5623,22 +5623,42 @@ function initDebugBadge() {
     background: 'rgba(0,0,0,0.82)', color: '#fff', fontSize: '11px',
     fontFamily: 'monospace', padding: '6px 10px', borderRadius: '8px',
     border: '1px solid #555', lineHeight: '1.6', pointerEvents: 'none',
-    maxWidth: '220px',
+    maxWidth: '240px',
   });
-  const update = (label) => {
+  document.body.appendChild(badge);
+
+  const render = (label, swLine) => {
     const cs = getComputedStyle(document.documentElement);
-    const th = cs.getPropertyValue('--topbar-h').trim() || '(no set)';
-    const tbh = cs.getPropertyValue('--tabs-h').trim() || '(no set)';
-    const st = cs.getPropertyValue('--safe-top').trim() || '(no set)';
+    const th  = cs.getPropertyValue('--topbar-h').trim() || '(no set)';
+    const tbh = cs.getPropertyValue('--tabs-h').trim()   || '(no set)';
+    const st  = cs.getPropertyValue('--safe-top').trim() || '(no set)';
     badge.innerHTML =
-      `<b>CSS vars ${label}</b><br>` +
+      `<b>DEBUG ${label}</b><br>` +
       `--topbar-h: ${th}<br>` +
       `--tabs-h: ${tbh}<br>` +
-      `--safe-top: ${st}`;
+      `--safe-top: ${st}<br>` +
+      `SW: ${swLine}`;
   };
-  document.body.appendChild(badge);
+
+  const swInfo = async () => {
+    if (!navigator.serviceWorker) return 'API no disponible';
+    const ctrl = navigator.serviceWorker.controller;
+    let cacheList = '…';
+    try {
+      const keys = await caches.keys();
+      const relevant = keys.filter((k) => k.startsWith('ctrl-ppto'));
+      cacheList = relevant.length ? relevant.join(', ') : '(sin caches ctrl-ppto)';
+    } catch {
+      cacheList = 'caches.keys() falló';
+    }
+    return (ctrl ? 'controller ok' : 'sin controller') + ' | ' + cacheList;
+  };
+
+  const update = async (label) => render(label, await swInfo());
+
+  render('@load', 'leyendo…');
   update('@load');
-  setTimeout(() => update('@500ms'), 500);
+  setTimeout(() => update('@500ms'),  500);
   setTimeout(() => update('@1500ms'), 1500);
 }
 

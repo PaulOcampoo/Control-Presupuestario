@@ -327,6 +327,7 @@ function showApp() {
   $('#welcomeScreen').style.display = 'none';
   $('#app').style.display = '';
   requestAnimationFrame(initTopbarObserver);
+  requestAnimationFrame(initDebugBadge);
 }
 function showClientGallery() {
   $('#loginScreen').style.display = 'none';
@@ -5607,6 +5608,38 @@ function initTopbarObserver() {
   _topbarObserver = new ResizeObserver(update);
   _topbarObserver.observe(el);
   requestAnimationFrame(update);
+}
+
+// ---------------------------------------------------------------------------
+// DEBUG — badge temporal de variables CSS (quitar al cerrar Fase 0.5)
+// ---------------------------------------------------------------------------
+function initDebugBadge() {
+  const existing = document.getElementById('__dbg');
+  if (existing) existing.remove();
+  const badge = document.createElement('div');
+  badge.id = '__dbg';
+  Object.assign(badge.style, {
+    position: 'fixed', bottom: '72px', left: '8px', zIndex: '9999',
+    background: 'rgba(0,0,0,0.82)', color: '#fff', fontSize: '11px',
+    fontFamily: 'monospace', padding: '6px 10px', borderRadius: '8px',
+    border: '1px solid #555', lineHeight: '1.6', pointerEvents: 'none',
+    maxWidth: '220px',
+  });
+  const update = (label) => {
+    const cs = getComputedStyle(document.documentElement);
+    const th = cs.getPropertyValue('--topbar-h').trim() || '(no set)';
+    const tbh = cs.getPropertyValue('--tabs-h').trim() || '(no set)';
+    const st = cs.getPropertyValue('--safe-top').trim() || '(no set)';
+    badge.innerHTML =
+      `<b>CSS vars ${label}</b><br>` +
+      `--topbar-h: ${th}<br>` +
+      `--tabs-h: ${tbh}<br>` +
+      `--safe-top: ${st}`;
+  };
+  document.body.appendChild(badge);
+  update('@load');
+  setTimeout(() => update('@500ms'), 500);
+  setTimeout(() => update('@1500ms'), 1500);
 }
 
 // ---------------------------------------------------------------------------

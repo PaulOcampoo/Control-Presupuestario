@@ -105,7 +105,7 @@ button, a, select, label,
    en vez de al padre evita que se desborde a la izquierda. */
 @media (max-width: 480px) {
   .notif-dropdown {
-    position: fixed; top: calc(60px + var(--safe-top)); left: 12px; right: 12px; width: auto;
+    position: fixed; top: var(--topbar-h, calc(61px + var(--safe-top))); left: 12px; right: 12px; width: auto;
     transform: translateY(-6px);
   }
   .notif-dropdown.show { transform: translateY(0); }
@@ -135,7 +135,7 @@ button, a, select, label,
 .tabs {
   display: flex; overflow-x: auto; gap: 8px; padding: 10px 12px;
   background: var(--bg-surface); border-bottom: 1px solid var(--border-color);
-  position: sticky; top: calc(60px + var(--safe-top)); z-index: 19;
+  position: sticky; top: var(--topbar-h, calc(61px + var(--safe-top))); z-index: 19;
   -webkit-overflow-scrolling: touch;
 }
 .tab {
@@ -255,7 +255,7 @@ label { display: block; font-size: 0.8rem; color: var(--text-secondary); margin:
 
 /* Barra de búsqueda + filtros pegados debajo de las pestañas al hacer scroll */
 .sticky-filters {
-  position: sticky; top: calc(110px + var(--safe-top)); z-index: 18;
+  position: sticky; top: calc(var(--topbar-h, calc(61px + var(--safe-top))) + var(--tabs-h, 50px)); z-index: 18;
   background: var(--bg-primary); margin: 0 -14px 10px; padding: 10px 14px 8px;
   border-bottom: 1px solid var(--border-color);
 }
@@ -352,18 +352,19 @@ body.modal-open { overflow: hidden; }
 [data-theme="light"] .alert-box.info   { color: #1e3a8a; border-color: rgba(59,130,246,0.35); background: rgba(56,189,248,0.09); }
 
 .toast {
-  position: fixed; left: 50%; bottom: calc(24px + var(--safe-bottom)); transform: translateX(-50%) translateY(120%);
+  position: fixed; left: 50%; bottom: calc(24px + var(--safe-bottom)); transform: translateX(-50%);
   background: var(--bg-surface-2); border: 1px solid var(--border-color); color: var(--text-primary);
   padding: 12px 18px; border-radius: 12px; font-size: 0.86rem; z-index: 80; max-width: 90vw;
-  transition: transform 0.25s ease; box-shadow: 0 8px 30px rgba(0,0,0,0.4);
+  opacity: 0; pointer-events: none;
+  transition: opacity 0.25s ease; box-shadow: 0 8px 30px rgba(0,0,0,0.4);
   cursor: pointer;
 }
-.toast.show { transform: translateX(-50%) translateY(0); }
+.toast.show { opacity: 1; pointer-events: auto; }
 .toast.danger { border-color: var(--red); color: #fecaca; }
 .toast.success { border-color: var(--green); color: #bbf7d0; }
 /* En móvil el toast debe quedar por encima de la barra de navegación inferior */
 @media (max-width: 860px) {
-  .toast { bottom: calc(var(--mobile-nav-h) + var(--safe-bottom) + 20px); }
+  .toast { bottom: calc(var(--mobile-nav-h) + env(safe-area-inset-bottom, 0px) + 20px); }
 }
 
 .spinner {
@@ -818,8 +819,8 @@ body.modal-open { overflow: hidden; }
 .mobile-nav {
   display: none; /* activada en @media (max-width: 860px) */
   position: fixed; bottom: 0; left: 0; right: 0;
-  height: calc(var(--mobile-nav-h) + var(--safe-bottom));
-  padding-bottom: var(--safe-bottom);
+  height: calc(var(--mobile-nav-h) + env(safe-area-inset-bottom, 0px));
+  padding-bottom: env(safe-area-inset-bottom, 0px);
   background: var(--bg-surface); border-top: 1px solid var(--border-color);
   z-index: 40; align-items: center; justify-content: space-around;
 }
@@ -900,7 +901,7 @@ body.modal-open { overflow: hidden; }
   #btnThemeToggle, #btnLogout { display: none !important; }
 
   /* Sticky-filters: solo topbar de altura (sin tabs bar) */
-  .sticky-filters { top: calc(62px + var(--safe-top)); }
+  .sticky-filters { top: var(--topbar-h, calc(62px + var(--safe-top))); }
 
   /* Sidebar colapsada: ocultar texto, centrar iconos */
   #sidebar.collapsed .sidebar-brand-name,
@@ -929,7 +930,7 @@ body.modal-open { overflow: hidden; }
   #app {
     height: 100%;          /* cadena html → body → viewport, sin dvh */
     min-height: unset;
-    padding-bottom: calc(var(--mobile-nav-h) + var(--safe-bottom));
+    padding-bottom: calc(var(--mobile-nav-h) + env(safe-area-inset-bottom, 0px));
   }
   .main-area {
     flex: 1;

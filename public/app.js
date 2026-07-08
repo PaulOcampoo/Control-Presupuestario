@@ -326,6 +326,7 @@ function showApp() {
   $('#clientGalleryScreen').style.display = 'none';
   $('#welcomeScreen').style.display = 'none';
   $('#app').style.display = '';
+  requestAnimationFrame(initTopbarObserver);
 }
 function showClientGallery() {
   $('#loginScreen').style.display = 'none';
@@ -555,6 +556,10 @@ function renderTabsBar() {
   nav.innerHTML = html;
   $$('.tab[data-goto]', nav).forEach((btn) => btn.addEventListener('click', () => switchToView(btn.dataset.goto)));
   $$('.tab[data-soon]', nav).forEach((btn) => btn.addEventListener('click', () => showProximamenteTooltip(btn.dataset.soon)));
+  requestAnimationFrame(() => {
+    const h = nav.getBoundingClientRect().height;
+    if (h > 0) document.documentElement.style.setProperty('--tabs-h', `${h}px`);
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -5579,6 +5584,29 @@ async function openCambioEstadoModal(nominaId, nuevoEstado, pedirNota, onDone) {
       if (onDone) await onDone();
     } catch (err) { toast(err.message, 'danger'); btn.disabled = false; }
   });
+}
+
+// ---------------------------------------------------------------------------
+// Topbar height — CSS variable dinámica para tabs y sticky-filters
+// Se mide con ResizeObserver para adaptarse a cualquier dispositivo / safe-area.
+// ---------------------------------------------------------------------------
+let _topbarObserver = null;
+function initTopbarObserver() {
+  if (_topbarObserver) return;
+  const el = document.querySelector('.topbar');
+  if (!el) return;
+  const update = () => {
+    const h = el.getBoundingClientRect().height;
+    if (h > 0) document.documentElement.style.setProperty('--topbar-h', `${h}px`);
+    const tabsEl = document.querySelector('#tabs');
+    if (tabsEl && tabsEl.offsetParent !== null) {
+      const th = tabsEl.getBoundingClientRect().height;
+      if (th > 0) document.documentElement.style.setProperty('--tabs-h', `${th}px`);
+    }
+  };
+  _topbarObserver = new ResizeObserver(update);
+  _topbarObserver.observe(el);
+  requestAnimationFrame(update);
 }
 
 // ---------------------------------------------------------------------------

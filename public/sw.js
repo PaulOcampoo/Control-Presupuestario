@@ -1,6 +1,6 @@
 'use strict';
 
-const CACHE = 'ctrl-ppto-v32';
+const CACHE = 'ctrl-ppto-v33';
 const SHELL = [
   '/',
   '/index.html',
@@ -16,7 +16,7 @@ const SHELL = [
 ];
 
 self.addEventListener('install', (event) => {
-  event.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)));
+  event.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL.map((url) => new Request(url, { cache: 'reload' })))));
   self.skipWaiting();
 });
 

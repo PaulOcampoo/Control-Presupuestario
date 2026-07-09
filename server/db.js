@@ -553,6 +553,66 @@ const SCHEMA = `
     creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW()
   );
   CREATE INDEX IF NOT EXISTS idx_sug_imgs ON sugerencia_imagenes(sugerencia_id);
+
+  -- Alta: campos adicionales en trabajadores (contacto de emergencia dividido).
+  ALTER TABLE trabajadores ADD COLUMN IF NOT EXISTS contacto_emergencia_nombre TEXT;
+  ALTER TABLE trabajadores ADD COLUMN IF NOT EXISTS contacto_emergencia_telefono TEXT;
+
+  -- Historial formal de bajas por trabajador (soft-delete auditado).
+  -- motivo_baja restringido por CHECK; cuando es 'otro', se espera notas != null (enforced en app).
+  CREATE TABLE IF NOT EXISTS trabajador_bajas (
+    id SERIAL PRIMARY KEY,
+    trabajador_id INTEGER NOT NULL REFERENCES trabajadores(id) ON DELETE CASCADE,
+    fecha_baja DATE NOT NULL DEFAULT CURRENT_DATE,
+    motivo_baja TEXT NOT NULL CHECK (motivo_baja IN ('renuncia','despido_justificado','despido_injustificado','fin_obra','abandono','otro')),
+    notas TEXT,
+    registrado_por INTEGER REFERENCES usuarios(id),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
+  CREATE INDEX IF NOT EXISTS idx_trabajador_bajas_trabajador ON trabajador_bajas(trabajador_id);
+
+  -- Contratos laborales por trabajador (múltiples en el tiempo — historial).
+  -- activo=true indica el contrato vigente; al crear uno nuevo se desactiva el anterior.
+  -- salario_diario es el salario contractual/legal; NO reemplaza tarifa_jornal de nómina.
+  CREATE TABLE IF NOT EXISTS contratos_trabajador (
+    id SERIAL PRIMARY KEY,
+    trabajador_id INTEGER NOT NULL REFERENCES trabajadores(id) ON DELETE CASCADE,
+    tipo_contrato TEXT NOT NULL CHECK (tipo_contrato IN ('obra_determinada','tiempo_determinado','tiempo_indeterminado')),
+    fecha_inicio DATE NOT NULL,
+    fecha_fin DATE,
+    salario_diario NUMERIC(12,2),
+    pdf_url TEXT,
+    pdf_filename TEXT,
+    activo BOOLEAN NOT NULL DEFAULT true,
+    created_by INTEGER REFERENCES usuarios(id),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
+  CREATE INDEX IF NOT EXISTS idx_contratos_trabajador ON contratos_trabajador(trabajador_id);
+
+  -- Catálogo de EPP configurable por obra.
+  CREATE TABLE IF NOT EXISTS epp_catalogo (
+    id SERIAL PRIMARY KEY,
+    project_id INTEGER NOT NULL REFERENCES proyectos(id) ON DELETE CASCADE,
+    nombre_item TEXT NOT NULL,
+    descripcion TEXT,
+    activo BOOLEAN NOT NULL DEFAULT true,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
+  CREATE INDEX IF NOT EXISTS idx_epp_catalogo_project ON epp_catalogo(project_id);
+
+  -- Registros de entrega de EPP con firma digital (base64 PNG).
+  CREATE TABLE IF NOT EXISTS epp_entregas (
+    id SERIAL PRIMARY KEY,
+    trabajador_id INTEGER NOT NULL REFERENCES trabajadores(id) ON DELETE CASCADE,
+    item_id INTEGER NOT NULL REFERENCES epp_catalogo(id) ON DELETE RESTRICT,
+    cantidad INTEGER NOT NULL DEFAULT 1,
+    fecha_entrega DATE NOT NULL DEFAULT CURRENT_DATE,
+    firma_digital TEXT,
+    entregado_por INTEGER REFERENCES usuarios(id),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
+  CREATE INDEX IF NOT EXISTS idx_epp_entregas_trabajador ON epp_entregas(trabajador_id);
+  CREATE INDEX IF NOT EXISTS idx_epp_entregas_item ON epp_entregas(item_id);
 `;
 
 async function initSchema() {
@@ -607,6 +667,12 @@ async function deleteProject(id) {
     await client.query(`
       DELETE FROM orden_compra_items
       WHERE orden_compra_id IN (SELECT id FROM ordenes_compra WHERE project_id = $1)
+    `, [id]);
+    // requisicion_items.insumo_id → insumos(id) no tiene CASCADE; si existen
+    // filas cuando el CASCADE intenta borrar insumos, lanza FK-violation.
+    await client.query(`
+      DELETE FROM requisicion_items
+      WHERE requisicion_id IN (SELECT id FROM requisiciones WHERE project_id = $1)
     `, [id]);
     await client.query(`
       DELETE FROM nomina_items

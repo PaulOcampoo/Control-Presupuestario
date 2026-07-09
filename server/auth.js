@@ -20,7 +20,7 @@ const PERMISSIONS = {
   cabo:           { label: 'Cabo',          tabs: ['destajo', 'insumos', 'avance', 'requisiciones'] },
   compras:        { label: 'Compras',       tabs: ['programa', 'requisiciones', 'insumos', 'ordenes', 'proveedores'] },
   tesoreria:      { label: 'Tesorería',     tabs: ['resumen', 'finanzas', 'ordenes', 'contrato', 'impuestos', 'proveedores'] },
-  administracion: { label: 'Administración',tabs: ['resumen', 'programa', 'destajo', 'ordenes', 'proveedores', 'contrato', 'impuestos', 'usuarios', 'mapeo'] },
+  administracion: { label: 'Administración',tabs: ['resumen', 'programa', 'destajo', 'ordenes', 'proveedores', 'contrato', 'impuestos', 'mapeo'] },
   logistica:      { label: 'Logística',     tabs: ['programa', 'avance', 'requisiciones', 'insumos', 'ordenes'] },
 };
 const PUESTOS = Object.keys(PERMISSIONS);

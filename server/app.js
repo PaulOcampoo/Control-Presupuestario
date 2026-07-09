@@ -2101,9 +2101,17 @@ app.post('/api/projects/:id/ordenes/:ocId/pagos', h(auth.allow('tesoreria')), h(
 }));
 
 app.delete('/api/projects/:id/ordenes/:ocId/pagos/:pagoId', h(auth.allow()), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  const ocId = Number(req.params.ocId);
+  const pagoId = Number(req.params.pagoId);
+  // Verify the order belongs to this project before touching payments (IDOR fix A1).
+  const { rows: ocRows } = await db.pool.query(
+    'SELECT id FROM ordenes_compra WHERE id = $1 AND project_id = $2',
+    [ocId, req.project.id]
+  );
+  if (!ocRows[0]) return res.status(404).json({ error: 'No encontrado' });
   const { rowCount } = await db.pool.query(
     'DELETE FROM pagos WHERE id = $1 AND orden_compra_id = $2',
-    [Number(req.params.pagoId), Number(req.params.ocId)]
+    [pagoId, ocId]
   );
   if (rowCount === 0) return res.status(404).json({ error: 'Pago no encontrado' });
   res.json({ ok: true });
@@ -2598,6 +2606,18 @@ app.put('/api/projects/:id/avances/:semana/conceptos', h(auth.allow('residente',
   const { items } = req.body || {};
   if (!Array.isArray(items)) return res.status(400).json({ error: 'items debe ser un arreglo' });
 
+  // Reject the entire batch if any concepto_id does not belong to this project (IDOR fix A2).
+  const conceptoIds = [...new Set(items.map((it) => Number(it.concepto_id)).filter((id) => id > 0))];
+  if (conceptoIds.length > 0) {
+    const { rows: validConceptos } = await db.pool.query(
+      'SELECT id FROM conceptos WHERE id = ANY($1) AND project_id = $2',
+      [conceptoIds, pid]
+    );
+    if (validConceptos.length !== conceptoIds.length) {
+      return res.status(400).json({ error: 'Uno o más conceptos no pertenecen a esta obra' });
+    }
+  }
+
   await db.withTransaction(async (client) => {
     for (const it of items) {
       const conceptoId = Number(it.concepto_id);
@@ -3077,7 +3097,8 @@ app.get('/api/projects/:id/trabajadores', h(auth.allow()), h(requireProject), h(
 
 app.post('/api/projects/:id/trabajadores', h(auth.allow()), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
   const { nombre, puesto, tipo_pago, tarifa_jornal, periodicidad, curp, rfc, nss,
-          telefono, direccion, contacto_emergencia, fecha_ingreso, destajista_id } = req.body || {};
+          telefono, direccion, contacto_emergencia, contacto_emergencia_nombre,
+          contacto_emergencia_telefono, fecha_ingreso, destajista_id } = req.body || {};
   if (!nombre?.trim()) return res.status(400).json({ error: 'El nombre es requerido' });
   if (!TIPOS_PAGO.includes(tipo_pago)) return res.status(400).json({ error: 'tipo_pago inválido' });
   if (!PERIODICIDADES.includes(periodicidad)) return res.status(400).json({ error: 'periodicidad inválida' });
@@ -3089,12 +3110,14 @@ app.post('/api/projects/:id/trabajadores', h(auth.allow()), h(requireProject), h
   const { rows } = await db.pool.query(`
     INSERT INTO trabajadores
       (project_id, destajista_id, nombre, puesto, tipo_pago, tarifa_jornal, periodicidad,
-       curp, rfc, nss, telefono, direccion, contacto_emergencia, fecha_ingreso)
-    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING *`,
+       curp, rfc, nss, telefono, direccion, contacto_emergencia,
+       contacto_emergencia_nombre, contacto_emergencia_telefono, fecha_ingreso)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING *`,
     [req.project.id, destId, nombre.trim(), puesto?.trim()||null, tipo_pago,
      Math.max(0, Number(tarifa_jornal)||0), periodicidad,
      curp?.trim()||null, rfc?.trim()||null, nss?.trim()||null,
      telefono?.trim()||null, direccion?.trim()||null, contacto_emergencia?.trim()||null,
+     contacto_emergencia_nombre?.trim()||null, contacto_emergencia_telefono?.trim()||null,
      fecha_ingreso||null]
   );
   res.status(201).json(rows[0]);
@@ -3103,7 +3126,8 @@ app.post('/api/projects/:id/trabajadores', h(auth.allow()), h(requireProject), h
 app.put('/api/projects/:id/trabajadores/:wId', h(auth.allow()), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
   const wId = Number(req.params.wId);
   const { nombre, puesto, tipo_pago, tarifa_jornal, periodicidad, curp, rfc, nss,
-          telefono, direccion, contacto_emergencia, fecha_ingreso, destajista_id } = req.body || {};
+          telefono, direccion, contacto_emergencia, contacto_emergencia_nombre,
+          contacto_emergencia_telefono, fecha_ingreso, destajista_id } = req.body || {};
   if (!nombre?.trim()) return res.status(400).json({ error: 'El nombre es requerido' });
   if (!TIPOS_PAGO.includes(tipo_pago)) return res.status(400).json({ error: 'tipo_pago inválido' });
   if (!PERIODICIDADES.includes(periodicidad)) return res.status(400).json({ error: 'periodicidad inválida' });
@@ -3116,12 +3140,14 @@ app.put('/api/projects/:id/trabajadores/:wId', h(auth.allow()), h(requireProject
     UPDATE trabajadores SET
       destajista_id=$1, nombre=$2, puesto=$3, tipo_pago=$4, tarifa_jornal=$5,
       periodicidad=$6, curp=$7, rfc=$8, nss=$9, telefono=$10, direccion=$11,
-      contacto_emergencia=$12, fecha_ingreso=$13
-    WHERE id=$14 AND project_id=$15 RETURNING *`,
+      contacto_emergencia=$12, contacto_emergencia_nombre=$13, contacto_emergencia_telefono=$14,
+      fecha_ingreso=$15
+    WHERE id=$16 AND project_id=$17 RETURNING *`,
     [destId, nombre.trim(), puesto?.trim()||null, tipo_pago,
      Math.max(0, Number(tarifa_jornal)||0), periodicidad,
      curp?.trim()||null, rfc?.trim()||null, nss?.trim()||null,
      telefono?.trim()||null, direccion?.trim()||null, contacto_emergencia?.trim()||null,
+     contacto_emergencia_nombre?.trim()||null, contacto_emergencia_telefono?.trim()||null,
      fecha_ingreso||null, wId, req.project.id]
   );
   if (!rows[0]) return res.status(404).json({ error: 'Trabajador no encontrado' });
@@ -3130,14 +3156,34 @@ app.put('/api/projects/:id/trabajadores/:wId', h(auth.allow()), h(requireProject
 
 app.post('/api/projects/:id/trabajadores/:wId/baja', h(auth.allow()), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
   const wId = Number(req.params.wId);
-  const { motivo } = req.body || {};
+  const { motivo_baja, notas, fecha_baja } = req.body || {};
+  const MOTIVOS = ['renuncia','despido_justificado','despido_injustificado','fin_obra','abandono','otro'];
+  if (!MOTIVOS.includes(motivo_baja)) return res.status(400).json({ error: 'motivo_baja inválido' });
+  if (motivo_baja === 'otro' && !notas?.trim()) return res.status(400).json({ error: 'Cuando el motivo es "otro", las notas son requeridas' });
+  const fechaBaja = fecha_baja || null;
   const { rows } = await db.pool.query(
-    `UPDATE trabajadores SET activo=false, fecha_baja=CURRENT_DATE, motivo_baja=$1
-     WHERE id=$2 AND project_id=$3 AND activo=true RETURNING *`,
-    [motivo?.trim()||null, wId, req.project.id]
+    `UPDATE trabajadores SET activo=false, fecha_baja=COALESCE($1::date, CURRENT_DATE), motivo_baja=$2
+     WHERE id=$3 AND project_id=$4 AND activo=true RETURNING *`,
+    [fechaBaja, motivo_baja, wId, req.project.id]
   );
   if (!rows[0]) return res.status(404).json({ error: 'Trabajador no encontrado o ya dado de baja' });
+  await db.pool.query(
+    `INSERT INTO trabajador_bajas (trabajador_id, fecha_baja, motivo_baja, notas, registrado_por)
+     VALUES ($1, COALESCE($2::date, CURRENT_DATE), $3, $4, $5)`,
+    [wId, fechaBaja, motivo_baja, notas?.trim()||null, req.user.id]
+  );
   res.json(rows[0]);
+}));
+
+app.get('/api/projects/:id/trabajadores/:wId/bajas', h(auth.allow()), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  const wId = Number(req.params.wId);
+  const { rows } = await db.pool.query(
+    `SELECT b.*, u.nombre AS registrado_por_nombre
+     FROM trabajador_bajas b LEFT JOIN usuarios u ON u.id = b.registrado_por
+     WHERE b.trabajador_id = $1 ORDER BY b.created_at DESC`,
+    [wId]
+  );
+  res.json(rows);
 }));
 
 app.post('/api/projects/:id/trabajadores/:wId/reactivar', h(auth.allow()), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
@@ -3259,6 +3305,151 @@ app.delete('/api/projects/:id/trabajadores/:wId/documentos/:docId', h(auth.allow
   await del(rows[0].blob_url).catch(() => {});
   await db.pool.query('DELETE FROM trabajador_documentos WHERE id=$1', [docId]);
   res.json({ ok: true });
+}));
+
+// ===========================================================================
+// CONTRATOS LABORALES POR TRABAJADOR
+// ===========================================================================
+app.post('/api/projects/:id/trabajadores/:wId/contratos/upload-token', h(auth.allow()), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  const wId = Number(req.params.wId);
+  const { rows } = await db.pool.query('SELECT id FROM trabajadores WHERE id=$1 AND project_id=$2', [wId, req.project.id]);
+  if (!rows[0]) return res.status(404).json({ error: 'Trabajador no encontrado' });
+  try {
+    const jsonResponse = await handleUpload({
+      body: req.body,
+      request: req,
+      onBeforeGenerateToken: async (pathname) => {
+        const ext = (pathname.split('.').pop() || '').toLowerCase();
+        if (ext !== 'pdf') throw new Error('Solo se admiten archivos PDF');
+        return { access: 'private', addRandomSuffix: true, maximumSizeInBytes: 20 * 1024 * 1024 };
+      },
+    });
+    res.json(jsonResponse);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+}));
+
+app.post('/api/projects/:id/trabajadores/:wId/contratos', h(auth.allow()), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  const wId = Number(req.params.wId);
+  const { tipo_contrato, fecha_inicio, fecha_fin, salario_diario, pdf_url, pdf_filename } = req.body || {};
+  const TIPOS = ['obra_determinada','tiempo_determinado','tiempo_indeterminado'];
+  if (!TIPOS.includes(tipo_contrato)) return res.status(400).json({ error: 'tipo_contrato inválido' });
+  if (!fecha_inicio) return res.status(400).json({ error: 'fecha_inicio es requerida' });
+  const { rows: wRows } = await db.pool.query('SELECT id FROM trabajadores WHERE id=$1 AND project_id=$2', [wId, req.project.id]);
+  if (!wRows[0]) return res.status(404).json({ error: 'Trabajador no encontrado' });
+  // Desactivar contrato anterior si existe
+  await db.pool.query('UPDATE contratos_trabajador SET activo=false WHERE trabajador_id=$1 AND activo=true', [wId]);
+  const { rows } = await db.pool.query(`
+    INSERT INTO contratos_trabajador
+      (trabajador_id, tipo_contrato, fecha_inicio, fecha_fin, salario_diario, pdf_url, pdf_filename, created_by)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
+    [wId, tipo_contrato, fecha_inicio, fecha_fin||null,
+     salario_diario ? Number(salario_diario) : null,
+     pdf_url||null, pdf_filename?.trim()||null, req.user.id]
+  );
+  res.status(201).json(rows[0]);
+}));
+
+app.get('/api/projects/:id/trabajadores/:wId/contratos', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  const wId = Number(req.params.wId);
+  const { rows } = await db.pool.query(
+    `SELECT c.*, u.nombre AS creado_por_nombre
+     FROM contratos_trabajador c LEFT JOIN usuarios u ON u.id = c.created_by
+     WHERE c.trabajador_id = $1 ORDER BY c.created_at DESC`,
+    [wId]
+  );
+  res.json(rows);
+}));
+
+app.get('/api/projects/:id/trabajadores/:wId/contratos/:cId/download', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  const wId = Number(req.params.wId);
+  const cId = Number(req.params.cId);
+  const { rows } = await db.pool.query(
+    `SELECT c.pdf_url, c.pdf_filename FROM contratos_trabajador c
+     JOIN trabajadores t ON t.id = c.trabajador_id
+     WHERE c.id=$1 AND t.id=$2 AND t.project_id=$3`,
+    [cId, wId, req.project.id]
+  );
+  if (!rows[0]) return res.status(404).json({ error: 'Contrato no encontrado' });
+  if (!rows[0].pdf_url) return res.status(404).json({ error: 'Este contrato no tiene PDF adjunto' });
+  const blobResult = await get(rows[0].pdf_url, { access: 'private' });
+  if (!blobResult) return res.status(404).json({ error: 'Archivo no encontrado en almacenamiento' });
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `inline; filename="${rows[0].pdf_filename || 'contrato.pdf'}"`);
+  const { pipeline: pipe } = require('stream/promises');
+  await pipe(Readable.fromWeb(blobResult.stream), res);
+}));
+
+// ===========================================================================
+// EPP — CATÁLOGO POR OBRA
+// ===========================================================================
+app.get('/api/projects/:id/epp-catalogo', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  const { soloActivos } = req.query;
+  let sql = 'SELECT * FROM epp_catalogo WHERE project_id=$1';
+  if (soloActivos === '1') sql += ' AND activo=true';
+  sql += ' ORDER BY nombre_item';
+  const { rows } = await db.pool.query(sql, [req.project.id]);
+  res.json(rows);
+}));
+
+app.post('/api/projects/:id/epp-catalogo', h(auth.allow()), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  const { nombre_item, descripcion } = req.body || {};
+  if (!nombre_item?.trim()) return res.status(400).json({ error: 'nombre_item es requerido' });
+  const { rows } = await db.pool.query(
+    'INSERT INTO epp_catalogo (project_id, nombre_item, descripcion) VALUES ($1,$2,$3) RETURNING *',
+    [req.project.id, nombre_item.trim(), descripcion?.trim()||null]
+  );
+  res.status(201).json(rows[0]);
+}));
+
+app.put('/api/projects/:id/epp-catalogo/:itemId', h(auth.allow()), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  const itemId = Number(req.params.itemId);
+  const { nombre_item, descripcion, activo } = req.body || {};
+  if (!nombre_item?.trim()) return res.status(400).json({ error: 'nombre_item es requerido' });
+  const { rows } = await db.pool.query(
+    `UPDATE epp_catalogo SET nombre_item=$1, descripcion=$2, activo=$3
+     WHERE id=$4 AND project_id=$5 RETURNING *`,
+    [nombre_item.trim(), descripcion?.trim()||null, activo !== false, itemId, req.project.id]
+  );
+  if (!rows[0]) return res.status(404).json({ error: 'Ítem no encontrado' });
+  res.json(rows[0]);
+}));
+
+// ===========================================================================
+// EPP — ENTREGAS POR TRABAJADOR
+// ===========================================================================
+app.get('/api/projects/:id/trabajadores/:wId/epp-entregas', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  const wId = Number(req.params.wId);
+  const { rows } = await db.pool.query(
+    `SELECT e.*, c.nombre_item, u.nombre AS entregado_por_nombre
+     FROM epp_entregas e
+     JOIN epp_catalogo c ON c.id = e.item_id
+     LEFT JOIN usuarios u ON u.id = e.entregado_por
+     WHERE e.trabajador_id = $1
+     ORDER BY e.fecha_entrega DESC, e.created_at DESC`,
+    [wId]
+  );
+  res.json(rows);
+}));
+
+app.post('/api/projects/:id/trabajadores/:wId/epp-entregas', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  const wId = Number(req.params.wId);
+  const { item_id, cantidad, fecha_entrega, firma_digital } = req.body || {};
+  if (!item_id) return res.status(400).json({ error: 'item_id es requerido' });
+  const { rows: wRows } = await db.pool.query('SELECT id FROM trabajadores WHERE id=$1 AND project_id=$2', [wId, req.project.id]);
+  if (!wRows[0]) return res.status(404).json({ error: 'Trabajador no encontrado' });
+  const { rows: cRows } = await db.pool.query(
+    'SELECT id FROM epp_catalogo WHERE id=$1 AND project_id=$2 AND activo=true',
+    [Number(item_id), req.project.id]
+  );
+  if (!cRows[0]) return res.status(400).json({ error: 'Ítem de EPP no encontrado o inactivo en esta obra' });
+  const { rows } = await db.pool.query(
+    `INSERT INTO epp_entregas (trabajador_id, item_id, cantidad, fecha_entrega, firma_digital, entregado_por)
+     VALUES ($1,$2,$3,COALESCE($4::date, CURRENT_DATE),$5,$6) RETURNING *`,
+    [wId, Number(item_id), Math.max(1, Number(cantidad)||1), fecha_entrega||null, firma_digital||null, req.user.id]
+  );
+  res.status(201).json(rows[0]);
 }));
 
 // ===========================================================================

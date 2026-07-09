@@ -205,11 +205,40 @@ function installApp() {
     deferredInstallPrompt.userChoice.then(() => { deferredInstallPrompt = null; });
     return;
   }
+  const isAndroid = /android/i.test(navigator.userAgent);
+  let steps;
   if (isIOS()) {
-    toast('En Safari: toca Compartir ⬆️ → "Agregar a pantalla de inicio"', 'success');
-    return;
+    steps = [
+      'Abre esta página en <strong>Safari</strong> (no Chrome ni otro navegador)',
+      'Toca el botón <strong>Compartir ⬆️</strong> en la barra inferior',
+      'Desplázate y toca <strong>"Agregar a pantalla de inicio"</strong>',
+      'Toca <strong>"Agregar"</strong> en la esquina superior derecha',
+    ];
+  } else if (isAndroid) {
+    steps = [
+      'Abre esta página en <strong>Chrome</strong>',
+      'Toca el menú <strong>⋮</strong> (tres puntos) arriba a la derecha',
+      'Toca <strong>"Instalar app"</strong> o <strong>"Agregar a pantalla de inicio"</strong>',
+      'Confirma tocando <strong>"Instalar"</strong>',
+    ];
+  } else {
+    steps = [
+      'Abre esta página en <strong>Chrome</strong> o <strong>Edge</strong>',
+      'Busca el ícono <strong>⊕</strong> al final de la barra de direcciones — o abre el menú <strong>⋮</strong>',
+      'Haz clic en <strong>"Instalar Control Presupuestal"</strong> o <strong>"Guardar e instalar"</strong>',
+      'Confirma haciendo clic en <strong>"Instalar"</strong>',
+    ];
   }
-  toast('Busca el ícono ⊕ en la barra de direcciones del navegador para instalar', 'success');
+  const stepsHtml = steps.map((s, i) => `<li style="margin-bottom:10px"><span style="display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;background:var(--accent-gold);color:#000;font-weight:700;font-size:0.78rem;margin-right:8px;flex-shrink:0">${i + 1}</span>${s}</li>`).join('');
+  openModal(`
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+      <h3 style="margin:0">📲 Instalar app</h3>
+      <button class="icon-btn" id="btnCloseInstallGuide" style="width:32px;height:32px;font-size:1rem">✕</button>
+    </div>
+    <p style="margin:0 0 14px;color:var(--text-secondary);font-size:0.9rem">Sigue estos pasos para instalar la app en tu dispositivo:</p>
+    <ol style="margin:0;padding:0;list-style:none">${stepsHtml}</ol>
+  `);
+  $('#btnCloseInstallGuide').addEventListener('click', closeModal);
 }
 
 const fmtMoney = (n) => (n == null ? '—' : Number(n).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 2 }));
@@ -219,6 +248,12 @@ const fmtDate = (s) => {
   if (!s) return '—';
   const d = new Date(`${s}T00:00:00`);
   if (Number.isNaN(d.getTime())) return s;
+  return d.toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' });
+};
+const fmtDateShort = (s) => {
+  if (!s) return '—';
+  const d = new Date(`${String(s).slice(0,10)}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return String(s).slice(0,10);
   return d.toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' });
 };
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -358,28 +393,28 @@ function showWelcomeScreen() {
 
 function isAdmin() { return !!state.user && (state.user.puesto === 'admin' || state.user.puesto === 'desarrollador'); }
 function isDesarrollador() { return !!state.user && state.user.puesto === 'desarrollador'; }
-function canManageDestajo() { return !!state.user && ['admin', 'residente'].includes(state.user.puesto); }
-function puedeGenerarOC() { return !!state.user && ['admin', 'compras'].includes(state.user.puesto); }
-function puedeAutorizarRequisicion() { return !!state.user && ['admin', 'logistica'].includes(state.user.puesto); }
+function canManageDestajo() { return !!state.user && (isAdmin() || ['residente'].includes(state.user.puesto)); }
+function puedeGenerarOC() { return !!state.user && (isAdmin() || ['compras'].includes(state.user.puesto)); }
+function puedeAutorizarRequisicion() { return !!state.user && (isAdmin() || ['logistica'].includes(state.user.puesto)); }
 function puedeVerPrecios() { return !!state.user && state.user.puesto !== 'cabo'; }
-function puedeCrearRequisicion() { return !!state.user && ['admin', 'residente', 'cabo', 'compras'].includes(state.user.puesto); }
+function puedeCrearRequisicion() { return !!state.user && (isAdmin() || ['residente', 'cabo', 'compras'].includes(state.user.puesto)); }
 function puedeVerImportesRequisicion() { return !!state.user && !['residente', 'cabo'].includes(state.user.puesto); }
-function puedeRegistrarPago() { return !!state.user && ['admin', 'tesoreria'].includes(state.user.puesto); }
+function puedeRegistrarPago() { return !!state.user && (isAdmin() || ['tesoreria'].includes(state.user.puesto)); }
 function puedeVerImportesAvance() { return !!state.user && state.user.puesto !== 'cabo'; }
-function puedeEditarAvance() { return !!state.user && ['admin', 'residente', 'cabo'].includes(state.user.puesto); }
+function puedeEditarAvance() { return !!state.user && (isAdmin() || ['residente', 'cabo'].includes(state.user.puesto)); }
 function puedeGestionarUsuarios() { return !!state.user && ['admin', 'desarrollador', 'administracion'].includes(state.user.puesto); }
-function puedeGestionarTrabajadores() { return !!state.user && state.user.puesto === 'admin'; }
-function puedeVerNominas() { return !!state.user && ['admin', 'residente'].includes(state.user.puesto); }
-function puedeCapturarAsistencia() { return !!state.user && ['admin', 'residente'].includes(state.user.puesto); }
-function puedeAprobarNomina() { return !!state.user && state.user.puesto === 'admin'; }
+function puedeGestionarTrabajadores() { return isAdmin(); }
+function puedeVerNominas() { return !!state.user && (isAdmin() || ['residente'].includes(state.user.puesto)); }
+function puedeCapturarAsistencia() { return !!state.user && (isAdmin() || ['residente'].includes(state.user.puesto)); }
+function puedeAprobarNomina() { return isAdmin(); }
 
 function applySession(user, tabs) {
   state.user = user;
   state.allowedTabs = tabs;
-  const isAdmin = user.puesto === 'admin';
-  $('#btnUpload').style.display = isAdmin ? '' : 'none';
+  const isAdminUser = user.puesto === 'admin' || user.puesto === 'desarrollador';
+  $('#btnUpload').style.display = isAdminUser ? '' : 'none';
   const adminAct = $('#drawerAdminActions');
-  if (adminAct) adminAct.style.display = isAdmin ? '' : 'none';
+  if (adminAct) adminAct.style.display = isAdminUser ? '' : 'none';
   renderDrawerAccount();
   state.view = tabs.length <= 1 ? (tabs[0] || 'inicio') : 'inicio';
   state.section = VIEW_TO_SECTION[state.view] || null;
@@ -472,7 +507,7 @@ const SECTION_DEFS = {
   obra:          { label: 'Obra',           icon: 'obra',           emoji: '🏗️',  tabs: ['programa', 'avance', 'destajo'],                     proximamente: ['Estimaciones'] },
   compras:       { label: 'Compras',        icon: 'compras',        emoji: '🛒',   tabs: ['requisiciones', 'insumos', 'proveedores', 'ordenes'], proximamente: ['Subcontratos'] },
   tesoreria:     { label: 'Tesorería',      icon: 'tesoreria',      emoji: '💰',   tabs: ['finanzas', 'impuestos'],                             proximamente: [] },
-  administracion:{ label: 'Administración', icon: 'administracion', emoji: '📂',  tabs: ['usuarios', 'mapeo', 'contrato', 'trabajadores', 'nominas'], proximamente: ['Almacenes'] },
+  administracion:{ label: 'Administración', icon: 'administracion', emoji: '📂',  tabs: ['mapeo', 'contrato', 'trabajadores', 'nominas', 'usuarios'], proximamente: ['Almacenes'] },
   maquinaria:    { label: 'Maquinaria',     icon: 'maquinaria',     emoji: '🚜',   tabs: [],                                                    proximamente: ['Maquinaria'] },
 };
 
@@ -1794,7 +1829,7 @@ async function renderView() {
           <div class="big">🏗️</div>
           <p>No hay un presupuesto seleccionado.</p>
           <p>Carga un archivo Excel de presupuesto (.xlsx) y la app generará automáticamente su catálogo de insumos, alertas de requisición, avances y programa de ejecución — con su propia base de datos independiente.</p>
-          ${state.user && state.user.puesto === 'admin' ? '<button class="btn btn-primary" id="emptyUploadBtn">+ Cargar presupuesto</button>' : ''}
+          ${isAdmin() ? '<button class="btn btn-primary" id="emptyUploadBtn">+ Cargar presupuesto</button>' : ''}
         </div>`;
       $('#emptyUploadBtn')?.addEventListener('click', promptUpload);
     }
@@ -5375,15 +5410,14 @@ fab.textContent = '+';
 fab.style.display = 'none';
 document.body.appendChild(fab);
 fab.addEventListener('click', () => {
-  const isAdmin = state.user && state.user.puesto === 'admin';
   if (state.view === 'requisiciones') {
     if (getDraft().length) openDraftModal();
     else { switchToView('insumos'); toast('Agrega insumos desde el catálogo primero', ''); }
   } else if (state.view === 'insumos') {
     if (getDraft().length) { switchToView('requisiciones'); }
   } else if (state.view === 'destajo') {
-    if (isAdmin || (state.user && state.user.puesto === 'residente')) openNuevoDestajistaModal();
-  } else if (isAdmin) {
+    if (isAdmin() || (state.user && state.user.puesto === 'residente')) openNuevoDestajistaModal();
+  } else if (isAdmin()) {
     promptUpload();
   }
 });
@@ -5534,6 +5568,7 @@ async function renderTrabajadores(view) {
     <p class="muted">Expediente de personal asignado a esta obra.</p>
     <div class="section-actions" style="flex-wrap:wrap;gap:8px">
       ${puedeGestionarTrabajadores() ? `<button class="btn btn-primary" id="btnNuevoTrabajador">+ Nuevo trabajador</button>` : ''}
+      ${puedeGestionarTrabajadores() ? `<button class="btn" id="btnCatalogoEpp">Catálogo EPP</button>` : ''}
       <label style="display:flex;align-items:center;gap:6px;font-size:0.88rem;cursor:pointer">
         <input type="checkbox" id="chkVerInactivos" style="width:auto"> Ver inactivos
       </label>
@@ -5542,6 +5577,7 @@ async function renderTrabajadores(view) {
   `;
 
   $('#btnNuevoTrabajador')?.addEventListener('click', () => openTrabajadorModal(null, repaint));
+  $('#btnCatalogoEpp')?.addEventListener('click', () => openCatalogoEppModal());
   $('#chkVerInactivos')?.addEventListener('change', async (e) => {
     mostrarInactivos = e.target.checked;
     await repaint();
@@ -5570,6 +5606,8 @@ function paintTrabajadoresList(trabajadores, listEl, repaint) {
           ${puedeGestionarTrabajadores() ? `
             <button class="btn small" data-edit-trab="${t.id}">Editar</button>
             <button class="btn small" data-docs-trab="${t.id}" data-docs-nombre="${esc(t.nombre)}">Docs</button>
+            <button class="btn small" data-contratos-trab="${t.id}" data-contratos-nombre="${esc(t.nombre)}">Contrato</button>
+            <button class="btn small" data-epp-trab="${t.id}" data-epp-nombre="${esc(t.nombre)}">EPP</button>
             ${t.activo
               ? `<button class="btn small btn-danger" data-baja-trab="${t.id}" data-baja-nombre="${esc(t.nombre)}">Dar baja</button>`
               : `<button class="btn small" data-reactiva-trab="${t.id}">Reactivar</button>
@@ -5590,6 +5628,12 @@ function paintTrabajadoresList(trabajadores, listEl, repaint) {
   });
   $$('[data-docs-trab]', listEl).forEach((btn) => {
     btn.addEventListener('click', () => openDocumentosModal(Number(btn.dataset.docsTrab), btn.dataset.docsNombre));
+  });
+  $$('[data-contratos-trab]', listEl).forEach((btn) => {
+    btn.addEventListener('click', () => openContratosModal(Number(btn.dataset.contratosTrab), btn.dataset.contratosNombre));
+  });
+  $$('[data-epp-trab]', listEl).forEach((btn) => {
+    btn.addEventListener('click', () => openEppModal(Number(btn.dataset.eppTrab), btn.dataset.eppNombre));
   });
   $$('[data-baja-trab]', listEl).forEach((btn) => {
     btn.addEventListener('click', () => openBajaModal(Number(btn.dataset.bajaTrab), btn.dataset.bajaNombre, repaint));
@@ -5650,7 +5694,8 @@ async function openTrabajadorModal(trab, repaint) {
       <div class="field"><label>NSS</label><input id="tNss" value="${esc(trab?.nss || '')}" /></div>
       <div class="field"><label>Teléfono</label><input id="tTelefono" value="${esc(trab?.telefono || '')}" /></div>
       <div class="field" style="grid-column:1/-1"><label>Dirección</label><input id="tDireccion" value="${esc(trab?.direccion || '')}" /></div>
-      <div class="field" style="grid-column:1/-1"><label>Contacto de emergencia</label><input id="tContacto" value="${esc(trab?.contacto_emergencia || '')}" /></div>
+      <div class="field"><label>Contacto de emergencia — nombre</label><input id="tContactoNombre" value="${esc(trab?.contacto_emergencia_nombre || '')}" /></div>
+      <div class="field"><label>Contacto de emergencia — teléfono</label><input id="tContactoTel" value="${esc(trab?.contacto_emergencia_telefono || '')}" /></div>
     </div>
     <div class="modal-actions">
       <button class="btn" id="btnCancelTrab">Cancelar</button>
@@ -5681,7 +5726,8 @@ async function openTrabajadorModal(trab, repaint) {
       nss: $('#tNss').value.trim() || null,
       telefono: $('#tTelefono').value.trim() || null,
       direccion: $('#tDireccion').value.trim() || null,
-      contacto_emergencia: $('#tContacto').value.trim() || null,
+      contacto_emergencia_nombre: $('#tContactoNombre').value.trim() || null,
+      contacto_emergencia_telefono: $('#tContactoTel').value.trim() || null,
     };
     const btn = $('#btnSaveTrab');
     btn.disabled = true;
@@ -5698,24 +5744,55 @@ async function openTrabajadorModal(trab, repaint) {
   });
 }
 
+const MOTIVO_BAJA_LABELS = {
+  renuncia: 'Renuncia voluntaria',
+  despido_justificado: 'Despido justificado',
+  despido_injustificado: 'Despido injustificado',
+  fin_obra: 'Fin de obra',
+  abandono: 'Abandono de trabajo',
+  otro: 'Otro (especificar en notas)',
+};
+
 async function openBajaModal(id, nombre, repaint) {
   openModal(`
     <h3>Dar de baja a ${esc(nombre)}</h3>
     <p class="muted">El trabajador quedará inactivo. Su expediente e historial se conservan. Puedes reactivarlo en cualquier momento.</p>
-    <div class="field"><label>Motivo de baja</label><textarea id="tMotivoBaja" rows="3" placeholder="Opcional — terminación de contrato, renuncia, etc."></textarea></div>
+    <div style="display:grid;gap:8px">
+      <div class="field">
+        <label>Motivo de baja *</label>
+        <select id="tMotivoBaja">
+          ${Object.entries(MOTIVO_BAJA_LABELS).map(([v,l]) => `<option value="${v}">${l}</option>`).join('')}
+        </select>
+      </div>
+      <div class="field">
+        <label>Fecha de baja</label>
+        <input id="tFechaBaja" type="date" value="${new Date().toISOString().slice(0,10)}" />
+      </div>
+      <div class="field" id="bajaNatasField">
+        <label>Notas <span id="bajaNotasReq" style="display:none;color:var(--color-danger)">*</span></label>
+        <textarea id="tNotasBaja" rows="3" placeholder="Detalles adicionales…"></textarea>
+      </div>
+    </div>
     <div class="modal-actions">
       <button class="btn" id="btnCancelBaja">Cancelar</button>
       <button class="btn btn-danger" id="btnConfirmBaja">Dar de baja</button>
     </div>
   `);
+  $('#tMotivoBaja').addEventListener('change', () => {
+    const esOtro = $('#tMotivoBaja').value === 'otro';
+    $('#bajaNotasReq').style.display = esOtro ? '' : 'none';
+  });
   $('#btnCancelBaja').addEventListener('click', closeModal);
   $('#btnConfirmBaja').addEventListener('click', async () => {
+    const motivo_baja = $('#tMotivoBaja').value;
+    const notas = $('#tNotasBaja').value.trim() || null;
+    if (motivo_baja === 'otro' && !notas) { toast('Las notas son requeridas cuando el motivo es "Otro"', 'danger'); return; }
     const btn = $('#btnConfirmBaja');
     btn.disabled = true;
     try {
       await api(`/projects/${state.projectId}/trabajadores/${id}/baja`, {
         method: 'POST',
-        body: { motivo: $('#tMotivoBaja').value.trim() || null },
+        body: { motivo_baja, notas, fecha_baja: $('#tFechaBaja').value || null },
       });
       toast('Trabajador dado de baja', 'success');
       closeModal();
@@ -5805,6 +5882,282 @@ async function openDocumentosModal(trabajadorId, nombreTrab) {
     } catch (err) { toast(err.message, 'danger'); }
     btn.disabled = false;
     btn.textContent = 'Subir documento';
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Contratos laborales por trabajador
+// ---------------------------------------------------------------------------
+const TIPO_CONTRATO_LABELS = {
+  obra_determinada: 'Obra determinada',
+  tiempo_determinado: 'Tiempo determinado',
+  tiempo_indeterminado: 'Tiempo indeterminado',
+};
+
+async function openContratosModal(trabajadorId, nombreTrab) {
+  openModal(`
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+      <h3 style="margin:0">Contratos — ${esc(nombreTrab)}</h3>
+      <button class="icon-btn" id="btnCerrarContratos" style="width:32px;height:32px;font-size:1rem">✕</button>
+    </div>
+    <div id="contratosListEl"><div class="empty-state">Cargando…</div></div>
+    <div style="margin-top:14px;border-top:1px solid var(--border-color);padding-top:14px">
+      <p class="muted" style="font-size:0.85rem;margin:0 0 10px;font-weight:600">Registrar nuevo contrato</p>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <div class="field" style="grid-column:1/-1">
+          <label>Tipo de contrato *</label>
+          <select id="cTipo">
+            ${Object.entries(TIPO_CONTRATO_LABELS).map(([v,l]) => `<option value="${v}">${l}</option>`).join('')}
+          </select>
+        </div>
+        <div class="field"><label>Fecha de inicio *</label><input id="cFechaInicio" type="date" /></div>
+        <div class="field"><label>Fecha de fin</label><input id="cFechaFin" type="date" /></div>
+        <div class="field" style="grid-column:1/-1"><label>Salario diario contractual (MXN)</label><input id="cSalario" type="number" min="0" step="0.01" placeholder="Solo informativo, no afecta nómina" /></div>
+        <div class="field" style="grid-column:1/-1"><label>PDF del contrato (opcional)</label><input id="cPdfFile" type="file" accept=".pdf" /></div>
+      </div>
+      <button class="btn btn-primary" id="btnGuardarContrato" style="margin-top:8px">Guardar contrato</button>
+    </div>
+  `);
+  $('#btnCerrarContratos').addEventListener('click', closeModal);
+
+  async function loadContratos() {
+    const contratos = await api(`/projects/${state.projectId}/trabajadores/${trabajadorId}/contratos`);
+    const el = $('#contratosListEl');
+    if (!el) return;
+    if (!contratos.length) { el.innerHTML = '<div class="empty-state">Sin contratos registrados.</div>'; return; }
+    el.innerHTML = contratos.map((c) => `
+      <div class="card" style="padding:10px 12px;margin-bottom:8px">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start">
+          <div>
+            <span class="badge ${c.activo ? 'green' : 'muted'}">${c.activo ? 'Vigente' : 'Histórico'}</span>
+            <strong style="margin-left:6px">${esc(TIPO_CONTRATO_LABELS[c.tipo_contrato] || c.tipo_contrato)}</strong>
+            <div class="muted" style="font-size:0.8rem;margin-top:2px">
+              ${c.fecha_inicio ? fmtDateShort(c.fecha_inicio) : '—'}${c.fecha_fin ? ' → ' + fmtDateShort(c.fecha_fin) : ''}
+              ${c.salario_diario ? ` · ${fmtMoney(c.salario_diario)}/día` : ''}
+            </div>
+            <div class="muted" style="font-size:0.75rem">Registrado por ${esc(c.creado_por_nombre || 'desconocido')}</div>
+          </div>
+          ${c.pdf_url ? `<button class="btn small" data-dl-contrato="${c.id}" data-dl-nombre="${esc(c.pdf_filename||'contrato.pdf')}">Ver PDF</button>` : ''}
+        </div>
+      </div>
+    `).join('');
+    $$('[data-dl-contrato]', el).forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        try {
+          await apiDownload(`/projects/${state.projectId}/trabajadores/${trabajadorId}/contratos/${btn.dataset.dlContrato}/download`, btn.dataset.dlNombre);
+        } catch (err) { toast(err.message, 'danger'); }
+      });
+    });
+  }
+  await loadContratos();
+
+  $('#btnGuardarContrato').addEventListener('click', async () => {
+    const tipo_contrato = $('#cTipo').value;
+    const fecha_inicio = $('#cFechaInicio').value;
+    if (!fecha_inicio) { toast('La fecha de inicio es requerida', 'danger'); return; }
+    const btn = $('#btnGuardarContrato');
+    btn.disabled = true; btn.textContent = 'Guardando…';
+    try {
+      let pdf_url = null; let pdf_filename = null;
+      const pdfFile = $('#cPdfFile')?.files?.[0];
+      if (pdfFile) {
+        btn.textContent = 'Subiendo PDF…';
+        const blob = await VercelBlobClient.upload(pdfFile.name, pdfFile, {
+          access: 'private',
+          handleUploadUrl: `/api/projects/${state.projectId}/trabajadores/${trabajadorId}/contratos/upload-token`,
+          headers: state.token ? { Authorization: `Bearer ${state.token}` } : {},
+        });
+        pdf_url = blob.url; pdf_filename = pdfFile.name;
+      }
+      await api(`/projects/${state.projectId}/trabajadores/${trabajadorId}/contratos`, {
+        method: 'POST',
+        body: {
+          tipo_contrato,
+          fecha_inicio,
+          fecha_fin: $('#cFechaFin').value || null,
+          salario_diario: parseFloat($('#cSalario').value) || null,
+          pdf_url, pdf_filename,
+        },
+      });
+      toast('Contrato guardado', 'success');
+      $('#cFechaInicio').value = ''; $('#cFechaFin').value = ''; $('#cSalario').value = ''; if ($('#cPdfFile')) $('#cPdfFile').value = '';
+      await loadContratos();
+    } catch (err) { toast(err.message, 'danger'); }
+    btn.disabled = false; btn.textContent = 'Guardar contrato';
+  });
+}
+
+// ---------------------------------------------------------------------------
+// EPP — historial de entregas por trabajador + registro con firma
+// ---------------------------------------------------------------------------
+async function openEppModal(trabajadorId, nombreTrab) {
+  let catalogo = [];
+  try { catalogo = await api(`/projects/${state.projectId}/epp-catalogo?soloActivos=1`); } catch (_) {}
+
+  openModal(`
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+      <h3 style="margin:0">EPP — ${esc(nombreTrab)}</h3>
+      <button class="icon-btn" id="btnCerrarEpp" style="width:32px;height:32px;font-size:1rem">✕</button>
+    </div>
+    <div id="eppListEl"><div class="empty-state">Cargando…</div></div>
+    <div style="margin-top:14px;border-top:1px solid var(--border-color);padding-top:14px">
+      <p class="muted" style="font-size:0.85rem;margin:0 0 10px;font-weight:600">Registrar entrega</p>
+      ${!catalogo.length ? `<p class="muted" style="font-size:0.85rem">No hay ítems en el catálogo EPP de esta obra. <br>El administrador debe configurarlo primero.</p>` : `
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <div class="field" style="grid-column:1/-1">
+          <label>Artículo *</label>
+          <select id="eppItemId">
+            <option value="">— Seleccionar —</option>
+            ${catalogo.map((c) => `<option value="${c.id}">${esc(c.nombre_item)}</option>`).join('')}
+          </select>
+        </div>
+        <div class="field"><label>Cantidad</label><input id="eppCantidad" type="number" min="1" value="1" /></div>
+        <div class="field"><label>Fecha de entrega</label><input id="eppFecha" type="date" value="${new Date().toISOString().slice(0,10)}" /></div>
+        <div class="field" style="grid-column:1/-1">
+          <label>Firma digital del trabajador (acuse de recibo)</label>
+          <div style="border:1px solid var(--border-color);border-radius:8px;overflow:hidden;background:#fff;touch-action:none">
+            <canvas id="firmaCanvas" width="500" height="160" style="width:100%;height:160px;display:block;cursor:crosshair"></canvas>
+          </div>
+          <button class="btn small" id="btnLimpiarFirma" style="margin-top:4px">Limpiar firma</button>
+        </div>
+      </div>
+      <button class="btn btn-primary" id="btnGuardarEpp" style="margin-top:8px">Guardar entrega</button>
+      `}
+    </div>
+  `);
+  $('#btnCerrarEpp').addEventListener('click', closeModal);
+
+  async function loadEpp() {
+    const entregas = await api(`/projects/${state.projectId}/trabajadores/${trabajadorId}/epp-entregas`);
+    const el = $('#eppListEl');
+    if (!el) return;
+    if (!entregas.length) { el.innerHTML = '<div class="empty-state">Sin registros de entrega de EPP.</div>'; return; }
+    el.innerHTML = entregas.map((e) => `
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border-color)">
+        <div>
+          <span style="font-weight:600;font-size:0.88rem">${esc(e.nombre_item)}</span>
+          <span class="muted" style="font-size:0.8rem"> × ${e.cantidad}</span>
+          <div class="muted" style="font-size:0.75rem">${fmtDateShort(e.fecha_entrega)} · ${esc(e.entregado_por_nombre || '—')}</div>
+        </div>
+        ${e.firma_digital ? `<img src="${e.firma_digital}" alt="firma" style="height:40px;border:1px solid var(--border-color);border-radius:4px;background:#fff" />` : '<span class="muted" style="font-size:0.75rem">Sin firma</span>'}
+      </div>
+    `).join('');
+  }
+  await loadEpp();
+
+  if (catalogo.length) {
+    const canvas = $('#firmaCanvas');
+    const ctx = canvas?.getContext('2d');
+    let drawing = false;
+    const getPos = (ev) => {
+      const r = canvas.getBoundingClientRect();
+      const src = ev.touches ? ev.touches[0] : ev;
+      return [(src.clientX - r.left) * (canvas.width / r.width), (src.clientY - r.top) * (canvas.height / r.height)];
+    };
+    canvas?.addEventListener('mousedown', (e) => { drawing = true; ctx.beginPath(); ctx.moveTo(...getPos(e)); });
+    canvas?.addEventListener('mousemove', (e) => { if (!drawing) return; ctx.lineTo(...getPos(e)); ctx.strokeStyle = '#1a1a1a'; ctx.lineWidth = 2; ctx.lineCap = 'round'; ctx.stroke(); });
+    canvas?.addEventListener('mouseup', () => { drawing = false; });
+    canvas?.addEventListener('mouseleave', () => { drawing = false; });
+    canvas?.addEventListener('touchstart', (e) => { e.preventDefault(); drawing = true; ctx.beginPath(); ctx.moveTo(...getPos(e)); }, { passive: false });
+    canvas?.addEventListener('touchmove', (e) => { e.preventDefault(); if (!drawing) return; ctx.lineTo(...getPos(e)); ctx.strokeStyle = '#1a1a1a'; ctx.lineWidth = 2; ctx.lineCap = 'round'; ctx.stroke(); }, { passive: false });
+    canvas?.addEventListener('touchend', () => { drawing = false; });
+    $('#btnLimpiarFirma')?.addEventListener('click', () => { ctx?.clearRect(0, 0, canvas.width, canvas.height); });
+
+    $('#btnGuardarEpp')?.addEventListener('click', async () => {
+      const item_id = $('#eppItemId').value;
+      if (!item_id) { toast('Selecciona un artículo', 'danger'); return; }
+      const firma_digital = canvas ? canvas.toDataURL('image/png') : null;
+      const isBlank = !firma_digital || firma_digital === canvas?.toDataURL('image/png', 0);
+      const btn = $('#btnGuardarEpp');
+      btn.disabled = true; btn.textContent = 'Guardando…';
+      try {
+        await api(`/projects/${state.projectId}/trabajadores/${trabajadorId}/epp-entregas`, {
+          method: 'POST',
+          body: {
+            item_id: Number(item_id),
+            cantidad: Number($('#eppCantidad').value) || 1,
+            fecha_entrega: $('#eppFecha').value || null,
+            firma_digital: firma_digital || null,
+          },
+        });
+        toast('Entrega de EPP registrada', 'success');
+        ctx?.clearRect(0, 0, canvas.width, canvas.height);
+        $('#eppItemId').value = ''; $('#eppCantidad').value = '1';
+        await loadEpp();
+      } catch (err) { toast(err.message, 'danger'); }
+      btn.disabled = false; btn.textContent = 'Guardar entrega';
+    });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// EPP — catálogo configurable por obra (Admin)
+// ---------------------------------------------------------------------------
+async function openCatalogoEppModal() {
+  openModal(`
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+      <h3 style="margin:0">Catálogo EPP — esta obra</h3>
+      <button class="icon-btn" id="btnCerrarCatEpp" style="width:32px;height:32px;font-size:1rem">✕</button>
+    </div>
+    <div id="catEppListEl"><div class="empty-state">Cargando…</div></div>
+    <div style="margin-top:14px;border-top:1px solid var(--border-color);padding-top:14px">
+      <p class="muted" style="font-size:0.85rem;margin:0 0 8px;font-weight:600">Agregar ítem al catálogo</p>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <div class="field" style="grid-column:1/-1"><label>Nombre del artículo *</label><input id="catEppNombre" placeholder="Ej. Casco de seguridad" /></div>
+        <div class="field" style="grid-column:1/-1"><label>Descripción (opcional)</label><input id="catEppDesc" placeholder="Norma, color, talla…" /></div>
+      </div>
+      <button class="btn btn-primary" id="btnAgregarCatEpp" style="margin-top:8px">Agregar</button>
+    </div>
+  `);
+  $('#btnCerrarCatEpp').addEventListener('click', closeModal);
+
+  async function loadCatalogo() {
+    const items = await api(`/projects/${state.projectId}/epp-catalogo`);
+    const el = $('#catEppListEl');
+    if (!el) return;
+    if (!items.length) { el.innerHTML = '<div class="empty-state">Sin ítems en el catálogo.</div>'; return; }
+    el.innerHTML = items.map((it) => `
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border-color)">
+        <div>
+          <span style="font-weight:600;font-size:0.88rem;${!it.activo ? 'opacity:0.5;text-decoration:line-through' : ''}">${esc(it.nombre_item)}</span>
+          ${it.descripcion ? `<span class="muted" style="font-size:0.8rem"> — ${esc(it.descripcion)}</span>` : ''}
+        </div>
+        <button class="btn small ${it.activo ? 'btn-danger' : ''}" data-toggle-epp="${it.id}" data-epp-activo="${it.activo}" data-epp-nombre="${esc(it.nombre_item)}" data-epp-desc="${esc(it.descripcion||'')}">
+          ${it.activo ? 'Desactivar' : 'Activar'}
+        </button>
+      </div>
+    `).join('');
+    $$('[data-toggle-epp]', el).forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const itId = Number(btn.dataset.toggleEpp);
+        const nuevoActivo = btn.dataset.eppActivo !== 'true';
+        try {
+          await api(`/projects/${state.projectId}/epp-catalogo/${itId}`, {
+            method: 'PUT',
+            body: { nombre_item: btn.dataset.eppNombre, descripcion: btn.dataset.eppDesc || null, activo: nuevoActivo },
+          });
+          await loadCatalogo();
+        } catch (err) { toast(err.message, 'danger'); }
+      });
+    });
+  }
+  await loadCatalogo();
+
+  $('#btnAgregarCatEpp').addEventListener('click', async () => {
+    const nombre_item = $('#catEppNombre').value.trim();
+    if (!nombre_item) { toast('El nombre del artículo es requerido', 'danger'); return; }
+    const btn = $('#btnAgregarCatEpp');
+    btn.disabled = true;
+    try {
+      await api(`/projects/${state.projectId}/epp-catalogo`, {
+        method: 'POST',
+        body: { nombre_item, descripcion: $('#catEppDesc').value.trim() || null },
+      });
+      toast('Ítem agregado al catálogo', 'success');
+      $('#catEppNombre').value = ''; $('#catEppDesc').value = '';
+      await loadCatalogo();
+    } catch (err) { toast(err.message, 'danger'); }
+    btn.disabled = false;
   });
 }
 

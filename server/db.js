@@ -593,8 +593,28 @@ async function createProjectRecord(nombre, archivoOriginal, clienteId) {
 }
 
 async function deleteProject(id) {
-  const { rowCount } = await pool.query('DELETE FROM proyectos WHERE id = $1', [id]);
-  return rowCount > 0;
+  return withTransaction(async (client) => {
+    // Varias FK no tienen ON DELETE CASCADE, lo que hace que el DELETE en
+    // cascada falle con FK-violation. Las eliminamos manualmente en el orden
+    // correcto antes de borrar el proyecto para que el CASCADE maneje el resto.
+    await client.query(`
+      DELETE FROM recepcion_items
+      WHERE recepcion_id IN (
+        SELECT r.id FROM recepciones r
+        JOIN ordenes_compra oc ON r.orden_compra_id = oc.id
+        WHERE oc.project_id = $1
+      )`, [id]);
+    await client.query(`
+      DELETE FROM orden_compra_items
+      WHERE orden_compra_id IN (SELECT id FROM ordenes_compra WHERE project_id = $1)
+    `, [id]);
+    await client.query(`
+      DELETE FROM nomina_items
+      WHERE nomina_id IN (SELECT id FROM nominas WHERE project_id = $1)
+    `, [id]);
+    const { rowCount } = await client.query('DELETE FROM proyectos WHERE id = $1', [id]);
+    return rowCount > 0;
+  });
 }
 
 module.exports = { pool, initSchema, withTransaction, listProjects, getProject, createProjectRecord, deleteProject };

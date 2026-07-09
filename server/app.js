@@ -1192,9 +1192,13 @@ app.get('/api/projects/:id/conceptos', h(auth.allow('residente', 'cabo', 'compra
 // ---------------------------------------------------------------------------
 app.get('/api/conceptos/:id/insumos', h(auth.allow()), h(async (req, res) => {
   const conceptoId = Number(req.params.id);
-  const { rows: conceptoRows } = await db.pool.query('SELECT id FROM conceptos WHERE id = $1', [conceptoId]);
+  const { rows: conceptoRows } = await db.pool.query('SELECT id, project_id FROM conceptos WHERE id = $1', [conceptoId]);
   if (!conceptoRows[0]) return res.status(404).json({ error: 'Concepto no encontrado' });
-
+  const p = req.user.puesto;
+  if (p !== 'admin' && p !== 'desarrollador') {
+    const { rows: acc } = await db.pool.query('SELECT 1 FROM usuario_proyectos WHERE usuario_id=$1 AND project_id=$2', [req.user.id, conceptoRows[0].project_id]);
+    if (!acc[0]) return res.status(403).json({ error: 'No tienes permiso para realizar esta acción' });
+  }
   const { rows } = await db.pool.query(`
     SELECT i.* FROM concepto_insumos ci
     JOIN insumos i ON i.id = ci.insumo_id
@@ -1211,6 +1215,11 @@ app.post('/api/conceptos/:id/insumos', h(auth.allow()), h(async (req, res) => {
 
   const { rows: conceptoRows } = await db.pool.query('SELECT id, project_id FROM conceptos WHERE id = $1', [conceptoId]);
   if (!conceptoRows[0]) return res.status(404).json({ error: 'Concepto no encontrado' });
+  const p = req.user.puesto;
+  if (p !== 'admin' && p !== 'desarrollador') {
+    const { rows: acc } = await db.pool.query('SELECT 1 FROM usuario_proyectos WHERE usuario_id=$1 AND project_id=$2', [req.user.id, conceptoRows[0].project_id]);
+    if (!acc[0]) return res.status(403).json({ error: 'No tienes permiso para realizar esta acción' });
+  }
 
   const { rows: insumoRows } = await db.pool.query('SELECT id, project_id FROM insumos WHERE id = $1', [insumoId]);
   if (!insumoRows[0]) return res.status(404).json({ error: 'Insumo no encontrado' });
@@ -1236,6 +1245,13 @@ app.post('/api/conceptos/:id/insumos', h(auth.allow()), h(async (req, res) => {
 app.delete('/api/conceptos/:id/insumos/:insumo_id', h(auth.allow()), h(async (req, res) => {
   const conceptoId = Number(req.params.id);
   const insumoId = Number(req.params.insumo_id);
+  const { rows: conceptoRows } = await db.pool.query('SELECT id, project_id FROM conceptos WHERE id = $1', [conceptoId]);
+  if (!conceptoRows[0]) return res.status(404).json({ error: 'Concepto no encontrado' });
+  const p = req.user.puesto;
+  if (p !== 'admin' && p !== 'desarrollador') {
+    const { rows: acc } = await db.pool.query('SELECT 1 FROM usuario_proyectos WHERE usuario_id=$1 AND project_id=$2', [req.user.id, conceptoRows[0].project_id]);
+    if (!acc[0]) return res.status(403).json({ error: 'No tienes permiso para realizar esta acción' });
+  }
   const { rowCount } = await db.pool.query(
     'DELETE FROM concepto_insumos WHERE concepto_id = $1 AND insumo_id = $2',
     [conceptoId, insumoId]
@@ -3177,6 +3193,8 @@ app.post('/api/projects/:id/trabajadores/:wId/baja', h(auth.allow()), h(requireP
 
 app.get('/api/projects/:id/trabajadores/:wId/bajas', h(auth.allow()), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
   const wId = Number(req.params.wId);
+  const { rows: wCheck } = await db.pool.query('SELECT id FROM trabajadores WHERE id=$1 AND project_id=$2', [wId, req.project.id]);
+  if (!wCheck[0]) return res.status(404).json({ error: 'Trabajador no encontrado' });
   const { rows } = await db.pool.query(
     `SELECT b.*, u.nombre AS registrado_por_nombre
      FROM trabajador_bajas b LEFT JOIN usuarios u ON u.id = b.registrado_por
@@ -3269,6 +3287,8 @@ app.post('/api/projects/:id/trabajadores/:wId/documentos', h(auth.allow()), h(re
 
 app.get('/api/projects/:id/trabajadores/:wId/documentos', h(auth.allow()), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
   const wId = Number(req.params.wId);
+  const { rows: wCheck } = await db.pool.query('SELECT id FROM trabajadores WHERE id=$1 AND project_id=$2', [wId, req.project.id]);
+  if (!wCheck[0]) return res.status(404).json({ error: 'Trabajador no encontrado' });
   const { rows } = await db.pool.query(
     'SELECT id, tipo, nombre_archivo, subido_en FROM trabajador_documentos WHERE trabajador_id=$1 ORDER BY subido_en DESC',
     [wId]
@@ -3353,6 +3373,8 @@ app.post('/api/projects/:id/trabajadores/:wId/contratos', h(auth.allow()), h(req
 
 app.get('/api/projects/:id/trabajadores/:wId/contratos', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
   const wId = Number(req.params.wId);
+  const { rows: wCheck } = await db.pool.query('SELECT id FROM trabajadores WHERE id=$1 AND project_id=$2', [wId, req.project.id]);
+  if (!wCheck[0]) return res.status(404).json({ error: 'Trabajador no encontrado' });
   const { rows } = await db.pool.query(
     `SELECT c.*, u.nombre AS creado_por_nombre
      FROM contratos_trabajador c LEFT JOIN usuarios u ON u.id = c.created_by
@@ -3421,6 +3443,8 @@ app.put('/api/projects/:id/epp-catalogo/:itemId', h(auth.allow()), h(requireProj
 // ===========================================================================
 app.get('/api/projects/:id/trabajadores/:wId/epp-entregas', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
   const wId = Number(req.params.wId);
+  const { rows: wCheck } = await db.pool.query('SELECT id FROM trabajadores WHERE id=$1 AND project_id=$2', [wId, req.project.id]);
+  if (!wCheck[0]) return res.status(404).json({ error: 'Trabajador no encontrado' });
   const { rows } = await db.pool.query(
     `SELECT e.*, c.nombre_item, u.nombre AS entregado_por_nombre
      FROM epp_entregas e
@@ -3476,6 +3500,12 @@ app.put('/api/projects/:id/asistencia', h(auth.allow('residente')), h(requirePro
   const { fecha, asistencia } = req.body || {};
   if (!fecha || !/^\d{4}-\d{2}-\d{2}$/.test(fecha)) return res.status(400).json({ error: 'fecha inválida' });
   if (!Array.isArray(asistencia)) return res.status(400).json({ error: 'asistencia debe ser un arreglo' });
+  // Validar que todos los trabajador_id del payload pertenecen a este proyecto
+  const payloadIds = asistencia.map((item) => Number(item.trabajador_id));
+  if (payloadIds.some((id) => !Number.isFinite(id) || id <= 0)) return res.status(400).json({ error: 'ID de trabajador inválido' });
+  const uniqueIds = [...new Set(payloadIds)];
+  const { rows: wCheck } = await db.pool.query('SELECT id FROM trabajadores WHERE id = ANY($1) AND project_id=$2', [uniqueIds, req.project.id]);
+  if (wCheck.length !== uniqueIds.length) return res.status(400).json({ error: 'Uno o más trabajadores no pertenecen a esta obra' });
   // Verificar que la fecha no caiga dentro de una nómina aprobada
   const { rows: bloqRows } = await db.pool.query(
     `SELECT id FROM nominas WHERE project_id=$1 AND estado='aprobada' AND fecha_inicio<=$2 AND fecha_fin>=$2`,

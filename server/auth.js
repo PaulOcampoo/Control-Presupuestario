@@ -15,6 +15,7 @@ const TOKEN_TTL = '30d';
 // (se resuelve aparte en allow(), no necesita listarse en cada pestaña).
 const PERMISSIONS = {
   admin:          { label: 'Administrador', tabs: ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'finanzas', 'mapeo', 'trabajadores', 'nominas'] },
+  desarrollador:  { label: 'Desarrollador', tabs: ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'finanzas', 'mapeo', 'trabajadores', 'nominas'] },
   residente:      { label: 'Residente',     tabs: ['programa', 'avance', 'destajo', 'requisiciones', 'insumos', 'ordenes', 'nominas'] },
   cabo:           { label: 'Cabo',          tabs: ['destajo', 'insumos', 'avance', 'requisiciones'] },
   compras:        { label: 'Compras',       tabs: ['programa', 'requisiciones', 'insumos', 'ordenes', 'proveedores'] },
@@ -74,10 +75,11 @@ async function requireAuth(req, res, next) {
   }
 }
 
-// Restringe la ruta a los puestos indicados; 'admin' siempre pasa.
+// Restringe la ruta a los puestos indicados; 'admin' y 'desarrollador' siempre pasan.
 function allow(...puestos) {
   return (req, res, next) => {
-    if (req.user && (req.user.puesto === 'admin' || puestos.includes(req.user.puesto))) return next();
+    const p = req.user?.puesto;
+    if (p === 'admin' || p === 'desarrollador' || puestos.includes(p)) return next();
     return res.status(403).json({ error: 'No tienes permiso para realizar esta acción' });
   };
 }
@@ -86,7 +88,7 @@ function allow(...puestos) {
 // admin siempre pasa; el resto solo si tiene una fila en usuario_proyectos
 // para ese project_id. Debe ir después de requireProject en la cadena.
 async function verificarAccesoObra(req, res, next) {
-  if (req.user.puesto === 'admin') return next();
+  if (req.user.puesto === 'admin' || req.user.puesto === 'desarrollador') return next();
   const projectId = req.project ? req.project.id : Number(req.params.id);
   const { rows } = await db.pool.query(
     'SELECT 1 FROM usuario_proyectos WHERE usuario_id = $1 AND project_id = $2',

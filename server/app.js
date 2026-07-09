@@ -7,7 +7,8 @@ const { Readable } = require('stream');
 const { pipeline } = require('stream/promises');
 const express = require('express');
 const multer = require('multer');
-const { del, get } = require('@vercel/blob');
+const Anthropic = require('@anthropic-ai/sdk');
+const { del, get, put } = require('@vercel/blob');
 const { handleUpload } = require('@vercel/blob/client');
 
 const db = require('./db');
@@ -33,6 +34,16 @@ app.use((_req, res, next) => {
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
   res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
   next();
+});
+
+// Multer para imágenes adjuntas a sugerencias (capturas de pantalla)
+const uploadImg = multer({
+  dest: os.tmpdir(),
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const ok = /\.(jpe?g|png|gif|webp)$/i.test(file.originalname);
+    cb(ok ? null : new Error('Solo se admiten imágenes (jpg, png, gif, webp)'), ok);
+  },
 });
 
 // Multer aparte para PDFs de contrato (fase de extracción vía Claude API) —
@@ -602,6 +613,120 @@ app.post('/api/clientes', h(auth.allow()), h(async (req, res) => {
 }));
 
 // ---------------------------------------------------------------------------
+// Resumen financiero agregado por cliente (solo admin/residente).
+// Reutiliza la misma lógica de cálculo que GET /api/projects/:id/resumen
+// pero en una sola query lateral en vez de N roundtrips individuales.
+// ---------------------------------------------------------------------------
+app.get('/api/clientes/:id/resumen-agregado', h(auth.allow('residente')), h(async (req, res) => {
+  const clienteId = Number(req.params.id);
+  if (!Number.isFinite(clienteId)) return res.status(400).json({ error: 'ID de cliente inválido' });
+
+  // Verificar que el cliente existe
+  const { rows: clienteRows } = await db.pool.query('SELECT id, nombre FROM clientes WHERE id=$1', [clienteId]);
+  if (!clienteRows[0]) return res.status(404).json({ error: 'Cliente no encontrado' });
+
+  // Para no-admin: solo proyectos a los que tiene acceso
+  const isAdminUser = req.user.puesto === 'admin';
+  const proyQuery = isAdminUser
+    ? `SELECT p.id, p.nombre FROM proyectos p WHERE p.cliente_id = $1 ORDER BY p.id`
+    : `SELECT p.id, p.nombre FROM proyectos p
+       JOIN usuario_proyectos up ON up.project_id = p.id AND up.usuario_id = $2
+       WHERE p.cliente_id = $1 ORDER BY p.id`;
+  const { rows: proyectos } = await db.pool.query(proyQuery, isAdminUser ? [clienteId] : [clienteId, req.user.id]);
+
+  if (!proyectos.length) return res.json({ cliente: clienteRows[0], proyectos: [], total_contratos: 0, importe_ejecutado: 0, importe_por_ejecutar: 0, avance_ponderado_pct: 0 });
+
+  // Por cada proyecto: obtener presupuesto_total y último avance real en una sola query lateral
+  const ids = proyectos.map((p) => p.id);
+  const { rows: metricRows } = await db.pool.query(`
+    SELECT
+      p.id,
+      COALESCE(
+        (SELECT valor::DOUBLE PRECISION FROM meta WHERE project_id = p.id AND clave = 'total_sin_iva' LIMIT 1),
+        (SELECT importe FROM conceptos WHERE project_id = p.id AND es_total = 1 AND grupo IS NULL ORDER BY orden DESC LIMIT 1),
+        0
+      ) AS presupuesto_total,
+      COALESCE(
+        (SELECT avance_financiero_real FROM avances_semanales
+         WHERE project_id = p.id AND avance_financiero_real IS NOT NULL ORDER BY semana DESC LIMIT 1),
+        0
+      ) AS avance_ejecutado_pct
+    FROM proyectos p
+    WHERE p.id = ANY($1)
+    ORDER BY p.id
+  `, [ids]);
+
+  const proyConMetrics = proyectos.map((p) => {
+    const m = metricRows.find((r) => r.id === p.id) || {};
+    const total = Number(m.presupuesto_total) || 0;
+    const pct = Number(m.avance_ejecutado_pct) || 0;
+    return {
+      id: p.id,
+      nombre: p.nombre,
+      presupuesto_total: total,
+      avance_ejecutado_pct: pct,
+      importe_ejecutado: Number((total * pct / 100).toFixed(2)),
+      importe_por_ejecutar: Number((total * (1 - pct / 100)).toFixed(2)),
+    };
+  });
+
+  const totalContratos = proyConMetrics.reduce((s, p) => s + p.presupuesto_total, 0);
+  const importeEjecutado = proyConMetrics.reduce((s, p) => s + p.importe_ejecutado, 0);
+  const importePorEjecutar = proyConMetrics.reduce((s, p) => s + p.importe_por_ejecutar, 0);
+  const avancePonderado = totalContratos > 0 ? (importeEjecutado / totalContratos) * 100 : 0;
+
+  res.json({
+    cliente: clienteRows[0],
+    proyectos: proyConMetrics,
+    total_contratos: Number(totalContratos.toFixed(2)),
+    importe_ejecutado: Number(importeEjecutado.toFixed(2)),
+    importe_por_ejecutar: Number(importePorEjecutar.toFixed(2)),
+    avance_ponderado_pct: Number(avancePonderado.toFixed(1)),
+  });
+}));
+
+// ---------------------------------------------------------------------------
+// Resumen global (admin + desarrollador) — suma todas las obras del sistema.
+// Reutiliza la misma query lateral de resumen-agregado sin filtro por cliente.
+// ---------------------------------------------------------------------------
+app.get('/api/resumen-global', h(auth.allow()), h(async (req, res) => {
+  const { rows } = await db.pool.query(`
+    SELECT
+      COALESCE(
+        (SELECT valor::DOUBLE PRECISION FROM meta
+         WHERE project_id = p.id AND clave = 'total_sin_iva' LIMIT 1),
+        (SELECT importe FROM conceptos
+         WHERE project_id = p.id AND es_total = 1 AND grupo IS NULL ORDER BY orden DESC LIMIT 1),
+        0
+      ) AS presupuesto_total,
+      COALESCE(
+        (SELECT avance_financiero_real FROM avances_semanales
+         WHERE project_id = p.id AND avance_financiero_real IS NOT NULL
+         ORDER BY semana DESC LIMIT 1),
+        0
+      ) AS avance_ejecutado_pct
+    FROM proyectos p
+    ORDER BY p.id
+  `);
+
+  const numProyectos = rows.length;
+  const totalContratos = rows.reduce((s, r) => s + Number(r.presupuesto_total), 0);
+  const importeEjecutado = rows.reduce(
+    (s, r) => s + Number(r.presupuesto_total) * Number(r.avance_ejecutado_pct) / 100, 0
+  );
+  const importePorEjecutar = totalContratos - importeEjecutado;
+  const avancePonderado = totalContratos > 0 ? (importeEjecutado / totalContratos) * 100 : 0;
+
+  res.json({
+    num_proyectos: numProyectos,
+    total_contratos: Number(totalContratos.toFixed(2)),
+    importe_ejecutado: Number(importeEjecutado.toFixed(2)),
+    importe_por_ejecutar: Number(importePorEjecutar.toFixed(2)),
+    avance_ponderado_pct: Number(avancePonderado.toFixed(1)),
+  });
+}));
+
+// ---------------------------------------------------------------------------
 // Bienvenida — resumen ligero por proyecto para la pantalla de bienvenida
 // ---------------------------------------------------------------------------
 app.get('/api/bienvenida', h(auth.allow('residente', 'cabo', 'compras', 'tesoreria', 'administracion', 'logistica')), h(async (req, res) => {
@@ -630,7 +755,9 @@ app.get('/api/bienvenida', h(auth.allow('residente', 'cabo', 'compras', 'tesorer
     ]);
     return {
       ...p,
-      presupuesto_total: metaRows[0] ? Number(metaRows[0].valor) : 0,
+      presupuesto_total: req.user.puesto === 'residente'
+        ? null
+        : (metaRows[0] ? Number(metaRows[0].valor) : 0),
       avance_financiero_ejecutado: avRows[0] ? Number(avRows[0].avance_financiero_real) : 0,
     };
   }));
@@ -905,10 +1032,15 @@ app.post('/api/projects/contrato-preview',
       [req.user.id, 'contrato_preview']
     );
     const tmpPath = req.file.path;
+    const blobNombre = req.file.originalname || 'contrato.pdf';
     try {
       const buffer = await fs.promises.readFile(tmpPath);
+      // Extraer primero: si falla, no se consume crédito de Blob.
       const resultado = await extraerDatosContrato(buffer);
-      res.json(resultado);
+      // Subir PDF a Vercel Blob (privado) para persistirlo.
+      const blobKey = `contratos/${Date.now()}-${Math.random().toString(36).slice(2)}.pdf`;
+      const blobResult = await put(blobKey, buffer, { access: 'private', contentType: 'application/pdf' });
+      res.json({ ...resultado, blob_url: blobResult.url, blob_nombre: blobNombre });
     } catch (err) {
       res.status(err.status || 500).json({ error: err.message });
     } finally {
@@ -950,9 +1082,39 @@ app.post('/api/projects/contrato-confirm', h(auth.allow()), h(async (req, res) =
       const clave = campo === 'fecha_inicio' ? 'inicio_obra' : campo === 'fecha_termino' ? 'fin_obra' : campo;
       await client.query(upsertMeta, [projectId, clave, String(valor)]);
     }
+
+    // Persistir PDF en tabla contratos (si viene blob_url del preview).
+    if (body.blob_url) {
+      const { rows: prev } = await client.query('SELECT blob_url FROM contratos WHERE project_id = $1', [projectId]);
+      // Si ya había un blob distinto, borrar el anterior para no acumular huérfanos.
+      if (prev[0] && prev[0].blob_url !== body.blob_url) {
+        del(prev[0].blob_url).catch(() => {});
+      }
+      const blobNombre = (body.blob_nombre || 'contrato.pdf').toString().slice(0, 255);
+      await client.query(`
+        INSERT INTO contratos (project_id, blob_url, nombre_archivo, subido_por)
+        VALUES ($1, $2, $3, $4)
+        ON CONFLICT (project_id) DO UPDATE
+          SET blob_url = EXCLUDED.blob_url,
+              nombre_archivo = EXCLUDED.nombre_archivo,
+              subido_por = EXCLUDED.subido_por,
+              subido_en = NOW()
+      `, [projectId, body.blob_url, blobNombre, req.user.id]);
+    }
   });
 
   res.json({ project_id: projectId, nombre });
+}));
+
+// Proxy del PDF de contrato (blob privado) — solo usuarios con acceso a la obra.
+app.get('/api/projects/:id/contrato/pdf', h(auth.allow()), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  const { rows } = await db.pool.query('SELECT blob_url, nombre_archivo FROM contratos WHERE project_id = $1', [req.project.id]);
+  if (!rows[0]) return res.status(404).json({ error: 'No hay PDF de contrato para esta obra' });
+  const blobResult = await get(rows[0].blob_url, { access: 'private' });
+  if (!blobResult) return res.status(404).json({ error: 'Archivo no encontrado en almacenamiento' });
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `inline; filename="${rows[0].nombre_archivo}"`);
+  await pipeline(Readable.fromWeb(blobResult.stream), res);
 }));
 
 // ---------------------------------------------------------------------------
@@ -2490,7 +2652,10 @@ app.put('/api/projects/:id/avances/:semana/conceptos', h(auth.allow('residente',
 // ---------------------------------------------------------------------------
 app.get('/api/projects/:id/resumen', h(auth.allow()), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
   const pid = req.project.id;
-  const { rows: metaRows } = await db.pool.query('SELECT clave, valor FROM meta WHERE project_id = $1', [pid]);
+  const [{ rows: metaRows }, { rows: contratoRows }] = await Promise.all([
+    db.pool.query('SELECT clave, valor FROM meta WHERE project_id = $1', [pid]),
+    db.pool.query('SELECT id FROM contratos WHERE project_id = $1', [pid]),
+  ]);
   const meta = metaToObject(metaRows);
   const { rows: totalRows } = await db.pool.query(
     "SELECT importe FROM conceptos WHERE project_id = $1 AND es_total = 1 AND grupo IS NULL ORDER BY orden DESC LIMIT 1",
@@ -2538,6 +2703,7 @@ app.get('/api/projects/:id/resumen', h(auth.allow()), h(requireProject), h(auth.
   const pctProgramado = programadoActual ? programadoActual.avance_financiero_programado : 0;
   res.json({
     meta,
+    tiene_contrato_pdf: contratoRows.length > 0,
     presupuesto_total: total,
     avance_financiero_programado_actual: pctProgramado,
     avance_financiero_ejecutado_actual: pctEjecutado,
@@ -3349,6 +3515,186 @@ app.get('/api/projects/:id/nominas/:nomId/export', h(auth.allow()), h(requirePro
       ],
       rows: items,
     }],
+  });
+}));
+
+// ---------------------------------------------------------------------------
+// Portal de sugerencias — envío (cualquier usuario autenticado) y gestión (admin)
+// ---------------------------------------------------------------------------
+app.post('/api/sugerencias', h(async (req, res) => {
+  const { texto } = req.body || {};
+  if (!texto?.trim()) return res.status(400).json({ error: 'El texto de la sugerencia es requerido' });
+  if (texto.trim().length > 2000) return res.status(400).json({ error: 'La sugerencia no puede superar los 2 000 caracteres' });
+
+  // Rate limiting: 5 sugerencias por hora por usuario
+  const { rows: rlRows } = await db.pool.query(
+    `SELECT COUNT(*)::int AS n FROM api_rate_limits
+     WHERE usuario_id = $1 AND endpoint = 'sugerencias' AND creado_en > NOW() - INTERVAL '1 hour'`,
+    [req.user.id]
+  );
+  if (rlRows[0].n >= 5) {
+    return res.status(429).json({ error: 'Límite de sugerencias alcanzado (5 por hora). Inténtalo más tarde.' });
+  }
+
+  const { rows } = await db.pool.query(
+    `INSERT INTO sugerencias (usuario_id, texto) VALUES ($1, $2) RETURNING *`,
+    [req.user.id, texto.trim()]
+  );
+  await db.pool.query(
+    `INSERT INTO api_rate_limits (usuario_id, endpoint) VALUES ($1, 'sugerencias')`,
+    [req.user.id]
+  );
+  res.status(201).json(rows[0]);
+}));
+
+app.get('/api/sugerencias/mias', h(async (req, res) => {
+  const { rows } = await db.pool.query(`
+    SELECT s.*,
+      COALESCE(
+        (SELECT json_agg(json_build_object('id', i.id, 'blob_url', i.blob_url, 'nombre_archivo', i.nombre_archivo) ORDER BY i.creado_en)
+         FROM sugerencia_imagenes i WHERE i.sugerencia_id = s.id),
+        '[]'::json
+      ) AS imagenes
+    FROM sugerencias s WHERE s.usuario_id = $1 ORDER BY s.creado_en DESC`,
+    [req.user.id]
+  );
+  res.json(rows);
+}));
+
+app.get('/api/sugerencias', h(auth.allow('desarrollador')), h(async (req, res) => {
+  const { rows } = await db.pool.query(`
+    SELECT s.*, u.nombre AS autor_nombre, u.puesto AS autor_puesto,
+      COALESCE(
+        (SELECT json_agg(json_build_object('id', i.id, 'blob_url', i.blob_url, 'nombre_archivo', i.nombre_archivo) ORDER BY i.creado_en)
+         FROM sugerencia_imagenes i WHERE i.sugerencia_id = s.id),
+        '[]'::json
+      ) AS imagenes
+    FROM sugerencias s
+    JOIN usuarios u ON u.id = s.usuario_id
+    ORDER BY s.creado_en DESC
+  `);
+  res.json(rows);
+}));
+
+app.patch('/api/sugerencias/:id', h(auth.allow('desarrollador')), h(async (req, res) => {
+  const id = Number(req.params.id);
+  const { estado } = req.body || {};
+  const ESTADOS_VALIDOS = ['pendiente', 'revisada', 'implementada', 'descartada'];
+  if (!ESTADOS_VALIDOS.includes(estado)) return res.status(400).json({ error: 'Estado inválido' });
+  const { rows } = await db.pool.query(
+    `UPDATE sugerencias SET estado = $1, actualizado_en = NOW() WHERE id = $2 RETURNING *`,
+    [estado, id]
+  );
+  if (!rows[0]) return res.status(404).json({ error: 'Sugerencia no encontrada' });
+  res.json(rows[0]);
+}));
+
+app.post('/api/sugerencias/:id/imagenes', uploadImg.single('imagen'), h(async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'No se recibió ninguna imagen' });
+  const id = Number(req.params.id);
+  const { rows: sugRows } = await db.pool.query(
+    'SELECT usuario_id FROM sugerencias WHERE id = $1', [id]
+  );
+  if (!sugRows[0]) return res.status(404).json({ error: 'Sugerencia no encontrada' });
+  const esAutor = sugRows[0].usuario_id === req.user.id;
+  const esSuperUsuario = ['admin', 'desarrollador'].includes(req.user.puesto);
+  if (!esAutor && !esSuperUsuario) return res.status(403).json({ error: 'No tienes permiso' });
+
+  const { rows: countRows } = await db.pool.query(
+    'SELECT COUNT(*)::int AS n FROM sugerencia_imagenes WHERE sugerencia_id = $1', [id]
+  );
+  if (countRows[0].n >= 5) {
+    await fs.promises.unlink(req.file.path).catch(() => {});
+    return res.status(400).json({ error: 'Máximo 5 imágenes por sugerencia' });
+  }
+
+  const fileBuffer = await fs.promises.readFile(req.file.path);
+  await fs.promises.unlink(req.file.path).catch(() => {});
+  const ext = path.extname(req.file.originalname).toLowerCase() || '.jpg';
+  const blob = await put(`sugerencias/${id}/${Date.now()}${ext}`, fileBuffer, {
+    access: 'public',
+    contentType: req.file.mimetype || 'image/jpeg',
+  });
+
+  const { rows } = await db.pool.query(
+    `INSERT INTO sugerencia_imagenes (sugerencia_id, blob_url, nombre_archivo)
+     VALUES ($1, $2, $3) RETURNING *`,
+    [id, blob.url, req.file.originalname]
+  );
+  res.status(201).json(rows[0]);
+}));
+
+app.post('/api/sugerencias/:id/generar-prompt', h(auth.allow('desarrollador')), h(async (req, res) => {
+  const id = Number(req.params.id);
+  const { rows: sugRows } = await db.pool.query(
+    `SELECT s.*, u.nombre AS autor_nombre FROM sugerencias s
+     JOIN usuarios u ON u.id = s.usuario_id WHERE s.id = $1`,
+    [id]
+  );
+  if (!sugRows[0]) return res.status(404).json({ error: 'Sugerencia no encontrada' });
+  const sug = sugRows[0];
+
+  const anthropic = new Anthropic();
+  const message = await anthropic.messages.create({
+    model: 'claude-sonnet-4-6',
+    max_tokens: 1500,
+    messages: [{
+      role: 'user',
+      content: `Eres un asistente que convierte sugerencias de usuarios en prompts técnicos accionables para desarrolladores.
+
+La app es "Control Presupuestal de Obra": sistema para gestionar presupuestos, avances semanales, requisiciones de insumos, órdenes de compra, nóminas y contratos de obras de construcción en México. Usa Express.js + PostgreSQL en el backend y vanilla JS (PWA) en el frontend.
+
+Sugerencia del usuario "${sug.autor_nombre}":
+"${sug.texto}"
+
+Convierte esta sugerencia en un prompt técnico que un desarrollador pueda usar directamente. El prompt debe:
+1. Describir QUÉ construir (funcionalidad específica)
+2. Indicar en qué parte del sistema implementarlo (tabla DB, endpoint, función frontend)
+3. Mencionar validaciones y casos borde importantes
+4. Ser conciso y accionable (máx. 300 palabras)
+
+Devuelve ÚNICAMENTE el prompt técnico, sin introducción ni cierre.`,
+    }],
+  });
+
+  const promptGenerado = message.content[0].text;
+  const { rows } = await db.pool.query(
+    `UPDATE sugerencias SET prompt_generado = $1, actualizado_en = NOW() WHERE id = $2 RETURNING *`,
+    [promptGenerado, id]
+  );
+  res.json(rows[0]);
+}));
+
+// ---------------------------------------------------------------------------
+// Panel de desarrollador — stats del sistema (solo rol 'desarrollador', no admin)
+// ---------------------------------------------------------------------------
+const requireDesarrollador = (req, res, next) => {
+  if (req.user?.puesto === 'desarrollador') return next();
+  return res.status(403).json({ error: 'No tienes permiso para realizar esta acción' });
+};
+
+app.get('/api/admin/dev-info', requireDesarrollador, h(async (_req, res) => {
+  const [usuarios, proyectos, clientes, sugerencias, contrato_pdfs] = await Promise.all([
+    db.pool.query('SELECT COUNT(*)::int AS n FROM usuarios WHERE activo = true'),
+    db.pool.query('SELECT COUNT(*)::int AS n FROM proyectos'),
+    db.pool.query('SELECT COUNT(*)::int AS n FROM clientes'),
+    db.pool.query(`SELECT
+      COUNT(*)::int AS total,
+      COUNT(*) FILTER (WHERE estado = 'pendiente')::int AS pendientes,
+      COUNT(*) FILTER (WHERE prompt_generado IS NOT NULL)::int AS con_prompt
+    FROM sugerencias`),
+    db.pool.query('SELECT COUNT(*)::int AS n FROM contratos'),
+  ]);
+  res.json({
+    usuarios_activos:    usuarios.rows[0].n,
+    proyectos_total:     proyectos.rows[0].n,
+    clientes_total:      clientes.rows[0].n,
+    sugerencias_total:   sugerencias.rows[0].total,
+    sugerencias_pend:    sugerencias.rows[0].pendientes,
+    sugerencias_prompt:  sugerencias.rows[0].con_prompt,
+    contratos_pdf:       contrato_pdfs.rows[0].n,
+    node_version:        process.version,
+    env:                 process.env.NODE_ENV || 'development',
   });
 }));
 

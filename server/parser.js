@@ -288,11 +288,15 @@ function parseInsumos(sheet) {
 // ---------------------------------------------------------------------------
 const DESTAJO_SYNONYMS = {
   destajista: ['DESTAJISTA', 'NOMBRE', 'CONTRATISTA', 'CUADRILLA', 'TRABAJADOR'],
-  codigo: ['CODIGO', 'CLAVE'],
+  codigo: ['CODIGO', 'CLAVE', 'CLAVE DE CONCEPTO', 'CLAVE CONCEPTO'],
   concepto: ['CONCEPTO', 'DESCRIPCION', 'ACTIVIDAD', 'TRABAJO'],
   unidad: ['UNIDAD', 'UNI', 'UND'],
   cantidad: ['CANTIDAD', 'CANT'],
-  precio_destajo: ['P.U. DESTAJO', 'PRECIO DESTAJO', 'PU DESTAJO', 'DESTAJO', 'PRECIO UNITARIO', 'P.U.'],
+  precio_destajo: [
+    'P.U. DESTAJO', 'P.U DESTAJO', 'PU DESTAJO', 'PU. DESTAJO',
+    'PRECIO DESTAJO', 'PRECIO DE DESTAJO', 'PRECIO UNITARIO DE DESTAJO',
+    'PRECIO UNITARIO DESTAJO', 'DESTAJO', 'P.U.', 'PRECIO UNITARIO', 'PU',
+  ],
 };
 
 function findHeaderRowDestajo(sheet, maxRows = 25) {
@@ -359,6 +363,31 @@ function parseDestajistas(workbook) {
 }
 
 // ---------------------------------------------------------------------------
+// Lookup de precios de destajo por código de actividad.
+// Funciona incluso cuando la hoja Destajo no tiene columna de DESTAJISTA
+// (tabla de precios plana: CODIGO | CONCEPTO | ... | P.U. DESTAJO).
+// Retorna { [codigo]: precio } para match exacto en ingest.
+// ---------------------------------------------------------------------------
+function parseDestajoPrecios(workbook) {
+  let destSheet = null;
+  for (const sheet of workbook.worksheets) {
+    if (norm(sheet.name).includes('DESTAJ')) { destSheet = sheet; break; }
+  }
+  if (!destSheet) return {};
+  const header = findHeaderRowDestajo(destSheet);
+  if (!header || !header.colMap.precio_destajo || !header.colMap.codigo) return {};
+  const { rowNumber, colMap } = header;
+  const precios = {};
+  for (let r = rowNumber + 1; r <= destSheet.rowCount; r++) {
+    const row = destSheet.getRow(r);
+    const codigo = cellText(row.getCell(colMap.codigo).value).trim();
+    const precio = num(row.getCell(colMap.precio_destajo).value);
+    if (codigo && precio > 0) precios[codigo] = precio;
+  }
+  return precios;
+}
+
+// ---------------------------------------------------------------------------
 async function parseWorkbook(filePath) {
   const workbook = new ExcelJS.Workbook();
   await workbook.xlsx.readFile(filePath);
@@ -386,12 +415,14 @@ async function parseWorkbook(filePath) {
   const conceptos = budgetSheet ? parseBudgetConcepts(budgetSheet) : [];
   const insumos = insumosSheet ? parseInsumos(insumosSheet) : [];
   const destajistas = parseDestajistas(workbook);
+  const destajoPrecios = parseDestajoPrecios(workbook);
 
   return {
     meta,
     conceptos,
     insumos,
     destajistas,
+    destajoPrecios,
     sheets: {
       presupuesto: budgetSheet ? budgetSheet.name : null,
       insumos: insumosSheet ? insumosSheet.name : null,

@@ -6,7 +6,7 @@
 
 const TOKEN_KEY = 'cp_token';
 const PUESTO_LABELS = {
-  admin: 'Administrador', residente: 'Residente', cabo: 'Cabo',
+  admin: 'Administrador', desarrollador: 'Desarrollador', residente: 'Residente', cabo: 'Cabo',
   compras: 'Compras', tesoreria: 'Tesorería', administracion: 'Administración', logistica: 'Logística',
 };
 
@@ -342,7 +342,8 @@ function showWelcomeScreen() {
   $('#welcomeScreen').style.display = 'flex';
 }
 
-function isAdmin() { return !!state.user && state.user.puesto === 'admin'; }
+function isAdmin() { return !!state.user && (state.user.puesto === 'admin' || state.user.puesto === 'desarrollador'); }
+function isDesarrollador() { return !!state.user && state.user.puesto === 'desarrollador'; }
 function canManageDestajo() { return !!state.user && ['admin', 'residente'].includes(state.user.puesto); }
 function puedeGenerarOC() { return !!state.user && ['admin', 'compras'].includes(state.user.puesto); }
 function puedeAutorizarRequisicion() { return !!state.user && ['admin', 'logistica'].includes(state.user.puesto); }
@@ -352,7 +353,7 @@ function puedeVerImportesRequisicion() { return !!state.user && !['residente', '
 function puedeRegistrarPago() { return !!state.user && ['admin', 'tesoreria'].includes(state.user.puesto); }
 function puedeVerImportesAvance() { return !!state.user && state.user.puesto !== 'cabo'; }
 function puedeEditarAvance() { return !!state.user && ['admin', 'residente', 'cabo'].includes(state.user.puesto); }
-function puedeGestionarUsuarios() { return !!state.user && ['admin', 'administracion'].includes(state.user.puesto); }
+function puedeGestionarUsuarios() { return !!state.user && ['admin', 'desarrollador', 'administracion'].includes(state.user.puesto); }
 function puedeGestionarTrabajadores() { return !!state.user && state.user.puesto === 'admin'; }
 function puedeVerNominas() { return !!state.user && ['admin', 'residente'].includes(state.user.puesto); }
 function puedeCapturarAsistencia() { return !!state.user && ['admin', 'residente'].includes(state.user.puesto); }
@@ -457,8 +458,7 @@ const SECTION_DEFS = {
   obra:          { label: 'Obra',           icon: 'obra',           emoji: '🏗️',  tabs: ['programa', 'avance', 'destajo'],                     proximamente: ['Estimaciones'] },
   compras:       { label: 'Compras',        icon: 'compras',        emoji: '🛒',   tabs: ['requisiciones', 'insumos', 'proveedores', 'ordenes'], proximamente: ['Subcontratos'] },
   tesoreria:     { label: 'Tesorería',      icon: 'tesoreria',      emoji: '💰',   tabs: ['finanzas', 'impuestos'],                             proximamente: [] },
-  administracion:{ label: 'Administración', icon: 'administracion', emoji: '⚙️',  tabs: ['usuarios', 'mapeo', 'contrato'],                    proximamente: ['Almacenes'] },
-  personal:      { label: 'Personal',       icon: 'usuarios',       emoji: '👷',   tabs: ['trabajadores', 'nominas'],                           proximamente: [] },
+  administracion:{ label: 'Administración', icon: 'administracion', emoji: '📂',  tabs: ['usuarios', 'mapeo', 'contrato', 'trabajadores', 'nominas'], proximamente: ['Almacenes'] },
   maquinaria:    { label: 'Maquinaria',     icon: 'maquinaria',     emoji: '🚜',   tabs: [],                                                    proximamente: ['Maquinaria'] },
 };
 
@@ -487,20 +487,43 @@ Object.entries(SECTION_DEFS).forEach(([sectionId, def]) => {
 // de presupuesto reinicia el historial (selectProject usa replaceState),
 // y el estado de modales/formularios a medio llenar se descarta al volver.
 function pushTabHistory() {
-  history.pushState({ cpNav: true, projectId: state.projectId, view: state.view, section: state.section }, '', location.href);
+  history.pushState({ cpNav: true, projectId: state.projectId, clienteId: state.clienteId, view: state.view, section: state.section }, '', location.href);
 }
 
 function replaceTabHistory() {
-  history.replaceState({ cpNav: true, projectId: state.projectId, view: state.view, section: state.section }, '', location.href);
+  history.replaceState({ cpNav: true, projectId: state.projectId, clienteId: state.clienteId, view: state.view, section: state.section }, '', location.href);
 }
 
 window.addEventListener('popstate', (ev) => {
   const s = ev.state;
-  // Entrada ajena a nuestro historial de pestañas (ya sea de otro presupuesto
-  // o de antes de que existiera este mecanismo): se corrige en vez de
-  // dejarla "viva" — así el botón atrás nunca queda atorado en un estado
-  // que ya no corresponde a lo que se ve en pantalla.
-  if (!s || !s.cpNav || s.projectId !== state.projectId) { replaceTabHistory(); return; }
+  // Entrada ajena a nuestro historial: si el usuario está dentro de la app,
+  // back regresa a la galería de clientes; si no, solo corrige el state.
+  if (!s || !s.cpNav) {
+    if ($('#app').style.display === '') {
+      goToClientGallery();
+    } else {
+      replaceTabHistory();
+    }
+    return;
+  }
+  // Retroceso al panel de resumen de cliente (clienteId guardado, sin proyecto)
+  if (!s.projectId && typeof s.clienteId === 'number') {
+    state.projectId = null;
+    state.clienteId = s.clienteId;
+    state.view = 'inicio';
+    state.section = null;
+    const cliente = state.clientes?.find((c) => c.id === s.clienteId);
+    $('#projectName').textContent = cliente ? `${cliente.nombre} — elige un presupuesto` : '';
+    renderTabsBar();
+    renderSidebar();
+    renderMobileNav();
+    renderView();
+    return;
+  }
+  if (s.projectId !== state.projectId) {
+    goToClientGallery();
+    return;
+  }
   state.view = s.view;
   state.section = s.section;
   renderTabsBar();
@@ -616,6 +639,13 @@ function renderSidebar() {
 
   let html = '';
 
+  // Volver a galería de clientes
+  html += `<button class="sbar-item sbar-back-clientes" id="sbarVolverClientes">
+    <span class="sbar-icon">${icon('chevron-left', 16)}</span>
+    <span class="sbar-label">Volver a clientes</span>
+  </button>
+  <div class="sbar-divider"></div>`;
+
   // Resumen — ítem suelto
   if (state.allowedTabs.includes('resumen')) {
     const active = state.view === 'resumen' ? 'active' : '';
@@ -663,16 +693,33 @@ function renderSidebar() {
     html += '</div></div></div>';
   });
 
+  // Sugerencias y Desarrollador — al final de la lista
+  html += `<div class="sbar-divider"></div>`;
+  const activeSug = state.view === 'sugerencias' ? 'active' : '';
+  html += `<button class="sbar-item ${activeSug}" id="sbarSugerencias" title="Sugerencias">
+    <span class="sbar-icon">💡</span>
+    <span class="sbar-label">Sugerencias</span>
+  </button>`;
+  if (isDesarrollador()) {
+    const activeDev = state.view === 'developer' ? 'active' : '';
+    html += `<button class="sbar-item ${activeDev}" id="sbarDevPanel" title="Panel de desarrollador">
+      <span class="sbar-icon">🛠️</span>
+      <span class="sbar-label">Desarrollador</span>
+    </button>`;
+  }
+
   nav.innerHTML = html;
 
   // Toggle de grupo
   $$('.sbar-group-header', nav).forEach((btn) => {
-    btn.addEventListener('click', () => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
       const group = btn.closest('.sbar-group');
       const sectionId = btn.dataset.sbarGroup;
       const isCollapsed = $('#sidebar').classList.contains('collapsed');
+      const isMobile = window.innerWidth <= 860;
 
-      // En sidebar colapsada: navegar directamente sin expandir
+      // En sidebar colapsada (desktop icon-only): navegar directamente sin expandir
       if (isCollapsed) {
         const def = SECTION_DEFS[sectionId];
         const firstTab = def.tabs.find((t) => state.allowedTabs.includes(t));
@@ -687,16 +734,29 @@ function renderSidebar() {
       if (wasClosed) {
         group.classList.add('open');
         btn.classList.add('active');
-        // Navegar al primer tab si el usuario no está ya en este grupo
-        if (state.section !== sectionId) {
+        // En desktop: navegar al primer tab si el usuario no está ya en este grupo.
+        // En móvil: solo expandir — el usuario elige el tab desde los sub-ítems.
+        if (!isMobile && state.section !== sectionId) {
           const def = SECTION_DEFS[sectionId];
           const firstTab = def.tabs.find((t) => state.allowedTabs.includes(t));
           if (firstTab) switchToView(firstTab);
         }
       }
-      // Si estaba abierto y se cerró: no navegar, solo colapsar visualmente
+      // Si estaba abierto y se cerró: solo colapsar visualmente, sin navegar.
     });
   });
+
+  // Volver a galería de clientes
+  const backBtn = $('#sbarVolverClientes', nav);
+  if (backBtn) backBtn.addEventListener('click', () => goToClientGallery());
+
+  // Sugerencias
+  const sugBtn = $('#sbarSugerencias', nav);
+  if (sugBtn) sugBtn.addEventListener('click', () => { switchToView('sugerencias'); closeSidebar(); });
+
+  // Panel de desarrollador (solo rol 'desarrollador')
+  const devBtn = $('#sbarDevPanel', nav);
+  if (devBtn) devBtn.addEventListener('click', () => { switchToView('developer'); closeSidebar(); });
 
   // Navegación directa a tabs
   $$('[data-sbar-goto]', nav).forEach((btn) => {
@@ -1005,6 +1065,7 @@ async function bootApp() {
     renderGalleryGreeting();
     renderClientGallery();
     renderBienvenidaSummary(bienvenida);
+    renderGlobalChart().catch(() => {});
   }
   try {
     await attempt();
@@ -1117,8 +1178,10 @@ document.querySelector('.topbar-title').addEventListener('click', () => {
 });
 $('#btnCloseDrawer').addEventListener('click', closeDrawer);
 $('#drawerOverlay').addEventListener('click', closeDrawer);
-$('#btnVolverClientes').addEventListener('click', async () => {
+
+async function goToClientGallery() {
   closeDrawer();
+  closeSidebar();
   state.clienteId = null;
   state.projectId = null;
   try {
@@ -1130,13 +1193,14 @@ $('#btnVolverClientes').addEventListener('click', async () => {
     renderGalleryGreeting();
     renderClientGallery();
     renderBienvenidaSummary(bienvenida);
+    renderGlobalChart().catch(() => {});
   } catch (err) {
     toast(err.message, 'danger');
     showClientGallery();
     renderGalleryGreeting();
     renderClientGallery();
   }
-});
+}
 
 async function refreshProjectList() {
   state.projects = await api('/projects');
@@ -1188,16 +1252,21 @@ function renderProjectList() {
     btn.addEventListener('click', async (ev) => {
       ev.stopPropagation();
       const id = Number(btn.dataset.del);
-      const proj = state.projects.find((p) => p.id === id);
+      const proj = state.projects.find((p) => p.id === id) || visibleProjects().find((p) => p.id === id);
+      if (!proj) { toast('No se encontró el presupuesto', 'danger'); return; }
       if (!confirm(`¿Eliminar el presupuesto "${proj.nombre}" y su base de datos? Esta acción no se puede deshacer.`)) return;
-      await api(`/projects/${id}`, { method: 'DELETE' });
-      delete state.cache[id];
-      if (state.projectId === id) state.projectId = null;
-      await refreshProjectList();
-      const remaining = visibleProjects();
-      if (!state.projectId && remaining[0]) selectProject(remaining[0].id);
-      else if (!remaining.length) renderView();
-      toast('Presupuesto eliminado', 'success');
+      try {
+        await api(`/projects/${id}`, { method: 'DELETE' });
+        delete state.cache[id];
+        if (state.projectId === id) state.projectId = null;
+        await refreshProjectList();
+        const remaining = visibleProjects();
+        if (!state.projectId && remaining[0]) selectProject(remaining[0].id);
+        else if (!remaining.length) renderView();
+        toast('Presupuesto eliminado', 'success');
+      } catch (err) {
+        toast(err.message || 'Error al eliminar el presupuesto', 'danger');
+      }
     });
   });
   $$('[data-renombrar]', list).forEach((btn) => {
@@ -1269,6 +1338,7 @@ function openCambiarClienteModal(project) {
 }
 
 function selectProject(id, targetView) {
+  const vieneDeSinProyecto = !state.projectId; // true cuando se entra desde el resumen de cliente
   state.projectId = id;
   state.cache[id] = state.cache[id] || {};
   const p = state.projects.find((x) => x.id === id);
@@ -1280,7 +1350,9 @@ function selectProject(id, targetView) {
   renderTabsBar();
   renderSidebar();
   renderMobileNav();
-  replaceTabHistory();
+  // pushState al entrar desde el resumen → iOS swipe-back regresa al resumen.
+  // replaceState al cambiar entre proyectos → no acumula entradas en historial.
+  if (vieneDeSinProyecto) { pushTabHistory(); } else { replaceTabHistory(); }
   if (typeof state.clienteId === 'number') {
     api(`/ultima-visita/${state.clienteId}`, { method: 'PUT', body: { proyecto_id: id } }).catch(() => {});
   }
@@ -1347,7 +1419,7 @@ function renderBienvenidaSummary(proyectos) {
 
   let cardsHtml = top2.map((p) => {
     const pct = Math.min(100, Math.max(0, Number(p.avance_financiero_ejecutado) || 0));
-    const totalFmt = p.presupuesto_total ? fmtMoney(p.presupuesto_total) : '—';
+    const totalFmt = p.presupuesto_total != null ? (p.presupuesto_total ? fmtMoney(p.presupuesto_total) : '—') : null;
     return `
       <div class="welcome-project-card bienvenida-proj-card" data-pid="${p.id}" data-cid="${p.cliente_id != null ? p.cliente_id : ''}">
         ${p.cliente_nombre ? `<div class="wpc-client">${esc(p.cliente_nombre)}</div>` : ''}
@@ -1355,7 +1427,7 @@ function renderBienvenidaSummary(proyectos) {
         <div class="wpc-progress-bar"><div class="wpc-progress-fill" style="width:${pct}%"></div></div>
         <div class="wpc-stats">
           <span class="wpc-pct">${pct.toFixed(1)}% ejecutado</span>
-          <span class="wpc-total">${totalFmt}</span>
+          ${totalFmt != null ? `<span class="wpc-total">${totalFmt}</span>` : ''}
         </div>
       </div>`;
   }).join('');
@@ -1376,9 +1448,74 @@ function renderBienvenidaSummary(proyectos) {
   });
 }
 
+async function renderGlobalChart() {
+  const el = $('#globalChartSection');
+  if (!el) return;
+  if (!isAdmin()) { el.innerHTML = ''; return; }
+
+  const data = await api('/resumen-global');
+  if (!data.num_proyectos) { el.innerHTML = ''; return; }
+
+  if (state.charts.globalPie) { try { state.charts.globalPie.destroy(); } catch {} delete state.charts.globalPie; }
+
+  el.innerHTML = `
+    <div class="global-chart-section">
+      <div class="bienvenida-summary-title">Resumen global — ${data.num_proyectos} obra${data.num_proyectos === 1 ? '' : 's'}</div>
+      <div class="global-chart-wrap">
+        <div class="global-chart-canvas-wrap">
+          <canvas id="globalPieChart" width="140" height="140"></canvas>
+          <div class="global-chart-pct">${data.avance_ponderado_pct.toFixed(1)}%</div>
+        </div>
+        <div class="global-chart-kpis">
+          <div class="global-kpi">
+            <span class="global-kpi-label">Total contratos</span>
+            <span class="global-kpi-value">${fmtMoney(data.total_contratos)}</span>
+          </div>
+          <div class="global-kpi">
+            <span class="global-kpi-label">Ejecutado</span>
+            <span class="global-kpi-value" style="color:var(--green)">${fmtMoney(data.importe_ejecutado)}</span>
+          </div>
+          <div class="global-kpi">
+            <span class="global-kpi-label">Por ejecutar</span>
+            <span class="global-kpi-value" style="color:var(--text-secondary)">${fmtMoney(data.importe_por_ejecutar)}</span>
+          </div>
+          <div class="global-kpi">
+            <span class="global-kpi-label">Avance ponderado</span>
+            <span class="global-kpi-value accent">${data.avance_ponderado_pct.toFixed(1)}%</span>
+          </div>
+        </div>
+      </div>
+    </div>`;
+
+  const ctx = $('#globalPieChart').getContext('2d');
+  const cc = chartColors();
+  state.charts.globalPie = new Chart(ctx, {
+    type: 'doughnut',
+    data: {
+      labels: ['Ejecutado', 'Por ejecutar'],
+      datasets: [{
+        data: [data.importe_ejecutado, data.importe_por_ejecutar],
+        backgroundColor: ['#22c55e', cc.grid],
+        borderColor: getEffectiveTheme() === 'light' ? '#f1f5f9' : '#1e293b',
+        borderWidth: 3,
+      }],
+    },
+    options: {
+      responsive: false,
+      cutout: '62%',
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: (c) => `${c.label}: ${fmtMoney(c.raw)}` } },
+      },
+    },
+  });
+}
+
 async function selectCliente(id) {
   state.clienteId = id;
   state.projectId = null;
+  state.view = 'inicio';
+  state.section = null;
   showApp();
   if (id === 'sin-cliente') {
     $('#projectName').textContent = 'Sin cliente asignado — elige un presupuesto';
@@ -1386,19 +1523,12 @@ async function selectCliente(id) {
     const cliente = state.clientes.find((c) => c.id === id);
     $('#projectName').textContent = cliente ? `${cliente.nombre} — elige un presupuesto` : '';
   }
-  renderView();
   renderProjectList();
-  // Navegar al último proyecto visitado si existe
-  if (typeof id === 'number') {
-    try {
-      const data = await api(`/ultima-visita/${id}`);
-      if (data && data.proyecto_id) {
-        const exists = state.projects.find((p) => p.id === data.proyecto_id && p.cliente_id === id);
-        if (exists) { selectProject(data.proyecto_id); return; }
-      }
-    } catch (_) { /* no bloquea la navegación */ }
-  }
-  // Sin historial: el usuario ve el estado vacío y puede abrir el drawer manualmente
+  renderTabsBar();
+  renderSidebar();
+  renderMobileNav();
+  pushTabHistory(); // entrada en historial: swipe-back en iOS regresa aquí desde el proyecto
+  renderView();    // muestra resumen financiero (admin/residente) o estado vacío
 }
 
 $('#btnGalleryLogout').addEventListener('click', logout);
@@ -1627,15 +1757,31 @@ async function renderView() {
     syncFab();
     return;
   }
+  if (state.view === 'sugerencias') {
+    try { await renderSugerencias(view); } catch (err) { view.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`; }
+    syncFab();
+    return;
+  }
+  if (state.view === 'developer') {
+    if (!isDesarrollador()) { view.innerHTML = `<div class="alert-box danger">⚠️ Acceso restringido al rol Desarrollador.</div>`; syncFab(); return; }
+    try { await renderDevPanel(view); } catch (err) { view.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`; }
+    syncFab();
+    return;
+  }
   if (!state.projectId) {
-    view.innerHTML = `
-      <div class="empty-state">
-        <div class="big">🏗️</div>
-        <p>No hay un presupuesto seleccionado.</p>
-        <p>Carga un archivo Excel de presupuesto (.xlsx) y la app generará automáticamente su catálogo de insumos, alertas de requisición, avances y programa de ejecución — con su propia base de datos independiente.</p>
-        ${state.user && state.user.puesto === 'admin' ? '<button class="btn btn-primary" id="emptyUploadBtn">+ Cargar presupuesto</button>' : ''}
-      </div>`;
-    $('#emptyUploadBtn')?.addEventListener('click', promptUpload);
+    const puedeVerAgregado = isAdmin() || state.user?.puesto === 'residente';
+    if (typeof state.clienteId === 'number' && puedeVerAgregado) {
+      await renderResumenCliente(view);
+    } else {
+      view.innerHTML = `
+        <div class="empty-state">
+          <div class="big">🏗️</div>
+          <p>No hay un presupuesto seleccionado.</p>
+          <p>Carga un archivo Excel de presupuesto (.xlsx) y la app generará automáticamente su catálogo de insumos, alertas de requisición, avances y programa de ejecución — con su propia base de datos independiente.</p>
+          ${state.user && state.user.puesto === 'admin' ? '<button class="btn btn-primary" id="emptyUploadBtn">+ Cargar presupuesto</button>' : ''}
+        </div>`;
+      $('#emptyUploadBtn')?.addEventListener('click', promptUpload);
+    }
     return;
   }
   view.innerHTML = '<div class="spinner"></div>';
@@ -1824,6 +1970,52 @@ function openEditFechasObraModal(meta) {
 }
 
 // =========================================================================
+// VISTA: Resumen financiero agregado del cliente (admin/residente)
+// =========================================================================
+async function renderResumenCliente(view) {
+  view.innerHTML = '<div class="spinner"></div>';
+  let data;
+  try {
+    data = await api(`/clientes/${state.clienteId}/resumen-agregado`);
+  } catch (err) {
+    view.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+    return;
+  }
+  const { proyectos, total_contratos, importe_ejecutado, importe_por_ejecutar, avance_ponderado_pct } = data;
+
+  view.innerHTML = `
+    <h2 class="section-title">${esc(data.cliente.nombre)} — Resumen financiero</h2>
+    <div class="kpi-grid">
+      <div class="kpi accent"><div class="label">Total contratos</div><div class="value">${fmtMoney(total_contratos)}</div></div>
+      <div class="kpi green"><div class="label">Avance general</div><div class="value">${fmtPct(avance_ponderado_pct)}</div></div>
+      <div class="kpi"><div class="label">Importe ejecutado</div><div class="value">${fmtMoney(importe_ejecutado)}</div></div>
+      <div class="kpi yellow"><div class="label">Por ejecutar</div><div class="value">${fmtMoney(importe_por_ejecutar)}</div></div>
+    </div>
+
+    <h3 class="section-title">Presupuestos</h3>
+    <div id="resumenClienteProyectos">
+      ${proyectos.map((p) => `
+        <div class="card proyecto-resumen-card" data-pid="${p.id}" style="cursor:pointer">
+          <div class="card-row" style="border:none;padding:0 0 8px">
+            <span class="k" style="font-weight:600;font-size:0.9rem;color:var(--text-primary)">${esc(p.nombre)}</span>
+            <span class="v"><span class="badge ${p.avance_ejecutado_pct >= 80 ? 'green' : p.avance_ejecutado_pct >= 40 ? 'yellow' : 'muted'}">${fmtPct(p.avance_ejecutado_pct)}</span></span>
+          </div>
+          <div class="progress-bar" style="margin:0 0 8px"><span style="width:${Math.min(100, p.avance_ejecutado_pct)}%"></span></div>
+          <div class="card-row" style="border:none;padding:0"><span class="k">Contrato</span><span class="v">${fmtMoney(p.presupuesto_total)}</span></div>
+          <div class="card-row" style="border:none;padding:0"><span class="k">Ejecutado</span><span class="v">${fmtMoney(p.importe_ejecutado)}</span></div>
+          <div class="card-row" style="border:none;padding:0"><span class="k">Por ejecutar</span><span class="v">${fmtMoney(p.importe_por_ejecutar)}</span></div>
+        </div>
+      `).join('')}
+      ${proyectos.length === 0 ? '<div class="empty-state"><div class="big">📊</div>Sin presupuestos en este cliente.</div>' : ''}
+    </div>
+  `;
+
+  $$('.proyecto-resumen-card', view).forEach((card) => {
+    card.addEventListener('click', () => selectProject(Number(card.dataset.pid)));
+  });
+}
+
+// =========================================================================
 // VISTA: Contrato — carga de PDF con extracción vía Claude API (server/
 // extraccionContrato.js) hacia un formulario editable. Dos puntos de entrada:
 // promptUploadContrato() desde la galería de clientes (crea obra nueva) y
@@ -1968,6 +2160,8 @@ $('#pdfFileInput').addEventListener('change', async (ev) => {
 function openContratoFormModal(preview, ctx) {
   const campos = preview.campos || {};
   const escaneado = !!preview.escaneado;
+  const blobUrl = preview.blob_url || null;
+  const blobNombre = preview.blob_nombre || null;
 
   const fieldsHtml = CONTRATO_FIELDS.map((f) => {
     const value = campos[f.key];
@@ -2023,6 +2217,7 @@ function openContratoFormModal(preview, ctx) {
     } else {
       body.project_id = ctx.projectId;
     }
+    if (blobUrl) { body.blob_url = blobUrl; body.blob_nombre = blobNombre; }
     btn.disabled = true; btn.textContent = 'Guardando…';
     try {
       const result = await api('/projects/contrato-confirm', { method: 'POST', body });
@@ -2045,6 +2240,7 @@ function openContratoFormModal(preview, ctx) {
 async function renderContrato(view) {
   const resumen = await cached('resumen', () => api(`/projects/${state.projectId}/resumen`));
   const meta = resumen.meta || {};
+  const tienePdf = !!resumen.tiene_contrato_pdf;
 
   if (!tieneContrato(meta)) {
     view.innerHTML = `
@@ -2062,17 +2258,24 @@ async function renderContrato(view) {
   const campos = metaToCamposContrato(meta);
   view.innerHTML = `
     <h2 class="section-title">Contrato</h2>
+    ${tienePdf ? `
+    <div class="row" style="margin-bottom:12px;gap:8px">
+      <a id="btnVerPdfContrato" href="/api/projects/${state.projectId}/contrato/pdf" target="_blank" rel="noopener" class="btn btn-primary" style="display:inline-flex;align-items:center;gap:6px">${icon('contrato', 15)} Ver PDF original</a>
+      ${isAdmin() ? `<button class="btn" id="btnReemplazarContratoTab">Reemplazar PDF</button>` : ''}
+    </div>` : (isAdmin() ? `<div style="margin-bottom:12px"><button class="btn" id="btnCargarContratoTab2">Adjuntar PDF del contrato</button></div>` : '')}
     <div class="card">
       ${CONTRATO_FIELDS.map((f) => {
         const badge = f.key === 'fecha_termino' ? vencimientoBadgeHtml(campos.fecha_termino) : '';
         return `<div class="card-row"><span class="k">${esc(f.label)}</span><span class="v">${formatContratoValor(f, campos[f.key])}${badge}</span></div>`;
       }).join('')}
     </div>
-    ${isAdmin() ? '<div class="row end" style="margin-top:10px"><button class="btn" id="btnEditarContrato">Editar</button></div>' : ''}
+    ${isAdmin() ? '<div class="row end" style="margin-top:10px"><button class="btn" id="btnEditarContrato">Editar datos</button></div>' : ''}
   `;
   $('#btnEditarContrato')?.addEventListener('click', () => {
     openContratoFormModal({ escaneado: false, campos }, { mode: 'attach', projectId: state.projectId });
   });
+  $('#btnReemplazarContratoTab')?.addEventListener('click', promptAttachContrato);
+  $('#btnCargarContratoTab2')?.addEventListener('click', promptAttachContrato);
 }
 
 // =========================================================================
@@ -2644,12 +2847,8 @@ async function openRequisicionDetail(reqId) {
       </div>`).join('');
 
     $('#btnCloseDetail').addEventListener('click', closeModal);
-    if (r.estado === 'borrador') {
-      $('#btnEditReq').addEventListener('click', () => openEditRequisicionModal(r));
-    }
-    if (r.estado === 'autorizada') {
-      $('#btnGenerarOC').addEventListener('click', () => openGenerarOrdenModal(r));
-    }
+    $('#btnEditReq')?.addEventListener('click', () => openEditRequisicionModal(r));
+    $('#btnGenerarOC')?.addEventListener('click', () => openGenerarOrdenModal(r));
     $('#estadoSelect').addEventListener('change', async (e) => {
       try {
         await api(`/projects/${state.projectId}/requisiciones/${reqId}/estado`, { method: 'PUT', body: { estado: e.target.value } });
@@ -2662,7 +2861,7 @@ async function openRequisicionDetail(reqId) {
         await openRequisicionDetail(reqId);
       } catch (err) { toast(err.message, 'danger'); }
     });
-    $('#btnDeleteReq').addEventListener('click', async () => {
+    $('#btnDeleteReq')?.addEventListener('click', async () => {
       if (!confirm('¿Eliminar esta requisición?')) return;
       await api(`/projects/${state.projectId}/requisiciones/${reqId}`, { method: 'DELETE' });
       closeModal();
@@ -4393,6 +4592,256 @@ function updateProfileUI() {
 }
 
 // =========================================================================
+// VISTA: Panel de desarrollador — exclusivo para rol 'desarrollador'
+// =========================================================================
+async function renderDevPanel(view) {
+  view.innerHTML = '<div class="spinner"></div>';
+  const info = await api('/admin/dev-info');
+
+  const stat = (label, value, color = '') =>
+    `<div class="kpi ${color}" style="min-width:130px">
+       <div class="kpi-label">${label}</div>
+       <div class="kpi-value">${value}</div>
+     </div>`;
+
+  view.innerHTML = `
+    <h2 class="section-title">🛠️ Panel de desarrollador</h2>
+
+    <h3 class="section-title" style="margin-bottom:10px">Estadísticas del sistema</h3>
+    <div class="kpi-grid" style="margin-bottom:24px">
+      ${stat('Usuarios activos',   info.usuarios_activos,  'accent')}
+      ${stat('Proyectos',          info.proyectos_total)}
+      ${stat('Clientes',           info.clientes_total)}
+      ${stat('PDFs de contrato',   info.contratos_pdf)}
+    </div>
+
+    <h3 class="section-title" style="margin-bottom:10px">Sugerencias</h3>
+    <div class="kpi-grid" style="margin-bottom:24px">
+      ${stat('Total',              info.sugerencias_total)}
+      ${stat('Pendientes',         info.sugerencias_pend,   info.sugerencias_pend > 0 ? 'yellow' : '')}
+      ${stat('Con prompt IA',      info.sugerencias_prompt, 'green')}
+    </div>
+
+    <h3 class="section-title" style="margin-bottom:10px">Entorno</h3>
+    <div class="card" style="padding:14px 16px;margin-bottom:24px;font-family:monospace;font-size:0.85rem;line-height:1.8">
+      <div><span style="color:var(--text-secondary)">Node.js</span>  &nbsp;${esc(info.node_version)}</div>
+      <div><span style="color:var(--text-secondary)">Entorno</span>  &nbsp;${esc(info.env)}</div>
+      <div><span style="color:var(--text-secondary)">SW Cache</span> &nbsp;<span id="__devSwVersion">cargando…</span></div>
+    </div>
+
+    <h3 class="section-title" style="margin-bottom:10px">Métricas de layout</h3>
+    <div id="__devDbgInline" class="card" style="padding:14px 16px;min-height:60px">
+      <span class="muted" style="font-size:0.8rem">Cargando…</span>
+    </div>
+  `;
+
+  // SW version
+  _dbgSwInfo().then(({ line, version }) => {
+    const el = $('#__devSwVersion');
+    if (el) el.textContent = `${version} (${line})`;
+  });
+
+  // Layout metrics (reutiliza la función existente)
+  initDebugSection($('#__devDbgInline'));
+}
+
+// =========================================================================
+// VISTA: Sugerencias — envío (todos los usuarios) + panel admin
+// =========================================================================
+const SUGERENCIA_ESTADO_LABELS = {
+  pendiente: 'Pendiente', revisada: 'Revisada', implementada: 'Implementada', descartada: 'Descartada',
+};
+const SUGERENCIA_ESTADO_COLORS = {
+  pendiente: 'var(--accent-gold)', revisada: 'var(--accent-blue)', implementada: 'var(--accent-green)', descartada: 'var(--text-secondary)',
+};
+
+async function renderSugerencias(view) {
+  view.innerHTML = '<div class="spinner"></div>';
+
+  const [mias, todas] = await Promise.all([
+    api('/sugerencias/mias'),
+    isAdmin() ? api('/sugerencias') : Promise.resolve(null),
+  ]);
+
+  // Archivos seleccionados pendientes de subir (solo para el formulario activo)
+  let sugFiles = [];
+
+  const estadoBadge = (estado) =>
+    `<span style="font-size:0.75rem;font-weight:600;color:${SUGERENCIA_ESTADO_COLORS[estado] || 'inherit'}">${SUGERENCIA_ESTADO_LABELS[estado] || estado}</span>`;
+
+  const imgsHtml = (imgs) => {
+    if (!imgs || !imgs.length) return '';
+    return `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px">
+      ${imgs.map((img) => `
+        <a href="${esc(img.blob_url)}" target="_blank" rel="noopener" title="${esc(img.nombre_archivo)}"
+           style="display:block;width:72px;height:72px;border-radius:8px;overflow:hidden;border:1px solid var(--border-color);flex-shrink:0">
+          <img src="${esc(img.blob_url)}" style="width:100%;height:100%;object-fit:cover" loading="lazy">
+        </a>`).join('')}
+    </div>`;
+  };
+
+  const tarjetaMia = (s) => `
+    <div class="card" style="margin-bottom:10px;padding:14px 16px">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
+        <p style="margin:0;flex:1;font-size:0.92rem;white-space:pre-wrap">${esc(s.texto)}</p>
+        ${estadoBadge(s.estado)}
+      </div>
+      ${imgsHtml(s.imagenes)}
+      <p style="margin:8px 0 0;font-size:0.75rem;color:var(--text-secondary)">${esc(s.creado_en?.slice(0, 16).replace('T', ' ') || '')}</p>
+    </div>`;
+
+  const tarjetaAdmin = (s) => `
+    <div class="card" style="margin-bottom:12px;padding:14px 16px" data-sug-id="${s.id}">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:8px">
+        <div>
+          <span style="font-weight:600;font-size:0.88rem">${esc(s.autor_nombre)}</span>
+          <span style="font-size:0.75rem;color:var(--text-secondary);margin-left:6px">${esc(s.autor_puesto || '')}</span>
+          <span style="font-size:0.75rem;color:var(--text-secondary);margin-left:6px">${esc(s.creado_en?.slice(0, 16).replace('T', ' ') || '')}</span>
+        </div>
+        <select class="input sug-estado-select" data-sug-id="${s.id}" style="font-size:0.8rem;padding:3px 6px;width:auto">
+          ${['pendiente','revisada','implementada','descartada'].map((e) =>
+            `<option value="${e}" ${s.estado === e ? 'selected' : ''}>${SUGERENCIA_ESTADO_LABELS[e]}</option>`
+          ).join('')}
+        </select>
+      </div>
+      <p style="margin:0 0 6px;font-size:0.92rem;white-space:pre-wrap">${esc(s.texto)}</p>
+      ${imgsHtml(s.imagenes)}
+      ${s.prompt_generado ? `
+        <div style="background:var(--surface-raised);border:1px solid var(--border-color);border-radius:8px;padding:10px 12px;margin:10px 0">
+          <div style="font-size:0.72rem;font-weight:700;color:var(--accent-blue);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Prompt IA generado</div>
+          <pre style="margin:0;font-size:0.82rem;white-space:pre-wrap;color:var(--text-primary);font-family:inherit">${esc(s.prompt_generado)}</pre>
+          <button class="btn sug-copy-btn" data-sug-id="${s.id}" style="margin-top:8px;font-size:0.78rem;padding:4px 10px">Copiar</button>
+        </div>` : ''}
+      <button class="btn sug-gen-btn" data-sug-id="${s.id}" style="font-size:0.82rem;padding:5px 12px;margin-top:8px">
+        ${s.prompt_generado ? 'Regenerar prompt IA' : '✨ Generar prompt IA'}
+      </button>
+    </div>`;
+
+  view.innerHTML = `
+    <h2 class="section-title">💡 Sugerencias</h2>
+
+    <div class="card" style="margin-bottom:24px;padding:14px 16px">
+      <h3 style="margin:0 0 10px;font-size:1rem">Enviar una sugerencia</h3>
+      <textarea id="sugTexto" class="input" rows="4" maxlength="2000"
+        placeholder="Describe tu idea o mejora para la app…"
+        style="resize:vertical;min-height:80px;margin-bottom:10px"></textarea>
+
+      <div id="sugThumbArea" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px"></div>
+
+      <div style="display:flex;align-items:center;gap:10px">
+        <button id="sugAttachBtn" title="Adjuntar imagen"
+          style="display:flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:50%;background:var(--surface-raised);border:1px solid var(--border-color);cursor:pointer;font-size:1.1rem;flex-shrink:0">
+          📎
+        </button>
+        <span style="flex:1;font-size:0.73rem;color:var(--text-secondary)">Máx. 2 000 caracteres · 5 imágenes · límite: 5/hora</span>
+        <button class="btn btn-primary" id="sugEnviarBtn">Enviar</button>
+      </div>
+      <input type="file" id="sugFileInput" accept="image/*" multiple style="display:none">
+    </div>
+
+    ${mias.length ? `
+      <h3 class="section-title" style="margin-bottom:8px">Mis sugerencias</h3>
+      ${mias.map(tarjetaMia).join('')}` : ''}
+
+    ${isAdmin() && todas ? `
+      <hr style="border:none;border-top:1px solid var(--border-color);margin:24px 0">
+      <h3 class="section-title" style="margin-bottom:12px">Panel admin — todas las sugerencias (${todas.length})</h3>
+      ${todas.length ? todas.map(tarjetaAdmin).join('') : '<p style="color:var(--text-secondary)">No hay sugerencias aún.</p>'}
+    ` : ''}
+  `;
+
+  // ── Adjuntar imágenes ──────────────────────────────────────────────────
+  function renderThumbs() {
+    const area = $('#sugThumbArea');
+    if (!sugFiles.length) { area.innerHTML = ''; return; }
+    area.innerHTML = sugFiles.map((f, i) => `
+      <div style="position:relative;width:72px;height:72px;flex-shrink:0" data-thumb="${i}">
+        <img src="${URL.createObjectURL(f)}"
+          style="width:72px;height:72px;object-fit:cover;border-radius:8px;border:1px solid var(--border-color);display:block">
+        <button data-rm="${i}"
+          style="position:absolute;top:2px;right:2px;width:18px;height:18px;border-radius:50%;background:rgba(0,0,0,.65);color:#fff;border:none;cursor:pointer;font-size:10px;display:flex;align-items:center;justify-content:center;padding:0;line-height:1">✕</button>
+      </div>`).join('');
+    $$('[data-rm]', area).forEach((btn) => {
+      btn.addEventListener('click', () => {
+        sugFiles.splice(Number(btn.dataset.rm), 1);
+        renderThumbs();
+      });
+    });
+  }
+
+  $('#sugAttachBtn').addEventListener('click', () => $('#sugFileInput').click());
+  $('#sugFileInput').addEventListener('change', (e) => {
+    const nuevos = Array.from(e.target.files).slice(0, 5 - sugFiles.length);
+    sugFiles.push(...nuevos);
+    e.target.value = '';
+    renderThumbs();
+  });
+
+  // ── Enviar ─────────────────────────────────────────────────────────────
+  $('#sugEnviarBtn').addEventListener('click', async () => {
+    const texto = $('#sugTexto').value.trim();
+    if (!texto) { toast('Escribe tu sugerencia antes de enviar', ''); return; }
+    const btn = $('#sugEnviarBtn');
+    btn.disabled = true; btn.textContent = 'Enviando…';
+    try {
+      const sug = await api('/sugerencias', { method: 'POST', body: { texto } });
+      if (sugFiles.length) {
+        btn.textContent = 'Subiendo imágenes…';
+        await Promise.all(sugFiles.map((file) => {
+          const fd = new FormData(); fd.append('imagen', file);
+          return api(`/sugerencias/${sug.id}/imagenes`, { method: 'POST', body: fd });
+        }));
+      }
+      sugFiles = [];
+      toast('Sugerencia enviada. ¡Gracias!', 'success');
+      await renderSugerencias(view);
+    } catch (err) {
+      toast(err.message, 'danger');
+      btn.disabled = false; btn.textContent = 'Enviar';
+    }
+  });
+
+  // ── Admin: cambiar estado ───────────────────────────────────────────────
+  $$('.sug-estado-select', view).forEach((sel) => {
+    sel.addEventListener('change', async () => {
+      const id = Number(sel.dataset.sugId);
+      try {
+        await api(`/sugerencias/${id}`, { method: 'PATCH', body: { estado: sel.value } });
+        toast('Estado actualizado', 'success');
+      } catch (err) {
+        toast(err.message, 'danger');
+        await renderSugerencias(view);
+      }
+    });
+  });
+
+  // ── Admin: generar prompt IA ────────────────────────────────────────────
+  $$('.sug-gen-btn', view).forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const id = Number(btn.dataset.sugId);
+      btn.disabled = true; btn.textContent = 'Generando…';
+      try {
+        await api(`/sugerencias/${id}/generar-prompt`, { method: 'POST', body: {} });
+        toast('Prompt generado', 'success');
+        await renderSugerencias(view);
+      } catch (err) {
+        toast(err.message, 'danger');
+        btn.disabled = false;
+        btn.textContent = '✨ Generar prompt IA';
+      }
+    });
+  });
+
+  // ── Admin: copiar prompt ───────────────────────────────────────────────
+  $$('.sug-copy-btn', view).forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const pre = btn.closest('[data-sug-id]').querySelector('pre');
+      if (pre) navigator.clipboard.writeText(pre.textContent).then(() => toast('Copiado al portapapeles', 'success'));
+    });
+  });
+}
+
+// =========================================================================
 // VISTA: Usuarios (solo Administrador) — alta, edición y baja de cuentas
 // =========================================================================
 async function renderUsuarios(view) {
@@ -4428,7 +4877,7 @@ function paintUsuariosList(usuarios) {
           <div class="muted" style="font-size:0.8rem">@${esc(u.usuario)}</div>
         </div>
         <div class="row" style="gap:6px;flex-wrap:nowrap">
-          <span class="badge ${u.puesto === 'admin' ? 'green' : u.puesto === 'logistica' ? 'yellow' : 'muted'}">${esc(PUESTO_LABELS[u.puesto] || u.puesto)}</span>
+          <span class="badge ${u.puesto === 'admin' ? 'green' : u.puesto === 'desarrollador' ? 'purple' : u.puesto === 'logistica' ? 'yellow' : 'muted'}">${esc(PUESTO_LABELS[u.puesto] || u.puesto)}</span>
           ${!u.activo ? '<span class="badge red">Inactivo</span>' : ''}
           ${u.must_change_password ? '<span class="badge yellow" title="Debe cambiar contraseña en el próximo login">🔑 Cambio pendiente</span>' : ''}
         </div>
@@ -4923,7 +5372,7 @@ fab.addEventListener('click', () => {
   }
 });
 function syncFab() {
-  const noFabViews = ['usuarios', 'proveedores', 'ordenes', 'finanzas', 'mapeo'];
+  const noFabViews = ['usuarios', 'proveedores', 'ordenes', 'finanzas', 'mapeo', 'avance'];
   const hasAction = ['requisiciones', 'insumos', 'destajo'].includes(state.view);
   fab.style.display = !noFabViews.includes(state.view) && state.projectId && (hasAction || isAdmin()) ? 'flex' : 'none';
   if (state.view === 'requisiciones' || state.view === 'insumos') fab.textContent = '🧾';
@@ -4983,7 +5432,7 @@ $('#btnSidebarCollapse').addEventListener('click', toggleSidebarCollapse);
 $('#btnSidebarProject').addEventListener('click', openDrawer);
 $('#sidebarOverlay').addEventListener('click', closeSidebar);
 
-// Popover de perfil (desktop)
+// Popover de perfil (desktop y móvil)
 $('#btnUserProfile').addEventListener('click', (e) => {
   e.stopPropagation();
   const pop = $('#userPopover');
@@ -5009,22 +5458,7 @@ $('#btnMiCuentaPopover').addEventListener('click', () => { closeUserPopover(); o
   const ai = $('#mobileNavAjustesIcon');  if (ai) ai.innerHTML = icon('settings', 20);
 })();
 
-$('#mobileNavInicio').addEventListener('click', async () => {
-  try {
-    const [, bienvenida] = await Promise.all([
-      refreshClientList(),
-      api('/bienvenida').catch(() => []),
-    ]);
-    showClientGallery();
-    renderGalleryGreeting();
-    renderClientGallery();
-    renderBienvenidaSummary(bienvenida);
-  } catch (_) {
-    showClientGallery();
-    renderGalleryGreeting();
-    renderClientGallery();
-  }
-});
+$('#mobileNavInicio').addEventListener('click', () => goToClientGallery());
 $('#mobileNavResumen').addEventListener('click', () => {
   if (!state.projectId) { toast('Selecciona un presupuesto primero', ''); return; }
   switchToView(state.allowedTabs.includes('resumen') ? 'resumen' : 'inicio');

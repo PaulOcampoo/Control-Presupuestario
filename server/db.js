@@ -511,6 +511,48 @@ const SCHEMA = `
     creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW()
   );
   CREATE INDEX IF NOT EXISTS idx_api_rate_limits_usuario ON api_rate_limits(usuario_id, endpoint, creado_en);
+
+  -- PDF original del contrato — almacenado en Vercel Blob (privado). Relación
+  -- 1:1 con proyectos (UNIQUE project_id). El blob_url lo genera contrato-preview
+  -- y lo persiste contrato-confirm; el endpoint GET /api/projects/:id/contrato/pdf
+  -- hace proxy del blob sin exponer la URL directa al cliente.
+  CREATE TABLE IF NOT EXISTS contratos (
+    id SERIAL PRIMARY KEY,
+    project_id INTEGER NOT NULL REFERENCES proyectos(id) ON DELETE CASCADE,
+    blob_url TEXT NOT NULL,
+    nombre_archivo TEXT NOT NULL DEFAULT 'contrato.pdf',
+    subido_por INTEGER REFERENCES usuarios(id),
+    subido_en TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(project_id)
+  );
+  CREATE INDEX IF NOT EXISTS idx_contratos_project ON contratos(project_id);
+
+  -- Portal de sugerencias — cualquier usuario autenticado puede enviar; solo
+  -- admin puede revisar y gestionar. prompt_generado almacena el prompt
+  -- técnico formateado por IA (claude-sonnet-4-6) bajo demanda desde el
+  -- panel de admin. El rate limiting usa api_rate_limits (endpoint='sugerencias').
+  CREATE TABLE IF NOT EXISTS sugerencias (
+    id SERIAL PRIMARY KEY,
+    usuario_id INTEGER NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+    texto TEXT NOT NULL,
+    estado TEXT NOT NULL DEFAULT 'pendiente',
+    prompt_generado TEXT,
+    creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    actualizado_en TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
+  CREATE INDEX IF NOT EXISTS idx_sugerencias_estado ON sugerencias(estado, creado_en DESC);
+  CREATE INDEX IF NOT EXISTS idx_sugerencias_usuario ON sugerencias(usuario_id);
+
+  -- Imágenes adjuntas a sugerencias (capturas de pantalla). Almacenadas en
+  -- Vercel Blob con acceso público (no son datos sensibles). Máx. 5 por sugerencia.
+  CREATE TABLE IF NOT EXISTS sugerencia_imagenes (
+    id SERIAL PRIMARY KEY,
+    sugerencia_id INTEGER NOT NULL REFERENCES sugerencias(id) ON DELETE CASCADE,
+    blob_url TEXT NOT NULL,
+    nombre_archivo TEXT NOT NULL,
+    creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
+  CREATE INDEX IF NOT EXISTS idx_sug_imgs ON sugerencia_imagenes(sugerencia_id);
 `;
 
 async function initSchema() {

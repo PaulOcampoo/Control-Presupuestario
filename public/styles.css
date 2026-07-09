@@ -281,6 +281,7 @@ label { display: block; font-size: 0.8rem; color: var(--text-secondary); margin:
 .badge.yellow { background: rgba(234,179,8,0.18); color: var(--yellow); }
 .badge.red { background: rgba(239,68,68,0.18); color: var(--red); }
 .badge.muted { background: rgba(148,163,184,0.15); color: var(--text-secondary); }
+.badge.purple { background: rgba(168,85,247,0.15); color: #a855f7; }
 
 .progress-bar { height: 8px; border-radius: 999px; background: var(--bg-surface-2); overflow: hidden; margin-top: 4px; }
 .progress-bar > span { display: block; height: 100%; background: var(--accent-gold); border-radius: 999px; }
@@ -503,9 +504,26 @@ body.modal-open { overflow: hidden; }
 }
 .gallery-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
 .gallery-card h1 { font-size: 1.2rem; margin: 4px 0; }
-.gallery-greeting { margin-bottom: 16px; }
-.gallery-greeting h2 { font-size: 1.3rem; font-weight: 700; color: var(--accent-gold); margin: 0 0 3px; }
-.gallery-greeting .muted { font-size: 0.85rem; margin: 0; }
+.gallery-greeting {
+  margin-bottom: 20px;
+  background: linear-gradient(135deg, #b45309 0%, #78350f 55%, #1c0800 100%);
+  border-radius: 14px;
+  padding: 22px 20px 18px;
+  border: 1px solid rgba(217,119,6,0.3);
+  box-shadow: 0 4px 24px rgba(120,53,15,0.35);
+  position: relative;
+  overflow: hidden;
+}
+.gallery-greeting::before {
+  content: '';
+  position: absolute;
+  top: -40px; right: -20px;
+  width: 120px; height: 120px;
+  background: radial-gradient(circle, rgba(251,191,36,0.22) 0%, transparent 70%);
+  pointer-events: none;
+}
+.gallery-greeting h2 { font-size: 1.5rem; font-weight: 800; color: #ffffff; margin: 0 0 5px; text-shadow: 0 1px 4px rgba(0,0,0,0.3); }
+.gallery-greeting .muted { font-size: 0.88rem; margin: 0; color: rgba(255,255,255,0.72); }
 .cliente-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; margin-top: 14px; }
 .cliente-card {
   background: var(--bg-surface-2); border: 1px solid var(--border-color); border-radius: var(--radius);
@@ -586,6 +604,25 @@ body.modal-open { overflow: hidden; }
 .bienvenida-proj-card:active { transform: scale(0.98); }
 @media (max-width: 480px) {
   .bienvenida-client-grid { grid-template-columns: 1fr; }
+}
+
+/* ── Gráfica global (admin/desarrollador) ─────────────────────────────────── */
+.global-chart-section { margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--border-color); }
+.global-chart-wrap { display: flex; align-items: center; gap: 20px; }
+.global-chart-canvas-wrap { flex-shrink: 0; width: 140px; height: 140px; position: relative; }
+.global-chart-pct {
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 1.05rem; font-weight: 800; color: var(--accent-gold); pointer-events: none;
+}
+.global-chart-kpis { flex: 1; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.global-kpi { display: flex; flex-direction: column; gap: 2px; }
+.global-kpi-label { font-size: 0.7rem; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.04em; font-weight: 700; }
+.global-kpi-value { font-size: 0.88rem; font-weight: 700; color: var(--text-primary); }
+.global-kpi-value.accent { color: var(--accent-gold); }
+@media (max-width: 480px) {
+  .global-chart-wrap { flex-direction: column; align-items: center; }
+  .global-chart-kpis { grid-template-columns: repeat(2, 1fr); width: 100%; }
 }
 
 .drawer-account {
@@ -769,6 +806,9 @@ body.modal-open { overflow: hidden; }
 .sbar-subitem { font-size: 0.84rem; padding: 7px 10px; border-radius: 8px; }
 .sbar-soon { opacity: 0.45; cursor: default; }
 .sbar-soon:hover { background: transparent !important; }
+.sbar-back-clientes { color: var(--text-secondary); font-size: 0.82rem; }
+.sbar-back-clientes:hover { color: var(--text-primary); }
+.sbar-divider { border: none; border-top: 1px solid var(--border-color); margin: 4px 0; }
 
 /* ── Sidebar footer (perfil) ──────────────────────────────────────────── */
 .sidebar-footer {
@@ -988,7 +1028,6 @@ body.modal-open { overflow: hidden; }
      controles de acción para no duplicar lo que ya vive en la barra inferior */
   .topbar .icon-btn:not(#btnMenu),
   .topbar .notif-wrap { display: none !important; }
-  .sidebar-footer { display: none; }
   .topbar .topbar-brand { display: none !important; }
   /* Título de proyecto: pill interactiva con chevron — indica que es tappable */
   .topbar-title {

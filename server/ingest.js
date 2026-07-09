@@ -66,6 +66,7 @@ async function ingest(client, projectId, parsed) {
       [projectId]
     );
     const conceptoMap = new Map(cRows.map((r) => [r.codigo, r.id]));
+    const dp = parsed.destajoPrecios || {};
 
     const destRows = await batchInsert(
       client, 'destajistas', ['project_id', 'nombre', 'orden'],
@@ -78,7 +79,12 @@ async function ingest(client, projectId, parsed) {
       const destId = destRows[idx].id;
       for (const item of d.items) {
         const conceptoId = item.codigo ? (conceptoMap.get(item.codigo) || null) : null;
-        itemRows.push([projectId, destId, conceptoId, item.codigo, item.concepto, item.unidad, item.cantidad_asignada, item.precio_destajo, item.orden]);
+        // Si el precio viene del Excel de destajistas úsalo; si no, busca en
+        // la hoja Destajo de precios por código (fallback parseDestajoPrecios).
+        const precio = item.precio_destajo > 0
+          ? item.precio_destajo
+          : (item.codigo && dp[item.codigo] ? dp[item.codigo] : 0);
+        itemRows.push([projectId, destId, conceptoId, item.codigo, item.concepto, item.unidad, item.cantidad_asignada, precio, item.orden]);
       }
     });
 

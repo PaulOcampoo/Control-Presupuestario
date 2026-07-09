@@ -161,7 +161,10 @@ button, a, select, label,
 
 /* Tarjetas de sección en la pantalla de inicio — mismo tratamiento visual
    que .cliente-card (galería "Selecciona un cliente"). */
-.section-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; margin: 14px 0 8px; }
+/* Mobile base: repeat(2,1fr) en lugar de auto-fill/minmax para evitar el bug
+   de threshold en Android Chrome (332px calculado como <332px por rounding). */
+.section-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin: 14px 0 8px; }
+@media (min-width: 640px) { .section-grid { grid-template-columns: repeat(3, 1fr); } }
 .section-card {
   background: var(--bg-surface-2); border: 1px solid var(--border-color); border-radius: var(--radius);
   padding: 22px 14px; text-align: center; cursor: pointer;
@@ -903,6 +906,10 @@ body.modal-open { overflow: hidden; }
 
   /* FAB: en desktop no hay bottom nav — cada vista expone sus propias acciones */
   .fab { display: none; }
+
+  /* Secciones: en desktop el main-area tiene ancho variable (sidebar presente);
+     auto-fill con minmax más generoso para 3-4 columnas según el espacio real. */
+  .section-grid { grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); }
 
   /* Sidebar colapsada: ocultar texto, centrar iconos */
   #sidebar.collapsed .sidebar-brand-name,

@@ -3752,6 +3752,11 @@ app.get('/api/sugerencias/mias', h(async (req, res) => {
   res.json(rows);
 }));
 
+const requireDesarrollador = (req, res, next) => {
+  if (req.user?.puesto === 'desarrollador') return next();
+  return res.status(403).json({ error: 'No tienes permiso para realizar esta acción' });
+};
+
 app.get('/api/sugerencias', h(auth.allow('desarrollador')), h(async (req, res) => {
   const { rows } = await db.pool.query(`
     SELECT s.*, u.nombre AS autor_nombre, u.puesto AS autor_puesto,
@@ -3778,6 +3783,14 @@ app.patch('/api/sugerencias/:id', h(auth.allow('desarrollador')), h(async (req, 
   );
   if (!rows[0]) return res.status(404).json({ error: 'Sugerencia no encontrada' });
   res.json(rows[0]);
+}));
+
+app.delete('/api/sugerencias/:id', requireDesarrollador, h(async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'ID inválido' });
+  const { rowCount } = await db.pool.query('DELETE FROM sugerencias WHERE id = $1', [id]);
+  if (!rowCount) return res.status(404).json({ error: 'Sugerencia no encontrada' });
+  res.status(204).send();
 }));
 
 app.post('/api/sugerencias/:id/imagenes', uploadImg.single('imagen'), h(async (req, res) => {
@@ -3859,11 +3872,6 @@ Devuelve ÚNICAMENTE el prompt técnico, sin introducción ni cierre.`,
 // ---------------------------------------------------------------------------
 // Panel de desarrollador — stats del sistema (solo rol 'desarrollador', no admin)
 // ---------------------------------------------------------------------------
-const requireDesarrollador = (req, res, next) => {
-  if (req.user?.puesto === 'desarrollador') return next();
-  return res.status(403).json({ error: 'No tienes permiso para realizar esta acción' });
-};
-
 app.get('/api/admin/dev-info', requireDesarrollador, h(async (_req, res) => {
   const [usuarios, proyectos, clientes, sugerencias, contrato_pdfs] = await Promise.all([
     db.pool.query('SELECT COUNT(*)::int AS n FROM usuarios WHERE activo = true'),

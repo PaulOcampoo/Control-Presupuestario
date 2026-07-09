@@ -4766,6 +4766,7 @@ async function renderSugerencias(view) {
       <button class="btn sug-gen-btn" data-sug-id="${s.id}" style="font-size:0.82rem;padding:5px 12px;margin-top:8px">
         ${s.prompt_generado ? 'Regenerar prompt IA' : '✨ Generar prompt IA'}
       </button>
+      ${isDesarrollador() ? `<button class="btn sug-del-btn" data-sug-id="${s.id}" style="font-size:0.82rem;padding:5px 12px;margin-top:8px;margin-left:6px;background:var(--danger,#e53935);color:#fff;border-color:var(--danger,#e53935)">Eliminar</button>` : ''}
     </div>`;
 
   view.innerHTML = `
@@ -4888,6 +4889,20 @@ async function renderSugerencias(view) {
     btn.addEventListener('click', () => {
       const pre = btn.closest('[data-sug-id]').querySelector('pre');
       if (pre) navigator.clipboard.writeText(pre.textContent).then(() => toast('Copiado al portapapeles', 'success'));
+    });
+  });
+
+  // ── Desarrollador: eliminar sugerencia (hard delete) ───────────────────
+  $$('.sug-del-btn', view).forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const id = Number(btn.dataset.sugId);
+      if (!confirm('¿Eliminar esta sugerencia permanentemente? No se puede deshacer.')) return;
+      try {
+        await api(`/sugerencias/${id}`, { method: 'DELETE' });
+        btn.closest('[data-sug-id]').remove();
+      } catch (err) {
+        toast(err.message || 'Error al eliminar', 'danger');
+      }
     });
   });
 }

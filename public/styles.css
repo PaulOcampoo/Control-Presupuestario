@@ -484,6 +484,7 @@ body.modal-open { overflow: hidden; }
 }
 .login-logo { max-width: 220px; width: 70%; height: auto; margin: 0 auto 10px; display: block; }
 .topbar-brand { display: flex; align-items: center; gap: 8px; }
+.topbar-brand strong { text-transform: uppercase; }
 .topbar-logo { height: 26px; width: auto; flex: 0 0 auto; }
 .login-card h1 { font-size: 1.25rem; margin: 0 0 4px; }
 .login-card .muted { display: block; margin-bottom: 18px; }
@@ -537,7 +538,7 @@ body.modal-open { overflow: hidden; }
 .cliente-card:hover { border-color: var(--accent-gold); box-shadow: 0 0 18px color-mix(in srgb, var(--accent-gold) 28%, transparent); }
 .cliente-card:active { transform: scale(0.97); }
 .cliente-card .cliente-icon { font-size: 1.8rem; }
-.cliente-card .cliente-nombre { font-weight: 700; font-size: 0.98rem; }
+.cliente-card .cliente-nombre { font-weight: 700; font-size: 0.98rem; text-transform: uppercase; }
 .cliente-card .cliente-count { color: var(--text-secondary); font-size: 0.76rem; }
 .cliente-card-orphan { border-style: dashed; border-color: var(--yellow); }
 
@@ -732,6 +733,7 @@ body.modal-open { overflow: hidden; }
 .sidebar-brand-name {
   font-size: 0.93rem; font-weight: 700;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  text-transform: uppercase;
 }
 .sidebar-collapse-btn { flex-shrink: 0; width: 32px; height: 32px; border-radius: 8px; }
 
@@ -809,6 +811,7 @@ body.modal-open { overflow: hidden; }
 .sbar-subitem { font-size: 0.84rem; padding: 7px 10px; border-radius: 8px; }
 .sbar-soon { opacity: 0.45; cursor: default; }
 .sbar-soon:hover { background: transparent !important; }
+.sidebar-volver-wrap { padding: 2px 8px 0; }
 .sbar-back-clientes { color: var(--text-secondary); font-size: 0.82rem; }
 .sbar-back-clientes:hover { color: var(--text-primary); }
 .sbar-divider { border: none; border-top: 1px solid var(--border-color); margin: 4px 0; }

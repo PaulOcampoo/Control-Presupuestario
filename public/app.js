@@ -562,7 +562,7 @@ window.addEventListener('popstate', (ev) => {
     state.view = 'inicio';
     state.section = null;
     const cliente = state.clientes?.find((c) => c.id === s.clienteId);
-    $('#projectName').textContent = cliente ? `${cliente.nombre} — elige un presupuesto` : '';
+    $('#projectName').textContent = cliente ? `${cliente.nombre.toUpperCase()} — elige un presupuesto` : '';
     renderTabsBar();
     renderSidebar();
     renderMobileNav();
@@ -686,14 +686,11 @@ function renderSidebar() {
 
   if (!state.user) { nav.innerHTML = ''; return; }
 
-  let html = '';
+  // Actualizar ícono del botón "Volver a clientes" (estático en index.html)
+  const vcIcon = $('#sbarVolverClientes .sbar-icon');
+  if (vcIcon) vcIcon.innerHTML = icon('chevron-left', 16);
 
-  // Volver a galería de clientes
-  html += `<button class="sbar-item sbar-back-clientes" id="sbarVolverClientes">
-    <span class="sbar-icon">${icon('chevron-left', 16)}</span>
-    <span class="sbar-label">Volver a clientes</span>
-  </button>
-  <div class="sbar-divider"></div>`;
+  let html = '';
 
   // Resumen — ítem suelto
   if (state.allowedTabs.includes('resumen')) {
@@ -795,9 +792,7 @@ function renderSidebar() {
     });
   });
 
-  // Volver a galería de clientes
-  const backBtn = $('#sbarVolverClientes', nav);
-  if (backBtn) backBtn.addEventListener('click', () => goToClientGallery());
+  // (el listener de "Volver a clientes" se registra una sola vez en la sección de init del sidebar)
 
   // Sugerencias
   const sugBtn = $('#sbarSugerencias', nav);
@@ -1572,7 +1567,7 @@ async function selectCliente(id) {
     $('#projectName').textContent = 'Sin cliente asignado — elige un presupuesto';
   } else {
     const cliente = state.clientes.find((c) => c.id === id);
-    $('#projectName').textContent = cliente ? `${cliente.nombre} — elige un presupuesto` : '';
+    $('#projectName').textContent = cliente ? `${cliente.nombre.toUpperCase()} — elige un presupuesto` : '';
   }
   renderProjectList();
   renderTabsBar();
@@ -2035,7 +2030,7 @@ async function renderResumenCliente(view) {
   const { proyectos, total_contratos, importe_ejecutado, importe_por_ejecutar, avance_ponderado_pct } = data;
 
   view.innerHTML = `
-    <h2 class="section-title">${esc(data.cliente.nombre)} — Resumen financiero</h2>
+    <h2 class="section-title"><span class="cliente-nombre">${esc(data.cliente.nombre)}</span> — Resumen financiero</h2>
     <div class="kpi-grid">
       <div class="kpi accent"><div class="label">Total contratos</div><div class="value">${fmtMoney(total_contratos)}</div></div>
       <div class="kpi green"><div class="label">Avance general</div><div class="value">${fmtPct(avance_ponderado_pct)}</div></div>
@@ -5495,6 +5490,7 @@ applySidebarCollapse();
 
 $('#btnSidebarCollapse').addEventListener('click', toggleSidebarCollapse);
 $('#btnSidebarProject').addEventListener('click', openDrawer);
+$('#sbarVolverClientes').addEventListener('click', () => goToClientGallery());
 $('#sidebarOverlay').addEventListener('click', closeSidebar);
 
 // Popover de perfil (desktop y móvil)

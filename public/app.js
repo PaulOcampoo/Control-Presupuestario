@@ -5996,8 +5996,17 @@ async function renderNominas(view) {
         btn.addEventListener('click', async () => {
           btn.disabled = true;
           try {
-            await api(`/projects/${state.projectId}/nominas/${btn.dataset.calcularNomina}/calcular`, { method: 'POST' });
-            toast('Nómina calculada', 'success');
+            const result = await api(`/projects/${state.projectId}/nominas/${btn.dataset.calcularNomina}/calcular`, { method: 'POST' });
+            const items = result?.items || [];
+            const sinAsistencia = items.every((i) => (i.dias_trabajados || 0) === 0);
+            const sinTarifa = items.some((i) => (i.dias_trabajados || 0) > 0 && (i.monto_jornal || 0) === 0 && (i.monto_destajo || 0) === 0);
+            if (sinAsistencia && items.length > 0) {
+              toast('Nómina calculada — sin registros de asistencia en el periodo. Guarda asistencia antes de calcular.', 'warning');
+            } else if (sinTarifa) {
+              toast('Nómina calculada — algunos trabajadores tienen tarifa $0/día. Revisa el detalle.', 'warning');
+            } else {
+              toast('Nómina calculada', 'success');
+            }
             await loadNominas();
           } catch (err) { toast(err.message, 'danger'); btn.disabled = false; }
         });
@@ -6079,28 +6088,46 @@ async function openVerNominaModal(nominaId) {
     if (!el) return;
     if (!items.length) { el.innerHTML = '<div class="empty-state">Sin líneas calculadas. Usa el botón Calcular primero.</div>'; return; }
     const total = items.reduce((s, i) => s + Number(i.monto_total || 0), 0);
+    const hasDest = items.some((i) => (i.monto_destajo || 0) > 0 || i.tipo_pago === 'destajo' || i.tipo_pago === 'mixto');
+    const sinAsistencia = items.every((i) => (i.dias_trabajados || 0) === 0);
+    const sinTarifa = items.some((i) => (i.dias_trabajados || 0) > 0 && (i.monto_jornal || 0) === 0 && (i.tipo_pago === 'jornal' || i.tipo_pago === 'mixto'));
     el.innerHTML = `
       <div class="muted" style="font-size:0.82rem;margin-bottom:8px">${esc(data.fecha_inicio)} al ${esc(data.fecha_fin)}</div>
-      <table style="width:100%;font-size:0.85rem;border-collapse:collapse">
+      ${sinAsistencia ? `<div class="alert-box" style="margin-bottom:8px;font-size:0.83rem">⚠️ Todos los trabajadores tienen 0 días — guarda la asistencia del periodo antes de calcular.</div>` : ''}
+      ${sinTarifa ? `<div class="alert-box" style="margin-bottom:8px;font-size:0.83rem">⚠️ Algún trabajador tiene tarifa $0/día. Edita el trabajador y asigna una tarifa jornal.</div>` : ''}
+      <div style="overflow-x:auto">
+      <table style="width:100%;font-size:0.85rem;border-collapse:collapse;min-width:420px">
         <thead><tr>
           <th style="text-align:left;padding:4px 8px;border-bottom:1px solid var(--border-color)">Trabajador</th>
           <th style="text-align:right;padding:4px 8px;border-bottom:1px solid var(--border-color)">Días</th>
-          <th style="text-align:right;padding:4px 8px;border-bottom:1px solid var(--border-color)">Monto</th>
+          <th style="text-align:right;padding:4px 8px;border-bottom:1px solid var(--border-color)">Tarifa/día</th>
+          <th style="text-align:right;padding:4px 8px;border-bottom:1px solid var(--border-color)">Jornal</th>
+          ${hasDest ? `<th style="text-align:right;padding:4px 8px;border-bottom:1px solid var(--border-color)">Destajo</th>` : ''}
+          <th style="text-align:right;padding:4px 8px;border-bottom:1px solid var(--border-color)">Total</th>
         </tr></thead>
         <tbody>
-          ${items.map((i) => `
-            <tr>
+          ${items.map((i) => {
+            const tarifaJornal = Number(i.tarifa_jornal || 0);
+            const montoJornal = Number(i.monto_jornal || 0);
+            const montoDest = Number(i.monto_destajo || 0);
+            const montoTot = Number(i.monto_total || 0);
+            const warnRow = (i.dias_trabajados || 0) > 0 && montoTot === 0;
+            return `<tr ${warnRow ? 'style="color:var(--color-warning,#f59e0b)"' : ''}>
               <td style="padding:4px 8px">${esc(i.trabajador_nombre || i.nombre_trabajador || '—')}</td>
-              <td style="padding:4px 8px;text-align:right">${i.dias_trabajados ?? '—'}</td>
-              <td style="padding:4px 8px;text-align:right">$${Number(i.monto_total || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })}</td>
-            </tr>
-          `).join('')}
+              <td style="padding:4px 8px;text-align:right">${i.dias_trabajados ?? 0}</td>
+              <td style="padding:4px 8px;text-align:right">${tarifaJornal > 0 ? '$' + tarifaJornal.toLocaleString('es-MX', { minimumFractionDigits: 2 }) : '<span class="muted">—</span>'}</td>
+              <td style="padding:4px 8px;text-align:right">$${montoJornal.toLocaleString('es-MX', { minimumFractionDigits: 2 })}</td>
+              ${hasDest ? `<td style="padding:4px 8px;text-align:right">$${montoDest.toLocaleString('es-MX', { minimumFractionDigits: 2 })}</td>` : ''}
+              <td style="padding:4px 8px;text-align:right;font-weight:600">$${montoTot.toLocaleString('es-MX', { minimumFractionDigits: 2 })}</td>
+            </tr>`;
+          }).join('')}
         </tbody>
         <tfoot><tr>
-          <td colspan="2" style="padding:6px 8px;font-weight:600;border-top:2px solid var(--border-color)">Total</td>
+          <td colspan="${hasDest ? 5 : 4}" style="padding:6px 8px;font-weight:600;border-top:2px solid var(--border-color)">Total nómina</td>
           <td style="padding:6px 8px;font-weight:600;text-align:right;border-top:2px solid var(--border-color)">$${total.toLocaleString('es-MX', { minimumFractionDigits: 2 })}</td>
         </tr></tfoot>
       </table>
+      </div>
     `;
   } catch (err) {
     const el = $('#verNominaBody');

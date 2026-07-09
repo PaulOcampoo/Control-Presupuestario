@@ -492,7 +492,8 @@ body.modal-open { overflow: hidden; }
 
 /* Galería de clientes (pantalla intermedia entre login y drawer de proyectos) */
 .gallery-screen {
-  position: fixed; inset: 0; z-index: 100; display: flex; align-items: center; justify-content: center;
+  position: fixed; inset: 0; z-index: 100; display: flex; flex-direction: column;
+  align-items: center; justify-content: flex-start;
   background: radial-gradient(circle at 30% 20%, var(--bg-surface) 0%, var(--bg-primary) 60%);
   padding: 20px; overflow-y: auto;
   /* Evita que el scroll de rubber-band de iOS se propague al body */
@@ -501,6 +502,8 @@ body.modal-open { overflow: hidden; }
 .gallery-card {
   width: 100%; max-width: 720px; background: var(--bg-surface); border: 1px solid var(--border-color);
   border-radius: 18px; padding: 28px 24px; box-shadow: 0 20px 60px rgba(0,0,0,0.45);
+  /* margin: auto centra verticalmente cuando sobra espacio; colapsa a 0 cuando no hay → no corta por arriba */
+  margin: auto;
 }
 .gallery-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
 .gallery-card h1 { font-size: 1.2rem; margin: 4px 0; }
@@ -1019,10 +1022,9 @@ body.modal-open { overflow: hidden; }
   /* Padding de #view: el offset del nav ya lo absorbe la altura de .main-area;
      solo necesitamos un margen visual al fondo del contenido */
   #view { padding-bottom: 28px; }
-  /* Galería: en móvil usar flex-start para que el scroll funcione sin espacio
-     en blanco (flex+center+overflow corta el top); el safe-area se aplica solo
-     aquí, donde realmente hace falta (desktop no tiene notch) */
-  .gallery-screen { align-items: flex-start; padding-top: calc(env(safe-area-inset-top, 0px) + 20px); }
+  /* Galería móvil: safe-area top para el notch; align-items se mantiene center
+     (columna) para seguir centrando horizontalmente */
+  .gallery-screen { padding-top: calc(env(safe-area-inset-top, 0px) + 20px); }
 
   /* Topbar: solo mostrar el nombre del proyecto/cliente — ocultar todos los
      controles de acción para no duplicar lo que ya vive en la barra inferior */

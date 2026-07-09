@@ -129,6 +129,12 @@
 
     <!-- ── ÁREA PRINCIPAL ─────────────────────────────────────────────── -->
     <div class="main-area">
+      <!-- Banner de simulación de vista — visible solo cuando desarrollador simula un rol -->
+      <div id="simBanner" class="sim-banner" style="display:none" role="status" aria-live="polite">
+        <span id="simBannerText"></span>
+        <button id="simBannerExit" class="sim-banner-exit">Volver a vista normal</button>
+      </div>
+
       <header class="topbar">
         <button id="btnMenu" class="icon-btn" aria-label="Menú">☰</button>
         <div class="topbar-title">

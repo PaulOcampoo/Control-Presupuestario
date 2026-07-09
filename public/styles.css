@@ -816,6 +816,31 @@ body.modal-open { overflow: hidden; }
 .sbar-back-clientes:hover { color: var(--text-primary); }
 .sbar-divider { border: none; border-top: 1px solid var(--border-color); margin: 4px 0; }
 
+/* ── Selector de vista simulada (solo desarrollador) ──────────────────── */
+.sbar-sim-selector { padding: 6px 10px 8px; }
+.sbar-sim-label { display: block; font-size: 0.72rem; color: var(--text-secondary); margin-bottom: 3px; letter-spacing: 0.03em; }
+.sbar-sim-select {
+  width: 100%; padding: 5px 8px; font-size: 0.8rem;
+  background: var(--bg-surface-2); color: var(--text-primary);
+  border: 1px solid var(--border-color); border-radius: 8px; cursor: pointer;
+}
+
+/* ── Banner de simulación de vista ────────────────────────────────────── */
+.sim-banner {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 10px; padding: 8px 14px;
+  background: color-mix(in srgb, var(--accent-gold) 18%, var(--bg-surface));
+  border-bottom: 2px solid var(--accent-gold);
+  font-size: 0.83rem; font-weight: 600; color: var(--text-primary);
+  flex-shrink: 0;
+}
+.sim-banner-exit {
+  padding: 3px 10px; font-size: 0.78rem; border-radius: 6px;
+  background: var(--accent-gold); color: #000; border: none; cursor: pointer;
+  white-space: nowrap; flex-shrink: 0;
+}
+.sim-banner-exit:hover { opacity: 0.85; }
+
 /* ── Sidebar footer (perfil) ──────────────────────────────────────────── */
 .sidebar-footer {
   padding: 8px 8px calc(10px + var(--safe-bottom));

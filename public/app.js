@@ -10,6 +10,19 @@ const PUESTO_LABELS = {
   compras: 'Compras', tesoreria: 'Tesorería', administracion: 'Administración', logistica: 'Logística',
 };
 
+// Mirror de PERMISSIONS en server/auth.js — para calcular allowedTabs en vista simulada.
+// Actualizar aquí si se agregan roles o pestañas en auth.js.
+const ROLE_TABS = {
+  admin:          ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'finanzas', 'mapeo', 'trabajadores', 'nominas'],
+  desarrollador:  ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'finanzas', 'mapeo', 'trabajadores', 'nominas'],
+  residente:      ['programa', 'avance', 'destajo', 'requisiciones', 'insumos', 'ordenes', 'nominas'],
+  cabo:           ['destajo', 'insumos', 'avance', 'requisiciones'],
+  compras:        ['programa', 'requisiciones', 'insumos', 'ordenes', 'proveedores'],
+  tesoreria:      ['resumen', 'finanzas', 'ordenes', 'contrato', 'impuestos', 'proveedores'],
+  administracion: ['resumen', 'programa', 'destajo', 'ordenes', 'proveedores', 'contrato', 'impuestos', 'mapeo'],
+  logistica:      ['programa', 'avance', 'requisiciones', 'insumos', 'ordenes'],
+};
+
 const state = {
   projects: [],
   projectId: null,
@@ -24,6 +37,8 @@ const state = {
   token: null,
   user: null,        // { id, nombre, usuario, puesto }
   allowedTabs: [],
+  simulatedPuesto: null,  // rol simulado (solo desarrollador); null = vista real
+  _realAllowedTabs: null, // backup de allowedTabs reales durante simulación
   notificaciones: [],
   notifNoLeidas: 0,
   notifTimer: null,
@@ -391,26 +406,32 @@ function showWelcomeScreen() {
   $('#welcomeScreen').style.display = 'flex';
 }
 
-function isAdmin() { return !!state.user && (state.user.puesto === 'admin' || state.user.puesto === 'desarrollador'); }
-function isDesarrollador() { return !!state.user && state.user.puesto === 'desarrollador'; }
-function canManageDestajo() { return !!state.user && (isAdmin() || ['residente'].includes(state.user.puesto)); }
-function puedeGenerarOC() { return !!state.user && (isAdmin() || ['compras'].includes(state.user.puesto)); }
-function puedeAutorizarRequisicion() { return !!state.user && (isAdmin() || ['logistica'].includes(state.user.puesto)); }
-function puedeVerPrecios() { return !!state.user && state.user.puesto !== 'cabo'; }
-function puedeCrearRequisicion() { return !!state.user && (isAdmin() || ['residente', 'cabo', 'compras'].includes(state.user.puesto)); }
-function puedeVerImportesRequisicion() { return !!state.user && !['residente', 'cabo'].includes(state.user.puesto); }
-function puedeRegistrarPago() { return !!state.user && (isAdmin() || ['tesoreria'].includes(state.user.puesto)); }
-function puedeVerImportesAvance() { return !!state.user && state.user.puesto !== 'cabo'; }
-function puedeEditarAvance() { return !!state.user && (isAdmin() || ['residente', 'cabo'].includes(state.user.puesto)); }
-function puedeGestionarUsuarios() { return !!state.user && ['admin', 'desarrollador', 'administracion'].includes(state.user.puesto); }
+// Devuelve el puesto efectivo: el simulado (si está activo) o el real del usuario.
+// Solo desarrollador puede activar la simulación; el backend sigue usando el puesto real del JWT.
+function effectivePuesto() { return state.simulatedPuesto ?? state.user?.puesto; }
+
+function isAdmin() { return !!state.user && ['admin', 'desarrollador'].includes(effectivePuesto()); }
+function isDesarrollador() { return !!state.user && state.user.puesto === 'desarrollador'; } // siempre puesto real
+function canManageDestajo() { return !!state.user && (isAdmin() || ['residente'].includes(effectivePuesto())); }
+function puedeGenerarOC() { return !!state.user && (isAdmin() || ['compras'].includes(effectivePuesto())); }
+function puedeAutorizarRequisicion() { return !!state.user && (isAdmin() || ['logistica'].includes(effectivePuesto())); }
+function puedeVerPrecios() { return !!state.user && effectivePuesto() !== 'cabo'; }
+function puedeCrearRequisicion() { return !!state.user && (isAdmin() || ['residente', 'cabo', 'compras'].includes(effectivePuesto())); }
+function puedeVerImportesRequisicion() { return !!state.user && !['residente', 'cabo'].includes(effectivePuesto()); }
+function puedeRegistrarPago() { return !!state.user && (isAdmin() || ['tesoreria'].includes(effectivePuesto())); }
+function puedeVerImportesAvance() { return !!state.user && effectivePuesto() !== 'cabo'; }
+function puedeEditarAvance() { return !!state.user && (isAdmin() || ['residente', 'cabo'].includes(effectivePuesto())); }
+function puedeGestionarUsuarios() { return !!state.user && ['admin', 'desarrollador', 'administracion'].includes(effectivePuesto()); }
 function puedeGestionarTrabajadores() { return isAdmin(); }
-function puedeVerNominas() { return !!state.user && (isAdmin() || ['residente'].includes(state.user.puesto)); }
-function puedeCapturarAsistencia() { return !!state.user && (isAdmin() || ['residente'].includes(state.user.puesto)); }
+function puedeVerNominas() { return !!state.user && (isAdmin() || ['residente'].includes(effectivePuesto())); }
+function puedeCapturarAsistencia() { return !!state.user && (isAdmin() || ['residente'].includes(effectivePuesto())); }
 function puedeAprobarNomina() { return isAdmin(); }
 
 function applySession(user, tabs) {
   state.user = user;
   state.allowedTabs = tabs;
+  state._realAllowedTabs = tabs;
+  state.simulatedPuesto = null; // resetea simulación al re-autenticar
   const isAdminUser = user.puesto === 'admin' || user.puesto === 'desarrollador';
   $('#btnUpload').style.display = isAdminUser ? '' : 'none';
   const adminAct = $('#drawerAdminActions');
@@ -421,6 +442,56 @@ function applySession(user, tabs) {
   startNotifPolling();
   renderSidebar();
   renderMobileNav();
+}
+
+// ---------------------------------------------------------------------------
+// Simulación de vista por rol (solo desarrollador) — puramente visual en
+// el frontend. El backend sigue usando el JWT real; no es una barrera de
+// seguridad, es una herramienta de revisión de UX para desarrolladores.
+// ---------------------------------------------------------------------------
+function updateSimBanner() {
+  const banner = $('#simBanner');
+  const text = $('#simBannerText');
+  if (!banner) return;
+  if (state.simulatedPuesto) {
+    text.textContent = `Vista simulada: ${PUESTO_LABELS[state.simulatedPuesto] || state.simulatedPuesto}`;
+    banner.style.display = '';
+  } else {
+    banner.style.display = 'none';
+  }
+}
+
+function startSimulation(puesto) {
+  if (!isDesarrollador()) return; // solo el rol real puede iniciar
+  state.simulatedPuesto = puesto;
+  state.allowedTabs = ROLE_TABS[puesto] || [];
+  sessionStorage.setItem('sim_puesto', puesto);
+  const isAdminSim = ['admin', 'desarrollador'].includes(puesto);
+  $('#btnUpload').style.display = isAdminSim ? '' : 'none';
+  if (!state.allowedTabs.includes(state.view)) {
+    state.view = state.allowedTabs[0] || 'inicio';
+    state.section = VIEW_TO_SECTION[state.view] || null;
+  }
+  updateSimBanner();
+  renderSidebar();
+  renderMobileNav();
+  renderView();
+}
+
+function stopSimulation() {
+  state.simulatedPuesto = null;
+  state.allowedTabs = state._realAllowedTabs || ROLE_TABS[state.user?.puesto] || [];
+  sessionStorage.removeItem('sim_puesto');
+  const isAdminReal = ['admin', 'desarrollador'].includes(state.user?.puesto);
+  $('#btnUpload').style.display = isAdminReal ? '' : 'none';
+  if (!state.allowedTabs.includes(state.view)) {
+    state.view = state.allowedTabs[0] || 'inicio';
+    state.section = VIEW_TO_SECTION[state.view] || null;
+  }
+  updateSimBanner();
+  renderSidebar();
+  renderMobileNav();
+  renderView();
 }
 
 // ---------------------------------------------------------------------------
@@ -675,9 +746,10 @@ function renderSidebar() {
     const initials = state.user.nombre.split(' ').map((w) => w[0]).filter(Boolean).slice(0, 2).join('').toUpperCase();
     const av = $('#sidebarAvatar');      if (av) av.textContent = initials;
     const nm = $('#sidebarProfileName'); if (nm) nm.textContent = state.user.nombre;
-    const rl = $('#sidebarProfileRole'); if (rl) rl.textContent = PUESTO_LABELS[state.user.puesto] || state.user.puesto;
+    const ep = effectivePuesto();
+    const rl = $('#sidebarProfileRole'); if (rl) rl.textContent = PUESTO_LABELS[ep] || ep;
     const pn = $('#popoverName');        if (pn) pn.textContent = state.user.nombre;
-    const pr = $('#popoverRole');        if (pr) pr.textContent = PUESTO_LABELS[state.user.puesto] || state.user.puesto;
+    const pr = $('#popoverRole');        if (pr) pr.textContent = PUESTO_LABELS[ep] || ep;
   }
   // Ícono del proyecto en sidebar
   const pi = $('#sidebarProjectIcon'); if (pi) pi.textContent = '🏗️';
@@ -752,6 +824,18 @@ function renderSidebar() {
       <span class="sbar-icon">🛠️</span>
       <span class="sbar-label">Desarrollador</span>
     </button>`;
+    // Selector de vista simulada — solo visible para el desarrollador real
+    const simOpts = Object.keys(ROLE_TABS)
+      .filter((p) => p !== 'desarrollador')
+      .map((p) => `<option value="${p}" ${state.simulatedPuesto === p ? 'selected' : ''}>${PUESTO_LABELS[p] || p}</option>`)
+      .join('');
+    html += `<div class="sbar-sim-selector">
+      <label class="sbar-sim-label">Vista como:</label>
+      <select id="simRoleSelect" class="sbar-sim-select">
+        <option value="" ${!state.simulatedPuesto ? 'selected' : ''}>Desarrollador (normal)</option>
+        ${simOpts}
+      </select>
+    </div>`;
   }
 
   nav.innerHTML = html;
@@ -1133,6 +1217,13 @@ async function tryRestoreSession() {
   try {
     const data = await api('/auth/me');
     applySession(data.user, data.tabs);
+    // Restaurar simulación activa antes del reload (solo si el usuario es desarrollador)
+    const savedSim = sessionStorage.getItem('sim_puesto');
+    if (savedSim && data.user.puesto === 'desarrollador' && ROLE_TABS[savedSim]) {
+      startSimulation(savedSim);
+    } else {
+      updateSimBanner();
+    }
     await bootApp();
     if (data.must_change_password) {
       setTimeout(() => openMiCuentaModal(true), 400);
@@ -1152,6 +1243,8 @@ async function logout() {
   state.clientes = [];
   state.clienteId = null;
   state.cache = {};
+  state.simulatedPuesto = null;
+  sessionStorage.removeItem('sim_puesto');
   stopNotifPolling();
   closeDrawer();
   showLoginScreen();
@@ -4187,7 +4280,7 @@ async function openDestajoSemanaModal(destId, semana, nombre) {
   // permisos que Avance regular) — un 'cabo' solo puede capturar valores
   // nuevos; el backend es la autoridad real, esto es solo UX preventiva.
   const yaCapturado = (it) => it.cantidad_ejecutada_periodo != null && it.cantidad_ejecutada_periodo !== '';
-  const soloLecturaParaMi = (it) => ['cabo', 'administracion'].includes(state.user.puesto) && yaCapturado(it);
+  const soloLecturaParaMi = (it) => ['cabo', 'administracion'].includes(effectivePuesto()) && yaCapturado(it);
 
   $('#destAvcList').innerHTML = items.map((it) => `
     <div class="req-item-row">
@@ -5426,7 +5519,7 @@ fab.addEventListener('click', () => {
   } else if (state.view === 'insumos') {
     if (getDraft().length) { switchToView('requisiciones'); }
   } else if (state.view === 'destajo') {
-    if (isAdmin() || (state.user && state.user.puesto === 'residente')) openNuevoDestajistaModal();
+    if (isAdmin() || (state.user && effectivePuesto() === 'residente')) openNuevoDestajistaModal();
   } else if (isAdmin()) {
     promptUpload();
   }
@@ -5492,6 +5585,14 @@ $('#btnSidebarCollapse').addEventListener('click', toggleSidebarCollapse);
 $('#btnSidebarProject').addEventListener('click', openDrawer);
 $('#sbarVolverClientes').addEventListener('click', () => goToClientGallery());
 $('#sidebarOverlay').addEventListener('click', closeSidebar);
+// Selector de vista simulada (el select se renderiza dinámicamente en sidebarNav)
+$('#sidebarNav').addEventListener('change', (e) => {
+  if (e.target.id === 'simRoleSelect') {
+    const val = e.target.value;
+    if (val === '') stopSimulation(); else startSimulation(val);
+  }
+});
+$('#simBannerExit').addEventListener('click', stopSimulation);
 
 // Popover de perfil (desktop y móvil)
 $('#btnUserProfile').addEventListener('click', (e) => {

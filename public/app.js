@@ -198,6 +198,20 @@ $('#btnDismissInstall').addEventListener('click', () => {
 
 if (isIOS() && !isStandalone()) showInstallBanner('ios');
 
+function installApp() {
+  if (isStandalone()) { toast('La app ya está instalada en este dispositivo', 'success'); return; }
+  if (deferredInstallPrompt) {
+    deferredInstallPrompt.prompt();
+    deferredInstallPrompt.userChoice.then(() => { deferredInstallPrompt = null; });
+    return;
+  }
+  if (isIOS()) {
+    toast('En Safari: toca Compartir ⬆️ → "Agregar a pantalla de inicio"', 'success');
+    return;
+  }
+  toast('Busca el ícono ⊕ en la barra de direcciones del navegador para instalar', 'success');
+}
+
 const fmtMoney = (n) => (n == null ? '—' : Number(n).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 2 }));
 const fmtNum = (n, d = 2) => (n == null ? '—' : Number(n).toLocaleString('es-MX', { maximumFractionDigits: d }));
 const fmtPct = (n) => (n == null ? '—' : `${Number(n).toLocaleString('es-MX', { maximumFractionDigits: 1 })}%`);
@@ -863,6 +877,7 @@ function openMobileAjustes() {
       <button class="theme-opt ${pref==='dark'?'active':''}" data-theme-set="dark">${icon('moon',14)} Oscuro</button>
       <button class="theme-opt ${pref==='system'?'active':''}" data-theme-set="system">${icon('monitor',14)} Sistema</button>
     </div>
+    ${!isStandalone() ? `<button class="btn full" id="btnInstallModal" style="margin-bottom:6px">📲 Instalar app</button>` : ''}
     <button class="btn full" id="btnMiCuentaModal" style="margin-bottom:6px">Mi cuenta</button>
     <button class="btn btn-danger full" id="btnLogoutModal">Cerrar sesión</button>
     ${isAdmin() ? `
@@ -882,6 +897,7 @@ function openMobileAjustes() {
       $$('.theme-opt', $('#modal')).forEach((b) => b.classList.toggle('active', b.dataset.themeSet === btn.dataset.themeSet));
     });
   });
+  $('#btnInstallModal')?.addEventListener('click', () => { closeModal(); installApp(); });
   $('#btnMiCuentaModal').addEventListener('click', () => { closeModal(); openMiCuentaModal(false); });
   $('#btnLogoutModal').addEventListener('click', () => { closeModal(); logout(); });
   $('#btnCloseProfile').addEventListener('click', closeModal);
@@ -5449,6 +5465,8 @@ $$('[data-theme-set]').forEach((btn) => {
 });
 $('#btnLogoutPopover').addEventListener('click', () => { closeUserPopover(); logout(); });
 $('#btnMiCuentaPopover').addEventListener('click', () => { closeUserPopover(); openMiCuentaModal(false); });
+$('#btnInstallAppPopover').addEventListener('click', () => { closeUserPopover(); installApp(); });
+if (isStandalone()) $('#btnInstallAppPopover').style.display = 'none';
 
 // Barra inferior móvil
 (function () {

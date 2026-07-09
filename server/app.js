@@ -1005,6 +1005,7 @@ app.put('/api/projects/:id/fechas-obra', h(auth.allow()), h(requireProject), h(a
 // contrato-preview no guarda nada; contrato-confirm es quien escribe.
 // ---------------------------------------------------------------------------
 const CONTRATO_PREVIEW_LIMIT = 10; // máx extracciones por usuario por hora
+const EXPORT_RATE_LIMIT = 20; // máx exports Excel por usuario por hora
 
 app.post('/api/projects/contrato-preview',
   h(auth.allow()),
@@ -1748,6 +1749,16 @@ app.get('/api/projects/:id/ordenes', h(auth.allow('residente', 'cabo', 'compras'
 }));
 
 app.get('/api/projects/:id/ordenes/export', h(auth.allow('residente', 'cabo', 'compras', 'tesoreria', 'administracion', 'logistica')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  const { rows: rlOrdenes } = await db.pool.query(
+    `SELECT COUNT(*)::int AS n FROM api_rate_limits
+     WHERE usuario_id = $1 AND endpoint = 'export_ordenes'
+       AND creado_en > NOW() - INTERVAL '1 hour'`,
+    [req.user.id]
+  );
+  if (rlOrdenes[0].n >= EXPORT_RATE_LIMIT) {
+    return res.status(429).json({ error: `Límite de exports alcanzado (${EXPORT_RATE_LIMIT} por hora). Intenta más tarde.` });
+  }
+  await db.pool.query('INSERT INTO api_rate_limits (usuario_id, endpoint) VALUES ($1, $2)', [req.user.id, 'export_ordenes']);
   const ordenes = await getOrdenesData(req.project.id);
   await sendXlsxExport(res, {
     filename: buildExportFilename('OrdenesDeCompra', req.project.nombre),
@@ -2787,6 +2798,16 @@ app.get('/api/projects/:id/destajistas', h(auth.allow('residente', 'cabo', 'admi
 }));
 
 app.get('/api/projects/:id/destajistas/export', h(auth.allow('residente', 'cabo', 'administracion')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  const { rows: rlDest } = await db.pool.query(
+    `SELECT COUNT(*)::int AS n FROM api_rate_limits
+     WHERE usuario_id = $1 AND endpoint = 'export_destajistas'
+       AND creado_en > NOW() - INTERVAL '1 hour'`,
+    [req.user.id]
+  );
+  if (rlDest[0].n >= EXPORT_RATE_LIMIT) {
+    return res.status(429).json({ error: `Límite de exports alcanzado (${EXPORT_RATE_LIMIT} por hora). Intenta más tarde.` });
+  }
+  await db.pool.query('INSERT INTO api_rate_limits (usuario_id, endpoint) VALUES ($1, $2)', [req.user.id, 'export_destajistas']);
   const destajistas = await getDestajistasData(req.project.id);
   const rows = [];
   destajistas.forEach((d) => {
@@ -3708,6 +3729,16 @@ app.delete('/api/projects/:id/nominas/:nomId', h(auth.allow()), h(requireProject
 }));
 
 app.get('/api/projects/:id/nominas/:nomId/export', h(auth.allow()), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  const { rows: rlNom } = await db.pool.query(
+    `SELECT COUNT(*)::int AS n FROM api_rate_limits
+     WHERE usuario_id = $1 AND endpoint = 'export_nominas'
+       AND creado_en > NOW() - INTERVAL '1 hour'`,
+    [req.user.id]
+  );
+  if (rlNom[0].n >= EXPORT_RATE_LIMIT) {
+    return res.status(429).json({ error: `Límite de exports alcanzado (${EXPORT_RATE_LIMIT} por hora). Intenta más tarde.` });
+  }
+  await db.pool.query('INSERT INTO api_rate_limits (usuario_id, endpoint) VALUES ($1, $2)', [req.user.id, 'export_nominas']);
   const nomId = Number(req.params.nomId);
   const { rows: nomRows } = await db.pool.query('SELECT * FROM nominas WHERE id=$1 AND project_id=$2', [nomId, req.project.id]);
   if (!nomRows[0]) return res.status(404).json({ error: 'Nómina no encontrada' });

@@ -796,6 +796,16 @@ app.put('/api/projects/:id/cliente', h(auth.allow()), h(requireProject), h(auth.
   res.json(rows[0]);
 }));
 
+app.patch('/api/projects/:id/nombre', h(auth.allow()), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  const nombre = (req.body?.nombre || '').toString().trim();
+  if (!nombre) return res.status(400).json({ error: 'El nombre no puede estar vacío' });
+  const { rows } = await db.pool.query(
+    'UPDATE proyectos SET nombre = $1 WHERE id = $2 RETURNING id, nombre',
+    [nombre, req.project.id]
+  );
+  res.json(rows[0]);
+}));
+
 app.put('/api/projects/:id/fechas-obra', h(auth.allow()), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
   const { inicio_obra, fin_obra } = req.body || {};
   if (!inicio_obra || !fin_obra) {
@@ -928,7 +938,7 @@ app.post('/api/projects/contrato-confirm', h(auth.allow()), h(async (req, res) =
     }
     const { rows: clienteRows } = await db.pool.query('SELECT id FROM clientes WHERE id = $1', [clienteId]);
     if (!clienteRows[0]) return res.status(400).json({ error: 'El cliente indicado no existe' });
-    nombre = (body.obra_descripcion || body.proyecto_desarrollo || '').toString().trim() || 'Contrato sin nombre';
+    nombre = (body.nombre || body.obra_descripcion || body.proyecto_desarrollo || '').toString().trim() || 'Contrato sin nombre';
     const record = await db.createProjectRecord(nombre, body.archivo_original || null, clienteId);
     projectId = record.id;
   }

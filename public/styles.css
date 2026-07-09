@@ -318,14 +318,23 @@ tr.row-pendiente { background: rgba(234,179,8,0.10); }
 .drawer.open { transform: translateX(0); }
 .drawer-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
 .project-list { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
+.drawer-footer { flex-shrink: 0; padding-top: 10px; border-top: 1px solid var(--border-color); margin-top: 6px; }
 .project-item {
   background: var(--bg-surface-2); border: 1px solid var(--border-color); border-radius: 10px;
-  padding: 10px 12px; cursor: pointer; display: flex; flex-direction: column; gap: 2px;
+  padding: 10px 12px; cursor: pointer; display: flex; flex-direction: column; gap: 3px;
+  transition: border-color 0.15s;
 }
+.project-item:hover { border-color: color-mix(in srgb, var(--accent-gold) 50%, var(--border-color)); }
 .project-item.active { border-color: var(--accent-gold); }
-.project-item .pname { font-weight: 600; font-size: 0.9rem; }
-.project-item .pmeta { color: var(--text-secondary); font-size: 0.74rem; }
-.project-item .pactions { display: flex; justify-content: flex-end; margin-top: 6px; }
+.project-item.active .pname { color: var(--accent-gold); }
+.project-item .pname { font-weight: 700; font-size: 0.93rem; line-height: 1.3; word-break: break-word; }
+.project-item .pmeta { color: var(--text-secondary); font-size: 0.72rem; }
+.project-item .pactions { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 6px; }
+.project-item .pinput {
+  width: 100%; font-size: 0.93rem; font-weight: 700;
+  background: var(--bg-primary); border: 1px solid var(--accent-gold);
+  border-radius: 4px; padding: 2px 6px; color: var(--text-primary);
+}
 
 /* Bloquea el scroll de fondo mientras un modal está abierto (ver
    openModal/closeModal en app.js) — el propio .modal ya hace su scroll

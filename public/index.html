@@ -49,8 +49,6 @@
       <h1>Selecciona un cliente</h1>
       <p class="muted">Elige el cliente para ver sus presupuestos.</p>
       <div id="clienteGrid" class="cliente-grid"></div>
-      <button class="btn btn-primary full" id="btnNuevoClienteGallery" style="display:none;margin-top:16px">+ Nuevo cliente</button>
-      <button class="btn full" id="btnCargarContratoGallery" style="display:none;margin-top:8px">📄 Cargar Contrato PDF</button>
       <div id="bienvenidaSummary"></div>
     </div>
   </div>
@@ -209,7 +207,13 @@
       <button id="btnCloseDrawer" class="icon-btn">✕</button>
     </div>
     <div id="projectList" class="project-list"></div>
-    <button id="btnUploadDrawer" class="btn btn-primary full">+ Cargar nuevo presupuesto (.xlsx)</button>
+    <div class="drawer-footer">
+      <button id="btnUploadDrawer" class="btn btn-primary full">+ Cargar presupuesto (.xlsx)</button>
+      <div id="drawerAdminActions" style="display:none;margin-top:6px">
+        <button id="btnNuevoClienteDrawer" class="btn full" style="margin-bottom:6px">+ Nuevo cliente</button>
+        <button id="btnCargarContratoDrawer" class="btn full">📄 Cargar Contrato PDF</button>
+      </div>
+    </div>
   </div>
   <div id="drawerOverlay" class="overlay"></div>
 

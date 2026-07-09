@@ -363,7 +363,8 @@ function applySession(user, tabs) {
   state.allowedTabs = tabs;
   const isAdmin = user.puesto === 'admin';
   $('#btnUpload').style.display = isAdmin ? '' : 'none';
-  $('#btnUploadDrawer').style.display = isAdmin ? '' : 'none';
+  const adminAct = $('#drawerAdminActions');
+  if (adminAct) adminAct.style.display = isAdmin ? '' : 'none';
   renderDrawerAccount();
   state.view = tabs.length <= 1 ? (tabs[0] || 'inicio') : 'inicio';
   state.section = VIEW_TO_SECTION[state.view] || null;
@@ -766,7 +767,7 @@ function openQuickActionMenu() {
       <button class="quick-action-item" data-goto="${a.goto}">
         <span style="font-size:1.2em">${TAB_ICONS[a.icon] || ''}</span><span>${esc(a.label)}</span>
       </button>`).join('')
-    : '<p class="muted" style="padding:8px 0">No hay acciones disponibles para tu rol.</p>';
+    : '<p class="muted" style="padding:8px 0">No tienes permiso para esta función.</p>';
 
   $$('.quick-action-item', list).forEach((btn) => {
     btn.addEventListener('click', () => { closeQuickActionMenu(); switchToView(btn.dataset.goto); });
@@ -1156,10 +1157,15 @@ function renderProjectList() {
   }
   list.innerHTML = projects.map((p) => `
     <div class="project-item ${p.id === state.projectId ? 'active' : ''}" data-id="${p.id}">
-      <span class="pname">${esc(p.nombre)}</span>
-      <span class="pmeta">${esc(p.lugar || '')}${p.lugar ? ' · ' : ''}${fmtMoney(p.total_sin_iva)}</span>
-      <span class="pmeta">${fmtDate(p.inicio_obra)} → ${fmtDate(p.fin_obra)}</span>
-      ${isAdmin() ? `<div class="pactions"><button class="btn small" data-cambiar-cliente="${p.id}">Cambiar cliente</button><button class="btn small btn-danger" data-del="${p.id}">Eliminar</button></div>` : ''}
+      <span class="pname" data-pnombre="${p.id}">${esc(p.nombre)}</span>
+      ${p.lugar ? `<span class="pmeta">${esc(p.lugar)}</span>` : ''}
+      <span class="pmeta">${fmtMoney(p.total_sin_iva)} · ${fmtDate(p.inicio_obra)} – ${fmtDate(p.fin_obra)}</span>
+      ${isAdmin() ? `
+      <div class="pactions">
+        <button class="btn small" data-renombrar="${p.id}" title="Renombrar presupuesto">✏️</button>
+        <button class="btn small" data-cambiar-cliente="${p.id}">Cambiar cliente</button>
+        <button class="btn small btn-danger" data-del="${p.id}">Eliminar</button>
+      </div>` : ''}
     </div>
   `).join('');
 
@@ -1192,6 +1198,42 @@ function renderProjectList() {
       if (!state.projectId && remaining[0]) selectProject(remaining[0].id);
       else if (!remaining.length) renderView();
       toast('Presupuesto eliminado', 'success');
+    });
+  });
+  $$('[data-renombrar]', list).forEach((btn) => {
+    btn.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      const id = Number(btn.dataset.renombrar);
+      const proj = state.projects.find((p) => p.id === id);
+      if (!proj) return;
+      const nameSpan = list.querySelector(`[data-pnombre="${id}"]`);
+      if (!nameSpan || nameSpan.tagName === 'INPUT') return;
+      const input = document.createElement('input');
+      input.className = 'pinput';
+      input.value = proj.nombre;
+      nameSpan.replaceWith(input);
+      input.focus();
+      input.select();
+      const guardar = async () => {
+        const nuevo = input.value.trim();
+        if (!nuevo || nuevo === proj.nombre) { renderProjectList(); return; }
+        try {
+          await api(`/projects/${id}/nombre`, { method: 'PATCH', body: { nombre: nuevo } });
+          proj.nombre = nuevo;
+          const sn = $('#sidebarProjectName');
+          if (state.projectId === id && sn) sn.textContent = nuevo;
+          renderProjectList();
+          toast('Nombre actualizado', 'success');
+        } catch (err) {
+          toast(err.message, 'danger');
+          renderProjectList();
+        }
+      };
+      input.addEventListener('blur', guardar);
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
+        if (e.key === 'Escape') { input.value = proj.nombre; input.blur(); }
+      });
     });
   });
 }
@@ -1277,8 +1319,6 @@ function renderClientGallery() {
   $$('.cliente-card', grid).forEach((el) => {
     el.addEventListener('click', () => selectCliente(el.dataset.cliente === 'sin-cliente' ? 'sin-cliente' : Number(el.dataset.cliente)));
   });
-  $('#btnNuevoClienteGallery').style.display = isAdmin() ? '' : 'none';
-  $('#btnCargarContratoGallery').style.display = isAdmin() ? '' : 'none';
 }
 
 function renderGalleryGreeting() {
@@ -1362,7 +1402,8 @@ async function selectCliente(id) {
 }
 
 $('#btnGalleryLogout').addEventListener('click', logout);
-$('#btnNuevoClienteGallery').addEventListener('click', openNuevoClienteModal);
+$('#btnNuevoClienteDrawer').addEventListener('click', () => { closeDrawer(); openNuevoClienteModal(); });
+$('#btnCargarContratoDrawer').addEventListener('click', () => { closeDrawer(); promptUploadContrato(); });
 
 function openNuevoClienteModal() {
   openModal(`
@@ -1892,8 +1933,6 @@ function promptUploadContrato() {
     $('#pdfFileInput').click();
   });
 }
-$('#btnCargarContratoGallery').addEventListener('click', promptUploadContrato);
-
 // Punto de entrada (b): dentro de una obra ya existente → adjunta/actualiza sin crear duplicado
 function promptAttachContrato() {
   state.pendingContrato = { mode: 'attach', projectId: state.projectId };
@@ -1941,8 +1980,13 @@ function openContratoFormModal(preview, ctx) {
     `;
   }).join('');
 
+  const nombreSugerido = (campos.obra_descripcion || campos.proyecto_desarrollo || '').toString().trim();
   const clienteHtml = ctx.mode === 'create'
-    ? `<div class="field"><label>Cliente</label>
+    ? `<div class="field">
+        <label>Nombre de la obra</label>
+        <input id="contratoNombreInput" value="${esc(nombreSugerido)}" placeholder="Ej. Torre A — Redes Altares" />
+      </div>
+      <div class="field"><label>Cliente</label>
         <select id="contratoFormCliente">${state.clientes.map((c) => `<option value="${c.id}" ${c.id === ctx.clienteId ? 'selected' : ''}>${esc(c.nombre)}</option>`).join('')}</select>
       </div>`
     : `<p class="muted">Se guardará en la obra: <strong>${esc((state.projects.find((p) => p.id === ctx.projectId) || {}).nombre || '')}</strong></p>`;
@@ -1974,6 +2018,8 @@ function openContratoFormModal(preview, ctx) {
       if (!clienteIdElegido) { toast('Selecciona un cliente', 'danger'); return; }
       body.cliente_id = clienteIdElegido;
       body.archivo_original = ctx.fileName || null;
+      const nombreInput = $('#contratoNombreInput');
+      if (nombreInput?.value.trim()) body.nombre = nombreInput.value.trim();
     } else {
       body.project_id = ctx.projectId;
     }
@@ -4209,7 +4255,11 @@ function openPostUploadModal(result) {
   const destMsg = result.destajistas > 0 ? `, ${result.destajistas} destajista${result.destajistas !== 1 ? 's' : ''}` : '';
   openModal(`
     <h3>✓ Presupuesto cargado</h3>
-    <p class="muted"><strong>${esc(result.nombre)}</strong> — ${result.conceptos} conceptos, ${result.insumos} insumos${destMsg}</p>
+    <p class="muted">${result.conceptos} conceptos, ${result.insumos} insumos${destMsg}</p>
+    <div class="field">
+      <label>Nombre de la obra</label>
+      <input id="postUploadNombre" value="${esc(result.nombre)}" placeholder="Ej. Torre A — Redes Altares" />
+    </div>
     <div style="border-top:1px solid var(--border);margin:14px 0;padding-top:14px">
       <h4 style="margin:0 0 6px">Fechas de obra detectadas</h4>
       <p class="muted" style="font-size:0.78rem;margin-bottom:10px">Verifica las fechas del archivo. Si no aparecen o son incorrectas, corrígelas aquí — el Programa de ejecución se regenerará automáticamente.</p>
@@ -4218,11 +4268,24 @@ function openPostUploadModal(result) {
     </div>
     <div class="modal-actions">
       <button class="btn" id="btnSkipFechasPost">Omitir</button>
-      <button class="btn btn-primary" id="btnGuardarFechasPost">Guardar fechas</button>
+      <button class="btn btn-primary" id="btnGuardarFechasPost">Guardar</button>
     </div>
   `);
 
-  $('#btnSkipFechasPost').addEventListener('click', () => {
+  async function renombrarSiCambio() {
+    const nuevo = $('#postUploadNombre')?.value.trim();
+    if (nuevo && nuevo !== result.nombre) {
+      try {
+        await api(`/projects/${result.id}/nombre`, { method: 'PATCH', body: { nombre: nuevo } });
+        const p = state.projects.find((x) => x.id === result.id);
+        if (p) p.nombre = nuevo;
+        result.nombre = nuevo;
+      } catch (_) { /* no bloquea el flujo */ }
+    }
+  }
+
+  $('#btnSkipFechasPost').addEventListener('click', async () => {
+    await renombrarSiCambio();
     closeModal();
     toast(`"${result.nombre}" cargado: ${result.conceptos} conceptos, ${result.insumos} insumos${destMsg}`, 'success');
   });
@@ -4234,6 +4297,7 @@ function openPostUploadModal(result) {
     const btn = $('#btnGuardarFechasPost');
     btn.disabled = true; btn.textContent = 'Guardando…';
     try {
+      await renombrarSiCambio();
       await api(`/projects/${result.id}/fechas-obra`, { method: 'PUT', body: { inicio_obra, fin_obra } });
       closeModal();
       invalidate('resumen');
@@ -4241,7 +4305,7 @@ function openPostUploadModal(result) {
       renderView();
     } catch (err) {
       toast(err.message, 'danger');
-      btn.disabled = false; btn.textContent = 'Guardar fechas';
+      btn.disabled = false; btn.textContent = 'Guardar';
     }
   });
 }

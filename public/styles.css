@@ -816,6 +816,16 @@ body.modal-open { overflow: hidden; }
 .sbar-back-clientes:hover { color: var(--text-primary); }
 .sbar-divider { border: none; border-top: 1px solid var(--border-color); margin: 4px 0; }
 
+/* ── Items ocultos en vista simulada (solo desarrollador) ─────────────── */
+.sbar-item.sbar-sim-hidden {
+  opacity: 0.25; cursor: default; pointer-events: none;
+}
+.sbar-sim-tag {
+  margin-left: auto; font-size: 0.65rem; font-weight: 600; letter-spacing: 0.04em;
+  color: var(--accent-gold); background: color-mix(in srgb, var(--accent-gold) 15%, transparent);
+  padding: 1px 5px; border-radius: 4px; white-space: nowrap; flex-shrink: 0;
+}
+
 /* ── Selector de vista simulada (solo desarrollador) ──────────────────── */
 .sbar-sim-selector { padding: 6px 10px 8px; }
 .sbar-sim-label { display: block; font-size: 0.72rem; color: var(--text-secondary); margin-bottom: 3px; letter-spacing: 0.03em; }

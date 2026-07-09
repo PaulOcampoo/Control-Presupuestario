@@ -764,12 +764,20 @@ function renderSidebar() {
 
   let html = '';
 
+  // En simulación: mostrar todos los tabs del desarrollador pero apagar los que
+  // el rol simulado no tendría acceso. Sin simulación: comportamiento normal.
+  const devTabs = ROLE_TABS['desarrollador'];
+  const renderableTabs = state.simulatedPuesto ? devTabs : state.allowedTabs;
+  const isSimHidden = (t) => state.simulatedPuesto && !state.allowedTabs.includes(t);
+
   // Resumen — ítem suelto
-  if (state.allowedTabs.includes('resumen')) {
+  if (renderableTabs.includes('resumen')) {
     const active = state.view === 'resumen' ? 'active' : '';
-    html += `<button class="sbar-item ${active}" data-sbar-goto="resumen" title="Resumen">
+    const simCls = isSimHidden('resumen') ? 'sbar-sim-hidden' : '';
+    html += `<button class="sbar-item ${active} ${simCls}" ${simCls ? 'disabled' : 'data-sbar-goto="resumen"'} title="Resumen">
       <span class="sbar-icon">${TAB_ICONS.resumen}</span>
       <span class="sbar-label">Resumen</span>
+      ${simCls ? '<span class="sbar-sim-tag">Solo dev</span>' : ''}
     </button>`;
   }
 
@@ -784,8 +792,8 @@ function renderSidebar() {
       </button>`;
       return;
     }
-    const visibleTabs = def.tabs.filter((t) => state.allowedTabs.includes(t));
-    if (!visibleTabs.length) return; // sin acceso a ningún tab del grupo
+    const sectionRenderableTabs = def.tabs.filter((t) => renderableTabs.includes(t));
+    if (!sectionRenderableTabs.length) return;
 
     const isActive = state.section === sectionId;
     html += `<div class="sbar-group ${isActive ? 'open' : ''}">
@@ -795,11 +803,13 @@ function renderSidebar() {
         <span class="sbar-chevron">${icon('chevron-down', 13)}</span>
       </button>
       <div class="sbar-group-body"><div>`;
-    visibleTabs.forEach((t) => {
+    sectionRenderableTabs.forEach((t) => {
       const a = state.view === t ? 'active' : '';
-      html += `<button class="sbar-item sbar-subitem ${a}" data-sbar-goto="${t}" title="${esc(TAB_LABELS[t])}">
+      const simCls = isSimHidden(t) ? 'sbar-sim-hidden' : '';
+      html += `<button class="sbar-item sbar-subitem ${a} ${simCls}" ${simCls ? 'disabled' : `data-sbar-goto="${t}"`} title="${esc(TAB_LABELS[t])}">
         <span class="sbar-icon">${TAB_ICONS[t] || ''}</span>
         <span class="sbar-label">${esc(TAB_LABELS[t])}</span>
+        ${simCls ? '<span class="sbar-sim-tag">Solo dev</span>' : ''}
       </button>`;
     });
     def.proximamente.forEach((nombre) => {
@@ -819,12 +829,15 @@ function renderSidebar() {
     <span class="sbar-label">Sugerencias</span>
   </button>`;
   if (isDesarrollador()) {
-    const activeDev = state.view === 'developer' ? 'active' : '';
-    html += `<button class="sbar-item ${activeDev}" id="sbarDevPanel" title="Panel de desarrollador">
-      <span class="sbar-icon">🛠️</span>
-      <span class="sbar-label">Desarrollador</span>
-    </button>`;
-    // Selector de vista simulada — solo visible para el desarrollador real
+    // Panel dev: visible solo en vista normal (un Cabo real no lo vería)
+    if (!state.simulatedPuesto) {
+      const activeDev = state.view === 'developer' ? 'active' : '';
+      html += `<button class="sbar-item ${activeDev}" id="sbarDevPanel" title="Panel de desarrollador">
+        <span class="sbar-icon">🛠️</span>
+        <span class="sbar-label">Desarrollador</span>
+      </button>`;
+    }
+    // Selector de vista simulada — siempre visible para el desarrollador real
     const simOpts = Object.keys(ROLE_TABS)
       .filter((p) => p !== 'desarrollador')
       .map((p) => `<option value="${p}" ${state.simulatedPuesto === p ? 'selected' : ''}>${PUESTO_LABELS[p] || p}</option>`)

@@ -4,10 +4,9 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const db = require('./db');
 
-const SESSION_SECRET = process.env.SESSION_SECRET || 'dev-insecure-secret-change-me';
-if (!process.env.SESSION_SECRET) {
-  // eslint-disable-next-line no-console
-  console.warn('⚠️  SESSION_SECRET no está definido — usando un valor de desarrollo inseguro. Defínelo como variable de entorno en producción.');
+const SESSION_SECRET = process.env.SESSION_SECRET;
+if (!SESSION_SECRET) {
+  throw new Error('SESSION_SECRET no está configurada en las variables de entorno — la app no puede arrancar sin ella.');
 }
 
 const TOKEN_TTL = '30d';

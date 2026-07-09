@@ -804,6 +804,16 @@ function openMobileAjustes() {
     </div>
     <button class="btn full" id="btnMiCuentaModal" style="margin-bottom:6px">Mi cuenta</button>
     <button class="btn btn-danger full" id="btnLogoutModal">Cerrar sesión</button>
+    ${isAdmin() ? `
+    <hr style="margin:16px 0;border:none;border-top:1px solid var(--border-color)">
+    <button id="__dbgToggle" style="display:flex;align-items:center;gap:6px;background:none;border:none;padding:0;cursor:pointer;font-size:0.78rem;font-weight:700;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.06em;width:100%;text-align:left">
+      <span id="__dbgChevron" style="transition:transform .2s;display:inline-block">▶</span> Información técnica
+    </button>
+    <div id="__dbgPanel" style="display:none;margin-top:8px">
+      <div id="__dbgInline" style="background:var(--bg-primary);border:1px solid var(--border-color);border-radius:8px;padding:10px 12px;min-height:60px">
+        <span class="muted" style="font-size:0.8rem">Cargando…</span>
+      </div>
+    </div>` : ''}
   `);
   $$('.theme-opt', $('#modal')).forEach((btn) => {
     btn.addEventListener('click', () => {
@@ -814,6 +824,18 @@ function openMobileAjustes() {
   $('#btnMiCuentaModal').addEventListener('click', () => { closeModal(); openMiCuentaModal(false); });
   $('#btnLogoutModal').addEventListener('click', () => { closeModal(); logout(); });
   $('#btnCloseProfile').addEventListener('click', closeModal);
+  if (isAdmin()) {
+    const toggleBtn = $('#__dbgToggle');
+    const panel     = $('#__dbgPanel');
+    const chevron   = $('#__dbgChevron');
+    let open = false;
+    toggleBtn.addEventListener('click', () => {
+      open = !open;
+      panel.style.display  = open ? '' : 'none';
+      chevron.style.transform = open ? 'rotate(90deg)' : '';
+      if (open) initDebugSection($('#__dbgInline'));
+    });
+  }
 }
 
 async function navigateFromNotif(notif) {
@@ -5350,33 +5372,44 @@ async function renderNominas(view) {
         panel.innerHTML = '<div class="empty-state">No hay trabajadores activos en esta obra.</div>';
         return;
       }
+      const ASIST_OPTS = [
+        { v: 'presente',            label: 'Presente',   cls: 'green' },
+        { v: 'falta_justificada',   label: 'F. Just.',   cls: 'yellow' },
+        { v: 'falta_injustificada', label: 'F. Injust.', cls: 'red' },
+      ];
+      const canEdit = puedeCapturarAsistencia();
       panel.innerHTML = `
         <div class="card" style="margin-top:8px">
           <table class="asistencia-table">
-            <thead><tr><th>Trabajador</th><th>Puesto</th><th style="text-align:center">Asistió</th></tr></thead>
+            <thead><tr><th>Trabajador</th><th>Puesto</th><th>Asistencia</th></tr></thead>
             <tbody>
-              ${data.trabajadores.map((t) => `
-                <tr>
+              ${data.trabajadores.map((t) => {
+                const cur = t.estado || 'presente';
+                return `<tr>
                   <td>${esc(t.nombre)}</td>
                   <td class="muted" style="font-size:0.8rem">${esc(t.puesto || '—')}</td>
-                  <td style="text-align:center">
-                    <input type="checkbox" class="asistencia-check" data-tid="${t.id}"
-                      ${t.presente ? 'checked' : ''} ${!puedeCapturarAsistencia() ? 'disabled' : ''} />
+                  <td>
+                    ${canEdit
+                      ? `<select class="asistencia-sel" data-tid="${t.id}" style="font-size:0.82rem;padding:4px 6px">
+                          ${ASIST_OPTS.map((o) => `<option value="${o.v}" ${cur === o.v ? 'selected' : ''}>${o.label}</option>`).join('')}
+                        </select>`
+                      : `<span class="badge ${ASIST_OPTS.find((o) => o.v === cur)?.cls || 'muted'}">${ASIST_OPTS.find((o) => o.v === cur)?.label || cur}</span>`
+                    }
                   </td>
-                </tr>
-              `).join('')}
+                </tr>`;
+              }).join('')}
             </tbody>
           </table>
-          ${puedeCapturarAsistencia() ? `
+          ${canEdit ? `
             <div class="row end" style="margin-top:12px">
               <button class="btn btn-primary" id="btnGuardarAsistencia">Guardar asistencia</button>
             </div>` : ''}
         </div>
       `;
       $('#btnGuardarAsistencia')?.addEventListener('click', async () => {
-        const asistencia = $$('.asistencia-check', panel).map((chk) => ({
-          trabajador_id: Number(chk.dataset.tid),
-          presente: chk.checked,
+        const asistencia = $$('.asistencia-sel', panel).map((sel) => ({
+          trabajador_id: Number(sel.dataset.tid),
+          estado: sel.value,
         }));
         const btn = $('#btnGuardarAsistencia');
         btn.disabled = true;
@@ -5611,65 +5644,121 @@ function initTopbarObserver() {
 }
 
 // ---------------------------------------------------------------------------
-// DEBUG — badge temporal de variables CSS (quitar al cerrar Fase 0.5)
+// DEBUG — métricas técnicas (visible en Ajustes → Información técnica)
 // ---------------------------------------------------------------------------
 function initDebugBadge() {
+  // Eliminar overlay flotante si quedó de versiones anteriores del código
   const existing = document.getElementById('__dbg');
   if (existing) existing.remove();
-  const badge = document.createElement('div');
-  badge.id = '__dbg';
-  Object.assign(badge.style, {
-    position: 'fixed', bottom: '72px', left: '8px', zIndex: '9999',
-    background: 'rgba(0,0,0,0.82)', color: '#fff', fontSize: '11px',
-    fontFamily: 'monospace', padding: '6px 10px', borderRadius: '8px',
-    border: '1px solid #555', lineHeight: '1.6', pointerEvents: 'none',
-    maxWidth: '240px',
-  });
-  document.body.appendChild(badge);
+  if (window.__dbgInterval) { clearInterval(window.__dbgInterval); window.__dbgInterval = null; }
 
-  const render = (label, swLine) => {
-    const cs  = getComputedStyle(document.documentElement);
-    const th  = cs.getPropertyValue('--topbar-h').trim() || '(no set)';
-    const tbh = cs.getPropertyValue('--tabs-h').trim()   || '(no set)';
-    const st  = cs.getPropertyValue('--safe-top').trim() || '(no set)';
-    const tbEl   = document.querySelector('.topbar');
-    const tabsEl = document.querySelector('#tabs');
-    const tbR    = tbEl ? tbEl.getBoundingClientRect() : null;
-    const tabsVisible = tabsEl && getComputedStyle(tabsEl).display !== 'none';
-    const tabR   = tabsVisible ? tabsEl.getBoundingClientRect() : null;
-    const fmt    = (r) => r ? `top=${Math.round(r.top)} h=${Math.round(r.height)}` : 'null';
-    badge.innerHTML =
-      `<b>DEBUG ${label}</b><br>` +
-      `--topbar-h: ${th}<br>` +
-      `--tabs-h: ${tbh}<br>` +
-      `--safe-top: ${st}<br>` +
-      `topbar BCR: ${fmt(tbR)}<br>` +
-      `#tabs BCR: ${tabsVisible ? fmt(tabR) : '(oculto)'}<br>` +
-      `SW: ${swLine}`;
-  };
+  // Probe permanente para medir env(safe-area-inset-bottom) en px reales.
+  // Se crea una vez al iniciar la app y lo usan las métricas de Ajustes.
+  if (!document.getElementById('__safeProbe')) {
+    const probe = document.createElement('div');
+    probe.id = '__safeProbe';
+    Object.assign(probe.style, {
+      position: 'fixed', bottom: '0', left: '0', width: '1px',
+      height: 'env(safe-area-inset-bottom, 0px)',
+      pointerEvents: 'none', visibility: 'hidden',
+    });
+    document.body.appendChild(probe);
+  }
+}
 
-  const swInfo = async () => {
-    if (!navigator.serviceWorker) return 'API no disponible';
-    const ctrl = navigator.serviceWorker.controller;
-    let cacheList = '…';
-    try {
-      const keys = await caches.keys();
-      const relevant = keys.filter((k) => k.startsWith('ctrl-ppto'));
-      cacheList = relevant.length ? relevant.join(', ') : '(sin caches ctrl-ppto)';
-    } catch {
-      cacheList = 'caches.keys() falló';
+// Lee info del SW y devuelve { line, version } donde version es "ctrl-ppto-vN".
+async function _dbgSwInfo() {
+  if (!navigator.serviceWorker) return { line: 'SW API no disponible', version: '—' };
+  const ctrl = navigator.serviceWorker.controller;
+  let cacheList = '…';
+  let version = '—';
+  try {
+    const keys = await caches.keys();
+    const relevant = keys.filter((k) => k.startsWith('ctrl-ppto'));
+    cacheList = relevant.length ? relevant.join(', ') : '(sin caches ctrl-ppto)';
+    if (relevant.length) version = relevant[relevant.length - 1];
+  } catch { cacheList = 'caches.keys() falló'; }
+  return { line: (ctrl ? 'controller ok' : 'sin controller') + ' | ' + cacheList, version };
+}
+
+// Rellena targetEl con todas las métricas de debug. Sin efectos secundarios.
+function _dbgRender(targetEl, label, swLine, version) {
+  const cs       = getComputedStyle(document.documentElement);
+  const th       = cs.getPropertyValue('--topbar-h').trim()   || '(no set)';
+  const tbh      = cs.getPropertyValue('--tabs-h').trim()     || '(no set)';
+  const st       = cs.getPropertyValue('--safe-top').trim()   || '(no set)';
+  const sbCss    = cs.getPropertyValue('--safe-bottom').trim()|| '(no set)';
+  const tbEl     = document.querySelector('.topbar');
+  const tabsEl   = document.querySelector('#tabs');
+  const tbR      = tbEl  ? tbEl.getBoundingClientRect()  : null;
+  const tabsVis  = tabsEl && getComputedStyle(tabsEl).display !== 'none';
+  const tabR     = tabsVis ? tabsEl.getBoundingClientRect() : null;
+  const fmt      = (r) => r ? `top=${Math.round(r.top)} h=${Math.round(r.height)}` : 'null';
+
+  const navEl    = document.getElementById('mobileNav');
+  const navR     = navEl ? navEl.getBoundingClientRect() : null;
+  const navH     = navR ? Math.round(navR.height) : '?';
+  const navBot   = navR ? Math.round(navR.bottom) : '?';
+  const wh       = window.innerHeight;
+  const gapBelow = navR ? (wh - Math.round(navR.bottom)) : '?';
+
+  const probe    = document.getElementById('__safeProbe');
+  const sbPx     = probe ? Math.round(probe.getBoundingClientRect().height) : '?';
+
+  const appEl    = document.getElementById('app');
+  const appR     = appEl ? appEl.getBoundingClientRect() : null;
+  const appH     = appR  ? Math.round(appR.height) : '?';
+  const appBot   = appR  ? Math.round(appR.bottom) : '?';
+
+  let gapElDesc = '(sin gap)';
+  if (navR && gapBelow > 1) {
+    const mx = Math.round(window.innerWidth / 2);
+    const my = Math.round(navR.bottom + gapBelow / 2);
+    const el = document.elementFromPoint(mx, my);
+    if (el) {
+      const bg  = getComputedStyle(el).backgroundColor;
+      const tag = el.id ? `#${el.id}` : (el.className
+        ? `.${String(el.className).trim().split(/\s+/)[0]}` : el.tagName);
+      gapElDesc = `${tag} bg=${bg}`;
     }
-    return (ctrl ? 'controller ok' : 'sin controller') + ' | ' + cacheList;
-  };
+  }
 
-  const update = async (label) => render(label, await swInfo());
+  targetEl.innerHTML =
+    `<div style="margin-bottom:10px">` +
+      `<span style="font-size:0.72rem;font-weight:700;color:var(--text-secondary);` +
+           `text-transform:uppercase;letter-spacing:.06em">Versión</span><br>` +
+      `<span style="font-family:monospace;font-size:1rem;font-weight:700;` +
+           `color:var(--accent-gold)">${version}</span>` +
+    `</div>` +
+    `<pre style="margin:0;font-size:10.5px;line-height:1.7;color:var(--text-secondary);` +
+         `white-space:pre-wrap;word-break:break-all;font-family:monospace">` +
+    `[${label}]\n` +
+    `--topbar-h: ${th}\n` +
+    `--tabs-h:   ${tbh}\n` +
+    `--safe-top: ${st}\n` +
+    `topbar BCR: ${fmt(tbR)}\n` +
+    `#tabs BCR:  ${tabsVis ? fmt(tabR) : '(oculto)'}\n` +
+    `── nav inferior ──\n` +
+    `navH=${navH} navBot=${navBot}\n` +
+    `innerH=${wh} gap↓=${gapBelow}px\n` +
+    `safe-bot css=${sbCss} px=${sbPx}\n` +
+    `#app h=${appH} bot=${appBot}\n` +
+    `gapEl: ${gapElDesc}\n` +
+    `SW: ${swLine}</pre>`;
+}
 
-  render('@load', 'leyendo…');
-  update('@load');
-  setTimeout(() => update('@500ms'),  500);
-  setTimeout(() => update('@1500ms'), 1500);
-  if (window.__dbgInterval) clearInterval(window.__dbgInterval);
-  window.__dbgInterval = setInterval(() => update('@live'), 2000);
+// Inicia el ciclo de actualización en vivo dentro de targetEl.
+// Se detiene automáticamente cuando el elemento desaparece del DOM.
+async function initDebugSection(targetEl) {
+  const { line, version } = await _dbgSwInfo();
+  _dbgRender(targetEl, '@open', line, version);
+  if (window.__dbgAjustesInterval) clearInterval(window.__dbgAjustesInterval);
+  window.__dbgAjustesInterval = setInterval(async () => {
+    const el = document.getElementById('__dbgInline');
+    if (!el) { clearInterval(window.__dbgAjustesInterval); return; }
+    const { line: l, version: v } = await _dbgSwInfo();
+    _dbgRender(el, '@live', l, v);
+  }, 2000);
 }
 
 // ---------------------------------------------------------------------------

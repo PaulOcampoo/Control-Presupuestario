@@ -867,19 +867,45 @@ app.put('/api/projects/:id/fechas-obra', h(auth.allow()), h(requireProject), h(a
 // insumos, solo crea/actualiza la obra y sus datos de contrato en `meta`.
 // contrato-preview no guarda nada; contrato-confirm es quien escribe.
 // ---------------------------------------------------------------------------
-app.post('/api/projects/contrato-preview', h(auth.allow()), uploadPdf.single('pdf'), h(async (req, res) => {
-  if (!req.file) return res.status(400).json({ error: 'Sube un archivo .pdf de contrato' });
-  const tmpPath = req.file.path;
-  try {
-    const buffer = await fs.promises.readFile(tmpPath);
-    const resultado = await extraerDatosContrato(buffer);
-    res.json(resultado);
-  } catch (err) {
-    res.status(err.status || 500).json({ error: err.message });
-  } finally {
-    fs.rm(tmpPath, () => {});
-  }
-}));
+const CONTRATO_PREVIEW_LIMIT = 10; // máx extracciones por usuario por hora
+
+app.post('/api/projects/contrato-preview',
+  h(auth.allow()),
+  h(async (req, res, next) => {
+    // Rate limiting serverless-safe: cuenta en Postgres, no en memoria de proceso.
+    const { rows: rlRows } = await db.pool.query(
+      `SELECT COUNT(*)::int AS n FROM api_rate_limits
+       WHERE usuario_id = $1 AND endpoint = 'contrato_preview'
+         AND creado_en > NOW() - INTERVAL '1 hour'`,
+      [req.user.id]
+    );
+    if (rlRows[0].n >= CONTRATO_PREVIEW_LIMIT) {
+      return res.status(429).json({
+        error: `Límite de ${CONTRATO_PREVIEW_LIMIT} extracciones por hora alcanzado. Intenta más tarde.`,
+      });
+    }
+    next();
+  }),
+  uploadPdf.single('pdf'),
+  h(async (req, res) => {
+    if (!req.file) return res.status(400).json({ error: 'Sube un archivo .pdf de contrato' });
+    // Registrar la llamada antes de invocar Anthropic (cuenta aunque la extracción falle).
+    await db.pool.query(
+      'INSERT INTO api_rate_limits (usuario_id, endpoint) VALUES ($1, $2)',
+      [req.user.id, 'contrato_preview']
+    );
+    const tmpPath = req.file.path;
+    try {
+      const buffer = await fs.promises.readFile(tmpPath);
+      const resultado = await extraerDatosContrato(buffer);
+      res.json(resultado);
+    } catch (err) {
+      res.status(err.status || 500).json({ error: err.message });
+    } finally {
+      fs.rm(tmpPath, () => {});
+    }
+  })
+);
 
 app.post('/api/projects/contrato-confirm', h(auth.allow()), h(async (req, res) => {
   const body = req.body || {};
@@ -3068,7 +3094,7 @@ app.get('/api/projects/:id/asistencia', h(auth.allow('residente')), h(requirePro
   // Todos los trabajadores activos + su registro de asistencia para esa fecha
   const { rows } = await db.pool.query(`
     SELECT t.id, t.nombre, t.puesto, t.tipo_pago,
-           COALESCE(a.presente, false) AS presente,
+           COALESCE(a.estado, 'presente') AS estado,
            a.id AS asistencia_id
     FROM trabajadores t
     LEFT JOIN asistencia_diaria a ON a.trabajador_id = t.id AND a.project_id = $1 AND a.fecha = $2
@@ -3090,16 +3116,19 @@ app.put('/api/projects/:id/asistencia', h(auth.allow('residente')), h(requirePro
   );
   if (bloqRows.length) return res.status(409).json({ error: 'Esta fecha está cubierta por una nómina aprobada y no puede modificarse' });
 
+  const ESTADOS_ASIST = ['presente', 'falta_justificada', 'falta_injustificada'];
   await db.withTransaction(async (client) => {
     for (const item of asistencia) {
       const wId = Number(item.trabajador_id);
-      const presente = Boolean(item.presente);
+      const estado = ESTADOS_ASIST.includes(item.estado) ? item.estado : 'presente';
+      const presente = estado === 'presente'; // columna legada, mantener sincronizada
       await client.query(`
-        INSERT INTO asistencia_diaria (project_id, trabajador_id, fecha, presente, capturado_por, actualizado_en)
-        VALUES ($1,$2,$3,$4,$5,NOW())
+        INSERT INTO asistencia_diaria (project_id, trabajador_id, fecha, presente, estado, capturado_por, actualizado_en)
+        VALUES ($1,$2,$3,$4,$5,$6,NOW())
         ON CONFLICT (project_id, trabajador_id, fecha)
-        DO UPDATE SET presente=EXCLUDED.presente, capturado_por=EXCLUDED.capturado_por, actualizado_en=NOW()`,
-        [req.project.id, wId, fecha, presente, req.user.id]
+        DO UPDATE SET presente=EXCLUDED.presente, estado=EXCLUDED.estado,
+                      capturado_por=EXCLUDED.capturado_por, actualizado_en=NOW()`,
+        [req.project.id, wId, fecha, presente, estado, req.user.id]
       );
     }
   });
@@ -3181,13 +3210,15 @@ app.post('/api/projects/:id/nominas/:nomId/calcular', h(auth.allow('residente'))
     [req.project.id]
   );
 
+  // Solo 'presente' genera días pagados. Cambiar este literal para ajustar la regla.
+  const ESTADO_PAGA = 'presente';
   // Días de asistencia por trabajador en el periodo
   const { rows: asistRows } = await db.pool.query(`
-    SELECT trabajador_id, COUNT(*) FILTER (WHERE presente=true)::int AS dias_presentes
+    SELECT trabajador_id, COUNT(*) FILTER (WHERE estado=$4)::int AS dias_presentes
     FROM asistencia_diaria
     WHERE project_id=$1 AND fecha>=$2 AND fecha<=$3
     GROUP BY trabajador_id`,
-    [req.project.id, nom.fecha_inicio, nom.fecha_fin]
+    [req.project.id, nom.fecha_inicio, nom.fecha_fin, ESTADO_PAGA]
   );
   const asistMap = new Map(asistRows.map((r) => [r.trabajador_id, r.dias_presentes]));
 
@@ -3317,7 +3348,12 @@ app.get('/health', (_req, res) => res.json({ ok: true }));
 // Global error handler
 app.use((err, _req, res, _next) => {
   console.error(err);
-  res.status(500).json({ error: err.message || 'Error interno del servidor' });
+  // Los errores de PostgreSQL tienen la propiedad `severity` ('ERROR', 'FATAL', etc.).
+  // Nunca exponemos el mensaje crudo de DB al cliente — puede filtrar nombres de
+  // tablas, columnas o constraints. Los errores de validación (multer, negocio)
+  // no tienen `severity` y sí muestran su mensaje.
+  const message = err.severity ? 'Error interno del servidor' : (err.message || 'Error interno del servidor');
+  res.status(err.status || 500).json({ error: message });
 });
 
 module.exports = app;

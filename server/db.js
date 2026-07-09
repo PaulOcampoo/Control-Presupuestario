@@ -467,6 +467,12 @@ const SCHEMA = `
   );
   CREATE INDEX IF NOT EXISTS idx_asistencia_fecha ON asistencia_diaria(project_id, fecha);
 
+  -- Migración: columna estado 3-valores en lugar del booleano presente original.
+  -- 'presente' es el DEFAULT para no afectar filas existentes.
+  -- PAID_IF_PRESENT: solo 'presente' genera pago (falta_justificada y falta_injustificada no pagan).
+  -- Si se quiere que falta_justificada pague, cambiar la constante en el cálculo de nómina.
+  ALTER TABLE asistencia_diaria ADD COLUMN IF NOT EXISTS estado TEXT NOT NULL DEFAULT 'presente';
+
   -- Nóminas — cabecera de periodo de pago con flujo de autorización
   CREATE TABLE IF NOT EXISTS nominas (
     id SERIAL PRIMARY KEY,
@@ -494,6 +500,17 @@ const SCHEMA = `
     UNIQUE(nomina_id, trabajador_id)
   );
   CREATE INDEX IF NOT EXISTS idx_nomina_items_nomina ON nomina_items(nomina_id);
+
+  -- Rate limiting de endpoints costosos (ej. extracción PDF via Claude API).
+  -- Serverless-safe: persiste entre instancias igual que login_attempts.
+  -- Índice compuesto para la consulta de ventana temporal (usuario + endpoint + creado_en).
+  CREATE TABLE IF NOT EXISTS api_rate_limits (
+    id SERIAL PRIMARY KEY,
+    usuario_id INTEGER NOT NULL,
+    endpoint TEXT NOT NULL,
+    creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
+  CREATE INDEX IF NOT EXISTS idx_api_rate_limits_usuario ON api_rate_limits(usuario_id, endpoint, creado_en);
 `;
 
 async function initSchema() {

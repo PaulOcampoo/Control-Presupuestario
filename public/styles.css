@@ -1155,3 +1155,10 @@ body.modal-open { overflow: hidden; }
 .user-popover .btn:not(:last-child) { margin-bottom: 6px; }
 #drawerAdminActions { margin-top: 6px; }
 #drawerAdminActions .btn:not(:last-child) { margin-bottom: 6px; }
+
+/* Tarjeta de presupuesto en Resumen financiero del cliente (renderResumenCliente) */
+.proyecto-resumen-card { cursor: pointer; }
+.proyecto-resumen-card .card-row { border-bottom: none; padding: 0; }
+.proyecto-resumen-card .card-row:first-child { padding-bottom: 8px; }
+.proyecto-resumen-card .card-row:first-child .k { font-weight: 600; font-size: 0.9rem; color: var(--text-primary); }
+.proyecto-resumen-card .progress-bar { margin: 0 0 8px; }

@@ -1586,7 +1586,7 @@ function renderBienvenidaSummary(proyectos) {
       <div class="welcome-project-card bienvenida-proj-card" data-pid="${p.id}" data-cid="${p.cliente_id != null ? p.cliente_id : ''}">
         ${p.cliente_nombre ? `<div class="wpc-client">${esc(p.cliente_nombre)}</div>` : ''}
         <div class="wpc-nombre">${esc(p.nombre)}</div>
-        <div class="wpc-progress-bar"><div class="wpc-progress-fill" style="width:${pct}%"></div></div>
+        <div class="wpc-progress-bar"><div class="wpc-progress-fill" data-pct="${pct}"></div></div>
         <div class="wpc-stats">
           <span class="wpc-pct">${pct.toFixed(1)}% ejecutado</span>
           ${totalFmt != null ? `<span class="wpc-total">${totalFmt}</span>` : ''}
@@ -1598,6 +1598,9 @@ function renderBienvenidaSummary(proyectos) {
     <div class="bienvenida-summary-title">Mayor avance</div>
     <div class="bienvenida-client-grid">${cardsHtml}</div>
   </div>`;
+
+  // Width por propiedad JS, no como parte del string de innerHTML (bloqueado por CSP).
+  $$('.wpc-progress-fill', el).forEach((fill) => { fill.style.width = fill.dataset.pct + '%'; });
 
   $$('.bienvenida-proj-card', el).forEach((card) => {
     card.addEventListener('click', () => {
@@ -1753,13 +1756,16 @@ function renderWelcomeScreen(proyectos) {
         <div class="welcome-project-card" data-pid="${p.id}" data-cid="${p.cliente_id || ''}">
           ${p.cliente_nombre ? `<div class="wpc-client">${esc(p.cliente_nombre)}</div>` : ''}
           <div class="wpc-nombre">${esc(p.nombre)}</div>
-          <div class="wpc-progress-bar"><div class="wpc-progress-fill" style="width:${pct}%"></div></div>
+          <div class="wpc-progress-bar"><div class="wpc-progress-fill" data-pct="${pct}"></div></div>
           <div class="wpc-stats">
             <span class="wpc-pct">${pct.toFixed(1)}% ejecutado</span>
             <span class="wpc-total">${totalFmt}</span>
           </div>
         </div>`;
     }).join('');
+
+    // Width por propiedad JS, no como parte del string de innerHTML (bloqueado por CSP).
+    $$('.wpc-progress-fill', container).forEach((fill) => { fill.style.width = fill.dataset.pct + '%'; });
 
     if (multi) {
       $$('.welcome-project-card', container).forEach((el) => {
@@ -2157,20 +2163,27 @@ async function renderResumenCliente(view) {
     <h3 class="section-title">Presupuestos</h3>
     <div id="resumenClienteProyectos">
       ${proyectos.map((p) => `
-        <div class="card proyecto-resumen-card" data-pid="${p.id}" style="cursor:pointer">
-          <div class="card-row" style="border:none;padding:0 0 8px">
-            <span class="k" style="font-weight:600;font-size:0.9rem;color:var(--text-primary)">${esc(p.nombre)}</span>
+        <div class="card proyecto-resumen-card" data-pid="${p.id}">
+          <div class="card-row">
+            <span class="k">${esc(p.nombre)}</span>
             <span class="v"><span class="badge ${p.avance_ejecutado_pct >= 80 ? 'green' : p.avance_ejecutado_pct >= 40 ? 'yellow' : 'muted'}">${fmtPct(p.avance_ejecutado_pct)}</span></span>
           </div>
-          <div class="progress-bar" style="margin:0 0 8px"><span style="width:${Math.min(100, p.avance_ejecutado_pct)}%"></span></div>
-          <div class="card-row" style="border:none;padding:0"><span class="k">Contrato</span><span class="v">${fmtMoney(p.presupuesto_total)}</span></div>
-          <div class="card-row" style="border:none;padding:0"><span class="k">Ejecutado</span><span class="v">${fmtMoney(p.importe_ejecutado)}</span></div>
-          <div class="card-row" style="border:none;padding:0"><span class="k">Por ejecutar</span><span class="v">${fmtMoney(p.importe_por_ejecutar)}</span></div>
+          <div class="progress-bar"><span data-pct="${Math.min(100, p.avance_ejecutado_pct)}"></span></div>
+          <div class="card-row"><span class="k">Contrato</span><span class="v">${fmtMoney(p.presupuesto_total)}</span></div>
+          <div class="card-row"><span class="k">Ejecutado</span><span class="v">${fmtMoney(p.importe_ejecutado)}</span></div>
+          <div class="card-row"><span class="k">Por ejecutar</span><span class="v">${fmtMoney(p.importe_por_ejecutar)}</span></div>
         </div>
       `).join('')}
       ${proyectos.length === 0 ? '<div class="empty-state"><div class="big">📊</div>Sin presupuestos en este cliente.</div>' : ''}
     </div>
   `;
+
+  // El width del progress-bar se asigna por propiedad JS (inmune a CSP), no como
+  // parte del string de innerHTML (bloqueado por style-src). Ver .hidden-initial
+  // en styles.css para el mismo patrón aplicado a los toggles de visibilidad.
+  $$('.proyecto-resumen-card .progress-bar > span', view).forEach((span) => {
+    span.style.width = span.dataset.pct + '%';
+  });
 
   $$('.proyecto-resumen-card', view).forEach((card) => {
     card.addEventListener('click', () => selectProject(Number(card.dataset.pid)));

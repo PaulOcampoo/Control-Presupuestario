@@ -24,9 +24,9 @@ const { calcularDiasRestantes, determinarUmbral, construirMensaje } = require('.
 const app = express();
 
 app.use(express.json({ limit: '2mb' }));
-app.use(express.static(path.join(__dirname, '..', 'public')));
 
-// Cabeceras de seguridad (sin dependencia nueva)
+// Cabeceras de seguridad (sin dependencia nueva) — antes de express.static para que
+// también apliquen a archivos servidos directamente (HTML, JS, CSS, sw.js, manifest).
 app.use((_req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'DENY');
@@ -56,6 +56,8 @@ app.use((_req, res, next) => {
   }
   next();
 });
+
+app.use(express.static(path.join(__dirname, '..', 'public')));
 
 // Verifica magic bytes del archivo temporal para detectar extensiones falsas.
 // Lee solo los primeros 12 bytes — no carga el archivo completo en memoria.

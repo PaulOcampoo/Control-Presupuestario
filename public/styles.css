@@ -1238,3 +1238,30 @@ body.modal-open { overflow: hidden; }
    2 columnas dependía de un style="" inline sin clase de respaldo, bloqueado por
    CSP desde antes de hoy (confirmado byte-idéntico contra 5f0ba86). */
 .trab-form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+
+/* ── Barrido estáticas 2/6 — EPP + Contratos (URGENTE) ───────────────────── */
+/* Compartidas entre openContratosModal / openEppModal / openCatalogoEppModal
+   (mismo patrón visual: header + botón cerrar + separador + label + grid,
+   ya usan .trab-form-grid / .mt-8 / .fs-08 reutilizadas de commits previos). */
+.modal-header-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
+.modal-title { margin: 0; }
+.modal-close-btn { width: 32px; height: 32px; font-size: 1rem; }
+.modal-section-divider { margin-top: 14px; border-top: 1px solid var(--border-color); padding-top: 14px; }
+.modal-section-label { font-size: 0.85rem; margin: 0 0 10px; font-weight: 600; }
+.catalogo-epp-label { font-size: 0.85rem; margin: 0 0 8px; font-weight: 600; }
+.fs-085 { font-size: 0.85rem; }
+.fs-075 { font-size: 0.75rem; }
+.mt-4 { margin-top: 4px; }
+.field-full { grid-column: 1/-1; }
+.list-row-between { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--border-color); }
+
+/* openEppModal — firma digital (elemento crítico: canvas de acuse de recibo) */
+.firma-canvas-wrap { border: 1px solid var(--border-color); border-radius: 8px; overflow: hidden; background: #fff; touch-action: none; }
+.firma-canvas { width: 100%; height: 160px; display: block; cursor: crosshair; }
+.epp-firma-thumb { height: 40px; border: 1px solid var(--border-color); border-radius: 4px; background: #fff; }
+
+/* openContratosModal — tarjetas de contrato */
+.contrato-card { padding: 10px 12px; margin-bottom: 8px; }
+.row-between-start { display: flex; justify-content: space-between; align-items: flex-start; }
+.contrato-tipo-label { margin-left: 6px; }
+.contrato-meta { font-size: 0.8rem; margin-top: 2px; }

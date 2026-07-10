@@ -6183,7 +6183,8 @@ async function openContratosModal(trabajadorId, nombreTrab) {
 // ---------------------------------------------------------------------------
 async function openEppModal(trabajadorId, nombreTrab) {
   let catalogo = [];
-  try { catalogo = await api(`/projects/${state.projectId}/epp-catalogo?soloActivos=1`); } catch (_) {}
+  try { catalogo = await api(`/projects/${state.projectId}/epp-catalogo?soloActivos=1`); }
+  catch (err) { toast(`No se pudo cargar el catálogo EPP: ${err.message}`, 'danger'); }
 
   openModal(`
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">

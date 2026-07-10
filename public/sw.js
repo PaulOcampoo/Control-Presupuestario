@@ -1,9 +1,10 @@
 'use strict';
 
-const CACHE = 'ctrl-ppto-v77';
+const CACHE = 'ctrl-ppto-v79';
 const SHELL = [
   '/',
   '/index.html',
+  '/theme-init.js',
   '/styles.css',
   '/app.js',
   '/manifest.webmanifest',

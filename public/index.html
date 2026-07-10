@@ -12,13 +12,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <!-- Aplica el tema guardado antes de pintar, para evitar un parpadeo del
        tema equivocado. 'system' se resuelve aquí con matchMedia. -->
-  <script>
-    (function () {
-      var p = localStorage.getItem('cp_theme') || 'light';
-      if (p === 'system') p = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-      document.documentElement.setAttribute('data-theme', p);
-    })();
-  </script>
+  <script src="/theme-init.js"></script>
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>

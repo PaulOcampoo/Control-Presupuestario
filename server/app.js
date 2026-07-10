@@ -26,13 +26,34 @@ const app = express();
 app.use(express.json({ limit: '2mb' }));
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
-// Cabeceras de seguridad básicas (sin dependencia nueva)
+// Cabeceras de seguridad (sin dependencia nueva)
 app.use((_req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'DENY');
   res.setHeader('X-XSS-Protection', '1; mode=block');
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
   res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  // CSP: todo local, sin CDNs. Vercel Blob necesita connect-src para uploads del cliente.
+  res.setHeader(
+    'Content-Security-Policy',
+    [
+      "default-src 'self'",
+      "script-src 'self'",
+      "style-src 'self'",
+      "img-src 'self'",
+      "connect-src 'self' https://*.vercel-storage.com",
+      "worker-src 'self'",
+      "manifest-src 'self'",
+      "frame-ancestors 'none'",
+      "object-src 'none'",
+      "base-uri 'self'",
+      "form-action 'self'",
+    ].join('; ')
+  );
+  // HSTS: 1 semana inicial; subir a 1 año después de confirmar en producción sin problemas.
+  if (process.env.NODE_ENV === 'production') {
+    res.setHeader('Strict-Transport-Security', 'max-age=604800; includeSubDomains');
+  }
   next();
 });
 

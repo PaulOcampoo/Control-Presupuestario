@@ -34,6 +34,8 @@ app.use((_req, res, next) => {
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
   res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
   // CSP: todo local, sin CDNs. Vercel Blob necesita connect-src para uploads del cliente.
+  // En producción, vercel.json sirve los archivos estáticos directamente (bypass de
+  // este middleware) y define ahí la MISMA política — mantener ambas en sync a mano.
   res.setHeader(
     'Content-Security-Policy',
     [

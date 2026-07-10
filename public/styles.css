@@ -1157,7 +1157,16 @@ body.modal-open { overflow: hidden; }
 #drawerAdminActions .btn:not(:last-child) { margin-bottom: 6px; }
 
 /* Tarjeta de presupuesto en Resumen financiero del cliente (renderResumenCliente) */
-.proyecto-resumen-card { cursor: pointer; }
+.proyecto-resumen-card {
+  cursor: pointer;
+  transition: border-color 0.2s, box-shadow 0.2s, transform 0.15s;
+}
+.proyecto-resumen-card:hover {
+  border-color: var(--accent-gold);
+  box-shadow: 0 0 14px color-mix(in srgb, var(--accent-gold) 22%, transparent);
+  transform: translateY(-2px);
+}
+.proyecto-resumen-card:active { transform: scale(0.98); }
 .proyecto-resumen-card .card-row { border-bottom: none; padding: 0; }
 .proyecto-resumen-card .card-row:first-child { padding-bottom: 8px; }
 .proyecto-resumen-card .card-row:first-child .k { font-weight: 600; font-size: 0.9rem; color: var(--text-primary); }

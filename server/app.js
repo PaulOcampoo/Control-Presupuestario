@@ -57,6 +57,23 @@ app.use((_req, res, next) => {
   next();
 });
 
+// Verifica magic bytes del archivo temporal para detectar extensiones falsas.
+// Lee solo los primeros 12 bytes — no carga el archivo completo en memoria.
+async function checkFileMagic(filepath, allowedTypes) {
+  const buf = Buffer.alloc(12);
+  const fd = await fs.promises.open(filepath, 'r');
+  try { await fd.read(buf, 0, 12, 0); } finally { await fd.close(); }
+  for (const type of allowedTypes) {
+    if (type === 'pdf'  && buf[0] === 0x25 && buf[1] === 0x50 && buf[2] === 0x44 && buf[3] === 0x46) return true;
+    if (type === 'jpeg' && buf[0] === 0xFF && buf[1] === 0xD8 && buf[2] === 0xFF) return true;
+    if (type === 'png'  && buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4E && buf[3] === 0x47) return true;
+    if (type === 'gif'  && buf[0] === 0x47 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x38) return true;
+    if (type === 'webp' && buf[0] === 0x52 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x46 &&
+                           buf[8] === 0x57 && buf[9] === 0x45 && buf[10] === 0x42 && buf[11] === 0x50) return true;
+  }
+  return false;
+}
+
 // Multer para imágenes adjuntas a sugerencias (capturas de pantalla)
 const uploadImg = multer({
   dest: os.tmpdir(),
@@ -1048,12 +1065,16 @@ app.post('/api/projects/contrato-preview',
   uploadPdf.single('pdf'),
   h(async (req, res) => {
     if (!req.file) return res.status(400).json({ error: 'Sube un archivo .pdf de contrato' });
+    const tmpPath = req.file.path;
+    if (!await checkFileMagic(tmpPath, ['pdf'])) {
+      await fs.promises.unlink(tmpPath).catch(() => {});
+      return res.status(400).json({ error: 'El archivo no es un PDF válido (firma de contenido incorrecta)' });
+    }
     // Registrar la llamada antes de invocar Anthropic (cuenta aunque la extracción falle).
     await db.pool.query(
       'INSERT INTO api_rate_limits (usuario_id, endpoint) VALUES ($1, $2)',
       [req.user.id, 'contrato_preview']
     );
-    const tmpPath = req.file.path;
     const blobNombre = req.file.originalname || 'contrato.pdf';
     try {
       const buffer = await fs.promises.readFile(tmpPath);
@@ -3877,6 +3898,10 @@ app.delete('/api/sugerencias/:id', requireDesarrollador, h(async (req, res) => {
 
 app.post('/api/sugerencias/:id/imagenes', uploadImg.single('imagen'), h(async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No se recibió ninguna imagen' });
+  if (!await checkFileMagic(req.file.path, ['jpeg', 'png', 'gif', 'webp'])) {
+    await fs.promises.unlink(req.file.path).catch(() => {});
+    return res.status(400).json({ error: 'El archivo no es una imagen válida (firma de contenido incorrecta)' });
+  }
   const id = Number(req.params.id);
   const { rows: sugRows } = await db.pool.query(
     'SELECT usuario_id FROM sugerencias WHERE id = $1', [id]

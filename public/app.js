@@ -1361,6 +1361,11 @@ $('#loginForm').addEventListener('submit', async (ev) => {
 // Primer login sin 2FA configurado: muestra el QR (o clave manual) y pide
 // confirmar un código antes de activar totp_enabled y entrar.
 function openTotpEnrollModal(preAuthToken, qrDataUri, manualEntryKey) {
+  // .login-screen tiene z-index:100, por encima de .modal (60) y .overlay
+  // (40) — sin ocultarla, el modal se crea y se muestra bien en el DOM pero
+  // queda tapado visualmente por la pantalla de login (nada se ve, y como
+  // no hay ningún error de JS, no se nota nada raro en consola).
+  $('#loginScreen').style.display = 'none';
   openModal(`
     <h3>Configura la verificación en dos pasos</h3>
     <p class="muted">Es obligatoria para todas las cuentas. Escanea este código con Google Authenticator, Authy o cualquier app compatible con TOTP.</p>
@@ -1374,7 +1379,7 @@ function openTotpEnrollModal(preAuthToken, qrDataUri, manualEntryKey) {
     </div>
   `);
   $('#totpEnrollCode').focus();
-  $('#btnCancelTotpEnroll').addEventListener('click', closeModal);
+  $('#btnCancelTotpEnroll').addEventListener('click', () => { closeModal(); showLoginScreen(); });
   const submit = async () => {
     const code = $('#totpEnrollCode').value.trim();
     const errBox = $('#totpEnrollError');
@@ -1431,6 +1436,9 @@ function openBackupCodesModal(codes, sessionData) {
 // Login normal ya inscrito: pide el código TOTP o, alternativamente, un
 // código de respaldo de un solo uso.
 function openTotpLoginModal(preAuthToken) {
+  // Ver comentario en openTotpEnrollModal: .login-screen (z-index:100) tapa
+  // visualmente al modal (60)/overlay (40) si no se oculta explícitamente.
+  $('#loginScreen').style.display = 'none';
   openModal(`
     <h3>Verificación en dos pasos</h3>
     <p class="muted">Ingresa el código de 6 dígitos de tu app autenticadora.</p>
@@ -1447,7 +1455,7 @@ function openTotpLoginModal(preAuthToken) {
     </div>
   `);
   $('#totpLoginCode').focus();
-  $('#btnCancelTotpLogin').addEventListener('click', closeModal);
+  $('#btnCancelTotpLogin').addEventListener('click', () => { closeModal(); showLoginScreen(); });
   $('#linkUseBackupCode').addEventListener('click', (e) => {
     e.preventDefault();
     $('#totpBackupField').classList.remove('hidden-initial'); // ver .hidden-initial en styles.css

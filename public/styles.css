@@ -1171,3 +1171,23 @@ body.modal-open { overflow: hidden; }
 .proyecto-resumen-card .card-row:first-child { padding-bottom: 8px; }
 .proyecto-resumen-card .card-row:first-child .k { font-weight: 600; font-size: 0.9rem; color: var(--text-primary); }
 .proyecto-resumen-card .progress-bar { margin: 0 0 8px; }
+
+/* ── Barrido de style="" dinámicos restantes (colores/estados condicionales) ── */
+.text-verde { color: var(--green); }
+.text-rojo { color: var(--red); }
+.border-verde { border-color: var(--green); }
+.border-rojo { border-color: var(--red); }
+.saldo-pendiente { font-weight: 600; }
+
+.brecha-value { font-size: 1.4rem; font-weight: 700; }
+
+.badge-estado { font-size: 0.75rem; font-weight: 600; }
+.badge-estado-pendiente { color: var(--accent-gold); }
+.badge-estado-revisada { color: var(--accent-blue); } /* --accent-blue no está definida — preexistente, no se toca aquí */
+.badge-estado-implementada { color: var(--accent-green); } /* --accent-green no está definida — preexistente, no se toca aquí */
+.badge-estado-descartada { color: var(--text-secondary); }
+
+.epp-item-nombre { font-weight: 600; font-size: 0.88rem; }
+.epp-item-inactivo { opacity: 0.5; text-decoration: line-through; }
+
+.dest-progress { margin-bottom: 8px; }

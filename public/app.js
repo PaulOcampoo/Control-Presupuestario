@@ -2624,7 +2624,7 @@ function paintInsumos(insumos) {
         <span class="muted">Requisitado a la fecha</span>
         <span class="${over ? 'badge red' : ''}">${fmtNum(i.cantidad_acumulada, 3)} ${esc(i.unidad || '')} (${fmtPct(pct)})</span>
       </div>
-      <div class="progress-bar ${over ? 'over' : ''}"><span style="width:${Math.min(100, pct)}%"></span></div>
+      <div class="progress-bar ${over ? 'over' : ''}"><span data-pct="${Math.min(100, pct)}"></span></div>
       ${isAdmin() ? `
       <div class="row between" style="margin-top:6px">
         <span class="muted" style="font-size:0.78rem">IVA aplicable</span>
@@ -2636,6 +2636,8 @@ function paintInsumos(insumos) {
       ${puedeCrearRequisicion() ? `<div class="row end"><button class="btn small btn-primary" data-add="${i.id}">+ Agregar a requisición</button></div>` : ''}
     </div>`;
   }).join('');
+
+  $$('.progress-bar > span[data-pct]', list).forEach((span) => { span.style.width = span.dataset.pct + '%'; });
 
   $$('[data-add]', list).forEach((btn) => btn.addEventListener('click', () => addToDraft(Number(btn.dataset.add), insumos)));
 
@@ -2715,7 +2717,7 @@ async function renderMapeo(view) {
         <strong>Progreso de mapeo</strong>
         <span class="badge ${resumen.conceptos_mapeados === resumen.total_conceptos ? 'green' : 'yellow'}">${resumen.conceptos_mapeados}/${resumen.total_conceptos} conceptos mapeados</span>
       </div>
-      <div class="progress-bar"><span style="width:${Math.min(100, pct)}%"></span></div>
+      <div class="progress-bar"><span data-pct="${Math.min(100, pct)}"></span></div>
     </div>
     <div class="card">
       <label>Concepto</label>
@@ -2737,6 +2739,8 @@ async function renderMapeo(view) {
       <div id="mapeoSearchResults"></div>
     </div>
   `;
+
+  { const fill = $('.progress-bar > span[data-pct]', view); if (fill) fill.style.width = fill.dataset.pct + '%'; }
 
   if (!conceptosReales.length) {
     $('#mapeoLinkedList').innerHTML = '<div class="empty-state">Este presupuesto no tiene conceptos.</div>';
@@ -3367,7 +3371,7 @@ async function renderOrdenes(view) {
       </div>
       <div class="row between" style="margin-top:6px;font-size:0.84rem">
         <span class="muted">Pagado: ${fmtMoney(o.total_pagado)}</span>
-        <span style="color:${o.saldo_pendiente > 0 ? 'var(--red)' : 'var(--green)'};font-weight:600">Saldo: ${fmtMoney(o.saldo_pendiente)}</span>
+        <span class="saldo-pendiente ${o.saldo_pendiente > 0 ? 'text-rojo' : 'text-verde'}">Saldo: ${fmtMoney(o.saldo_pendiente)}</span>
       </div>
       <div class="row end"><button class="btn small" data-view-oc="${o.id}">Ver detalle</button></div>
     </div>
@@ -3502,7 +3506,7 @@ async function paintOcPagos(ocId) {
     box.innerHTML = `
       ${pagosHtml}
       <div class="card-row"><span class="k">Total pagado</span><span class="v">${fmtMoney(data.total_pagado)}</span></div>
-      <div class="card-row"><span class="k">Saldo pendiente</span><span class="v" style="color:${data.saldo_pendiente > 0 ? 'var(--red)' : 'var(--green)'}">${fmtMoney(data.saldo_pendiente)}</span></div>
+      <div class="card-row"><span class="k">Saldo pendiente</span><span class="v ${data.saldo_pendiente > 0 ? 'text-rojo' : 'text-verde'}">${fmtMoney(data.saldo_pendiente)}</span></div>
     `;
   } catch (err) {
     box.innerHTML = `<div class="alert-box danger">⚠️${esc(err.message)}</div>`;
@@ -3975,8 +3979,8 @@ async function renderPrograma(view) {
               <span class="g">${esc(p.codigo)} · ${fmtMoney(p.importe)} (${fmtPct(p.peso_pct * 100)})</span>
             </div>
             <div class="gantt-track">
-              <div class="gantt-bar" style="left:${left}%;width:${width}%">
-                ${pct > 0 ? `<div class="gantt-bar-inner" style="width:${Math.min(100, pct)}%"></div>` : ''}
+              <div class="gantt-bar" data-left="${left}" data-width="${width}">
+                ${pct > 0 ? `<div class="gantt-bar-inner" data-pct="${Math.min(100, pct)}"></div>` : ''}
               </div>
             </div>
             <div class="gantt-dates-wrap">
@@ -3988,6 +3992,12 @@ async function renderPrograma(view) {
       </div>
     `).join('')}
   `;
+
+  $$('.gantt-bar[data-left]', view).forEach((bar) => {
+    bar.style.left = bar.dataset.left + '%';
+    bar.style.width = bar.dataset.width + '%';
+  });
+  $$('.gantt-bar-inner[data-pct]', view).forEach((inner) => { inner.style.width = inner.dataset.pct + '%'; });
 
   $$('[data-edit-fechas]', view).forEach((btn) => {
     btn.addEventListener('click', () => openEditFechasModal(Number(btn.dataset.editFechas), programa, obraInicio, obraFin));
@@ -4060,6 +4070,8 @@ async function renderDestajo(view) {
       </div>
     ` : destajistas.map((d) => renderDestajistaCard(d)).join('')}
   `;
+
+  $$('.dest-progress > span[data-pct]', view).forEach((span) => { span.style.width = span.dataset.pct + '%'; });
 
   $('#btnNuevoDest')?.addEventListener('click', () => openNuevoDestajistaModal());
   wireExportButton('#btnExportDestajo', `/projects/${state.projectId}/destajistas/export`);
@@ -4146,7 +4158,7 @@ function renderDestajistaCard(d) {
       <span style="color:var(--green)">Ganado: ${fmtMoney(d.total_ganado)}</span>
       <span class="badge ${pct >= 100 ? 'green' : 'yellow'}">${pct}%</span>
     </div>
-    <div class="progress-bar" style="margin-bottom:8px"><span style="width:${Math.min(100, pct)}%"></span></div>
+    <div class="progress-bar dest-progress"><span data-pct="${Math.min(100, pct)}"></span></div>
     ${renderDestajistaItems(d)}
     ${canManageDestajo() ? `
     <div class="row" style="margin-top:8px">
@@ -4842,7 +4854,7 @@ async function renderSugerencias(view) {
   let sugFiles = [];
 
   const estadoBadge = (estado) =>
-    `<span style="font-size:0.75rem;font-weight:600;color:${SUGERENCIA_ESTADO_COLORS[estado] || 'inherit'}">${SUGERENCIA_ESTADO_LABELS[estado] || estado}</span>`;
+    `<span class="badge-estado badge-estado-${estado}">${SUGERENCIA_ESTADO_LABELS[estado] || estado}</span>`;
 
   const imgsHtml = (imgs) => {
     if (!imgs || !imgs.length) return '';
@@ -5137,7 +5149,7 @@ async function openUsuarioModal(usuario) {
         <input id="uActivo" type="checkbox" style="width:auto" ${usuario.activo ? 'checked' : ''} /> Cuenta activa
       </label>
     </div>` : ''}
-    <div class="field" id="uProyectosField" style="${puestoInicial === 'admin' ? 'display:none' : ''}" data-admin-hide="true">
+    <div class="field ${puestoInicial === 'admin' ? 'hidden-initial' : ''}" id="uProyectosField" data-admin-hide="true">
       <label>Obras asignadas</label>
       <p class="muted" style="font-size:0.76rem;margin:0 0 6px">Solo verá y podrá operar en las obras marcadas aquí.</p>
       ${allProjects.length ? `
@@ -5154,7 +5166,10 @@ async function openUsuarioModal(usuario) {
     </div>
   `);
   $('#uPuesto').addEventListener('change', (e) => {
-    $('#uProyectosField').style.display = e.target.value === 'admin' ? 'none' : '';
+    const field = $('#uProyectosField');
+    const isAdminSel = e.target.value === 'admin';
+    if (!isAdminSel) field.classList.remove('hidden-initial'); // ver .hidden-initial en styles.css
+    field.style.display = isAdminSel ? 'none' : '';
   });
   $('#btnCancelUsuario').addEventListener('click', closeModal);
   $('#btnSaveUsuario').addEventListener('click', async () => {
@@ -5399,9 +5414,9 @@ async function renderFinanzas(view) {
       <div class="card-row"><span class="k">Destajo — ejecutado (mano de obra)</span><span class="v">${fmtMoney(er.destajo_ejecutado)}</span></div>
     </div>
 
-    <div class="card" style="border-color:${brechaPositiva ? 'var(--green)' : 'var(--red)'}">
+    <div class="card ${brechaPositiva ? 'border-verde' : 'border-rojo'}">
       <h3 class="section-title" style="margin-top:0">Brecha</h3>
-      <div class="value" style="font-size:1.4rem;font-weight:700;color:${brechaPositiva ? 'var(--green)' : 'var(--red)'}">${fmtMoney(brecha.monto)}</div>
+      <div class="value brecha-value ${brechaPositiva ? 'text-verde' : 'text-rojo'}">${fmtMoney(brecha.monto)}</div>
       <p class="muted" style="margin-top:8px">${esc(brecha.descripcion)}</p>
     </div>
 
@@ -6267,7 +6282,7 @@ async function openCatalogoEppModal() {
     el.innerHTML = items.map((it) => `
       <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border-color)">
         <div>
-          <span style="font-weight:600;font-size:0.88rem;${!it.activo ? 'opacity:0.5;text-decoration:line-through' : ''}">${esc(it.nombre_item)}</span>
+          <span class="epp-item-nombre ${!it.activo ? 'epp-item-inactivo' : ''}">${esc(it.nombre_item)}</span>
           ${it.descripcion ? `<span class="muted" style="font-size:0.8rem"> — ${esc(it.descripcion)}</span>` : ''}
         </div>
         <button class="btn small ${it.activo ? 'btn-danger' : ''}" data-toggle-epp="${it.id}" data-epp-activo="${it.activo}" data-epp-nombre="${esc(it.nombre_item)}" data-epp-desc="${esc(it.descripcion||'')}">

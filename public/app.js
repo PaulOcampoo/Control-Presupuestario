@@ -1002,31 +1002,31 @@ function closeQuickActionMenu() {
 function openMobileAjustes() {
   const pref = getTheme();
   openModal(`
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
-      <h3 style="margin:0">Ajustes</h3>
-      <button class="icon-btn" id="btnCloseProfile" aria-label="Cerrar" style="width:32px;height:32px;font-size:1rem">✕</button>
+    <div class="modal-header-row">
+      <h3 class="modal-title">Ajustes</h3>
+      <button class="icon-btn modal-close-btn" id="btnCloseProfile" aria-label="Cerrar">✕</button>
     </div>
-    <div style="margin-bottom:14px;line-height:1.4">
+    <div class="ajustes-user-info">
       <strong>${esc(state.user?.nombre || '')}</strong>
       <div class="muted">${esc(PUESTO_LABELS[state.user?.puesto] || '')}</div>
     </div>
-    <label style="margin-bottom:6px;display:block">Tema</label>
-    <div class="theme-selector" style="margin-bottom:16px">
+    <label class="ajustes-tema-label">Tema</label>
+    <div class="theme-selector ajustes-theme-selector">
       <button class="theme-opt ${pref==='light'?'active':''}" data-theme-set="light">${icon('sun',14)} Claro</button>
       <button class="theme-opt ${pref==='dark'?'active':''}" data-theme-set="dark">${icon('moon',14)} Oscuro</button>
       <button class="theme-opt ${pref==='system'?'active':''}" data-theme-set="system">${icon('monitor',14)} Sistema</button>
     </div>
-    ${!isStandalone() ? `<button class="btn full" id="btnInstallModal" style="margin-bottom:6px">📲 Instalar app</button>` : ''}
-    <button class="btn full" id="btnMiCuentaModal" style="margin-bottom:6px">Mi cuenta</button>
+    ${!isStandalone() ? `<button class="btn full ajustes-btn-mb" id="btnInstallModal">📲 Instalar app</button>` : ''}
+    <button class="btn full ajustes-btn-mb" id="btnMiCuentaModal">Mi cuenta</button>
     <button class="btn btn-danger full" id="btnLogoutModal">Cerrar sesión</button>
     ${isAdmin() ? `
-    <hr style="margin:16px 0;border:none;border-top:1px solid var(--border-color)">
-    <button id="__dbgToggle" style="display:flex;align-items:center;gap:6px;background:none;border:none;padding:0;cursor:pointer;font-size:0.78rem;font-weight:700;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.06em;width:100%;text-align:left">
-      <span id="__dbgChevron" style="transition:transform .2s;display:inline-block">▶</span> Información técnica
+    <hr class="ajustes-divider">
+    <button id="__dbgToggle" class="dbg-toggle-btn">
+      <span id="__dbgChevron" class="dbg-chevron">▶</span> Información técnica
     </button>
-    <div id="__dbgPanel" style="display:none;margin-top:8px">
-      <div id="__dbgInline" style="background:var(--bg-primary);border:1px solid var(--border-color);border-radius:8px;padding:10px 12px;min-height:60px">
-        <span class="muted" style="font-size:0.8rem">Cargando…</span>
+    <div id="__dbgPanel" class="hidden-initial dbg-panel">
+      <div id="__dbgInline" class="dbg-inline-box">
+        <span class="muted fs-08">Cargando…</span>
       </div>
     </div>` : ''}
   `);
@@ -1047,6 +1047,7 @@ function openMobileAjustes() {
     let open = false;
     toggleBtn.addEventListener('click', () => {
       open = !open;
+      if (open) panel.classList.remove('hidden-initial'); // ver .hidden-initial en styles.css
       panel.style.display  = open ? '' : 'none';
       chevron.style.transform = open ? 'rotate(90deg)' : '';
       if (open) initDebugSection($('#__dbgInline'));
@@ -4789,7 +4790,7 @@ async function renderDevPanel(view) {
   const info = await api('/admin/dev-info');
 
   const stat = (label, value, color = '') =>
-    `<div class="kpi ${color}" style="min-width:130px">
+    `<div class="kpi ${color} devpanel-stat">
        <div class="kpi-label">${label}</div>
        <div class="kpi-value">${value}</div>
      </div>`;
@@ -4797,31 +4798,31 @@ async function renderDevPanel(view) {
   view.innerHTML = `
     <h2 class="section-title">🛠️ Panel de desarrollador</h2>
 
-    <h3 class="section-title" style="margin-bottom:10px">Estadísticas del sistema</h3>
-    <div class="kpi-grid" style="margin-bottom:24px">
+    <h3 class="section-title devpanel-subtitle">Estadísticas del sistema</h3>
+    <div class="kpi-grid devpanel-kpi-grid">
       ${stat('Usuarios activos',   info.usuarios_activos,  'accent')}
       ${stat('Proyectos',          info.proyectos_total)}
       ${stat('Clientes',           info.clientes_total)}
       ${stat('PDFs de contrato',   info.contratos_pdf)}
     </div>
 
-    <h3 class="section-title" style="margin-bottom:10px">Sugerencias</h3>
-    <div class="kpi-grid" style="margin-bottom:24px">
+    <h3 class="section-title devpanel-subtitle">Sugerencias</h3>
+    <div class="kpi-grid devpanel-kpi-grid">
       ${stat('Total',              info.sugerencias_total)}
       ${stat('Pendientes',         info.sugerencias_pend,   info.sugerencias_pend > 0 ? 'yellow' : '')}
       ${stat('Con prompt IA',      info.sugerencias_prompt, 'green')}
     </div>
 
-    <h3 class="section-title" style="margin-bottom:10px">Entorno</h3>
-    <div class="card" style="padding:14px 16px;margin-bottom:24px;font-family:monospace;font-size:0.85rem;line-height:1.8">
-      <div><span style="color:var(--text-secondary)">Node.js</span>  &nbsp;${esc(info.node_version)}</div>
-      <div><span style="color:var(--text-secondary)">Entorno</span>  &nbsp;${esc(info.env)}</div>
-      <div><span style="color:var(--text-secondary)">SW Cache</span> &nbsp;<span id="__devSwVersion">cargando…</span></div>
+    <h3 class="section-title devpanel-subtitle">Entorno</h3>
+    <div class="card devpanel-entorno-card">
+      <div><span class="devpanel-label">Node.js</span>  &nbsp;${esc(info.node_version)}</div>
+      <div><span class="devpanel-label">Entorno</span>  &nbsp;${esc(info.env)}</div>
+      <div><span class="devpanel-label">SW Cache</span> &nbsp;<span id="__devSwVersion">cargando…</span></div>
     </div>
 
-    <h3 class="section-title" style="margin-bottom:10px">Métricas de layout</h3>
-    <div id="__devDbgInline" class="card" style="padding:14px 16px;min-height:60px">
-      <span class="muted" style="font-size:0.8rem">Cargando…</span>
+    <h3 class="section-title devpanel-subtitle">Métricas de layout</h3>
+    <div id="__devDbgInline" class="card devpanel-metrics-card">
+      <span class="muted fs-08">Cargando…</span>
     </div>
   `;
 

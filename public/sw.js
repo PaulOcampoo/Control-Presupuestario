@@ -1,6 +1,6 @@
 'use strict';
 
-const CACHE = 'ctrl-ppto-v101';
+const CACHE = 'ctrl-ppto-v102';
 const SHELL = [
   '/',
   '/index.html',
@@ -32,11 +32,14 @@ self.addEventListener('fetch', (event) => {
   const { request } = event;
   const url = new URL(request.url);
 
-  // Never cache API calls — always go to the network so data stays fresh.
+  // La API nunca se intercepta: ni event.respondWith() se dispara para estas
+  // rutas. No solo "no cachear" (como antes) — el SW ni siquiera debe hacer
+  // de intermediario, porque event.respondWith(fetch(request)) crea una
+  // segunda petición real (visible en Network tab con Initiator sw.js,
+  // además de la de app.js), y toda petición que muta datos (login, POST/PUT/
+  // DELETE) no debe pasar por ahí. Sin respondWith(), el navegador despacha
+  // la petición nativamente, sin que el SW la toque en absoluto.
   if (url.pathname.startsWith('/api/')) {
-    event.respondWith(fetch(request).catch(() => new Response(JSON.stringify({ error: 'Sin conexión' }), {
-      status: 503, headers: { 'Content-Type': 'application/json' },
-    })));
     return;
   }
 

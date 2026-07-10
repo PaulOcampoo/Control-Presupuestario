@@ -168,6 +168,8 @@ app.post('/api/auth/login', h(async (req, res) => {
   }
 
   const token = auth.signToken(user);
+  const refreshToken = auth.signRefreshToken(user);
+  res.setHeader('Set-Cookie', auth.buildRefreshCookie(refreshToken));
   res.json({
     token,
     user: { id: user.id, nombre: user.nombre, usuario: user.usuario, puesto: user.puesto },
@@ -291,6 +293,38 @@ app.post('/api/cron/alertas-vencimiento', requireCronSecret, h(async (req, res) 
 
   res.json({ revisadas: proyectos.length, alertas_enviadas: alertasEnviadas, omitidas });
 }));
+
+// Emite un nuevo access token usando el refresh token (cookie httpOnly).
+// No requiere Authorization: Bearer — solo la cookie cp_refresh.
+app.post('/api/auth/refresh', h(async (req, res) => {
+  const cookies = req.headers.cookie || '';
+  const match = cookies.match(/(?:^|;\s*)cp_refresh=([^;]+)/);
+  const rawToken = match ? decodeURIComponent(match[1]) : null;
+  if (!rawToken) return res.status(401).json({ error: 'Sin refresh token' });
+  let decoded;
+  try {
+    decoded = auth.verifyRefreshToken(rawToken);
+  } catch {
+    return res.status(401).json({ error: 'Refresh token inválido o expirado' });
+  }
+  const { rows } = await db.pool.query(
+    'SELECT id, nombre, usuario, puesto, token_valid_since FROM usuarios WHERE id = $1 AND activo = true',
+    [decoded.id]
+  );
+  if (!rows[0]) return res.status(401).json({ error: 'Sesión inválida' });
+  if (decoded.iat * 1000 <= new Date(rows[0].token_valid_since).getTime()) {
+    return res.status(401).json({ error: 'Sesión revocada' });
+  }
+  const token = auth.signToken(rows[0]);
+  res.json({ token });
+}));
+
+// Borra la cookie de refresh en el navegador (logout limpio).
+// Público para poder llamarlo aunque el access token ya haya expirado.
+app.post('/api/auth/logout', (_req, res) => {
+  res.setHeader('Set-Cookie', auth.buildRefreshCookie('', true));
+  res.json({ ok: true });
+});
 
 app.use('/api', auth.requireAuth);
 

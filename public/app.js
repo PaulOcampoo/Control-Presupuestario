@@ -274,21 +274,56 @@ const fmtDateShort = (s) => {
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 // ---------------------------------------------------------------------------
-// API helper
+// API helper + JWT refresh automático
 // ---------------------------------------------------------------------------
+
+// Intenta renovar el access token usando el refresh token (cookie httpOnly).
+// Deduplica llamadas simultáneas: si ya hay un refresh en curso, espera el mismo.
+let _refreshPromise = null;
+async function tryRefreshToken() {
+  if (_refreshPromise) return _refreshPromise;
+  _refreshPromise = (async () => {
+    try {
+      const res = await fetch('/api/auth/refresh', { method: 'POST', credentials: 'same-origin' });
+      if (!res.ok) return false;
+      const data = await res.json();
+      if (!data.token) return false;
+      state.token = data.token;
+      localStorage.setItem(TOKEN_KEY, data.token);
+      return true;
+    } catch {
+      return false;
+    } finally {
+      _refreshPromise = null;
+    }
+  })();
+  return _refreshPromise;
+}
+
 async function api(path, opts = {}) {
-  const headers = opts.body && !(opts.body instanceof FormData) ? { 'Content-Type': 'application/json' } : {};
-  if (state.token) headers.Authorization = `Bearer ${state.token}`;
-  const res = await fetch(`/api${path}`, {
-    ...opts,
-    headers,
-    body: opts.body && !(opts.body instanceof FormData) ? JSON.stringify(opts.body) : opts.body,
-  });
+  const doFetch = (tkn) => {
+    const headers = opts.body && !(opts.body instanceof FormData) ? { 'Content-Type': 'application/json' } : {};
+    if (tkn) headers.Authorization = `Bearer ${tkn}`;
+    return fetch(`/api${path}`, {
+      ...opts,
+      headers,
+      body: opts.body && !(opts.body instanceof FormData) ? JSON.stringify(opts.body) : opts.body,
+    });
+  };
+  let res = await doFetch(state.token);
   let data = null;
   try { data = await res.json(); } catch { /* no body */ }
-  if (res.status === 401 && path !== '/auth/login') {
-    handleSessionExpired();
-    throw new Error((data && data.error) || 'Sesión expirada');
+  if (res.status === 401 && path !== '/auth/login' && path !== '/auth/refresh') {
+    const refreshed = await tryRefreshToken();
+    if (refreshed) {
+      res = await doFetch(state.token);
+      data = null;
+      try { data = await res.json(); } catch { /* no body */ }
+    }
+    if (res.status === 401) {
+      handleSessionExpired();
+      throw new Error((data && data.error) || 'Sesión expirada');
+    }
   }
   if (!res.ok) throw new Error((data && data.error) || `Error ${res.status}`);
   return data;
@@ -298,12 +333,13 @@ async function api(path, opts = {}) {
 // "Exportar a Excel" — el archivo y su nombre los arma el backend, aquí solo
 // se dispara la descarga con el token de sesión en el header).
 async function downloadExport(path) {
-  const headers = {};
-  if (state.token) headers.Authorization = `Bearer ${state.token}`;
-  const res = await fetch(`/api${path}`, { headers });
+  const doFetch = (tkn) => fetch(`/api${path}`, { headers: tkn ? { Authorization: `Bearer ${tkn}` } : {} });
+  let res = await doFetch(state.token);
   if (res.status === 401) {
-    handleSessionExpired();
-    throw new Error('Sesión expirada');
+    const refreshed = await tryRefreshToken();
+    if (!refreshed) { handleSessionExpired(); throw new Error('Sesión expirada'); }
+    res = await doFetch(state.token);
+    if (res.status === 401) { handleSessionExpired(); throw new Error('Sesión expirada'); }
   }
   if (!res.ok) {
     let msg = `Error ${res.status}`;
@@ -774,20 +810,16 @@ function renderSidebar() {
 
   let html = '';
 
-  // En simulación: mostrar todos los tabs del desarrollador pero apagar los que
-  // el rol simulado no tendría acceso. Sin simulación: comportamiento normal.
-  const devTabs = ROLE_TABS['desarrollador'];
-  const renderableTabs = state.simulatedPuesto ? devTabs : state.allowedTabs;
-  const isSimHidden = (t) => state.simulatedPuesto && !state.allowedTabs.includes(t);
+  // Mostrar exactamente los tabs del rol activo (real o simulado).
+  // En simulación, state.allowedTabs ya contiene solo los del rol simulado.
+  const renderableTabs = state.allowedTabs;
 
   // Resumen — ítem suelto
   if (renderableTabs.includes('resumen')) {
     const active = state.view === 'resumen' ? 'active' : '';
-    const simCls = isSimHidden('resumen') ? 'sbar-sim-hidden' : '';
-    html += `<button class="sbar-item ${active} ${simCls}" ${simCls ? 'disabled' : 'data-sbar-goto="resumen"'} title="Resumen">
+    html += `<button class="sbar-item ${active}" data-sbar-goto="resumen" title="Resumen">
       <span class="sbar-icon">${TAB_ICONS.resumen}</span>
       <span class="sbar-label">Resumen</span>
-      ${simCls ? '<span class="sbar-sim-tag">Solo dev</span>' : ''}
     </button>`;
   }
 
@@ -815,11 +847,9 @@ function renderSidebar() {
       <div class="sbar-group-body"><div>`;
     sectionRenderableTabs.forEach((t) => {
       const a = state.view === t ? 'active' : '';
-      const simCls = isSimHidden(t) ? 'sbar-sim-hidden' : '';
-      html += `<button class="sbar-item sbar-subitem ${a} ${simCls}" ${simCls ? 'disabled' : `data-sbar-goto="${t}"`} title="${esc(TAB_LABELS[t])}">
+      html += `<button class="sbar-item sbar-subitem ${a}" data-sbar-goto="${t}" title="${esc(TAB_LABELS[t])}">
         <span class="sbar-icon">${TAB_ICONS[t] || ''}</span>
         <span class="sbar-label">${esc(TAB_LABELS[t])}</span>
-        ${simCls ? '<span class="sbar-sim-tag">Solo dev</span>' : ''}
       </button>`;
     });
     def.proximamente.forEach((nombre) => {
@@ -1261,6 +1291,8 @@ async function tryRestoreSession() {
 }
 
 async function logout() {
+  // Limpia la cookie httpOnly del refresh token en el servidor.
+  fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' }).catch(() => {});
   state.token = null;
   localStorage.removeItem(TOKEN_KEY);
   state.user = null;

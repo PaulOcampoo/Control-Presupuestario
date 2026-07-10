@@ -9,7 +9,9 @@ if (!SESSION_SECRET) {
   throw new Error('SESSION_SECRET no está configurada en las variables de entorno — la app no puede arrancar sin ella.');
 }
 
-const TOKEN_TTL = '30d';
+const TOKEN_TTL = '2h';
+const REFRESH_TTL = '7d';
+const REFRESH_COOKIE = 'cp_refresh';
 
 // Puestos y qué pestañas puede ver cada uno. 'admin' tiene acceso total
 // (se resuelve aparte en allow(), no necesita listarse en cada pestaña).
@@ -43,6 +45,22 @@ function signToken(user) {
     SESSION_SECRET,
     { expiresIn: TOKEN_TTL }
   );
+}
+
+function signRefreshToken(user) {
+  return jwt.sign({ id: user.id, usuario: user.usuario }, SESSION_SECRET, { expiresIn: REFRESH_TTL });
+}
+
+function verifyRefreshToken(token) {
+  return jwt.verify(token, SESSION_SECRET);
+}
+
+// Construye el valor de la cookie Set-Cookie para el refresh token.
+function buildRefreshCookie(token, clear = false) {
+  const isProd = process.env.NODE_ENV === 'production';
+  const maxAge = clear ? 0 : 7 * 24 * 60 * 60; // 7 días en segundos
+  const value = clear ? '' : encodeURIComponent(token);
+  return `${REFRESH_COOKIE}=${value}; HttpOnly; SameSite=Strict; Path=/api/auth/refresh; Max-Age=${maxAge}${isProd ? '; Secure' : ''}`;
 }
 
 // Exige un token válido en Authorization: Bearer <token>; deja al usuario en req.user.
@@ -135,10 +153,14 @@ async function ensureBootstrapAdmin() {
 module.exports = {
   PERMISSIONS,
   PUESTOS,
+  REFRESH_COOKIE,
   isValidPuesto,
   hashPassword,
   verifyPassword,
   signToken,
+  signRefreshToken,
+  verifyRefreshToken,
+  buildRefreshCookie,
   requireAuth,
   allow,
   verificarAccesoObra,

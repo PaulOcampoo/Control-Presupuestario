@@ -1311,3 +1311,13 @@ body.modal-open { overflow: hidden; }
 .sug-thumb-wrap { position: relative; width: 72px; height: 72px; flex-shrink: 0; }
 .sug-thumb-img { width: 72px; height: 72px; object-fit: cover; border-radius: 8px; border: 1px solid var(--border-color); display: block; }
 .sug-thumb-remove { position: absolute; top: 2px; right: 2px; width: 18px; height: 18px; border-radius: 50%; background: rgba(0,0,0,.65); color: #fff; border: none; cursor: pointer; font-size: 10px; display: flex; align-items: center; justify-content: center; padding: 0; line-height: 1; }
+
+/* ── Barrido estáticas 4/6 — Finanzas (renderFinanzas) ───────────────────── */
+.finanzas-kpi-grid { margin-bottom: 10px; }
+.finanzas-av-monto { margin-top: 2px; }
+.finanzas-section-h3 { margin-top: 0; }
+.finanzas-iva-note { font-size: 0.78rem; margin: -4px 0 10px; }
+.text-amarillo { color: var(--yellow); }
+.finanzas-desglose-h4 { margin: 12px 0 4px; font-size: 0.82rem; color: var(--muted); text-transform: uppercase; }
+.finanzas-filtros-row { gap: 8px; margin-bottom: 10px; }
+.finanzas-filtro-select { flex: 1; }

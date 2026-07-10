@@ -5389,20 +5389,20 @@ async function renderFinanzas(view) {
       <button class="btn" id="btnExportFinanzas">⭳ Exportar a Excel</button>
     </div>
 
-    <div class="kpi-grid" style="margin-bottom:10px">
-      <div class="kpi accent" style="grid-column:1/-1">
+    <div class="kpi-grid finanzas-kpi-grid">
+      <div class="kpi accent field-full">
         <div class="label">Avance Valorizado</div>
         <div class="value">${fmtPct(av.pct)}</div>
-        <div class="muted" style="margin-top:2px">${fmtMoney(av.monto)}</div>
+        <div class="muted finanzas-av-monto">${fmtMoney(av.monto)}</div>
       </div>
     </div>
 
-    <div class="card" style="border-color:var(--green)">
-      <h3 class="section-title" style="margin-top:0">Erogado Real</h3>
-      <p class="muted" style="font-size:0.78rem;margin:-4px 0 10px">Los montos de Compras se muestran ajustados a base sin IVA (÷${(1 + er.iva_ajuste_pct / 100).toFixed(2)}) para que sean comparables contra Avance Valorizado, que también es sin IVA. Esto no cambia lo realmente pagado al proveedor — solo la base usada aquí para comparar.</p>
-      <div class="card-row"><span class="k">Total pagado</span><span class="v" style="color:var(--green)">${fmtMoney(er.total_pagado)}</span></div>
-      <div class="card-row"><span class="k">Total comprometido (no pagado)</span><span class="v" style="color:var(--yellow)">${fmtMoney(er.total_comprometido_no_pagado)}</span></div>
-      <h4 style="margin:12px 0 4px;font-size:0.82rem;color:var(--muted);text-transform:uppercase">Desglose</h4>
+    <div class="card border-verde">
+      <h3 class="section-title finanzas-section-h3">Erogado Real</h3>
+      <p class="muted finanzas-iva-note">Los montos de Compras se muestran ajustados a base sin IVA (÷${(1 + er.iva_ajuste_pct / 100).toFixed(2)}) para que sean comparables contra Avance Valorizado, que también es sin IVA. Esto no cambia lo realmente pagado al proveedor — solo la base usada aquí para comparar.</p>
+      <div class="card-row"><span class="k">Total pagado</span><span class="v text-verde">${fmtMoney(er.total_pagado)}</span></div>
+      <div class="card-row"><span class="k">Total comprometido (no pagado)</span><span class="v text-amarillo">${fmtMoney(er.total_comprometido_no_pagado)}</span></div>
+      <h4 class="finanzas-desglose-h4">Desglose</h4>
       <div class="card-row"><span class="k">Compras — pagado (sin IVA, ajustado)</span><span class="v">${fmtMoney(er.compras_pagado)}</span></div>
       <div class="card-row"><span class="k">Compras — pagado (con IVA, real)</span><span class="v muted">${fmtMoney(er.compras_pagado_con_iva)}</span></div>
       <div class="card-row"><span class="k">Compras — comprometido (sin IVA, ajustado)</span><span class="v">${fmtMoney(er.compras_comprometido)}</span></div>
@@ -5413,18 +5413,18 @@ async function renderFinanzas(view) {
     </div>
 
     <div class="card ${brechaPositiva ? 'border-verde' : 'border-rojo'}">
-      <h3 class="section-title" style="margin-top:0">Brecha</h3>
+      <h3 class="section-title finanzas-section-h3">Brecha</h3>
       <div class="value brecha-value ${brechaPositiva ? 'text-verde' : 'text-rojo'}">${fmtMoney(brecha.monto)}</div>
-      <p class="muted" style="margin-top:8px">${esc(brecha.descripcion)}</p>
+      <p class="muted mt-8">${esc(brecha.descripcion)}</p>
     </div>
 
     <h3 class="section-title">Gastos Generales</h3>
-    <div class="row" style="gap:8px;margin-bottom:10px">
-      <select id="gastoFiltroCategoria" style="flex:1">
+    <div class="row finanzas-filtros-row">
+      <select id="gastoFiltroCategoria" class="finanzas-filtro-select">
         <option value="">Todas las categorías</option>
         ${Object.entries(GASTO_CATEGORIA_LABELS).map(([k, l]) => `<option value="${k}" ${gastosFilter.categoria === k ? 'selected' : ''}>${esc(l)}</option>`).join('')}
       </select>
-      <select id="gastoFiltroEstado" style="flex:1">
+      <select id="gastoFiltroEstado" class="finanzas-filtro-select">
         <option value="">Todos los estados</option>
         <option value="pendiente" ${gastosFilter.estado === 'pendiente' ? 'selected' : ''}>Pendiente</option>
         <option value="pagado" ${gastosFilter.estado === 'pagado' ? 'selected' : ''}>Pagado</option>

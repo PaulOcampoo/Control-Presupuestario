@@ -4397,7 +4397,7 @@ async function openDestajoSemanaModal(destId, semana, nombre) {
 
 function renderDestajistaItems(d) {
   if (!d.items.length) {
-    return `<p class="muted" style="font-size:0.82rem;margin:4px 0 0">Sin actividades asignadas aún.</p>`;
+    return `<p class="muted dest-item-empty">Sin actividades asignadas aún.</p>`;
   }
   const canManage = canManageDestajo();
   return `
@@ -4417,45 +4417,45 @@ function renderDestajistaItems(d) {
           ${d.items.map((it) => `
           <tr data-item-row>
             <td>
-              <div style="font-size:0.84rem;font-weight:600">${esc(it.concepto)}</div>
+              <div class="dest-item-concepto">${esc(it.concepto)}</div>
               ${it.codigo ? `<div class="code muted">${esc(it.codigo)}</div>` : ''}
-              ${it.unidad ? `<div class="muted" style="font-size:0.72rem">${esc(it.unidad)}</div>` : ''}
+              ${it.unidad ? `<div class="muted dest-item-unidad">${esc(it.unidad)}</div>` : ''}
               ${it.concepto_id ? `
-                <div class="badge muted" style="margin-top:4px;font-size:0.68rem">📋 Partida: ${esc(it.partida_grupo || 'Sin grupo')}</div>
+                <div class="badge muted dest-item-partida">📋 Partida: ${esc(it.partida_grupo || 'Sin grupo')}</div>
               ` : `
-                <div class="muted" style="margin-top:4px;font-size:0.68rem;font-style:italic">Actividad manual — sin partida del presupuesto</div>
+                <div class="muted dest-item-manual">Actividad manual — sin partida del presupuesto</div>
               `}
             </td>
             <td class="num">
               ${canManage ? `
-              <input type="number" min="0" step="0.01" style="width:72px;text-align:right"
+              <input type="number" min="0" step="0.01" class="dest-item-input"
                 value="${it.cantidad_asignada}"
                 data-save-item data-item-id="${it.id}" data-dest-id="${d.id}" data-field="cantidad_asignada" />
               ` : fmtNum(it.cantidad_asignada, 2)}
             </td>
             <td class="num">
               ${canManage ? `
-              <input type="number" min="0" step="0.01" style="width:80px;text-align:right"
+              <input type="number" min="0" step="0.01" class="dest-item-input-precio"
                 value="${it.precio_destajo}"
                 data-save-item data-item-id="${it.id}" data-dest-id="${d.id}" data-field="precio_destajo" />
               ` : fmtMoney(it.precio_destajo)}
             </td>
             <td class="num">${fmtNum(it.cantidad_ejecutada, 2)} ${esc(it.unidad || '')}</td>
-            <td class="num" style="color:var(--green)">${fmtMoney(it.cantidad_ejecutada * it.precio_destajo)}</td>
+            <td class="num text-verde">${fmtMoney(it.cantidad_ejecutada * it.precio_destajo)}</td>
             ${canManage ? `
             <td>
               <button class="btn small btn-ghost" data-del-item data-item-id="${it.id}" data-dest-id="${d.id}" title="Eliminar">✕</button>
             </td>` : ''}
           </tr>`).join('')}
-          <tr style="font-weight:600;border-top:1px solid var(--border)">
-            <td colspan="4" style="text-align:right;color:var(--muted);padding-right:8px">Total ganado:</td>
-            <td class="num" style="color:var(--green)">${fmtMoney(d.total_ganado)}</td>
+          <tr class="dest-item-total-row">
+            <td colspan="4" class="dest-item-total-label">Total ganado:</td>
+            <td class="num text-verde">${fmtMoney(d.total_ganado)}</td>
             ${canManage ? '<td></td>' : ''}
           </tr>
         </tbody>
       </table>
     </div>
-    <p class="muted" style="font-size:0.72rem;margin:6px 0 0">El acumulado ejecutado se registra con "Capturar" en el avance semanal de abajo — igual que en la pestaña Avance.</p>`;
+    <p class="muted dest-item-footnote">El acumulado ejecutado se registra con "Capturar" en el avance semanal de abajo — igual que en la pestaña Avance.</p>`;
 }
 
 function openNuevoDestajistaModal() {
@@ -6378,11 +6378,11 @@ async function renderNominas(view) {
     view.innerHTML = `
       <h2 class="section-title">Personal</h2>
       ${renderSubNav()}
-      <div class="card" style="margin-top:12px">
-        <div class="row between" style="flex-wrap:wrap;gap:8px;align-items:flex-end">
-          <div class="field" style="margin:0">
+      <div class="card mt-12">
+        <div class="row between nomina-row-wrap">
+          <div class="field asistencia-field">
             <label>Fecha</label>
-            <input type="date" id="asistenciaFecha" value="${today}" style="width:auto" />
+            <input type="date" id="asistenciaFecha" value="${today}" class="nomina-date-input" />
           </div>
           <button class="btn btn-primary" id="btnCargarAsistencia">Cargar</button>
         </div>
@@ -6411,7 +6411,7 @@ async function renderNominas(view) {
       ];
       const canEdit = puedeCapturarAsistencia();
       panel.innerHTML = `
-        <div class="card" style="margin-top:8px">
+        <div class="card mt-8">
           <table class="asistencia-table">
             <thead><tr><th>Trabajador</th><th>Puesto</th><th>Asistencia</th></tr></thead>
             <tbody>
@@ -6419,10 +6419,10 @@ async function renderNominas(view) {
                 const cur = t.estado || 'presente';
                 return `<tr>
                   <td>${esc(t.nombre)}</td>
-                  <td class="muted" style="font-size:0.8rem">${esc(t.puesto || '—')}</td>
+                  <td class="muted fs-08">${esc(t.puesto || '—')}</td>
                   <td>
                     ${canEdit
-                      ? `<select class="asistencia-sel" data-tid="${t.id}" style="font-size:0.82rem;padding:4px 6px">
+                      ? `<select class="asistencia-sel nomina-select" data-tid="${t.id}">
                           ${ASIST_OPTS.map((o) => `<option value="${o.v}" ${cur === o.v ? 'selected' : ''}>${o.label}</option>`).join('')}
                         </select>`
                       : `<span class="badge ${ASIST_OPTS.find((o) => o.v === cur)?.cls || 'muted'}">${ASIST_OPTS.find((o) => o.v === cur)?.label || cur}</span>`
@@ -6433,7 +6433,7 @@ async function renderNominas(view) {
             </tbody>
           </table>
           ${canEdit ? `
-            <div class="row end" style="margin-top:12px">
+            <div class="row end mt-12">
               <button class="btn btn-primary" id="btnGuardarAsistencia">Guardar asistencia</button>
             </div>` : ''}
         </div>
@@ -6464,7 +6464,7 @@ async function renderNominas(view) {
     view.innerHTML = `
       <h2 class="section-title">Personal</h2>
       ${renderSubNav()}
-      <div class="section-actions" style="margin-top:12px">
+      <div class="section-actions mt-12">
         ${puedeCapturarAsistencia() ? `<button class="btn btn-primary" id="btnNuevaNomina">+ Nueva nómina</button>` : ''}
       </div>
       <div id="nominasList"><div class="empty-state">Cargando…</div></div>
@@ -6482,17 +6482,17 @@ async function renderNominas(view) {
       if (!nominas.length) { el.innerHTML = '<div class="empty-state">No hay nóminas registradas.</div>'; return; }
       el.innerHTML = nominas.map((n) => `
         <div class="card">
-          <div class="row between" style="flex-wrap:wrap;gap:6px">
+          <div class="row between nomina-row-6">
             <div>
               <strong>${esc(n.fecha_inicio)} al ${esc(n.fecha_fin)}</strong>
-              <div class="muted" style="font-size:0.8rem">${n.num_trabajadores} trabajadores · $${Number(n.total_nomina || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })}</div>
+              <div class="muted fs-08">${n.num_trabajadores} trabajadores · $${Number(n.total_nomina || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })}</div>
             </div>
-            <div class="row" style="gap:6px;align-items:center">
+            <div class="row nomina-row-6-center">
               <span class="badge ${NOMINA_ESTADO_BADGE[n.estado] || 'muted'}">${esc(NOMINA_ESTADO_LABELS[n.estado] || n.estado)}</span>
             </div>
           </div>
-          ${n.nota_rechazo ? `<div class="muted" style="font-size:0.8rem;margin-top:4px">Nota: ${esc(n.nota_rechazo)}</div>` : ''}
-          <div class="row end" style="margin-top:8px;gap:6px;flex-wrap:wrap">
+          ${n.nota_rechazo ? `<div class="muted fs-08 nomina-nota">Nota: ${esc(n.nota_rechazo)}</div>` : ''}
+          <div class="row end nomina-actions-row">
             <button class="btn small" data-ver-nomina="${n.id}">Ver detalle</button>
             ${n.estado === 'borrador' && puedeCapturarAsistencia() ? `<button class="btn small btn-primary" data-calcular-nomina="${n.id}">Calcular</button>` : ''}
             ${n.estado === 'borrador' && puedeCapturarAsistencia() ? `<button class="btn small" data-enviar-nomina="${n.id}">Enviar a revisión</button>` : ''}
@@ -6608,18 +6608,18 @@ async function openVerNominaModal(nominaId) {
     const sinAsistencia = items.every((i) => (i.dias_trabajados || 0) === 0);
     const sinTarifa = items.some((i) => (i.dias_trabajados || 0) > 0 && (i.monto_jornal || 0) === 0 && (i.tipo_pago === 'jornal' || i.tipo_pago === 'mixto'));
     el.innerHTML = `
-      <div class="muted" style="font-size:0.82rem;margin-bottom:8px">${esc(data.fecha_inicio)} al ${esc(data.fecha_fin)}</div>
-      ${sinAsistencia ? `<div class="alert-box" style="margin-bottom:8px;font-size:0.83rem">⚠️ Todos los trabajadores tienen 0 días — guarda la asistencia del periodo antes de calcular.</div>` : ''}
-      ${sinTarifa ? `<div class="alert-box" style="margin-bottom:8px;font-size:0.83rem">⚠️ Algún trabajador tiene tarifa $0/día. Edita el trabajador y asigna una tarifa jornal.</div>` : ''}
-      <div style="overflow-x:auto">
-      <table style="width:100%;font-size:0.85rem;border-collapse:collapse;min-width:420px">
+      <div class="muted nomina-detalle-fecha">${esc(data.fecha_inicio)} al ${esc(data.fecha_fin)}</div>
+      ${sinAsistencia ? `<div class="alert-box nomina-detalle-alert">⚠️ Todos los trabajadores tienen 0 días — guarda la asistencia del periodo antes de calcular.</div>` : ''}
+      ${sinTarifa ? `<div class="alert-box nomina-detalle-alert">⚠️ Algún trabajador tiene tarifa $0/día. Edita el trabajador y asigna una tarifa jornal.</div>` : ''}
+      <div class="nomina-table-wrap">
+      <table class="nomina-table">
         <thead><tr>
-          <th style="text-align:left;padding:4px 8px;border-bottom:1px solid var(--border-color)">Trabajador</th>
-          <th style="text-align:right;padding:4px 8px;border-bottom:1px solid var(--border-color)">Días</th>
-          <th style="text-align:right;padding:4px 8px;border-bottom:1px solid var(--border-color)">Tarifa/día</th>
-          <th style="text-align:right;padding:4px 8px;border-bottom:1px solid var(--border-color)">Jornal</th>
-          ${hasDest ? `<th style="text-align:right;padding:4px 8px;border-bottom:1px solid var(--border-color)">Destajo</th>` : ''}
-          <th style="text-align:right;padding:4px 8px;border-bottom:1px solid var(--border-color)">Total</th>
+          <th class="nomina-th-left">Trabajador</th>
+          <th class="nomina-th-right">Días</th>
+          <th class="nomina-th-right">Tarifa/día</th>
+          <th class="nomina-th-right">Jornal</th>
+          ${hasDest ? `<th class="nomina-th-right">Destajo</th>` : ''}
+          <th class="nomina-th-right">Total</th>
         </tr></thead>
         <tbody>
           ${items.map((i) => {
@@ -6628,19 +6628,19 @@ async function openVerNominaModal(nominaId) {
             const montoDest = Number(i.monto_destajo || 0);
             const montoTot = Number(i.monto_total || 0);
             const warnRow = (i.dias_trabajados || 0) > 0 && montoTot === 0;
-            return `<tr ${warnRow ? 'style="color:var(--color-warning,#f59e0b)"' : ''}>
-              <td style="padding:4px 8px">${esc(i.trabajador_nombre || i.nombre_trabajador || '—')}</td>
-              <td style="padding:4px 8px;text-align:right">${i.dias_trabajados ?? 0}</td>
-              <td style="padding:4px 8px;text-align:right">${tarifaJornal > 0 ? '$' + tarifaJornal.toLocaleString('es-MX', { minimumFractionDigits: 2 }) : '<span class="muted">—</span>'}</td>
-              <td style="padding:4px 8px;text-align:right">$${montoJornal.toLocaleString('es-MX', { minimumFractionDigits: 2 })}</td>
-              ${hasDest ? `<td style="padding:4px 8px;text-align:right">$${montoDest.toLocaleString('es-MX', { minimumFractionDigits: 2 })}</td>` : ''}
-              <td style="padding:4px 8px;text-align:right;font-weight:600">$${montoTot.toLocaleString('es-MX', { minimumFractionDigits: 2 })}</td>
+            return `<tr class="${warnRow ? 'nomina-warn-row' : ''}">
+              <td class="nomina-td">${esc(i.trabajador_nombre || i.nombre_trabajador || '—')}</td>
+              <td class="nomina-td-right">${i.dias_trabajados ?? 0}</td>
+              <td class="nomina-td-right">${tarifaJornal > 0 ? '$' + tarifaJornal.toLocaleString('es-MX', { minimumFractionDigits: 2 }) : '<span class="muted">—</span>'}</td>
+              <td class="nomina-td-right">$${montoJornal.toLocaleString('es-MX', { minimumFractionDigits: 2 })}</td>
+              ${hasDest ? `<td class="nomina-td-right">$${montoDest.toLocaleString('es-MX', { minimumFractionDigits: 2 })}</td>` : ''}
+              <td class="nomina-td-total">$${montoTot.toLocaleString('es-MX', { minimumFractionDigits: 2 })}</td>
             </tr>`;
           }).join('')}
         </tbody>
         <tfoot><tr>
-          <td colspan="${hasDest ? 5 : 4}" style="padding:6px 8px;font-weight:600;border-top:2px solid var(--border-color)">Total nómina</td>
-          <td style="padding:6px 8px;font-weight:600;text-align:right;border-top:2px solid var(--border-color)">$${total.toLocaleString('es-MX', { minimumFractionDigits: 2 })}</td>
+          <td colspan="${hasDest ? 5 : 4}" class="nomina-tfoot-label">Total nómina</td>
+          <td class="nomina-tfoot-total">$${total.toLocaleString('es-MX', { minimumFractionDigits: 2 })}</td>
         </tr></tfoot>
       </table>
       </div>

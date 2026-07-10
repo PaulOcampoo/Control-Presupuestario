@@ -1191,3 +1191,45 @@ body.modal-open { overflow: hidden; }
 .epp-item-inactivo { opacity: 0.5; text-decoration: line-through; }
 
 .dest-progress { margin-bottom: 8px; }
+
+/* ── Barrido estáticas 1/6 — Nómina ──────────────────────────────────────── */
+/* genéricos reutilizados dentro de este lote */
+.mt-8 { margin-top: 8px; }
+.mt-12 { margin-top: 12px; }
+.fs-08 { font-size: 0.8rem; }
+
+/* renderDestajistaItems */
+.dest-item-empty { font-size: 0.82rem; margin: 4px 0 0; }
+.dest-item-concepto { font-size: 0.84rem; font-weight: 600; }
+.dest-item-unidad { font-size: 0.72rem; }
+.dest-item-partida { margin-top: 4px; font-size: 0.68rem; }
+.dest-item-manual { margin-top: 4px; font-size: 0.68rem; font-style: italic; }
+.dest-item-input { width: 72px; text-align: right; }
+.dest-item-input-precio { width: 80px; text-align: right; }
+.dest-item-total-row { font-weight: 600; border-top: 1px solid var(--border); }
+.dest-item-total-label { text-align: right; color: var(--muted); padding-right: 8px; }
+.dest-item-footnote { font-size: 0.72rem; margin: 6px 0 0; }
+
+/* renderNominas */
+.asistencia-field { margin: 0; }
+.nomina-date-input { width: auto; }
+.nomina-row-wrap { flex-wrap: wrap; gap: 8px; align-items: flex-end; }
+.nomina-select { font-size: 0.82rem; padding: 4px 6px; }
+.nomina-row-6 { flex-wrap: wrap; gap: 6px; }
+.nomina-row-6-center { gap: 6px; align-items: center; }
+.nomina-nota { margin-top: 4px; }
+.nomina-actions-row { margin-top: 8px; gap: 6px; flex-wrap: wrap; }
+
+/* openVerNominaModal */
+.nomina-detalle-fecha { font-size: 0.82rem; margin-bottom: 8px; }
+.nomina-detalle-alert { margin-bottom: 8px; font-size: 0.83rem; }
+.nomina-table-wrap { overflow-x: auto; }
+.nomina-table { width: 100%; font-size: 0.85rem; border-collapse: collapse; min-width: 420px; }
+.nomina-th-left { text-align: left; padding: 4px 8px; border-bottom: 1px solid var(--border-color); }
+.nomina-th-right { text-align: right; padding: 4px 8px; border-bottom: 1px solid var(--border-color); }
+.nomina-td { padding: 4px 8px; }
+.nomina-td-right { padding: 4px 8px; text-align: right; }
+.nomina-td-total { padding: 4px 8px; text-align: right; font-weight: 600; }
+.nomina-tfoot-label { padding: 6px 8px; font-weight: 600; border-top: 2px solid var(--border-color); }
+.nomina-tfoot-total { padding: 6px 8px; font-weight: 600; text-align: right; border-top: 2px solid var(--border-color); }
+.nomina-warn-row { color: var(--color-warning, #f59e0b); }

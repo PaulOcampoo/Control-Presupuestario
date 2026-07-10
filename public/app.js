@@ -5825,6 +5825,32 @@ function paintTrabajadoresList(trabajadores, listEl, repaint) {
   });
 }
 
+// Inputs de montos (tarifa jornal, salario contractual): type="number" no puede
+// mostrar "$" ni comas de miles sin dejar de aceptar solo dígitos. Se usa
+// type="text" en su lugar — formateado en reposo, número crudo mientras se
+// edita — y se parsea a número puro antes de enviar al backend (que sigue
+// recibiendo el mismo dato numérico de siempre).
+function formatMoneyInputDisplay(raw) {
+  const num = Number(raw);
+  if (raw === '' || raw == null || !Number.isFinite(num)) return '';
+  return `$${num.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+function parseMoneyInputRaw(str) {
+  return String(str || '').replace(/[^0-9.]/g, '');
+}
+function wireMoneyInput(input) {
+  if (!input) return;
+  input.addEventListener('focus', () => {
+    const cleaned = parseMoneyInputRaw(input.value);
+    const num = parseFloat(cleaned);
+    input.value = cleaned && Number.isFinite(num) ? String(num) : cleaned;
+  });
+  input.addEventListener('blur', () => {
+    const raw = parseMoneyInputRaw(input.value);
+    input.value = raw ? formatMoneyInputDisplay(raw) : '';
+  });
+}
+
 async function openTrabajadorModal(trab, repaint) {
   const isEdit = !!trab;
   // Load destajistas for optional linking
@@ -5846,7 +5872,7 @@ async function openTrabajadorModal(trab, repaint) {
       <div class="field"><label>Fecha de ingreso</label><input id="tFechaIngreso" type="date" value="${trab?.fecha_ingreso ? trab.fecha_ingreso.slice(0,10) : ''}" /></div>
       <div class="field"><label>Tipo de pago *</label><select id="tTipoPago">${tipoPagoOpts}</select></div>
       <div class="field"><label>Periodicidad *</label><select id="tPeriodicidad">${periodicidadOpts}</select></div>
-      <div class="field" id="tTarifaField" style="grid-column:1/-1"><label>Tarifa jornal ($/día)</label><input id="tTarifa" type="number" min="0" step="0.01" value="${trab?.tarifa_jornal ?? ''}" /></div>
+      <div class="field" id="tTarifaField" style="grid-column:1/-1"><label>Tarifa jornal ($/día)</label><input id="tTarifa" type="text" inputmode="decimal" value="${formatMoneyInputDisplay(trab?.tarifa_jornal ?? '')}" /></div>
       <div class="field" style="grid-column:1/-1">
         <label>Vínculo con destajista (opcional)</label>
         <select id="tDestajista">${destajistaOpts}</select>
@@ -5872,6 +5898,7 @@ async function openTrabajadorModal(trab, repaint) {
   }
   syncTarifaField();
   $('#tTipoPago').addEventListener('change', syncTarifaField);
+  wireMoneyInput($('#tTarifa'));
   $('#btnCancelTrab').addEventListener('click', closeModal);
   $('#btnSaveTrab').addEventListener('click', async () => {
     const nombre = $('#tNombre').value.trim();
@@ -5882,7 +5909,7 @@ async function openTrabajadorModal(trab, repaint) {
       fecha_ingreso: $('#tFechaIngreso').value || null,
       tipo_pago: $('#tTipoPago').value,
       periodicidad: $('#tPeriodicidad').value,
-      tarifa_jornal: parseFloat($('#tTarifa').value) || 0,
+      tarifa_jornal: parseFloat(parseMoneyInputRaw($('#tTarifa').value)) || 0,
       destajista_id: Number($('#tDestajista').value) || null,
       curp: $('#tCurp').value.trim() || null,
       rfc: $('#tRfc').value.trim() || null,
@@ -6075,13 +6102,14 @@ async function openContratosModal(trabajadorId, nombreTrab) {
         </div>
         <div class="field"><label>Fecha de inicio *</label><input id="cFechaInicio" type="date" /></div>
         <div class="field"><label>Fecha de fin</label><input id="cFechaFin" type="date" /></div>
-        <div class="field" style="grid-column:1/-1"><label>Salario diario contractual (MXN)</label><input id="cSalario" type="number" min="0" step="0.01" placeholder="Solo informativo, no afecta nómina" /></div>
+        <div class="field" style="grid-column:1/-1"><label>Salario diario contractual (MXN)</label><input id="cSalario" type="text" inputmode="decimal" placeholder="Solo informativo, no afecta nómina" /></div>
         <div class="field" style="grid-column:1/-1"><label>PDF del contrato (opcional)</label><input id="cPdfFile" type="file" accept=".pdf" /></div>
       </div>
       <button class="btn btn-primary" id="btnGuardarContrato" style="margin-top:8px">Guardar contrato</button>
     </div>
   `);
   $('#btnCerrarContratos').addEventListener('click', closeModal);
+  wireMoneyInput($('#cSalario'));
 
   async function loadContratos() {
     const contratos = await api(`/projects/${state.projectId}/trabajadores/${trabajadorId}/contratos`);
@@ -6138,7 +6166,7 @@ async function openContratosModal(trabajadorId, nombreTrab) {
           tipo_contrato,
           fecha_inicio,
           fecha_fin: $('#cFechaFin').value || null,
-          salario_diario: parseFloat($('#cSalario').value) || null,
+          salario_diario: parseFloat(parseMoneyInputRaw($('#cSalario').value)) || null,
           pdf_url, pdf_filename,
         },
       });

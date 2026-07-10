@@ -1260,7 +1260,10 @@ body.modal-open { overflow: hidden; }
 .firma-canvas { width: 100%; height: 160px; display: block; cursor: crosshair; }
 .epp-firma-thumb { height: 40px; border: 1px solid var(--border-color); border-radius: 4px; background: #fff; cursor: pointer; }
 .epp-entrega-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
-.firma-full-img { width: 100%; border: 1px solid var(--border-color); border-radius: 8px; background: #fff; display: block; }
+.firma-full-img {
+  width: 100%; aspect-ratio: 500 / 160; object-fit: contain;
+  border: 1px solid var(--border-color); border-radius: 8px; background: #fff; display: block;
+}
 
 /* openContratosModal — tarjetas de contrato */
 .contrato-card { padding: 10px 12px; margin-bottom: 8px; }

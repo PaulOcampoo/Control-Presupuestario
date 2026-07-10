@@ -1313,6 +1313,12 @@ $('#btnLogout').addEventListener('click', logout);
 // Completa el login (ya pasado el 2° factor, o directo si algún día deja de
 // ser obligatorio): guarda el token, aplica la sesión y arranca la app.
 async function completeLogin(data) {
+  if (!data || !data.token || !data.user) {
+    // No debería pasar con el backend actual — resguardo por si esta pestaña
+    // quedó ejecutando una versión vieja de app.js contra un backend nuevo
+    // (ver el reload-on-controllerchange más abajo, que evita justamente esto).
+    throw new Error('Respuesta de sesión incompleta. Recarga la página (Ctrl+R / desliza para refrescar) e intenta de nuevo.');
+  }
   state.token = data.token;
   localStorage.setItem(TOKEN_KEY, data.token);
   applySession(data.user, data.tabs);
@@ -1414,7 +1420,11 @@ function openBackupCodesModal(codes, sessionData) {
   $('#btnBackupContinue').addEventListener('click', async () => {
     blockOverlayDismiss = false;
     closeModal();
-    await completeLogin(sessionData);
+    try {
+      await completeLogin(sessionData);
+    } catch (err) {
+      toast(err.message, 'danger');
+    }
   });
 }
 
@@ -5806,6 +5816,19 @@ document.addEventListener('focus', (e) => {
 // ---------------------------------------------------------------------------
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(() => {}));
+  // sw.js usa skipWaiting()+clients.claim(), así que un SW nuevo toma control
+  // de esta misma pestaña sin recargarla — pero el JS ya cargado en memoria
+  // sigue siendo el viejo hasta el próximo reload. Sin esto, una pestaña
+  // abierta durante un deploy queda ejecutando app.js viejo contra el backend
+  // ya nuevo (causa real del login roto tras el deploy de 2FA: el JS viejo
+  // asumía la forma de respuesta anterior a 2FA). Recarga una sola vez
+  // cuando el nuevo SW toma control.
+  let swReloading = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (swReloading) return;
+    swReloading = true;
+    window.location.reload();
+  });
 }
 
 // ---------------------------------------------------------------------------

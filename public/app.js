@@ -94,7 +94,7 @@ const ICON_SVG = {
 
 function icon(name, size = 18) {
   const inner = ICON_SVG[name] || ICON_SVG.warning;
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="display:inline-block;vertical-align:middle;flex-shrink:0">${inner}</svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="icon-svg">${inner}</svg>`;
 }
 
 // ---------------------------------------------------------------------------
@@ -244,14 +244,14 @@ function installApp() {
       'Confirma haciendo clic en <strong>"Instalar"</strong>',
     ];
   }
-  const stepsHtml = steps.map((s, i) => `<li style="margin-bottom:10px"><span style="display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;background:var(--accent-gold);color:#000;font-weight:700;font-size:0.78rem;margin-right:8px;flex-shrink:0">${i + 1}</span>${s}</li>`).join('');
+  const stepsHtml = steps.map((s, i) => `<li class="install-step"><span class="install-step-num">${i + 1}</span>${s}</li>`).join('');
   openModal(`
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
-      <h3 style="margin:0">📲 Instalar app</h3>
-      <button class="icon-btn" id="btnCloseInstallGuide" style="width:32px;height:32px;font-size:1rem">✕</button>
+    <div class="install-header-row">
+      <h3 class="modal-title">📲 Instalar app</h3>
+      <button class="icon-btn modal-close-btn" id="btnCloseInstallGuide">✕</button>
     </div>
-    <p style="margin:0 0 14px;color:var(--text-secondary);font-size:0.9rem">Sigue estos pasos para instalar la app en tu dispositivo:</p>
-    <ol style="margin:0;padding:0;list-style:none">${stepsHtml}</ol>
+    <p class="install-intro">Sigue estos pasos para instalar la app en tu dispositivo:</p>
+    <ol class="install-steps-list">${stepsHtml}</ol>
   `);
   $('#btnCloseInstallGuide').addEventListener('click', closeModal);
 }
@@ -977,9 +977,9 @@ function openQuickActionMenu() {
   list.innerHTML = actions.length
     ? actions.map((a) => `
       <button class="quick-action-item" data-goto="${a.goto}">
-        <span style="font-size:1.2em">${TAB_ICONS[a.icon] || ''}</span><span>${esc(a.label)}</span>
+        <span class="quick-action-icon">${TAB_ICONS[a.icon] || ''}</span><span>${esc(a.label)}</span>
       </button>`).join('')
-    : '<p class="muted" style="padding:8px 0">No tienes permiso para esta función.</p>';
+    : '<p class="muted py-8">No tienes permiso para esta función.</p>';
 
   $$('.quick-action-item', list).forEach((btn) => {
     btn.addEventListener('click', () => { closeQuickActionMenu(); switchToView(btn.dataset.goto); });
@@ -1121,7 +1121,7 @@ async function resaltarFilaDestajo(destId) {
 function renderNotifList(targetEl) {
   const list = targetEl || $('#notifList');
   if (!state.notificaciones.length) {
-    list.innerHTML = '<div class="empty-state" style="padding:24px 12px">Sin notificaciones.</div>';
+    list.innerHTML = '<div class="empty-state empty-state-compact">Sin notificaciones.</div>';
     return;
   }
   list.innerHTML = state.notificaciones.map((n) => `
@@ -1642,11 +1642,11 @@ async function renderGlobalChart() {
           </div>
           <div class="global-kpi">
             <span class="global-kpi-label">Ejecutado</span>
-            <span class="global-kpi-value" style="color:var(--green)">${fmtMoney(data.importe_ejecutado)}</span>
+            <span class="global-kpi-value text-verde">${fmtMoney(data.importe_ejecutado)}</span>
           </div>
           <div class="global-kpi">
             <span class="global-kpi-label">Por ejecutar</span>
-            <span class="global-kpi-value" style="color:var(--text-secondary)">${fmtMoney(data.importe_por_ejecutar)}</span>
+            <span class="global-kpi-value text-secondary-color">${fmtMoney(data.importe_por_ejecutar)}</span>
           </div>
           <div class="global-kpi">
             <span class="global-kpi-label">Avance ponderado</span>
@@ -1827,7 +1827,7 @@ function promptUpload() {
         ${options}
       </select>
     </div>
-    <div class="field" id="uploadNuevoClienteField" style="display:none">
+    <div class="field hidden-initial" id="uploadNuevoClienteField">
       <label>Nombre del nuevo cliente</label>
       <input id="uploadNuevoClienteNombre" placeholder="Ej. VINTE" />
     </div>
@@ -1842,14 +1842,14 @@ function promptUpload() {
   $('#btnCancelUpload').addEventListener('click', closeModal);
   $('#btnToggleNuevoCliente').addEventListener('click', () => {
     const field = $('#uploadNuevoClienteField');
-    const nowShowing = field.style.display === 'none';
-    field.style.display = nowShowing ? '' : 'none';
+    const nowShowing = field.classList.contains('hidden-initial');
+    field.classList.toggle('hidden-initial', !nowShowing);
     $('#uploadClienteSelect').disabled = nowShowing;
     $('#btnToggleNuevoCliente').textContent = nowShowing ? 'Usar cliente existente' : '+ Crear cliente nuevo';
   });
   $('#btnContinuarUpload').addEventListener('click', async () => {
     const btn = $('#btnContinuarUpload');
-    const creatingNew = $('#uploadNuevoClienteField').style.display !== 'none';
+    const creatingNew = !$('#uploadNuevoClienteField').classList.contains('hidden-initial');
     let clienteId = Number($('#uploadClienteSelect').value) || null;
     btn.disabled = true;
     try {
@@ -2011,7 +2011,7 @@ function seccionesGridHtml() {
         if (!tieneAcceso) return '';
         return `
         <div class="section-card ${esFutura ? 'disabled' : ''}" data-section="${id}">
-          <span class="section-icon" style="font-size:1.6em">${def.emoji}</span>
+          <span class="section-icon section-icon-lg">${def.emoji}</span>
           <span class="section-nombre">${esc(def.label)}</span>
           ${esFutura ? '<span class="section-soon-badge">Próximamente</span>' : ''}
         </div>`;
@@ -2056,8 +2056,8 @@ async function renderInicio(view) {
         <div class="card-row"><span class="k">Fin de obra</span><span class="v">${fmtDate(m.fin_obra)}</span></div>
         <div class="card-row"><span class="k">Total sin IVA</span><span class="v">${fmtMoney(resumen.presupuesto_total)}</span></div>
         ${m.total_con_iva ? `<div class="card-row"><span class="k">Total con IVA</span><span class="v">${fmtMoney(m.total_con_iva)}</span></div>` : ''}
-        <div class="row end" style="margin-top:10px"><button class="btn small" id="btnEditFechasObra">Corregir inicio/fin de obra</button></div>
-        <p class="muted" style="font-size:0.74rem;margin-top:6px">Úsalo si el archivo traía esas fechas vacías o incorrectas — al guardar se regenera todo el Programa y la curva de Avance con las fechas correctas.</p>
+        <div class="row end mt-10"><button class="btn small" id="btnEditFechasObra">Corregir inicio/fin de obra</button></div>
+        <p class="muted inicio-fechas-note">Úsalo si el archivo traía esas fechas vacías o incorrectas — al guardar se regenera todo el Programa y la curva de Avance con las fechas correctas.</p>
       </div>
 
       <h3 class="section-title">Requisiciones de compra</h3>
@@ -2438,17 +2438,17 @@ async function renderContrato(view) {
   view.innerHTML = `
     <h2 class="section-title">Contrato</h2>
     ${tienePdf ? `
-    <div class="row" style="margin-bottom:12px;gap:8px">
-      <a id="btnVerPdfContrato" href="/api/projects/${state.projectId}/contrato/pdf" target="_blank" rel="noopener" class="btn btn-primary" style="display:inline-flex;align-items:center;gap:6px">${icon('contrato', 15)} Ver PDF original</a>
+    <div class="row mb-12-gap8">
+      <a id="btnVerPdfContrato" href="/api/projects/${state.projectId}/contrato/pdf" target="_blank" rel="noopener" class="btn btn-primary btn-icon-inline">${icon('contrato', 15)} Ver PDF original</a>
       ${isAdmin() ? `<button class="btn" id="btnReemplazarContratoTab">Reemplazar PDF</button>` : ''}
-    </div>` : (isAdmin() ? `<div style="margin-bottom:12px"><button class="btn" id="btnCargarContratoTab2">Adjuntar PDF del contrato</button></div>` : '')}
+    </div>` : (isAdmin() ? `<div class="mb-12"><button class="btn" id="btnCargarContratoTab2">Adjuntar PDF del contrato</button></div>` : '')}
     <div class="card">
       ${CONTRATO_FIELDS.map((f) => {
         const badge = f.key === 'fecha_termino' ? vencimientoBadgeHtml(campos.fecha_termino) : '';
         return `<div class="card-row"><span class="k">${esc(f.label)}</span><span class="v">${formatContratoValor(f, campos[f.key])}${badge}</span></div>`;
       }).join('')}
     </div>
-    ${isAdmin() ? '<div class="row end" style="margin-top:10px"><button class="btn" id="btnEditarContrato">Editar datos</button></div>' : ''}
+    ${isAdmin() ? '<div class="row end mt-10"><button class="btn" id="btnEditarContrato">Editar datos</button></div>' : ''}
   `;
   $('#btnEditarContrato')?.addEventListener('click', () => {
     openContratoFormModal({ escaneado: false, campos }, { mode: 'attach', projectId: state.projectId });
@@ -2630,11 +2630,11 @@ function paintInsumos(insumos) {
       </div>
       <div class="progress-bar ${over ? 'over' : ''}"><span data-pct="${Math.min(100, pct)}"></span></div>
       ${isAdmin() ? `
-      <div class="row between" style="margin-top:6px">
-        <span class="muted" style="font-size:0.78rem">IVA aplicable</span>
-        <span style="display:flex;align-items:center;gap:4px">
-          <input type="number" min="0" max="100" step="0.01" value="${i.iva_tasa}" data-iva-input="${i.id}" style="width:64px;text-align:right" />
-          <span class="muted" style="font-size:0.78rem">%</span>
+      <div class="row between mt-6">
+        <span class="muted fs-078">IVA aplicable</span>
+        <span class="inline-gap4">
+          <input type="number" min="0" max="100" step="0.01" value="${i.iva_tasa}" data-iva-input="${i.id}" class="w-64-right" />
+          <span class="muted fs-078">%</span>
         </span>
       </div>` : ''}
       ${puedeCrearRequisicion() ? `<div class="row end"><button class="btn small btn-primary" data-add="${i.id}">+ Agregar a requisición</button></div>` : ''}
@@ -2731,13 +2731,13 @@ async function renderMapeo(view) {
     </div>
     <div class="card">
       <strong>Insumos vinculados</strong>
-      <div id="mapeoLinkedList" style="margin-top:8px">
+      <div id="mapeoLinkedList" class="mt-8">
         <div class="spinner"></div>
       </div>
     </div>
     <div class="card">
       <strong>Vincular un insumo</strong>
-      <div class="search-bar" style="margin-top:8px">
+      <div class="search-bar mt-8">
         <input type="search" id="mapeoInsumoSearch" placeholder="Buscar insumo por código o nombre…" />
       </div>
       <div id="mapeoSearchResults"></div>
@@ -2785,10 +2785,10 @@ async function renderMapeo(view) {
     const linked = await api(`/conceptos/${mapeoSelectedConceptoId}/insumos`);
     if (!linked.length) { box.innerHTML = '<div class="empty-state">Sin insumos vinculados todavía.</div>'; return; }
     box.innerHTML = linked.map((i) => `
-      <div class="row between" style="padding:6px 0;border-bottom:1px solid var(--border)">
+      <div class="row between row-list-item">
         <div>
           <div>${esc(i.concepto)}</div>
-          <div class="muted" style="font-size:0.78rem">${esc(i.codigo)} · ${esc(i.unidad || '')}</div>
+          <div class="muted fs-078">${esc(i.codigo)} · ${esc(i.unidad || '')}</div>
         </div>
         <button class="btn small btn-danger" data-unlink="${i.id}">Quitar</button>
       </div>
@@ -2899,7 +2899,7 @@ function openDraftModal() {
       <div class="req-item-row" data-idx="${idx}">
         <div class="row between">
           <div>
-            <div style="font-weight:600;font-size:0.88rem">${esc(i.concepto)}</div>
+            <div class="item-title">${esc(i.concepto)}</div>
             <div class="code muted">${esc(i.codigo)} · presup: ${fmtNum(i.cantidad_presupuesto, 3)} ${esc(i.unidad || '')} a ${fmtMoney(i.precio_presupuesto)}</div>
           </div>
           <button class="btn small btn-ghost" data-remove="${idx}">✕</button>
@@ -2907,7 +2907,7 @@ function openDraftModal() {
         <div class="qty-row">
           <div><label>Cantidad</label><input type="number" min="0" step="any" data-field="cantidad_solicitada" data-idx="${idx}" value="${d.cantidad_solicitada}" /></div>
           <div><label>Precio unitario</label><input type="number" min="0" step="any" data-field="precio_solicitado" data-idx="${idx}" value="${d.precio_solicitado}" /></div>
-          <div class="muted" style="font-size:0.78rem;text-align:right">= ${fmtMoney(d.cantidad_solicitada * d.precio_solicitado)}</div>
+          <div class="muted fs-078-right">= ${fmtMoney(d.cantidad_solicitada * d.precio_solicitado)}</div>
         </div>
       </div>`;
     }).join('');
@@ -3001,9 +3001,9 @@ async function openRequisicionDetail(reqId) {
       <span class="muted">${fmtDate(r.fecha)}</span>
       ${r.observaciones ? `<p class="muted">${esc(r.observaciones)}</p>` : ''}
       <div id="reqItemsDetail"></div>
-      <div class="card" style="margin-top:14px">
-        <h4 style="margin:0 0 4px;font-size:0.9rem">Estado de la requisición</h4>
-        <p class="muted" style="font-size:0.78rem;margin:0 0 10px">${puedeAutorizarRequisicion() ? 'Cambia el estado para avanzar el flujo de compra: envíala, autorízala (necesario para generar una Orden de Compra) o cancélala.' : 'Envía la requisición para que sea autorizada. Solo Logística o el Administrador pueden autorizar.'}</p>
+      <div class="card mt-14">
+        <h4 class="req-estado-title">Estado de la requisición</h4>
+        <p class="muted req-estado-desc">${puedeAutorizarRequisicion() ? 'Cambia el estado para avanzar el flujo de compra: envíala, autorízala (necesario para generar una Orden de Compra) o cancélala.' : 'Envía la requisición para que sea autorizada. Solo Logística o el Administrador pueden autorizar.'}</p>
         ${r.estado === 'enviada' && !puedeAutorizarRequisicion() ? `<span class="badge yellow">Pendiente de autorización</span>` : ''}
         ${r.estado === 'rechazada' ? `<span class="badge red">Rechazada por el Administrador</span>` : ''}
         <select id="estadoSelect">${estados.map((e) => `<option value="${e}" ${e === r.estado ? 'selected' : ''}>${e}</option>`).join('')}</select>
@@ -3018,7 +3018,7 @@ async function openRequisicionDetail(reqId) {
     $('#reqItemsDetail').innerHTML = r.items.map((it) => `
       <div class="req-item-row">
         <div class="row between">
-          <div style="font-weight:600;font-size:0.88rem">${esc(it.insumo_concepto)}</div>
+          <div class="item-title">${esc(it.insumo_concepto)}</div>
           ${puedeVerImportesRequisicion() && it.importe != null ? `<span>${fmtMoney(it.importe)}</span>` : ''}
         </div>
         <div class="muted code">${esc(it.insumo_codigo)} · ${esc(it.unidad || '')}</div>
@@ -3079,7 +3079,7 @@ function openEditRequisicionModal(requisicion) {
     <div class="field">
       <label>Agregar insumo del catálogo (faltante)</label>
       <input id="addInsumoSearch" placeholder="Buscar por código o nombre…" autocomplete="off" />
-      <div id="addInsumoResults" class="project-list" style="gap:6px"></div>
+      <div id="addInsumoResults" class="project-list gap-6"></div>
     </div>
     <div class="field"><label>Observaciones</label><textarea id="reqObs" rows="2" placeholder="Notas para esta requisición…">${esc(requisicion.observaciones || '')}</textarea></div>
     <div id="previewAlerts"></div>
@@ -3101,7 +3101,7 @@ function openEditRequisicionModal(requisicion) {
       <div class="req-item-row" data-idx="${idx}">
         <div class="row between">
           <div>
-            <div style="font-weight:600;font-size:0.88rem">${esc(i.concepto)}</div>
+            <div class="item-title">${esc(i.concepto)}</div>
             <div class="code muted">${esc(i.codigo)} · presup: ${fmtNum(i.cantidad_presupuesto, 3)} ${esc(i.unidad || '')} a ${fmtMoney(i.precio_presupuesto)}</div>
           </div>
           <button class="btn small btn-ghost" data-remove="${idx}">✕</button>
@@ -3109,7 +3109,7 @@ function openEditRequisicionModal(requisicion) {
         <div class="qty-row">
           <div><label>Cantidad</label><input type="number" min="0" step="any" data-field="cantidad_solicitada" data-idx="${idx}" value="${d.cantidad_solicitada}" /></div>
           <div><label>Precio unitario</label><input type="number" min="0" step="any" data-field="precio_solicitado" data-idx="${idx}" value="${d.precio_solicitado}" /></div>
-          <div class="muted" style="font-size:0.78rem;text-align:right">= ${fmtMoney(d.cantidad_solicitada * d.precio_solicitado)}</div>
+          <div class="muted fs-078-right">= ${fmtMoney(d.cantidad_solicitada * d.precio_solicitado)}</div>
         </div>
       </div>`;
     }).join('');
@@ -3249,16 +3249,16 @@ async function openGenerarOrdenModal(requisicion) {
     <div class="field"><label>Fecha</label><input id="ocFecha" type="date" value="${new Date().toISOString().slice(0, 10)}" /></div>
     <div id="ocItems"></div>
     <div class="field">
-      <label class="muted" style="font-size:0.78rem;margin-bottom:4px;display:block">¿Los precios que capturaste arriba incluyen IVA?</label>
-      <div style="display:flex;flex-direction:column;gap:6px">
-        <label style="font-weight:400"><input type="radio" name="ocIvaModo" id="ocSinIva" checked style="width:auto;margin-right:6px" /> Los precios que capturé son <strong>SIN IVA</strong> (se sumará el 16% al total)</label>
-        <label style="font-weight:400"><input type="radio" name="ocIvaModo" id="ocIncluyeIva" style="width:auto;margin-right:6px" /> Los precios que capturé <strong>YA INCLUYEN IVA</strong> (se desglosará del total)</label>
+      <label class="muted iva-question-label">¿Los precios que capturaste arriba incluyen IVA?</label>
+      <div class="iva-radio-col">
+        <label class="fw-400"><input type="radio" name="ocIvaModo" id="ocSinIva" checked class="radio-inline" /> Los precios que capturé son <strong>SIN IVA</strong> (se sumará el 16% al total)</label>
+        <label class="fw-400"><input type="radio" name="ocIvaModo" id="ocIncluyeIva" class="radio-inline" /> Los precios que capturé <strong>YA INCLUYEN IVA</strong> (se desglosará del total)</label>
       </div>
     </div>
-    <div class="card" id="ocIvaResumen" style="background:var(--panel-2)">
+    <div class="card bg-panel2" id="ocIvaResumen">
       <div class="card-row"><span class="k">Subtotal</span><span class="v" id="ocSubtotalOut">—</span></div>
       <div class="card-row"><span class="k">IVA</span><span class="v" id="ocIvaOut">—</span></div>
-      <div class="card-row"><span class="k">Total</span><span class="v" id="ocTotalOut" style="font-weight:700">—</span></div>
+      <div class="card-row"><span class="k">Total</span><span class="v fw-700" id="ocTotalOut">—</span></div>
     </div>
     <div class="field"><label>Observaciones</label><textarea id="ocObs" rows="2" placeholder="Notas para esta orden…"></textarea></div>
     <div class="modal-actions">
@@ -3269,12 +3269,12 @@ async function openGenerarOrdenModal(requisicion) {
 
   $('#ocItems').innerHTML = requisicion.items.map((it) => `
     <div class="req-item-row" data-req-item="${it.id}" data-iva-tasa="${ivaTasaMap.get(it.insumo_id) ?? 16}">
-      <div style="font-weight:600;font-size:0.88rem">${esc(it.insumo_concepto)}</div>
+      <div class="item-title">${esc(it.insumo_concepto)}</div>
       <div class="code muted">${esc(it.insumo_codigo)} · solicitado: ${fmtNum(it.cantidad_solicitada, 3)} ${esc(it.unidad || '')} a ${fmtMoney(it.precio_solicitado)}</div>
       <div class="qty-row">
         <div><label>Cantidad a ordenar</label><input type="number" min="0" step="any" data-oc-cantidad value="${it.cantidad_solicitada}" /></div>
         <div><label>Precio unitario</label><input type="number" min="0" step="any" data-oc-precio value="${it.precio_solicitado}" /></div>
-        <div class="muted" data-oc-importe style="font-size:0.78rem;text-align:right">= ${fmtMoney(it.cantidad_solicitada * it.precio_solicitado)}</div>
+        <div class="muted fs-078-right" data-oc-importe>= ${fmtMoney(it.cantidad_solicitada * it.precio_solicitado)}</div>
       </div>
     </div>
   `).join('');
@@ -3373,7 +3373,7 @@ async function renderOrdenes(view) {
         </div>
         <span class="badge ${estadoBadge[o.estado] || 'muted'}">${esc(o.estado)}</span>
       </div>
-      <div class="row between" style="margin-top:6px;font-size:0.84rem">
+      <div class="row between mt-6-fs-084">
         <span class="muted">Pagado: ${fmtMoney(o.total_pagado)}</span>
         <span class="saldo-pendiente ${o.saldo_pendiente > 0 ? 'text-rojo' : 'text-verde'}">Saldo: ${fmtMoney(o.saldo_pendiente)}</span>
       </div>
@@ -3407,24 +3407,24 @@ async function openOrdenDetalle(ocId) {
         ${esEstadoRecepcion
           ? `<p class="muted">${esc(o.estado)} — este estado lo controla la recepción de mercancía, no se puede cambiar aquí.</p>`
           : `${o.estado === 'enviada' && !isAdmin() ? '<span class="badge yellow">Pendiente de autorización</span>' : ''}
-             ${!puedeConfirmarOC ? '<p class="muted" style="font-size:0.78rem">Solo un Administrador o Tesorería puede confirmar o rechazar la orden.</p>' : ''}
+             ${!puedeConfirmarOC ? '<p class="muted fs-078">Solo un Administrador o Tesorería puede confirmar o rechazar la orden.</p>' : ''}
              <select id="ocEstadoSelect">${estados.map((e) => `<option value="${e}" ${e === o.estado ? 'selected' : ''}>${e}</option>`).join('')}</select>`}
       </div>
       <div id="ocItemsDetail"></div>
-      <div class="card" style="background:var(--panel-2)">
+      <div class="card bg-panel2">
         <div class="card-row"><span class="k">Los montos capturados</span><span class="v">${o.incluye_iva ? 'incluyen IVA' : 'no incluyen IVA (son sin IVA)'}</span></div>
         <div class="card-row"><span class="k">Subtotal</span><span class="v">${fmtMoney(o.desglose_iva.subtotal)}</span></div>
         <div class="card-row"><span class="k">IVA</span><span class="v">${fmtMoney(o.desglose_iva.iva)}</span></div>
-        <div class="card-row"><span class="k">Total</span><span class="v" style="font-weight:700">${fmtMoney(o.desglose_iva.total)}</span></div>
+        <div class="card-row"><span class="k">Total</span><span class="v fw-700">${fmtMoney(o.desglose_iva.total)}</span></div>
       </div>
 
       <h3 class="section-title">Recepciones</h3>
       <div id="ocRecepcionesList"><div class="spinner"></div></div>
-      ${puedeRecibir ? '<div class="row end" style="margin-top:8px"><button class="btn small btn-primary" id="btnRegistrarRecepcion">Registrar recepción</button></div>' : ''}
+      ${puedeRecibir ? '<div class="row end mt-8"><button class="btn small btn-primary" id="btnRegistrarRecepcion">Registrar recepción</button></div>' : ''}
 
       <h3 class="section-title">Pagos</h3>
       <div id="ocPagosList"><div class="spinner"></div></div>
-      ${puedeRegistrarPago() && ['enviada', 'confirmada', 'recibida_parcial', 'recibida_completa'].includes(o.estado) ? '<div class="row end" style="margin-top:8px"><button class="btn small btn-primary" id="btnRegistrarPago">Registrar pago</button></div>' : ''}
+      ${puedeRegistrarPago() && ['enviada', 'confirmada', 'recibida_parcial', 'recibida_completa'].includes(o.estado) ? '<div class="row end mt-8"><button class="btn small btn-primary" id="btnRegistrarPago">Registrar pago</button></div>' : ''}
 
       <div class="modal-actions">
         ${o.estado === 'borrador' ? '<button class="btn btn-danger" id="btnDeleteOC">Eliminar</button>' : ''}
@@ -3434,7 +3434,7 @@ async function openOrdenDetalle(ocId) {
     $('#ocItemsDetail').innerHTML = o.items.map((it) => `
       <div class="req-item-row">
         <div class="row between">
-          <div style="font-weight:600;font-size:0.88rem">${esc(it.insumo_concepto)}</div>
+          <div class="item-title">${esc(it.insumo_concepto)}</div>
           <span>${fmtMoney(it.importe)}</span>
         </div>
         <div class="muted code">${esc(it.insumo_codigo)} · ${esc(it.unidad || '')}</div>
@@ -3475,21 +3475,21 @@ async function paintOcRecepciones(ocId) {
   try {
     const recepciones = await api(`/projects/${state.projectId}/ordenes/${ocId}/recepciones`);
     if (!recepciones.length) {
-      box.innerHTML = '<p class="muted" style="font-size:0.84rem">Aún no se ha recibido material de esta orden.</p>';
+      box.innerHTML = '<p class="muted fs-084">Aún no se ha recibido material de esta orden.</p>';
       return;
     }
     box.innerHTML = recepciones.map((r) => `
       <div class="req-item-row">
         <div class="row between">
-          <strong style="font-size:0.86rem">${fmtDate(r.fecha)}</strong>
+          <strong class="fs-086">${fmtDate(r.fecha)}</strong>
           ${r.recibido_por ? `<span class="muted">${esc(r.recibido_por)}</span>` : ''}
         </div>
         ${r.items.map((it) => `
-          <div class="row between" style="font-size:0.82rem">
+          <div class="row between fs-082">
             <span>${esc(it.insumo_concepto)}</span>
             <span>${fmtNum(it.cantidad_recibida, 3)} ${esc(it.unidad || '')}</span>
           </div>`).join('')}
-        ${r.observaciones ? `<div class="muted" style="font-size:0.78rem">${esc(r.observaciones)}</div>` : ''}
+        ${r.observaciones ? `<div class="muted fs-078">${esc(r.observaciones)}</div>` : ''}
       </div>`).join('');
   } catch (err) {
     box.innerHTML = `<div class="alert-box danger">⚠️${esc(err.message)}</div>`;
@@ -3502,11 +3502,11 @@ async function paintOcPagos(ocId) {
   try {
     const data = await api(`/projects/${state.projectId}/ordenes/${ocId}/pagos`);
     const pagosHtml = data.pagos.length ? data.pagos.map((p) => `
-      <div class="row between" style="font-size:0.84rem">
+      <div class="row between fs-084">
         <span>${fmtDate(p.fecha)} ${p.metodo ? `· ${esc(p.metodo)}` : ''} ${p.referencia ? `· ${esc(p.referencia)}` : ''}
-          <span class="muted" style="font-size:0.74rem"> · ${p.incluye_iva ? 'con IVA' : 'sin IVA'}</span></span>
+          <span class="muted fs-074"> · ${p.incluye_iva ? 'con IVA' : 'sin IVA'}</span></span>
         <span>${fmtMoney(p.monto)}</span>
-      </div>`).join('') : '<p class="muted" style="font-size:0.84rem">Sin pagos registrados.</p>';
+      </div>`).join('') : '<p class="muted fs-084">Sin pagos registrados.</p>';
     box.innerHTML = `
       ${pagosHtml}
       <div class="card-row"><span class="k">Total pagado</span><span class="v">${fmtMoney(data.total_pagado)}</span></div>
@@ -3551,11 +3551,11 @@ async function openRegistrarRecepcionModal(orden) {
     const pendiente = Math.max(0, it.cantidad_ordenada - acumulado);
     return `
     <div class="req-item-row" data-oc-item="${it.id}">
-      <div style="font-weight:600;font-size:0.88rem">${esc(it.insumo_concepto)}</div>
+      <div class="item-title">${esc(it.insumo_concepto)}</div>
       <div class="code muted">${esc(it.insumo_codigo)} · ordenado: ${fmtNum(it.cantidad_ordenada, 3)} ${esc(it.unidad || '')} · recibido a la fecha: ${fmtNum(acumulado, 3)} ${esc(it.unidad || '')}</div>
       <div class="qty-row">
         <div><label>Cantidad recibida ahora</label><input type="number" min="0" step="any" data-rec-cantidad data-pendiente="${pendiente}" data-ordenado="${it.cantidad_ordenada}" data-acumulado="${acumulado}" value="0" /></div>
-        <div class="muted" data-rec-faltante style="font-size:0.76rem;align-self:end">faltarían: ${fmtNum(pendiente, 3)} ${esc(it.unidad || '')}</div>
+        <div class="muted fs-076-end" data-rec-faltante>faltarían: ${fmtNum(pendiente, 3)} ${esc(it.unidad || '')}</div>
       </div>
     </div>`;
   }).join('');
@@ -3607,7 +3607,7 @@ function openRegistrarPagoModal(orden) {
     <div class="field"><label>Fecha</label><input id="pagoFecha" type="date" value="${new Date().toISOString().slice(0, 10)}" /></div>
     <div class="field"><label>Monto *</label><input id="pagoMonto" type="number" min="0" step="any" /></div>
     <div class="field">
-      <label><input type="checkbox" id="pagoIncluyeIva" checked style="width:auto;margin-right:6px" /> Este monto incluye IVA</label>
+      <label><input type="checkbox" id="pagoIncluyeIva" checked class="radio-inline" /> Este monto incluye IVA</label>
     </div>
     <div class="field"><label>Método</label><input id="pagoMetodo" placeholder="Transferencia, efectivo, cheque…" /></div>
     <div class="field"><label>Referencia</label><input id="pagoReferencia" placeholder="Folio, número de cheque…" /></div>
@@ -3758,20 +3758,20 @@ function paintAvanceTable(avances, presupuestoTotal) {
     <tr data-semana="${a.semana}">
       <td>${a.semana}</td>
       <td>${fmtDate(a.fecha_inicio)} – ${fmtDate(a.fecha_fin)}</td>
-      ${puedeVerImportesAvance() ? `<td class="num">${fmtMoney(importePeriodo)}<br><span class="muted" style="font-size:0.7rem">(${fmtPct(pctPeriodo)} del total)</span></td>` : '<td class="num">—</td>'}
+      ${puedeVerImportesAvance() ? `<td class="num">${fmtMoney(importePeriodo)}<br><span class="muted fs-07">(${fmtPct(pctPeriodo)} del total)</span></td>` : '<td class="num">—</td>'}
       <td class="num">${fmtPct(a.avance_financiero_programado)}</td>
-      <td class="num"><input type="number" min="0" max="100" step="0.1" data-field="avance_fisico_real" value="${a.avance_fisico_real ?? ''}" style="width:84px;text-align:right" ${!puedeEditarAvance() ? 'disabled' : ''} /></td>
-      <td class="num">${puedeVerImportesAvance() ? `<input type="number" min="0" max="100" step="0.1" data-field="avance_financiero_real" value="${a.avance_financiero_real ?? ''}" style="width:84px;text-align:right" ${!puedeEditarAvance() ? 'disabled' : ''} />` : '—'}</td>
+      <td class="num"><input type="number" min="0" max="100" step="0.1" data-field="avance_fisico_real" value="${a.avance_fisico_real ?? ''}" class="w-84-right" ${!puedeEditarAvance() ? 'disabled' : ''} /></td>
+      <td class="num">${puedeVerImportesAvance() ? `<input type="number" min="0" max="100" step="0.1" data-field="avance_financiero_real" value="${a.avance_financiero_real ?? ''}" class="w-84-right" ${!puedeEditarAvance() ? 'disabled' : ''} />` : '—'}</td>
       <td>
         <span class="badge ${autBadge}">${autLabel}</span>
         ${isAdmin() && estadoAut === 'pendiente_autorizacion' ? `
-        <div class="row" style="flex-wrap:nowrap;gap:4px;margin-top:4px">
+        <div class="row row-nowrap-gap4-mt4">
           <button class="btn small btn-auth" data-autorizar="${a.semana}" data-accion="autorizado">Autorizar</button>
           <button class="btn small btn-danger btn-auth" data-autorizar="${a.semana}" data-accion="rechazado">Rechazar</button>
         </div>` : ''}
       </td>
       <td>
-        ${puedeEditarAvance() ? `<div class="row" style="flex-wrap:nowrap;gap:6px">
+        ${puedeEditarAvance() ? `<div class="row row-nowrap-gap6">
           <button class="btn small" data-detalle="${a.semana}" title="Capturar avance por concepto">Por concepto</button>
           <button class="btn small btn-primary" data-save="${a.semana}">Guardar</button>
         </div>` : ''}
@@ -3839,7 +3839,7 @@ async function openAvanceConceptosModal(avance, presupuestoTotal) {
       (no acumulada — solo lo avanzado en esta semana). El % de avance real se calculará
       automáticamente a partir de estas cantidades y se guardará en la tabla semanal.</p>
     <div id="avcList"><div class="spinner"></div></div>
-    <div class="card" id="avcSummary" style="display:none">
+    <div class="card hidden-initial" id="avcSummary">
       <div class="card-row"><span class="k">Importe ejecutado acumulado a la fecha</span><span class="v" id="avcImporte">—</span></div>
       <div class="card-row"><span class="k">% de avance real (se guardará así)</span><span class="v" id="avcPct">—</span></div>
     </div>
@@ -3872,15 +3872,15 @@ async function openAvanceConceptosModal(avance, presupuestoTotal) {
   });
 
   $('#avcList').innerHTML = [...groups.entries()].map(([grupo, groupItems]) => `
-    <h3 class="section-title" style="margin:14px 0 8px">${esc(grupo)}</h3>
+    <h3 class="section-title mt14-mb8">${esc(grupo)}</h3>
     ${groupItems.map((c) => `
     <div class="req-item-row">
-      <div style="font-weight:600;font-size:0.86rem">${esc(c.concepto)}</div>
+      <div class="fw600-fs086">${esc(c.concepto)}</div>
       <div class="code muted">${esc(c.codigo)} · presup: ${fmtNum(c.cantidad_presupuesto, 3)} ${esc(c.unidad || '')} a ${fmtMoney(c.precio_unitario)}/u</div>
-      <div class="qty-row" style="margin-top:6px">
+      <div class="qty-row mt-6">
         <div>
           <label>Acumulado previo</label>
-          <div class="muted" style="font-size:0.84rem;padding:10px 0">${fmtNum(c.cantidad_acumulada_previa, 3)} ${esc(c.unidad || '')}</div>
+          <div class="muted acumulado-previo">${fmtNum(c.cantidad_acumulada_previa, 3)} ${esc(c.unidad || '')}</div>
         </div>
         <div>
           <label>Ejecutado este periodo</label>
@@ -3888,7 +3888,7 @@ async function openAvanceConceptosModal(avance, presupuestoTotal) {
                  data-precio="${c.precio_unitario}" data-presup="${c.cantidad_presupuesto}" data-prev="${c.cantidad_acumulada_previa}"
                  value="${c.cantidad_ejecutada_periodo ?? ''}" />
         </div>
-        <div class="muted" data-acum-out style="font-size:0.74rem;text-align:right;align-self:end;line-height:1.3"></div>
+        <div class="muted acum-out" data-acum-out></div>
       </div>
     </div>
     `).join('')}
@@ -3914,6 +3914,7 @@ async function openAvanceConceptosModal(avance, presupuestoTotal) {
     $('#avcPct').textContent = presupuestoTotal ? fmtPct(Math.min(100, (importe / presupuestoTotal) * 100)) : '—';
   };
 
+  $('#avcSummary').classList.remove('hidden-initial'); // ver .hidden-initial en styles.css
   $('#avcSummary').style.display = '';
   recalc();
   $$('[data-cantidad]').forEach((inp) => inp.addEventListener('input', recalc));
@@ -4016,7 +4017,7 @@ function openEditFechasModal(itemId, programa, obraInicio, obraFin) {
     <p class="muted">${esc(item.concepto)}<br><span class="code">${esc(item.codigo)}</span></p>
     <div class="field"><label>Fecha de inicio</label><input id="editFechaInicio" type="date" value="${esc(item.fecha_inicio)}" ${obraInicio ? `min="${esc(obraInicio)}"` : ''} ${obraFin ? `max="${esc(obraFin)}"` : ''} /></div>
     <div class="field"><label>Fecha de fin</label><input id="editFechaFin" type="date" value="${esc(item.fecha_fin)}" ${obraInicio ? `min="${esc(obraInicio)}"` : ''} ${obraFin ? `max="${esc(obraFin)}"` : ''} /></div>
-    ${obraInicio && obraFin ? `<p class="muted" style="font-size:0.76rem">El periodo de obra cargado del presupuesto va del ${fmtDate(obraInicio)} al ${fmtDate(obraFin)} — las fechas de la actividad deben quedar dentro de ese rango.</p>` : ''}
+    ${obraInicio && obraFin ? `<p class="muted fs-076">El periodo de obra cargado del presupuesto va del ${fmtDate(obraInicio)} al ${fmtDate(obraFin)} — las fechas de la actividad deben quedar dentro de ese rango.</p>` : ''}
     <div class="modal-actions">
       <button class="btn" id="btnCancelFechas">Cerrar</button>
       <button class="btn btn-primary" id="btnSaveFechas">Guardar</button>
@@ -4054,7 +4055,7 @@ async function renderDestajo(view) {
     <h2 class="section-title">Control de Destajo</h2>
     <p class="muted">El avance de cada destajista se captura por semana, usando los mismos periodos del programa de obra — igual que en la pestaña Avance.</p>
     ${destajistas.length ? `
-    <div class="kpi-grid" style="margin-bottom:4px">
+    <div class="kpi-grid mb-4">
       <div class="kpi"><div class="label">Destajistas</div><div class="value">${destajistas.length}</div></div>
       <div class="kpi accent"><div class="label">Total asignado</div><div class="value">${fmtMoney(totalAsig)}</div></div>
       <div class="kpi green"><div class="label">Total ganado</div><div class="value">${fmtMoney(totalGanado)}</div></div>
@@ -4144,31 +4145,31 @@ async function renderDestajo(view) {
 function renderDestajistaCard(d) {
   const pct = Math.round(d.pct_avance || 0);
   return `
-  <div class="card" style="margin-bottom:12px" data-dest-card="${d.id}">
+  <div class="card mb-12" data-dest-card="${d.id}">
     <div class="row between">
       <div>
-        <strong style="font-size:1rem">${esc(d.nombre)}</strong>
-        ${d.telefono ? `<div class="muted" style="font-size:0.8rem">📞 ${esc(d.telefono)}</div>` : ''}
+        <strong class="fs-1rem">${esc(d.nombre)}</strong>
+        ${d.telefono ? `<div class="muted fs-08">📞 ${esc(d.telefono)}</div>` : ''}
       </div>
       ${canManageDestajo() ? `
-      <div class="row" style="gap:6px;flex-wrap:nowrap">
+      <div class="row row-nowrap-gap6">
         <button class="btn small" data-edit-dest="${d.id}" title="Editar destajista">✏️ Editar</button>
         <button class="btn small btn-danger" data-del-dest="${d.id}">Eliminar</button>
       </div>` : ''}
     </div>
-    <div class="row" style="gap:14px;margin:6px 0;flex-wrap:wrap;font-size:0.84rem">
+    <div class="row dest-card-stats">
       <span class="muted">${d.items.length} actividad${d.items.length !== 1 ? 'es' : ''}</span>
       <span>Asig: ${fmtMoney(d.total_asignado)}</span>
-      <span style="color:var(--green)">Ganado: ${fmtMoney(d.total_ganado)}</span>
+      <span class="text-verde">Ganado: ${fmtMoney(d.total_ganado)}</span>
       <span class="badge ${pct >= 100 ? 'green' : 'yellow'}">${pct}%</span>
     </div>
     <div class="progress-bar dest-progress"><span data-pct="${Math.min(100, pct)}"></span></div>
     ${renderDestajistaItems(d)}
     ${canManageDestajo() ? `
-    <div class="row" style="margin-top:8px">
+    <div class="row mt-8">
       <button class="btn small" data-add-item="${d.id}">+ Agregar actividad</button>
     </div>` : ''}
-    <button class="collapse-toggle" style="margin-top:12px" data-toggle-semanal="${d.id}">
+    <button class="collapse-toggle mt-12" data-toggle-semanal="${d.id}">
       <span>📅 Avance semanal (periodos del programa de obra)</span>
       <span class="chev">▾</span>
     </button>
@@ -4188,8 +4189,8 @@ async function toggleDestajoSemanal(btn, destajistas) {
     const data = await api(`/projects/${state.projectId}/destajistas/${destId}/avance`);
     if (!data.semanas.length) {
       body.innerHTML = `
-        <div style="padding:10px 4px">
-          <p class="muted" style="margin:0 0 8px">El proyecto no tiene periodos de programa de obra generados (faltan las fechas de inicio/fin de obra).</p>
+        <div class="py10-px4">
+          <p class="muted m0-0-8">El proyecto no tiene periodos de programa de obra generados (faltan las fechas de inicio/fin de obra).</p>
           <button class="btn small btn-primary" id="btnFixFechasObra${destId}">Corregir inicio/fin de obra</button>
         </div>`;
       $(`#btnFixFechasObra${destId}`, body).addEventListener('click', async () => {
@@ -4200,10 +4201,10 @@ async function toggleDestajoSemanal(btn, destajistas) {
     }
     const dest = destajistas.find((d) => d.id === destId);
     body.innerHTML = `
-      <div class="card" style="margin:10px 0 0;background:var(--panel-2)">
-        <div class="chart-wrap" style="height:220px"><canvas id="chartDestajo${destId}"></canvas></div>
+      <div class="card mt10-panel2">
+        <div class="chart-wrap chart-h220"><canvas id="chartDestajo${destId}"></canvas></div>
       </div>
-      <div class="table-scroll" style="margin-top:8px">
+      <div class="table-scroll mt-8">
         <table>
           <thead><tr><th>Semana</th><th>Periodo</th><th class="num">Ganado del periodo</th><th class="num">Acumulado</th><th class="num">% Avance</th><th></th></tr></thead>
           <tbody id="semanalTbody${destId}"></tbody>
@@ -4261,11 +4262,11 @@ function paintDestajoSemanaTable(destId, semanas, nombre) {
       <td>
         <span class="badge ${autBadge}">${autLabel}</span>
         ${isAdmin() && estadoAut === 'pendiente_autorizacion' ? `
-        <div class="row" style="flex-wrap:nowrap;gap:4px;margin-top:4px">
+        <div class="row row-nowrap-gap4-mt4">
           <button class="btn small btn-auth" data-autorizar-dest="${s.semana}" data-dest-id="${destId}" data-accion="autorizado">Autorizar</button>
           <button class="btn small btn-danger btn-auth" data-autorizar-dest="${s.semana}" data-dest-id="${destId}" data-accion="rechazado">Rechazar</button>
         </div>` : ''}
-        <div style="margin-top:4px"><button class="btn small btn-primary" data-capturar-semana="${s.semana}" data-dest-id="${destId}">Capturar</button></div>
+        <div class="mt-4"><button class="btn small btn-primary" data-capturar-semana="${s.semana}" data-dest-id="${destId}">Capturar</button></div>
       </td>
     </tr>
   `;
@@ -4297,7 +4298,7 @@ async function openDestajoSemanaModal(destId, semana, nombre) {
     <p class="muted">${esc(nombre)}<br>Anota la cantidad realmente ejecutada de cada actividad durante este periodo
       (no acumulada — solo lo avanzado en esta semana). El % de avance se calcula automáticamente.</p>
     <div id="destAvcList"><div class="spinner"></div></div>
-    <div class="card" id="destAvcSummary" style="display:none">
+    <div class="card hidden-initial" id="destAvcSummary">
       <div class="card-row"><span class="k">Ganado acumulado a la fecha</span><span class="v" id="destAvcImporte">—</span></div>
       <div class="card-row"><span class="k">% de avance (se guardará así)</span><span class="v" id="destAvcPct">—</span></div>
     </div>
@@ -4336,12 +4337,12 @@ async function openDestajoSemanaModal(destId, semana, nombre) {
 
   $('#destAvcList').innerHTML = items.map((it) => `
     <div class="req-item-row">
-      <div style="font-weight:600;font-size:0.86rem">${esc(it.concepto)}</div>
+      <div class="fw600-fs086">${esc(it.concepto)}</div>
       <div class="code muted">${esc(it.codigo || '')} · asig: ${fmtNum(it.cantidad_asignada, 3)} ${esc(it.unidad || '')} a ${fmtMoney(it.precio_destajo)}/u</div>
-      <div class="qty-row" style="margin-top:6px">
+      <div class="qty-row mt-6">
         <div>
           <label>Acumulado previo</label>
-          <div class="muted" style="font-size:0.84rem;padding:10px 0">${fmtNum(it.cantidad_acumulada_previa, 3)} ${esc(it.unidad || '')}</div>
+          <div class="muted acumulado-previo">${fmtNum(it.cantidad_acumulada_previa, 3)} ${esc(it.unidad || '')}</div>
         </div>
         <div>
           <label>Ejecutado este periodo</label>
@@ -4349,9 +4350,9 @@ async function openDestajoSemanaModal(destId, semana, nombre) {
                  data-precio="${it.precio_destajo}" data-prev="${it.cantidad_acumulada_previa}"
                  value="${it.cantidad_ejecutada_periodo ?? ''}" ${soloLecturaParaMi(it) ? 'disabled title="Solo un residente o administrador puede editar un avance ya capturado"' : ''} />
         </div>
-        <div class="muted" data-acum-out style="font-size:0.74rem;text-align:right;align-self:end;line-height:1.3"></div>
+        <div class="muted acum-out" data-acum-out></div>
       </div>
-      ${soloLecturaParaMi(it) ? `<div class="muted" style="font-size:0.72rem;color:var(--yellow);margin-top:2px">🔒 Ya capturado — solo residente/admin puede editarlo</div>` : ''}
+      ${soloLecturaParaMi(it) ? `<div class="muted solo-lectura-note">🔒 Ya capturado — solo residente/admin puede editarlo</div>` : ''}
     </div>
   `).join('');
 
@@ -4374,6 +4375,7 @@ async function openDestajoSemanaModal(destId, semana, nombre) {
     $('#destAvcPct').textContent = totalAsignado ? fmtPct(Math.min(100, (ganado / totalAsignado) * 100)) : '—';
   };
 
+  $('#destAvcSummary').classList.remove('hidden-initial'); // ver .hidden-initial en styles.css
   $('#destAvcSummary').style.display = '';
   recalc();
   $$('[data-destajo-cantidad]').forEach((inp) => inp.addEventListener('input', recalc));
@@ -4545,16 +4547,16 @@ async function openAgregarItemModal(destId, destajistas) {
         <input id="buscarConcepto" placeholder="Escribe código o descripción…" autocomplete="off" />
         <button type="button" class="search-clear" id="btnClearConceptoSearch" title="Limpiar búsqueda">✕</button>
       </div>
-      <div id="resultadosConcepto" class="project-list search-results-fancy" style="max-height:160px;overflow-y:auto;gap:4px;margin-top:6px"></div>
+      <div id="resultadosConcepto" class="project-list search-results-fancy search-results-box"></div>
     </div>
     <div class="field"><label>Concepto *</label><input id="itemConcepto" placeholder="Ej. Excavación en tierra" /></div>
-    <div class="row" style="gap:8px">
-      <div class="field" style="flex:1"><label>Código</label><input id="itemCodigo" /></div>
-      <div class="field" style="flex:1"><label>Unidad</label><input id="itemUnidad" placeholder="M2, ML…" /></div>
+    <div class="row gap-8">
+      <div class="field flex-1"><label>Código</label><input id="itemCodigo" /></div>
+      <div class="field flex-1"><label>Unidad</label><input id="itemUnidad" placeholder="M2, ML…" /></div>
     </div>
-    <div class="row" style="gap:8px">
-      <div class="field" style="flex:1"><label>Cantidad asignada</label><input id="itemCant" type="number" min="0" step="any" /></div>
-      <div class="field" style="flex:1"><label>P.U. destajo ($)</label><input id="itemPU" type="number" min="0" step="any" /></div>
+    <div class="row gap-8">
+      <div class="field flex-1"><label>Cantidad asignada</label><input id="itemCant" type="number" min="0" step="any" /></div>
+      <div class="field flex-1"><label>P.U. destajo ($)</label><input id="itemPU" type="number" min="0" step="any" /></div>
     </div>
     <div class="modal-actions">
       <button class="btn" id="btnCancelItem">Cerrar</button>
@@ -4577,11 +4579,11 @@ async function openAgregarItemModal(destId, destajistas) {
       return hay.includes(norm);
     }).slice(0, 6);
     searchResults.innerHTML = matches.map((c) => `
-      <div class="project-item search-result-item" data-pick="${c.id}" style="cursor:pointer">
+      <div class="project-item search-result-item cursor-pointer" data-pick="${c.id}">
         <span class="pname">${esc(c.concepto)}</span>
         <span class="pmeta">${esc(c.codigo || '')} · ${esc(c.unidad || '')} · ${fmtNum(c.cantidad, 2)} · ${fmtMoney(c.precio_unitario)}/u</span>
         <span class="pmeta">📋 Partida: ${esc(c.grupo || 'Sin grupo')}</span>
-      </div>`).join('') || `<p class="muted" style="padding:6px">Sin resultados para "${esc(q)}"</p>`;
+      </div>`).join('') || `<p class="muted p-6">Sin resultados para "${esc(q)}"</p>`;
 
     $$('[data-pick]', searchResults).forEach((row) => {
       row.addEventListener('click', () => {
@@ -4650,9 +4652,9 @@ function openPostUploadModal(result) {
       <label>Nombre de la obra</label>
       <input id="postUploadNombre" value="${esc(result.nombre)}" placeholder="Ej. Torre A — Redes Altares" />
     </div>
-    <div style="border-top:1px solid var(--border);margin:14px 0;padding-top:14px">
-      <h4 style="margin:0 0 6px">Fechas de obra detectadas</h4>
-      <p class="muted" style="font-size:0.78rem;margin-bottom:10px">Verifica las fechas del archivo. Si no aparecen o son incorrectas, corrígelas aquí — el Programa de ejecución se regenerará automáticamente.</p>
+    <div class="section-divider-14">
+      <h4 class="m0-0-6">Fechas de obra detectadas</h4>
+      <p class="muted fs078-mb10">Verifica las fechas del archivo. Si no aparecen o son incorrectas, corrígelas aquí — el Programa de ejecución se regenerará automáticamente.</p>
       <div class="field"><label>Inicio de obra</label><input id="postUploadInicio" type="date" value="${esc(inicio)}" /></div>
       <div class="field"><label>Fin de obra</label><input id="postUploadFin" type="date" value="${esc(fin)}" /></div>
     </div>
@@ -4706,17 +4708,17 @@ function openPostUploadModal(result) {
 async function openMiCuentaModal(mustChange) {
   openModal(`
     <h3>Mi cuenta</h3>
-    ${mustChange ? `<div class="alert-box warning" style="margin-bottom:12px">⚠️ Debes cambiar tu contraseña antes de continuar.</div>` : ''}
+    ${mustChange ? `<div class="alert-box warning mb-12">⚠️ Debes cambiar tu contraseña antes de continuar.</div>` : ''}
     <div class="field"><label>Nombre completo</label><input id="mcNombre" value="${esc(state.user?.nombre || '')}" /></div>
     <div class="field"><label>Usuario (login)</label><input id="mcUsuario" value="${esc(state.user?.usuario || '')}" autocomplete="username" /></div>
-    <hr style="margin:14px 0;opacity:.2">
-    <p class="muted" style="font-size:0.8rem;margin:0 0 10px">Deja los campos de contraseña vacíos si no quieres cambiarla.</p>
+    <hr class="hr-14">
+    <p class="muted fs08-m0010">Deja los campos de contraseña vacíos si no quieres cambiarla.</p>
     <div class="field"><label>Contraseña actual</label><input id="mcPwActual" type="password" autocomplete="current-password" /></div>
     <div class="field"><label>Contraseña nueva</label><input id="mcPwNueva" type="password" autocomplete="new-password" placeholder="Mínimo 6 caracteres" /></div>
     <div class="field"><label>Confirmar contraseña nueva</label><input id="mcPwConfirm" type="password" autocomplete="new-password" /></div>
-    <div class="modal-actions" style="flex-direction:column;gap:8px">
-      <div style="display:flex;gap:8px;justify-content:flex-end">
-        ${mustChange ? '' : '<button class="btn" id="btnCerrarTodasSesiones" style="margin-right:auto;color:var(--text-muted);font-size:0.8rem">Cerrar sesión en todos los dispositivos</button>'}
+    <div class="modal-actions col-gap8">
+      <div class="row-end-gap8">
+        ${mustChange ? '' : '<button class="btn btn-cerrar-sesiones" id="btnCerrarTodasSesiones">Cerrar sesión en todos los dispositivos</button>'}
         <button class="btn" id="btnCancelMiCuenta">Cancelar</button>
         <button class="btn btn-primary" id="btnSaveMiCuenta">Guardar</button>
       </div>
@@ -5075,15 +5077,15 @@ function paintUsuariosList(usuarios) {
       <div class="row between">
         <div>
           <strong>${esc(u.nombre)}</strong>
-          <div class="muted" style="font-size:0.8rem">@${esc(u.usuario)}</div>
+          <div class="muted fs-08">@${esc(u.usuario)}</div>
         </div>
-        <div class="row" style="gap:6px;flex-wrap:nowrap">
+        <div class="row row-nowrap-gap6">
           <span class="badge ${u.puesto === 'admin' ? 'green' : u.puesto === 'desarrollador' ? 'purple' : u.puesto === 'logistica' ? 'yellow' : 'muted'}">${esc(PUESTO_LABELS[u.puesto] || u.puesto)}</span>
           ${!u.activo ? '<span class="badge red">Inactivo</span>' : ''}
           ${u.must_change_password ? '<span class="badge yellow" title="Debe cambiar contraseña en el próximo login">🔑 Cambio pendiente</span>' : ''}
         </div>
       </div>
-      <div class="row end" style="margin-top:8px;gap:8px">
+      <div class="row end mt8-gap8">
         <button class="btn small" data-edit-user="${u.id}">Editar</button>
         <button class="btn small" data-reset-user="${u.id}" title="Generar nueva contraseña temporal">Restablecer contraseña</button>
         ${u.id !== state.user.id ? `<button class="btn small btn-danger" data-del-user="${u.id}">Eliminar</button>` : ''}
@@ -5144,18 +5146,18 @@ async function openUsuarioModal(usuario) {
     </div>
     ${isEdit ? `
     <div class="field">
-      <label style="display:flex;align-items:center;gap:8px;margin-top:14px">
-        <input id="uActivo" type="checkbox" style="width:auto" ${usuario.activo ? 'checked' : ''} /> Cuenta activa
+      <label class="checkbox-row-mt14">
+        <input id="uActivo" type="checkbox" class="w-auto" ${usuario.activo ? 'checked' : ''} /> Cuenta activa
       </label>
     </div>` : ''}
     <div class="field ${puestoInicial === 'admin' ? 'hidden-initial' : ''}" id="uProyectosField" data-admin-hide="true">
       <label>Obras asignadas</label>
-      <p class="muted" style="font-size:0.76rem;margin:0 0 6px">Solo verá y podrá operar en las obras marcadas aquí.</p>
+      <p class="muted fs076-m006">Solo verá y podrá operar en las obras marcadas aquí.</p>
       ${allProjects.length ? `
-      <div id="uProyectosList" style="display:flex;flex-direction:column;gap:8px;max-height:180px;overflow-y:auto">
+      <div id="uProyectosList" class="checkbox-list-col">
         ${allProjects.map((p) => `
-          <label style="display:flex;align-items:center;gap:8px;font-weight:400;font-size:0.88rem">
-            <input type="checkbox" value="${p.id}" style="width:auto" ${assignedIds.has(p.id) ? 'checked' : ''} /> ${esc(p.nombre)}
+          <label class="checkbox-row-fw400">
+            <input type="checkbox" value="${p.id}" class="w-auto" ${assignedIds.has(p.id) ? 'checked' : ''} /> ${esc(p.nombre)}
           </label>`).join('')}
       </div>` : '<p class="muted">No hay obras cargadas todavía.</p>'}
     </div>
@@ -5213,7 +5215,7 @@ function openResetPasswordModal(usuario) {
   openModal(`
     <h3>Restablecer contraseña</h3>
     <p class="muted">Asigna una contraseña temporal a <strong>${esc(usuario.nombre)}</strong>. El usuario deberá cambiarla en su próximo acceso.</p>
-    <div class="alert-box warning" style="margin:10px 0 14px">El admin nunca puede ver la contraseña actual del usuario — solo generar una nueva.</div>
+    <div class="alert-box warning m10-0-14">El admin nunca puede ver la contraseña actual del usuario — solo generar una nueva.</div>
     <div class="field">
       <label>Nueva contraseña temporal *</label>
       <input id="rpPassword" type="password" autocomplete="new-password" placeholder="Mínimo 6 caracteres" />
@@ -5279,14 +5281,14 @@ function paintProveedoresList(proveedores) {
       <div class="row between">
         <div>
           <strong>${esc(p.nombre)}</strong>
-          ${p.contacto ? `<div class="muted" style="font-size:0.8rem">${esc(p.contacto)}</div>` : ''}
-          ${p.telefono ? `<div class="muted" style="font-size:0.8rem">📞 ${esc(p.telefono)}</div>` : ''}
-          ${p.rfc ? `<div class="muted code" style="font-size:0.74rem">${esc(p.rfc)}</div>` : ''}
+          ${p.contacto ? `<div class="muted fs-08">${esc(p.contacto)}</div>` : ''}
+          ${p.telefono ? `<div class="muted fs-08">📞 ${esc(p.telefono)}</div>` : ''}
+          ${p.rfc ? `<div class="muted code fs-074">${esc(p.rfc)}</div>` : ''}
         </div>
         ${!p.activo ? '<span class="badge red">Inactivo</span>' : ''}
       </div>
       ${isAdmin() ? `
-      <div class="row end" style="margin-top:8px;gap:8px">
+      <div class="row end mt8-gap8">
         <button class="btn small" data-edit-prov="${p.id}">Editar</button>
         <button class="btn small ${p.activo ? 'btn-danger' : ''}" data-toggle-prov="${p.id}">${p.activo ? 'Desactivar' : 'Activar'}</button>
       </div>` : ''}
@@ -5457,16 +5459,16 @@ function paintGastosList(gastos) {
       <div class="row between">
         <div>
           <strong>${esc(g.concepto)}</strong>
-          <div class="muted" style="font-size:0.8rem">${esc(GASTO_CATEGORIA_LABELS[g.categoria] || g.categoria)} · ${fmtDate(g.fecha)}</div>
-          ${g.observaciones ? `<div class="muted" style="font-size:0.78rem">${esc(g.observaciones)}</div>` : ''}
+          <div class="muted fs-08">${esc(GASTO_CATEGORIA_LABELS[g.categoria] || g.categoria)} · ${fmtDate(g.fecha)}</div>
+          ${g.observaciones ? `<div class="muted fs-078">${esc(g.observaciones)}</div>` : ''}
         </div>
-        <div style="text-align:right">
-          <div style="font-weight:700">${fmtMoney(g.monto)}</div>
+        <div class="text-right">
+          <div class="fw-700">${fmtMoney(g.monto)}</div>
           <span class="badge ${g.estado === 'pagado' ? 'green' : 'yellow'}">${esc(g.estado)}</span>
         </div>
       </div>
       ${isAdmin() ? `
-      <div class="row end" style="margin-top:8px;gap:8px">
+      <div class="row end mt8-gap8">
         <button class="btn small" data-edit-gasto="${g.id}">Editar</button>
         <button class="btn small" data-toggle-gasto="${g.id}">${g.estado === 'pagado' ? 'Marcar pendiente' : 'Marcar pagado'}</button>
         ${g.estado === 'pendiente' ? `<button class="btn small btn-danger" data-del-gasto="${g.id}">Eliminar</button>` : ''}
@@ -5681,11 +5683,11 @@ $('#btnMobileQuick').addEventListener('click', openQuickActionMenu);
 $('#btnMobileNotif').addEventListener('click', async () => {
   await refreshNotificaciones().catch(() => {});
   openModal(`
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-      <h3 style="margin:0">Notificaciones</h3>
+    <div class="notif-header-row">
+      <h3 class="modal-title">Notificaciones</h3>
       <button class="btn small" id="btnMarcarMobileLeidas">Todas leídas</button>
     </div>
-    <div id="mobileNotifListEl" class="notif-list" style="max-height:55vh;overflow-y:auto"></div>
+    <div id="mobileNotifListEl" class="notif-list notif-list-scroll"></div>
     <div class="modal-actions"><button class="btn" id="btnCerrarNotifMobile">Cerrar</button></div>
   `);
   renderNotifList($('#mobileNotifListEl'));
@@ -5728,11 +5730,11 @@ async function renderTrabajadores(view) {
   view.innerHTML = `
     <h2 class="section-title">Trabajadores</h2>
     <p class="muted">Expediente de personal asignado a esta obra.</p>
-    <div class="section-actions" style="flex-wrap:wrap;gap:8px">
+    <div class="section-actions section-actions-wrap">
       ${puedeGestionarTrabajadores() ? `<button class="btn btn-primary" id="btnNuevoTrabajador">+ Nuevo trabajador</button>` : ''}
       ${puedeGestionarTrabajadores() ? `<button class="btn" id="btnCatalogoEpp">Catálogo EPP</button>` : ''}
-      <label style="display:flex;align-items:center;gap:6px;font-size:0.88rem;cursor:pointer">
-        <input type="checkbox" id="chkVerInactivos" style="width:auto"> Ver inactivos
+      <label class="checkbox-label-inline">
+        <input type="checkbox" id="chkVerInactivos" class="w-auto"> Ver inactivos
       </label>
     </div>
     <div id="trabajadoresList"><div class="empty-state">Cargando…</div></div>
@@ -5754,17 +5756,17 @@ function paintTrabajadoresList(trabajadores, listEl, repaint) {
   }
   listEl.innerHTML = trabajadores.map((t) => `
     <div class="card ${!t.activo ? 'card-inactive' : ''}">
-      <div class="row between" style="align-items:flex-start">
+      <div class="row between align-start">
         <div>
           <strong>${esc(t.nombre)}</strong>
-          ${t.puesto ? `<div class="muted" style="font-size:0.8rem">${esc(t.puesto)}</div>` : ''}
-          <div style="margin-top:4px;font-size:0.8rem">
+          ${t.puesto ? `<div class="muted fs-08">${esc(t.puesto)}</div>` : ''}
+          <div class="mt4-fs08">
             <span class="badge muted">${esc(TIPO_PAGO_LABELS[t.tipo_pago] || t.tipo_pago)}</span>
             <span class="badge muted">${esc(PERIODICIDAD_LABELS[t.periodicidad] || t.periodicidad)}</span>
             ${!t.activo ? `<span class="badge red">Inactivo</span>` : ''}
           </div>
         </div>
-        <div class="row" style="gap:6px;flex-wrap:nowrap;align-items:flex-start">
+        <div class="row row-nowrap-gap6-start">
           ${puedeGestionarTrabajadores() ? `
             <button class="btn small" data-edit-trab="${t.id}">Editar</button>
             <button class="btn small" data-docs-trab="${t.id}" data-docs-nombre="${esc(t.nombre)}">Docs</button>
@@ -5778,7 +5780,7 @@ function paintTrabajadoresList(trabajadores, listEl, repaint) {
         </div>
       </div>
       ${t.tipo_pago !== 'destajo' ? `
-        <div class="muted" style="font-size:0.78rem;margin-top:4px">
+        <div class="muted fs078-mt4">
           Tarifa jornal: $${Number(t.tarifa_jornal || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })} / día
         </div>` : ''}
     </div>
@@ -5866,22 +5868,22 @@ async function openTrabajadorModal(trab, repaint) {
   openModal(`
     <h3>${isEdit ? 'Editar trabajador' : 'Nuevo trabajador'}</h3>
     <div class="trab-form-grid">
-      <div class="field" style="grid-column:1/-1"><label>Nombre completo *</label><input id="tNombre" value="${esc(trab?.nombre || '')}" /></div>
+      <div class="field field-full"><label>Nombre completo *</label><input id="tNombre" value="${esc(trab?.nombre || '')}" /></div>
       <div class="field"><label>Puesto</label><input id="tPuesto" value="${esc(trab?.puesto || '')}" /></div>
       <div class="field"><label>Fecha de ingreso</label><input id="tFechaIngreso" type="date" value="${trab?.fecha_ingreso ? trab.fecha_ingreso.slice(0,10) : ''}" /></div>
       <div class="field"><label>Tipo de pago *</label><select id="tTipoPago">${tipoPagoOpts}</select></div>
       <div class="field"><label>Periodicidad *</label><select id="tPeriodicidad">${periodicidadOpts}</select></div>
-      <div class="field" id="tTarifaField" style="grid-column:1/-1"><label>Tarifa jornal ($/día)</label><input id="tTarifa" type="text" inputmode="decimal" value="${formatMoneyInputDisplay(trab?.tarifa_jornal ?? '')}" /></div>
-      <div class="field" style="grid-column:1/-1">
+      <div class="field field-full" id="tTarifaField"><label>Tarifa jornal ($/día)</label><input id="tTarifa" type="text" inputmode="decimal" value="${formatMoneyInputDisplay(trab?.tarifa_jornal ?? '')}" /></div>
+      <div class="field field-full">
         <label>Vínculo con destajista (opcional)</label>
         <select id="tDestajista">${destajistaOpts}</select>
-        <p class="muted" style="font-size:0.76rem;margin:2px 0 0">Permite importar producción de destajo al calcular nómina.</p>
+        <p class="muted fs076-m200">Permite importar producción de destajo al calcular nómina.</p>
       </div>
       <div class="field"><label>CURP</label><input id="tCurp" value="${esc(trab?.curp || '')}" /></div>
       <div class="field"><label>RFC</label><input id="tRfc" value="${esc(trab?.rfc || '')}" /></div>
       <div class="field"><label>NSS</label><input id="tNss" value="${esc(trab?.nss || '')}" /></div>
       <div class="field"><label>Teléfono</label><input id="tTelefono" value="${esc(trab?.telefono || '')}" /></div>
-      <div class="field" style="grid-column:1/-1"><label>Dirección</label><input id="tDireccion" value="${esc(trab?.direccion || '')}" /></div>
+      <div class="field field-full"><label>Dirección</label><input id="tDireccion" value="${esc(trab?.direccion || '')}" /></div>
       <div class="field"><label>Contacto de emergencia — nombre</label><input id="tContactoNombre" value="${esc(trab?.contacto_emergencia_nombre || '')}" /></div>
       <div class="field"><label>Contacto de emergencia — teléfono</label><input id="tContactoTel" value="${esc(trab?.contacto_emergencia_telefono || '')}" /></div>
     </div>
@@ -5946,7 +5948,7 @@ async function openBajaModal(id, nombre, repaint) {
   openModal(`
     <h3>Dar de baja a ${esc(nombre)}</h3>
     <p class="muted">El trabajador quedará inactivo. Su expediente e historial se conservan. Puedes reactivarlo en cualquier momento.</p>
-    <div style="display:grid;gap:8px">
+    <div class="grid-gap8">
       <div class="field">
         <label>Motivo de baja *</label>
         <select id="tMotivoBaja">
@@ -5958,7 +5960,7 @@ async function openBajaModal(id, nombre, repaint) {
         <input id="tFechaBaja" type="date" value="${new Date().toISOString().slice(0,10)}" />
       </div>
       <div class="field" id="bajaNatasField">
-        <label>Notas <span id="bajaNotasReq" style="display:none;color:var(--color-danger)">*</span></label>
+        <label>Notas <span id="bajaNotasReq" class="hidden-initial baja-notas-req">*</span></label>
         <textarea id="tNotasBaja" rows="3" placeholder="Detalles adicionales…"></textarea>
       </div>
     </div>
@@ -5969,6 +5971,7 @@ async function openBajaModal(id, nombre, repaint) {
   `);
   $('#tMotivoBaja').addEventListener('change', () => {
     const esOtro = $('#tMotivoBaja').value === 'otro';
+    if (esOtro) $('#bajaNotasReq').classList.remove('hidden-initial'); // ver .hidden-initial en styles.css
     $('#bajaNotasReq').style.display = esOtro ? '' : 'none';
   });
   $('#btnCancelBaja').addEventListener('click', closeModal);
@@ -5995,9 +5998,9 @@ async function openDocumentosModal(trabajadorId, nombreTrab) {
     <h3>Documentos — ${esc(nombreTrab)}</h3>
     <div id="docsListEl"><div class="empty-state">Cargando…</div></div>
     ${puedeGestionarTrabajadores() ? `
-    <div style="margin-top:12px;border-top:1px solid var(--border-color);padding-top:12px">
-      <p class="muted" style="font-size:0.85rem;margin:0 0 8px">Subir nuevo documento (INE, CURP, comprobante de domicilio)</p>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+    <div class="section-divider-12">
+      <p class="muted fs085-m008">Subir nuevo documento (INE, CURP, comprobante de domicilio)</p>
+      <div class="form-grid-mb8">
         <div class="field"><label>Tipo</label>
           <select id="docTipo">
             ${Object.entries(TIPO_DOC_LABELS).map(([v, l]) => `<option value="${v}">${l}</option>`).join('')}
@@ -6017,9 +6020,9 @@ async function openDocumentosModal(trabajadorId, nombreTrab) {
     if (!el) return;
     if (!docs.length) { el.innerHTML = '<div class="empty-state">Sin documentos cargados.</div>'; return; }
     el.innerHTML = docs.map((d) => `
-      <div class="row between" style="padding:6px 0;border-bottom:1px solid var(--border-color)">
-        <span style="font-size:0.85rem">${esc(TIPO_DOC_LABELS[d.tipo_doc] || d.tipo_doc)} — ${esc(d.nombre_original)}</span>
-        <div class="row" style="gap:6px">
+      <div class="row between row-list-item-bc">
+        <span class="fs-085">${esc(TIPO_DOC_LABELS[d.tipo_doc] || d.tipo_doc)} — ${esc(d.nombre_original)}</span>
+        <div class="row gap-6">
           <button class="btn small" data-dl-doc="${d.id}" data-dl-nombre="${esc(d.nombre_original)}">Descargar</button>
           ${puedeGestionarTrabajadores() ? `<button class="btn small btn-danger" data-del-doc="${d.id}">Eliminar</button>` : ''}
         </div>
@@ -6621,7 +6624,7 @@ async function renderNominas(view) {
 async function openNominaModal(nomina, onSave) {
   openModal(`
     <h3>Nueva nómina</h3>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+    <div class="trab-form-grid">
       <div class="field"><label>Fecha inicio *</label><input id="nFechaInicio" type="date" /></div>
       <div class="field"><label>Fecha fin *</label><input id="nFechaFin" type="date" /></div>
     </div>
@@ -6713,7 +6716,7 @@ async function openCambioEstadoModal(nominaId, nuevoEstado, pedirNota, onDone) {
   openModal(`
     <h3>${accionLabel}</h3>
     ${pedirNota ? `<div class="field"><label>Nota para el residente (opcional)</label><textarea id="estadoNota" rows="3"></textarea></div>` : ''}
-    <p class="muted" style="font-size:0.88rem">¿Confirmas el cambio de estado?</p>
+    <p class="muted fs-088">¿Confirmas el cambio de estado?</p>
     <div class="modal-actions">
       <button class="btn" id="btnCancelEstado">Cancelar</button>
       <button class="btn btn-primary" id="btnConfirmEstado">Confirmar</button>
@@ -6840,14 +6843,11 @@ function _dbgRender(targetEl, label, swLine, version) {
   }
 
   targetEl.innerHTML =
-    `<div style="margin-bottom:10px">` +
-      `<span style="font-size:0.72rem;font-weight:700;color:var(--text-secondary);` +
-           `text-transform:uppercase;letter-spacing:.06em">Versión</span><br>` +
-      `<span style="font-family:monospace;font-size:1rem;font-weight:700;` +
-           `color:var(--accent-gold)">${version}</span>` +
+    `<div class="mb-10">` +
+      `<span class="dbg-label">Versión</span><br>` +
+      `<span class="dbg-version">${version}</span>` +
     `</div>` +
-    `<pre style="margin:0;font-size:10.5px;line-height:1.7;color:var(--text-secondary);` +
-         `white-space:pre-wrap;word-break:break-all;font-family:monospace">` +
+    `<pre class="dbg-pre">` +
     `[${label}]\n` +
     `--topbar-h: ${th}\n` +
     `--tabs-h:   ${tbh}\n` +

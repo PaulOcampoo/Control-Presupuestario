@@ -4861,83 +4861,80 @@ async function renderSugerencias(view) {
 
   const imgsHtml = (imgs) => {
     if (!imgs || !imgs.length) return '';
-    return `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px">
+    return `<div class="sug-imgs-wrap">
       ${imgs.map((img) => `
-        <a href="${esc(img.blob_url)}" target="_blank" rel="noopener" title="${esc(img.nombre_archivo)}"
-           style="display:block;width:72px;height:72px;border-radius:8px;overflow:hidden;border:1px solid var(--border-color);flex-shrink:0">
-          <img src="${esc(img.blob_url)}" style="width:100%;height:100%;object-fit:cover" loading="lazy">
+        <a href="${esc(img.blob_url)}" target="_blank" rel="noopener" title="${esc(img.nombre_archivo)}" class="sug-img-link">
+          <img src="${esc(img.blob_url)}" class="sug-img-cover" loading="lazy">
         </a>`).join('')}
     </div>`;
   };
 
   const tarjetaMia = (s) => `
-    <div class="card" style="margin-bottom:10px;padding:14px 16px">
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
-        <p style="margin:0;flex:1;font-size:0.92rem;white-space:pre-wrap">${esc(s.texto)}</p>
+    <div class="card sug-card-mia">
+      <div class="sug-header-row">
+        <p class="sug-texto-mia">${esc(s.texto)}</p>
         ${estadoBadge(s.estado)}
       </div>
       ${imgsHtml(s.imagenes)}
-      <p style="margin:8px 0 0;font-size:0.75rem;color:var(--text-secondary)">${esc(s.creado_en?.slice(0, 16).replace('T', ' ') || '')}</p>
+      <p class="sug-fecha-mia">${esc(s.creado_en?.slice(0, 16).replace('T', ' ') || '')}</p>
     </div>`;
 
   const tarjetaAdmin = (s) => `
-    <div class="card" style="margin-bottom:12px;padding:14px 16px" data-sug-id="${s.id}">
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:8px">
+    <div class="card sug-card-admin" data-sug-id="${s.id}">
+      <div class="sug-header-row-admin">
         <div>
-          <span style="font-weight:600;font-size:0.88rem">${esc(s.autor_nombre)}</span>
-          <span style="font-size:0.75rem;color:var(--text-secondary);margin-left:6px">${esc(s.autor_puesto || '')}</span>
-          <span style="font-size:0.75rem;color:var(--text-secondary);margin-left:6px">${esc(s.creado_en?.slice(0, 16).replace('T', ' ') || '')}</span>
+          <span class="sug-autor-nombre">${esc(s.autor_nombre)}</span>
+          <span class="sug-meta-inline">${esc(s.autor_puesto || '')}</span>
+          <span class="sug-meta-inline">${esc(s.creado_en?.slice(0, 16).replace('T', ' ') || '')}</span>
         </div>
-        <select class="input sug-estado-select" data-sug-id="${s.id}" style="font-size:0.8rem;padding:3px 6px;width:auto">
+        <select class="input sug-estado-select" data-sug-id="${s.id}">
           ${['pendiente','revisada','implementada','descartada'].map((e) =>
             `<option value="${e}" ${s.estado === e ? 'selected' : ''}>${SUGERENCIA_ESTADO_LABELS[e]}</option>`
           ).join('')}
         </select>
       </div>
-      <p style="margin:0 0 6px;font-size:0.92rem;white-space:pre-wrap">${esc(s.texto)}</p>
+      <p class="sug-texto-admin">${esc(s.texto)}</p>
       ${imgsHtml(s.imagenes)}
       ${s.prompt_generado ? `
-        <div style="background:var(--surface-raised);border:1px solid var(--border-color);border-radius:8px;padding:10px 12px;margin:10px 0">
-          <div style="font-size:0.72rem;font-weight:700;color:var(--accent-blue);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Prompt IA generado</div>
-          <pre style="margin:0;font-size:0.82rem;white-space:pre-wrap;color:var(--text-primary);font-family:inherit">${esc(s.prompt_generado)}</pre>
-          <button class="btn sug-copy-btn" data-sug-id="${s.id}" style="margin-top:8px;font-size:0.78rem;padding:4px 10px">Copiar</button>
+        <div class="sug-prompt-box">
+          <div class="sug-prompt-label">Prompt IA generado</div>
+          <pre class="sug-prompt-pre">${esc(s.prompt_generado)}</pre>
+          <button class="btn sug-copy-btn" data-sug-id="${s.id}">Copiar</button>
         </div>` : ''}
-      <button class="btn sug-gen-btn" data-sug-id="${s.id}" style="font-size:0.82rem;padding:5px 12px;margin-top:8px">
+      <button class="btn sug-gen-btn" data-sug-id="${s.id}">
         ${s.prompt_generado ? 'Regenerar prompt IA' : '✨ Generar prompt IA'}
       </button>
-      ${isDesarrollador() ? `<button class="btn sug-del-btn" data-sug-id="${s.id}" style="font-size:0.82rem;padding:5px 12px;margin-top:8px;margin-left:6px;background:var(--danger,#e53935);color:#fff;border-color:var(--danger,#e53935)">Eliminar</button>` : ''}
+      ${isDesarrollador() ? `<button class="btn sug-del-btn" data-sug-id="${s.id}">Eliminar</button>` : ''}
     </div>`;
 
   view.innerHTML = `
     <h2 class="section-title">💡 Sugerencias</h2>
 
-    <div class="card" style="margin-bottom:24px;padding:14px 16px">
-      <h3 style="margin:0 0 10px;font-size:1rem">Enviar una sugerencia</h3>
+    <div class="card sug-form-card">
+      <h3 class="sug-form-title">Enviar una sugerencia</h3>
       <textarea id="sugTexto" class="input" rows="4" maxlength="2000"
-        placeholder="Describe tu idea o mejora para la app…"
-        style="resize:vertical;min-height:80px;margin-bottom:10px"></textarea>
+        placeholder="Describe tu idea o mejora para la app…"></textarea>
 
-      <div id="sugThumbArea" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px"></div>
+      <div id="sugThumbArea"></div>
 
-      <div style="display:flex;align-items:center;gap:10px">
-        <button id="sugAttachBtn" title="Adjuntar imagen"
-          style="display:flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:50%;background:var(--surface-raised);border:1px solid var(--border-color);cursor:pointer;font-size:1.1rem;flex-shrink:0">
+      <div class="sug-form-actions">
+        <button id="sugAttachBtn" title="Adjuntar imagen">
           📎
         </button>
-        <span style="flex:1;font-size:0.73rem;color:var(--text-secondary)">Máx. 2 000 caracteres · 5 imágenes · límite: 5/hora</span>
+        <span class="sug-hint">Máx. 2 000 caracteres · 5 imágenes · límite: 5/hora</span>
         <button class="btn btn-primary" id="sugEnviarBtn">Enviar</button>
       </div>
-      <input type="file" id="sugFileInput" accept="image/*" multiple style="display:none">
+      <input type="file" id="sugFileInput" accept="image/*" multiple class="hidden-initial">
     </div>
 
     ${mias.length ? `
-      <h3 class="section-title" style="margin-bottom:8px">Mis sugerencias</h3>
+      <h3 class="section-title sug-mias-title">Mis sugerencias</h3>
       ${mias.map(tarjetaMia).join('')}` : ''}
 
     ${isAdmin() && todas ? `
-      <hr style="border:none;border-top:1px solid var(--border-color);margin:24px 0">
-      <h3 class="section-title" style="margin-bottom:12px">Panel admin — todas las sugerencias (${todas.length})</h3>
-      ${todas.length ? todas.map(tarjetaAdmin).join('') : '<p style="color:var(--text-secondary)">No hay sugerencias aún.</p>'}
+      <hr class="sug-divider">
+      <h3 class="section-title sug-panel-admin-title">Panel admin — todas las sugerencias (${todas.length})</h3>
+      ${todas.length ? todas.map(tarjetaAdmin).join('') : '<p class="sug-empty-msg">No hay sugerencias aún.</p>'}
     ` : ''}
   `;
 
@@ -4946,11 +4943,9 @@ async function renderSugerencias(view) {
     const area = $('#sugThumbArea');
     if (!sugFiles.length) { area.innerHTML = ''; return; }
     area.innerHTML = sugFiles.map((f, i) => `
-      <div style="position:relative;width:72px;height:72px;flex-shrink:0" data-thumb="${i}">
-        <img src="${URL.createObjectURL(f)}"
-          style="width:72px;height:72px;object-fit:cover;border-radius:8px;border:1px solid var(--border-color);display:block">
-        <button data-rm="${i}"
-          style="position:absolute;top:2px;right:2px;width:18px;height:18px;border-radius:50%;background:rgba(0,0,0,.65);color:#fff;border:none;cursor:pointer;font-size:10px;display:flex;align-items:center;justify-content:center;padding:0;line-height:1">✕</button>
+      <div class="sug-thumb-wrap" data-thumb="${i}">
+        <img src="${URL.createObjectURL(f)}" class="sug-thumb-img">
+        <button data-rm="${i}" class="sug-thumb-remove">✕</button>
       </div>`).join('');
     $$('[data-rm]', area).forEach((btn) => {
       btn.addEventListener('click', () => {

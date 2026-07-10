@@ -413,6 +413,9 @@ function effectivePuesto() { return state.simulatedPuesto ?? state.user?.puesto;
 
 function isAdmin() { return !!state.user && ['admin', 'desarrollador'].includes(effectivePuesto()); }
 function isDesarrollador() { return !!state.user && state.user.puesto === 'desarrollador'; } // siempre puesto real
+// Puesto REAL (no effectivePuesto): para acciones que ni siquiera la vista
+// simulada debe ocultar/mostrar de forma distinta al rol verdadero del usuario.
+function isAdminRealSinSimular() { return !!state.user && ['admin', 'desarrollador'].includes(state.user.puesto); }
 function canManageDestajo() { return !!state.user && (isAdmin() || ['residente'].includes(effectivePuesto())); }
 function puedeGenerarOC() { return !!state.user && (isAdmin() || ['compras'].includes(effectivePuesto())); }
 function puedeAutorizarRequisicion() { return !!state.user && (isAdmin() || ['logistica'].includes(effectivePuesto())); }
@@ -6224,16 +6227,45 @@ async function openEppModal(trabajadorId, nombreTrab) {
     const el = $('#eppListEl');
     if (!el) return;
     if (!entregas.length) { el.innerHTML = '<div class="empty-state">Sin registros de entrega de EPP.</div>'; return; }
+    const puedeEliminar = isAdminRealSinSimular();
     el.innerHTML = entregas.map((e) => `
-      <div class="list-row-between">
+      <div class="list-row-between" data-entrega-row="${e.id}">
         <div>
           <span class="epp-item-nombre">${esc(e.nombre_item)}</span>
           <span class="muted fs-08"> × ${e.cantidad}</span>
           <div class="muted fs-075">${fmtDateShort(e.fecha_entrega)} · ${esc(e.entregado_por_nombre || '—')}</div>
         </div>
-        ${e.firma_digital ? `<img src="${e.firma_digital}" alt="firma" class="epp-firma-thumb" />` : '<span class="muted fs-075">Sin firma</span>'}
+        <div class="epp-entrega-actions">
+          ${e.firma_digital ? `<img src="${e.firma_digital}" alt="firma" class="epp-firma-thumb" data-ver-firma="${e.id}" />` : '<span class="muted fs-075">Sin firma</span>'}
+          ${puedeEliminar ? `<button class="btn small btn-danger" data-del-entrega="${e.id}" title="Eliminar registro">✕</button>` : ''}
+        </div>
       </div>
     `).join('');
+
+    $$('[data-ver-firma]', el).forEach((img) => {
+      img.addEventListener('click', () => {
+        openModal(`
+          <div class="modal-header-row">
+            <h3 class="modal-title">Firma digital</h3>
+            <button class="icon-btn modal-close-btn" id="btnCerrarFirmaGrande">✕</button>
+          </div>
+          <img src="${img.src}" alt="firma" class="firma-full-img" />
+        `);
+        $('#btnCerrarFirmaGrande').addEventListener('click', closeModal);
+      });
+    });
+
+    $$('[data-del-entrega]', el).forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        if (!confirm('¿Eliminar este registro de entrega permanentemente? No se puede deshacer.')) return;
+        btn.disabled = true;
+        try {
+          await api(`/projects/${state.projectId}/trabajadores/${trabajadorId}/epp-entregas/${btn.dataset.delEntrega}`, { method: 'DELETE' });
+          toast('Registro de entrega eliminado', 'success');
+          $(`[data-entrega-row="${btn.dataset.delEntrega}"]`)?.remove();
+        } catch (err) { toast(err.message, 'danger'); btn.disabled = false; }
+      });
+    });
   }
   await loadEpp();
 

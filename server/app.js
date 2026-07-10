@@ -3543,6 +3543,21 @@ app.post('/api/projects/:id/trabajadores/:wId/epp-entregas', h(auth.allow('resid
   res.status(201).json(rows[0]);
 }));
 
+// Borrado físico, solo Admin/Desarrollador — una entrega con firma no se edita,
+// solo se elimina y se vuelve a capturar si hubo un error.
+app.delete('/api/projects/:id/trabajadores/:wId/epp-entregas/:entregaId', h(auth.allow()), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  const wId = Number(req.params.wId);
+  const entregaId = Number(req.params.entregaId);
+  const { rows: wRows } = await db.pool.query('SELECT id FROM trabajadores WHERE id=$1 AND project_id=$2', [wId, req.project.id]);
+  if (!wRows[0]) return res.status(404).json({ error: 'Trabajador no encontrado' });
+  const { rows } = await db.pool.query(
+    'DELETE FROM epp_entregas WHERE id=$1 AND trabajador_id=$2 RETURNING id',
+    [entregaId, wId]
+  );
+  if (!rows[0]) return res.status(404).json({ error: 'Registro de entrega no encontrado' });
+  res.json({ ok: true });
+}));
+
 // ===========================================================================
 // ASISTENCIA DIARIA
 // ===========================================================================

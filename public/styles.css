@@ -1502,3 +1502,10 @@ body.modal-open { overflow: hidden; }
 .dbg-label { font-size: 0.72rem; font-weight: 700; color: var(--text-secondary); text-transform: uppercase; letter-spacing: .06em; }
 .dbg-version { font-family: monospace; font-size: 1rem; font-weight: 700; color: var(--accent-gold); }
 .dbg-pre { margin: 0; font-size: 10.5px; line-height: 1.7; color: var(--text-secondary); white-space: pre-wrap; word-break: break-all; font-family: monospace; }
+
+/* ── 2FA TOTP — inscripción, login y backup codes ────────────────────────── */
+.totp-qr-wrap { display: flex; justify-content: center; margin: 14px 0; }
+.totp-qr-img { width: 220px; height: 220px; border-radius: 8px; border: 1px solid var(--border-color); background: #fff; padding: 8px; }
+.totp-manual-key { font-family: monospace; font-size: 0.8rem; background: var(--surface-raised); padding: 2px 6px; border-radius: 4px; word-break: break-all; }
+.totp-backup-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 12px 0; }
+.totp-backup-code { font-family: monospace; font-size: 0.95rem; text-align: center; padding: 8px; background: var(--surface-raised); border: 1px solid var(--border-color); border-radius: 6px; letter-spacing: 0.05em; }

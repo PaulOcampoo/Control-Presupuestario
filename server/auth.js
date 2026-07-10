@@ -1,7 +1,9 @@
 'use strict';
 
+const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const OTPAuth = require('otpauth');
 const db = require('./db');
 
 const SESSION_SECRET = process.env.SESSION_SECRET;
@@ -9,9 +11,17 @@ if (!SESSION_SECRET) {
   throw new Error('SESSION_SECRET no está configurada en las variables de entorno — la app no puede arrancar sin ella.');
 }
 
+const TOTP_ENC_KEY = process.env.TOTP_ENC_KEY;
+if (!TOTP_ENC_KEY || !/^[0-9a-f]{64}$/i.test(TOTP_ENC_KEY)) {
+  throw new Error('TOTP_ENC_KEY no está configurada (o no es un hex de 64 caracteres / 32 bytes) — la app no puede arrancar sin ella.');
+}
+const TOTP_ENC_KEY_BUF = Buffer.from(TOTP_ENC_KEY, 'hex');
+
 const TOKEN_TTL = '2h';
 const REFRESH_TTL = '7d';
 const REFRESH_COOKIE = 'cp_refresh';
+const PRE_AUTH_TTL = '5m';
+const TOTP_ISSUER = 'Grupo Roforb — Control Presupuestal';
 
 // Puestos y qué pestañas puede ver cada uno. 'admin' tiene acceso total
 // (se resuelve aparte en allow(), no necesita listarse en cada pestaña).
@@ -63,6 +73,99 @@ function buildRefreshCookie(token, clear = false) {
   return `${REFRESH_COOKIE}=${value}; HttpOnly; SameSite=Strict; Path=/api/auth/refresh; Max-Age=${maxAge}${isProd ? '; Secure' : ''}`;
 }
 
+// Token intermedio (5 min) entre password OK y el 2° factor TOTP. stage:'pre_totp'
+// impide que requireAuth lo acepte como sesión completa aunque alguien lo mande
+// como Bearer a un endpoint protegido. enroll=true cuando es inscripción forzada
+// (primer login sin TOTP configurado) vs. login normal ya inscrito.
+function signPreAuthToken(user, { enroll = false } = {}) {
+  return jwt.sign({ id: user.id, usuario: user.usuario, stage: 'pre_totp', enroll }, SESSION_SECRET, { expiresIn: PRE_AUTH_TTL });
+}
+
+function verifyPreAuthToken(token) {
+  const decoded = jwt.verify(token, SESSION_SECRET);
+  if (decoded.stage !== 'pre_totp') throw new Error('Token no es de pre-autenticación');
+  return decoded;
+}
+
+// ---------------------------------------------------------------------------
+// TOTP (2FA) — el secret se cifra en reposo (AES-256-GCM) porque, a diferencia
+// de una contraseña, necesita ser recuperable para poder verificar el código.
+// ---------------------------------------------------------------------------
+function encryptTotpSecret(plainBase32) {
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', TOTP_ENC_KEY_BUF, iv);
+  const enc = Buffer.concat([cipher.update(plainBase32, 'utf8'), cipher.final()]);
+  const authTag = cipher.getAuthTag();
+  return `${iv.toString('hex')}:${authTag.toString('hex')}:${enc.toString('hex')}`;
+}
+
+function decryptTotpSecret(stored) {
+  const [ivHex, tagHex, dataHex] = stored.split(':');
+  const decipher = crypto.createDecipheriv('aes-256-gcm', TOTP_ENC_KEY_BUF, Buffer.from(ivHex, 'hex'));
+  decipher.setAuthTag(Buffer.from(tagHex, 'hex'));
+  const dec = Buffer.concat([decipher.update(Buffer.from(dataHex, 'hex')), decipher.final()]);
+  return dec.toString('utf8');
+}
+
+// Genera un secret TOTP nuevo (base32, sin cifrar — se cifra al guardarlo en DB).
+function generateTotpSecret() {
+  return new OTPAuth.Secret({ size: 20 }).base32;
+}
+
+// URI otpauth:// para el QR (Google Authenticator, Authy, etc.)
+function buildTotpUri(usuario, secretBase32) {
+  const totp = new OTPAuth.TOTP({
+    issuer: TOTP_ISSUER,
+    label: usuario,
+    algorithm: 'SHA1',
+    digits: 6,
+    period: 30,
+    secret: OTPAuth.Secret.fromBase32(secretBase32),
+  });
+  return totp.toString();
+}
+
+// Verifica un código de 6 dígitos contra el secret (base32, ya descifrado).
+// window:1 tolera desfase de reloj de ±30s en el dispositivo del usuario.
+function verifyTotpCode(secretBase32, code) {
+  if (!/^\d{6}$/.test(String(code || ''))) return false;
+  const totp = new OTPAuth.TOTP({
+    algorithm: 'SHA1', digits: 6, period: 30,
+    secret: OTPAuth.Secret.fromBase32(secretBase32),
+  });
+  return totp.validate({ token: String(code), window: 1 }) !== null;
+}
+
+// Genera N códigos de respaldo (formato XXXX-XXXX legible) — se devuelven en
+// claro UNA sola vez al llamador; solo el hash de cada uno se persiste.
+async function generateBackupCodes(count = 10) {
+  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // sin 0/O/1/I para evitar confusión
+  const rawCodes = [];
+  for (let i = 0; i < count; i++) {
+    let code = '';
+    const bytes = crypto.randomBytes(8);
+    for (let b = 0; b < 8; b++) code += alphabet[bytes[b] % alphabet.length];
+    rawCodes.push(code);
+  }
+  // Se hashea el código "en crudo" (sin guion); el guion es solo cosmético al mostrarlo.
+  const hashed = await Promise.all(rawCodes.map(async (code) => ({ hash: await bcrypt.hash(code, 10), used: false })));
+  const plain = rawCodes.map((c) => `${c.slice(0, 4)}-${c.slice(4)}`);
+  return { plain, hashed };
+}
+
+// Busca un código de respaldo válido y no usado dentro del array almacenado
+// (JSONB [{hash, used}]). Devuelve el índice del que coincide, o -1 si ninguno.
+async function findBackupCodeIndex(inputCode, storedCodes) {
+  const norm = String(inputCode || '').trim().toUpperCase().replace(/[\s-]+/g, '');
+  if (!norm || !Array.isArray(storedCodes)) return -1;
+  for (let i = 0; i < storedCodes.length; i++) {
+    if (storedCodes[i].used) continue;
+    // eslint-disable-next-line no-await-in-loop
+    if (await bcrypt.compare(norm, storedCodes[i].hash)) return i;
+  }
+  return -1;
+}
+
 // Exige un token válido en Authorization: Bearer <token>; deja al usuario en req.user.
 // Verifica además que el token no fue revocado (iat > token_valid_since en DB).
 async function requireAuth(req, res, next) {
@@ -74,6 +177,11 @@ async function requireAuth(req, res, next) {
     decoded = jwt.verify(token, SESSION_SECRET);
   } catch {
     return res.status(401).json({ error: 'Sesión inválida o expirada, inicia sesión de nuevo' });
+  }
+  // El token intermedio de pre-TOTP (5 min) nunca debe servir como sesión completa,
+  // aunque alguien lo mande como Bearer antes de completar el 2° factor.
+  if (decoded.stage === 'pre_totp') {
+    return res.status(401).json({ error: 'Falta completar la verificación en dos pasos' });
   }
   try {
     const { rows } = await db.pool.query(
@@ -161,6 +269,15 @@ module.exports = {
   signRefreshToken,
   verifyRefreshToken,
   buildRefreshCookie,
+  signPreAuthToken,
+  verifyPreAuthToken,
+  encryptTotpSecret,
+  decryptTotpSecret,
+  generateTotpSecret,
+  buildTotpUri,
+  verifyTotpCode,
+  generateBackupCodes,
+  findBackupCodeIndex,
   requireAuth,
   allow,
   verificarAccesoObra,

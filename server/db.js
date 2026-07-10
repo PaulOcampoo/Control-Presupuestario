@@ -374,6 +374,13 @@ const SCHEMA = `
   ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN NOT NULL DEFAULT false;
   ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS token_valid_since TIMESTAMPTZ NOT NULL DEFAULT '2020-01-01 00:00:00+00';
 
+  -- 2FA TOTP: secret cifrado (AES-256-GCM con TOTP_ENC_KEY, no en texto plano),
+  -- totp_enabled=false fuerza el flujo de inscripción en el próximo login,
+  -- backup codes como JSONB [{hash, used}] (bcrypt individual, un solo uso c/u).
+  ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS totp_secret TEXT;
+  ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS totp_enabled BOOLEAN NOT NULL DEFAULT false;
+  ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS totp_backup_codes JSONB;
+
   -- Intentos de login para rate limiting por usuario (serverless-safe:
   -- persiste entre instancias). Índice compuesto para la consulta de ventana
   -- temporal (identificador + creado_en).

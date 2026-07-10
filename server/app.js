@@ -8,6 +8,7 @@ const { pipeline } = require('stream/promises');
 const express = require('express');
 const multer = require('multer');
 const Anthropic = require('@anthropic-ai/sdk');
+const QRCode = require('qrcode');
 const { del, get, put } = require('@vercel/blob');
 const { handleUpload } = require('@vercel/blob/client');
 
@@ -116,6 +117,22 @@ function metaToObject(rows) {
   return o;
 }
 
+// Emite la sesión completa (access token + refresh cookie) una vez pasado el
+// 2° factor (o durante enroll-confirm). Mismo shape que el login pre-2FA;
+// `extra` permite añadir campos puntuales (ej. backupCodes, solo en enroll).
+function issueFullSession(res, user, extra = {}) {
+  const token = auth.signToken(user);
+  const refreshToken = auth.signRefreshToken(user);
+  res.setHeader('Set-Cookie', auth.buildRefreshCookie(refreshToken));
+  res.json({
+    token,
+    user: { id: user.id, nombre: user.nombre, usuario: user.usuario, puesto: user.puesto },
+    tabs: auth.PERMISSIONS[user.puesto] ? auth.PERMISSIONS[user.puesto].tabs : [],
+    must_change_password: user.must_change_password || false,
+    ...extra,
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Autenticación (pública) — a partir de aquí, todo /api/* exige sesión
 // ---------------------------------------------------------------------------
@@ -167,15 +184,124 @@ app.post('/api/auth/login', h(async (req, res) => {
     return res.status(401).json({ error: 'Usuario o contraseña incorrectos' });
   }
 
-  const token = auth.signToken(user);
-  const refreshToken = auth.signRefreshToken(user);
-  res.setHeader('Set-Cookie', auth.buildRefreshCookie(refreshToken));
-  res.json({
-    token,
-    user: { id: user.id, nombre: user.nombre, usuario: user.usuario, puesto: user.puesto },
-    tabs: auth.PERMISSIONS[user.puesto] ? auth.PERMISSIONS[user.puesto].tabs : [],
-    must_change_password: user.must_change_password || false,
-  });
+  // 2FA obligatorio para todos los roles: la contraseña correcta ya no basta
+  // para emitir el JWT completo — falta el paso de TOTP.
+  if (!user.totp_enabled) {
+    // Inscripción forzada. Si ya había un secret pendiente sin confirmar (el
+    // usuario escaneó el QR pero no llegó a confirmar el código en un intento
+    // anterior), se reutiliza para que ese QR ya escaneado siga siendo válido
+    // en vez de invalidarlo con un secret nuevo en cada intento.
+    let secretBase32;
+    if (user.totp_secret) {
+      secretBase32 = auth.decryptTotpSecret(user.totp_secret);
+    } else {
+      secretBase32 = auth.generateTotpSecret();
+      await db.pool.query('UPDATE usuarios SET totp_secret = $1 WHERE id = $2', [auth.encryptTotpSecret(secretBase32), user.id]);
+    }
+    const otpauthUri = auth.buildTotpUri(user.usuario, secretBase32);
+    const qrDataUri = await QRCode.toDataURL(otpauthUri);
+    return res.json({
+      requiresEnrollment: true,
+      preAuthToken: auth.signPreAuthToken(user, { enroll: true }),
+      qrDataUri,
+      manualEntryKey: secretBase32,
+    });
+  }
+
+  return res.json({ requiresTotp: true, preAuthToken: auth.signPreAuthToken(user, { enroll: false }) });
+}));
+
+// Rate limiting de intentos de código TOTP: reutiliza api_rate_limits (mismo
+// mecanismo que otros endpoints), solo cuenta FALLOS — un intento correcto no
+// cuenta contra el límite. 5 fallos en 15 minutos por usuario.
+const TOTP_RATE_LIMIT = 5;
+async function checkTotpRateLimit(usuarioId) {
+  const { rows } = await db.pool.query(
+    `SELECT COUNT(*)::int AS n FROM api_rate_limits
+     WHERE usuario_id = $1 AND endpoint = 'totp_verify'
+       AND creado_en > NOW() - INTERVAL '15 minutes'`,
+    [usuarioId]
+  );
+  return rows[0].n < TOTP_RATE_LIMIT;
+}
+async function registerTotpFailure(usuarioId) {
+  await db.pool.query(`INSERT INTO api_rate_limits (usuario_id, endpoint) VALUES ($1, 'totp_verify')`, [usuarioId]);
+}
+
+// Confirma la inscripción TOTP forzada: valida el código contra el secret
+// pendiente, activa totp_enabled, genera los backup codes (se devuelven en
+// claro UNA SOLA VEZ aquí) y recién entonces emite la sesión completa.
+app.post('/api/auth/totp/enroll-confirm', h(async (req, res) => {
+  const { preAuthToken, code } = req.body || {};
+  let decoded;
+  try {
+    decoded = auth.verifyPreAuthToken(preAuthToken);
+  } catch {
+    return res.status(401).json({ error: 'Token de verificación inválido o expirado, inicia sesión de nuevo' });
+  }
+  if (!decoded.enroll) return res.status(400).json({ error: 'Esta cuenta ya está inscrita en 2FA' });
+
+  if (!(await checkTotpRateLimit(decoded.id))) {
+    return res.status(429).json({ error: 'Demasiados intentos fallidos. Espera 15 minutos e intenta de nuevo.' });
+  }
+
+  const { rows } = await db.pool.query('SELECT * FROM usuarios WHERE id = $1 AND activo = true', [decoded.id]);
+  const user = rows[0];
+  if (!user || !user.totp_secret) return res.status(401).json({ error: 'Sesión inválida, inicia sesión de nuevo' });
+
+  const secretBase32 = auth.decryptTotpSecret(user.totp_secret);
+  if (!auth.verifyTotpCode(secretBase32, code)) {
+    await registerTotpFailure(user.id);
+    return res.status(401).json({ error: 'Código incorrecto' });
+  }
+
+  const { plain: backupCodes, hashed } = await auth.generateBackupCodes(10);
+  await db.pool.query(
+    'UPDATE usuarios SET totp_enabled = true, totp_backup_codes = $1 WHERE id = $2',
+    [JSON.stringify(hashed), user.id]
+  );
+
+  issueFullSession(res, { ...user, totp_enabled: true }, { backupCodes });
+}));
+
+// Verifica el 2° factor en un login normal (usuario ya inscrito): código TOTP
+// de 6 dígitos, o un código de respaldo de un solo uso como alternativa.
+app.post('/api/auth/totp/verify', h(async (req, res) => {
+  const { preAuthToken, code, backupCode } = req.body || {};
+  let decoded;
+  try {
+    decoded = auth.verifyPreAuthToken(preAuthToken);
+  } catch {
+    return res.status(401).json({ error: 'Token de verificación inválido o expirado, inicia sesión de nuevo' });
+  }
+  if (decoded.enroll) return res.status(400).json({ error: 'Esta cuenta todavía no completó su inscripción a 2FA' });
+
+  if (!(await checkTotpRateLimit(decoded.id))) {
+    return res.status(429).json({ error: 'Demasiados intentos fallidos. Espera 15 minutos e intenta de nuevo.' });
+  }
+
+  const { rows } = await db.pool.query('SELECT * FROM usuarios WHERE id = $1 AND activo = true', [decoded.id]);
+  const user = rows[0];
+  if (!user || !user.totp_enabled || !user.totp_secret) return res.status(401).json({ error: 'Sesión inválida, inicia sesión de nuevo' });
+
+  if (backupCode) {
+    const idx = await auth.findBackupCodeIndex(backupCode, user.totp_backup_codes || []);
+    if (idx === -1) {
+      await registerTotpFailure(user.id);
+      return res.status(401).json({ error: 'Código de respaldo inválido o ya usado' });
+    }
+    const updated = [...user.totp_backup_codes];
+    updated[idx] = { ...updated[idx], used: true };
+    await db.pool.query('UPDATE usuarios SET totp_backup_codes = $1 WHERE id = $2', [JSON.stringify(updated), user.id]);
+    return issueFullSession(res, user);
+  }
+
+  const secretBase32 = auth.decryptTotpSecret(user.totp_secret);
+  if (!auth.verifyTotpCode(secretBase32, code)) {
+    await registerTotpFailure(user.id);
+    return res.status(401).json({ error: 'Código incorrecto' });
+  }
+  issueFullSession(res, user);
 }));
 
 // Vercel Cron (ver vercel.json → "crons") — se autentican con CRON_SECRET en
@@ -458,7 +584,7 @@ app.put('/api/notificaciones/leer-todas', h(async (req, res) => {
 // ---------------------------------------------------------------------------
 app.get('/api/usuarios', h(auth.allow('administracion')), h(async (_req, res) => {
   const { rows } = await db.pool.query(
-    'SELECT id, nombre, usuario, puesto, activo, creado_en FROM usuarios ORDER BY id'
+    'SELECT id, nombre, usuario, puesto, activo, creado_en, must_change_password, totp_enabled FROM usuarios ORDER BY id'
   );
   res.json(rows);
 }));
@@ -528,6 +654,25 @@ app.delete('/api/usuarios/:id', h(auth.allow('administracion')), h(async (req, r
   if (id === req.user.id) return res.status(400).json({ error: 'No puedes eliminar tu propia cuenta' });
   const { rowCount } = await db.pool.query('DELETE FROM usuarios WHERE id = $1', [id]);
   if (rowCount === 0) return res.status(404).json({ error: 'Usuario no encontrado' });
+  res.json({ ok: true });
+}));
+
+// Resetea el 2FA de otro usuario (pierde su dispositivo/backup codes): limpia
+// el secret y los backup codes, y fuerza una nueva inscripción en su próximo
+// login. Solo admin/desarrollador (auth.allow() sin roles extra = ellos dos
+// únicamente, ni siquiera 'administracion' — a diferencia del resto de /usuarios).
+app.post('/api/usuarios/:id/totp-reset', h(auth.allow()), h(async (req, res) => {
+  const id = Number(req.params.id);
+  const { rows } = await db.pool.query(
+    'UPDATE usuarios SET totp_secret = NULL, totp_enabled = false, totp_backup_codes = NULL WHERE id = $1 RETURNING id, usuario',
+    [id]
+  );
+  if (!rows[0]) return res.status(404).json({ error: 'Usuario no encontrado' });
+  const ip = ((req.headers['x-forwarded-for'] || '') + '').split(',')[0].trim() || req.socket?.remoteAddress || 'unknown';
+  await db.pool.query(
+    'INSERT INTO audit_log (actor_id, actor_usuario, accion, target_id, target_usuario, ip) VALUES ($1,$2,$3,$4,$5,$6)',
+    [req.user.id, req.user.usuario, 'reset_totp', rows[0].id, rows[0].usuario, ip]
+  );
   res.json({ ok: true });
 }));
 

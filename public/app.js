@@ -1310,6 +1310,18 @@ async function logout() {
 
 $('#btnLogout').addEventListener('click', logout);
 
+// Completa el login (ya pasado el 2° factor, o directo si algún día deja de
+// ser obligatorio): guarda el token, aplica la sesión y arranca la app.
+async function completeLogin(data) {
+  state.token = data.token;
+  localStorage.setItem(TOKEN_KEY, data.token);
+  applySession(data.user, data.tabs);
+  await bootApp();
+  if (data.must_change_password) {
+    setTimeout(() => openMiCuentaModal(true), 400);
+  }
+}
+
 $('#loginForm').addEventListener('submit', async (ev) => {
   ev.preventDefault();
   const usuario = $('#loginUsuario').value.trim();
@@ -1320,13 +1332,13 @@ $('#loginForm').addEventListener('submit', async (ev) => {
   btn.disabled = true; btn.textContent = 'Entrando…';
   try {
     const data = await api('/auth/login', { method: 'POST', body: { usuario, password } });
-    state.token = data.token;
-    localStorage.setItem(TOKEN_KEY, data.token);
-    applySession(data.user, data.tabs);
     $('#loginPassword').value = '';
-    await bootApp();
-    if (data.must_change_password) {
-      setTimeout(() => openMiCuentaModal(true), 400);
+    if (data.requiresEnrollment) {
+      openTotpEnrollModal(data.preAuthToken, data.qrDataUri, data.manualEntryKey);
+    } else if (data.requiresTotp) {
+      openTotpLoginModal(data.preAuthToken);
+    } else {
+      await completeLogin(data);
     }
   } catch (err) {
     errBox.textContent = err.message;
@@ -1336,6 +1348,124 @@ $('#loginForm').addEventListener('submit', async (ev) => {
     btn.disabled = false; btn.textContent = 'Entrar';
   }
 });
+
+// ---------------------------------------------------------------------------
+// 2FA (TOTP) — inscripción forzada y verificación en login normal
+// ---------------------------------------------------------------------------
+// Primer login sin 2FA configurado: muestra el QR (o clave manual) y pide
+// confirmar un código antes de activar totp_enabled y entrar.
+function openTotpEnrollModal(preAuthToken, qrDataUri, manualEntryKey) {
+  openModal(`
+    <h3>Configura la verificación en dos pasos</h3>
+    <p class="muted">Es obligatoria para todas las cuentas. Escanea este código con Google Authenticator, Authy o cualquier app compatible con TOTP.</p>
+    <div class="totp-qr-wrap"><img src="${qrDataUri}" alt="Código QR para configurar 2FA" class="totp-qr-img" /></div>
+    <p class="muted fs-078">¿No puedes escanear el QR? Ingresa esta clave manualmente en tu app: <code class="totp-manual-key">${esc(manualEntryKey)}</code></p>
+    <div class="field"><label>Código de 6 dígitos generado por la app</label><input id="totpEnrollCode" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="000000" /></div>
+    <div id="totpEnrollError" class="alert-box danger hidden-initial"></div>
+    <div class="modal-actions">
+      <button class="btn" id="btnCancelTotpEnroll">Cancelar</button>
+      <button class="btn btn-primary" id="btnConfirmTotpEnroll">Confirmar e ingresar</button>
+    </div>
+  `);
+  $('#totpEnrollCode').focus();
+  $('#btnCancelTotpEnroll').addEventListener('click', closeModal);
+  const submit = async () => {
+    const code = $('#totpEnrollCode').value.trim();
+    const errBox = $('#totpEnrollError');
+    errBox.style.display = 'none';
+    const btn = $('#btnConfirmTotpEnroll');
+    btn.disabled = true; btn.textContent = 'Verificando…';
+    try {
+      const data = await api('/auth/totp/enroll-confirm', { method: 'POST', body: { preAuthToken, code } });
+      openBackupCodesModal(data.backupCodes, data);
+    } catch (err) {
+      errBox.textContent = err.message;
+      errBox.classList.remove('hidden-initial'); // ver .hidden-initial en styles.css
+      errBox.style.display = '';
+      btn.disabled = false; btn.textContent = 'Confirmar e ingresar';
+    }
+  };
+  $('#btnConfirmTotpEnroll').addEventListener('click', submit);
+  $('#totpEnrollCode').addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); });
+}
+
+// Muestra los backup codes UNA sola vez tras completar la inscripción — no
+// se pueden volver a consultar después (si el usuario los pierde, hay que
+// generarlos de nuevo vía reset de 2FA). Bloquea el cierre por click-fuera
+// para que no se pierdan por accidente antes de confirmarlos guardados.
+function openBackupCodesModal(codes, sessionData) {
+  blockOverlayDismiss = true;
+  openModal(`
+    <h3>Guarda tus códigos de respaldo</h3>
+    <div class="alert-box warning mb-12">⚠️ Estos códigos NO se van a volver a mostrar. Guárdalos en un lugar seguro — cada uno sirve una sola vez para entrar si pierdes tu teléfono o tu app autenticadora.</div>
+    <div class="totp-backup-grid">
+      ${codes.map((c) => `<code class="totp-backup-code">${esc(c)}</code>`).join('')}
+    </div>
+    <label class="checkbox-label-inline mt-12">
+      <input type="checkbox" id="chkBackupSaved" class="w-auto" /> Ya guardé mis códigos de respaldo
+    </label>
+    <div class="modal-actions">
+      <button class="btn btn-primary full" id="btnBackupContinue" disabled>Continuar</button>
+    </div>
+  `);
+  $('#chkBackupSaved').addEventListener('change', (e) => {
+    $('#btnBackupContinue').disabled = !e.target.checked;
+  });
+  $('#btnBackupContinue').addEventListener('click', async () => {
+    blockOverlayDismiss = false;
+    closeModal();
+    await completeLogin(sessionData);
+  });
+}
+
+// Login normal ya inscrito: pide el código TOTP o, alternativamente, un
+// código de respaldo de un solo uso.
+function openTotpLoginModal(preAuthToken) {
+  openModal(`
+    <h3>Verificación en dos pasos</h3>
+    <p class="muted">Ingresa el código de 6 dígitos de tu app autenticadora.</p>
+    <div class="field"><label>Código</label><input id="totpLoginCode" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="000000" /></div>
+    <p class="muted fs-078"><a href="#" id="linkUseBackupCode">¿Perdiste el acceso? Usa un código de respaldo</a></p>
+    <div class="field hidden-initial" id="totpBackupField">
+      <label>Código de respaldo</label>
+      <input id="totpBackupCode" autocomplete="off" placeholder="XXXX-XXXX" />
+    </div>
+    <div id="totpLoginError" class="alert-box danger hidden-initial"></div>
+    <div class="modal-actions">
+      <button class="btn" id="btnCancelTotpLogin">Cancelar</button>
+      <button class="btn btn-primary" id="btnConfirmTotpLogin">Entrar</button>
+    </div>
+  `);
+  $('#totpLoginCode').focus();
+  $('#btnCancelTotpLogin').addEventListener('click', closeModal);
+  $('#linkUseBackupCode').addEventListener('click', (e) => {
+    e.preventDefault();
+    $('#totpBackupField').classList.remove('hidden-initial'); // ver .hidden-initial en styles.css
+    $('#totpBackupCode').focus();
+  });
+  const submit = async () => {
+    const code = $('#totpLoginCode').value.trim();
+    const backupCode = $('#totpBackupCode').value.trim();
+    const errBox = $('#totpLoginError');
+    errBox.style.display = 'none';
+    const btn = $('#btnConfirmTotpLogin');
+    btn.disabled = true; btn.textContent = 'Verificando…';
+    try {
+      const body = backupCode ? { preAuthToken, backupCode } : { preAuthToken, code };
+      const data = await api('/auth/totp/verify', { method: 'POST', body });
+      closeModal();
+      await completeLogin(data);
+    } catch (err) {
+      errBox.textContent = err.message;
+      errBox.classList.remove('hidden-initial'); // ver .hidden-initial en styles.css
+      errBox.style.display = '';
+      btn.disabled = false; btn.textContent = 'Entrar';
+    }
+  };
+  $('#btnConfirmTotpLogin').addEventListener('click', submit);
+  $('#totpLoginCode').addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); });
+  $('#totpBackupCode').addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); });
+}
 
 // ---------------------------------------------------------------------------
 // Modal helpers
@@ -1355,8 +1485,12 @@ function closeModal() {
   $('#modalOverlay').classList.remove('show');
   $('#modal').innerHTML = '';
   document.body.classList.remove('modal-open');
+  blockOverlayDismiss = false;
 }
-$('#modalOverlay').addEventListener('click', closeModal);
+// Los códigos de respaldo de 2FA solo se muestran una vez — mientras ese modal
+// está abierto, un click fuera no debe poder cerrarlo (perdería la única vista).
+let blockOverlayDismiss = false;
+$('#modalOverlay').addEventListener('click', () => { if (!blockOverlayDismiss) closeModal(); });
 
 // ---------------------------------------------------------------------------
 // Drawer (project switcher)
@@ -5115,11 +5249,13 @@ function paintUsuariosList(usuarios) {
           <span class="badge ${u.puesto === 'admin' ? 'green' : u.puesto === 'desarrollador' ? 'purple' : u.puesto === 'logistica' ? 'yellow' : 'muted'}">${esc(PUESTO_LABELS[u.puesto] || u.puesto)}</span>
           ${!u.activo ? '<span class="badge red">Inactivo</span>' : ''}
           ${u.must_change_password ? '<span class="badge yellow" title="Debe cambiar contraseña en el próximo login">🔑 Cambio pendiente</span>' : ''}
+          ${u.totp_enabled ? '<span class="badge green" title="2FA configurado">🔒 2FA</span>' : '<span class="badge yellow" title="Se le pedirá inscribirse en 2FA en su próximo login">🔓 Sin 2FA</span>'}
         </div>
       </div>
       <div class="row end mt8-gap8">
         <button class="btn small" data-edit-user="${u.id}">Editar</button>
         <button class="btn small" data-reset-user="${u.id}" title="Generar nueva contraseña temporal">Restablecer contraseña</button>
+        ${u.totp_enabled ? `<button class="btn small" data-reset-totp="${u.id}" title="Forzar nueva inscripción de 2FA (si perdió su dispositivo/códigos)">Resetear 2FA</button>` : ''}
         ${u.id !== state.user.id ? `<button class="btn small btn-danger" data-del-user="${u.id}">Eliminar</button>` : ''}
       </div>
     </div>
@@ -5135,6 +5271,18 @@ function paintUsuariosList(usuarios) {
     btn.addEventListener('click', () => {
       const u = usuarios.find((x) => x.id === Number(btn.dataset.resetUser));
       if (u) openResetPasswordModal(u);
+    });
+  });
+  $$('[data-reset-totp]', list).forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const u = usuarios.find((x) => x.id === Number(btn.dataset.resetTotp));
+      if (!u) return;
+      if (!confirm(`¿Resetear el 2FA de "${u.nombre}"? Deberá inscribirse de nuevo (escanear un QR nuevo) en su próximo login.`)) return;
+      try {
+        await api(`/usuarios/${u.id}/totp-reset`, { method: 'POST' });
+        toast('2FA reseteado — se le pedirá inscribirse de nuevo', 'success');
+        renderView();
+      } catch (err) { toast(err.message, 'danger'); }
     });
   });
   $$('[data-del-user]', list).forEach((btn) => {

@@ -1233,3 +1233,8 @@ body.modal-open { overflow: hidden; }
 .nomina-tfoot-label { padding: 6px 8px; font-weight: 600; border-top: 2px solid var(--border-color); }
 .nomina-tfoot-total { padding: 6px 8px; font-weight: 600; text-align: right; border-top: 2px solid var(--border-color); }
 .nomina-warn-row { color: var(--color-warning, #f59e0b); }
+
+/* Fix aislado (fuera de secuencia del barrido): openTrabajadorModal — el grid de
+   2 columnas dependía de un style="" inline sin clase de respaldo, bloqueado por
+   CSP desde antes de hoy (confirmado byte-idéntico contra 5f0ba86). */
+.trab-form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }

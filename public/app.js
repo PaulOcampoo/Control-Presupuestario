@@ -5866,7 +5866,7 @@ async function openTrabajadorModal(trab, repaint) {
 
   openModal(`
     <h3>${isEdit ? 'Editar trabajador' : 'Nuevo trabajador'}</h3>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+    <div class="trab-form-grid">
       <div class="field" style="grid-column:1/-1"><label>Nombre completo *</label><input id="tNombre" value="${esc(trab?.nombre || '')}" /></div>
       <div class="field"><label>Puesto</label><input id="tPuesto" value="${esc(trab?.puesto || '')}" /></div>
       <div class="field"><label>Fecha de ingreso</label><input id="tFechaIngreso" type="date" value="${trab?.fecha_ingreso ? trab.fecha_ingreso.slice(0,10) : ''}" /></div>

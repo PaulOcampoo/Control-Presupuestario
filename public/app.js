@@ -389,6 +389,7 @@ function showApp() {
   $('#loginScreen').style.display = 'none';
   $('#clientGalleryScreen').style.display = 'none';
   $('#welcomeScreen').style.display = 'none';
+  $('#app').classList.remove('hidden-initial'); // ver .hidden-initial en styles.css
   $('#app').style.display = '';
   requestAnimationFrame(initTopbarObserver);
   requestAnimationFrame(initDebugBadge);
@@ -435,7 +436,10 @@ function applySession(user, tabs) {
   const isAdminUser = user.puesto === 'admin' || user.puesto === 'desarrollador';
   $('#btnUpload').style.display = isAdminUser ? '' : 'none';
   const adminAct = $('#drawerAdminActions');
-  if (adminAct) adminAct.style.display = isAdminUser ? '' : 'none';
+  if (adminAct) {
+    if (isAdminUser) adminAct.classList.remove('hidden-initial'); // ver .hidden-initial en styles.css
+    adminAct.style.display = isAdminUser ? '' : 'none';
+  }
   renderDrawerAccount();
   state.view = tabs.length <= 1 ? (tabs[0] || 'inicio') : 'inicio';
   state.section = VIEW_TO_SECTION[state.view] || null;
@@ -455,6 +459,7 @@ function updateSimBanner() {
   if (!banner) return;
   if (state.simulatedPuesto) {
     text.textContent = `Vista simulada: ${PUESTO_LABELS[state.simulatedPuesto] || state.simulatedPuesto}`;
+    banner.classList.remove('hidden-initial'); // ver .hidden-initial en styles.css
     banner.style.display = '';
   } else {
     banner.style.display = 'none';
@@ -533,6 +538,7 @@ function renderNotifBadge() {
   for (const id of ['#notifBadge', '#notifBadgeMobile']) {
     const el = $(id);
     if (!el) continue;
+    if (count > 0) el.classList.remove('hidden-initial'); // ver .hidden-initial en styles.css
     el.style.display = count > 0 ? '' : 'none';
     if (count > 0) el.textContent = text;
   }
@@ -684,6 +690,7 @@ function renderTabsBar() {
   const nav = $('#tabs');
   if (!nav) return;
   if (!state.projectId || state.view === 'inicio') { nav.innerHTML = ''; nav.style.display = 'none'; return; }
+  nav.classList.remove('hidden-initial'); // ver .hidden-initial en styles.css
   nav.style.display = '';
   let html = '';
   if (state.section) {
@@ -923,6 +930,7 @@ function renderMobileNav() {
 // ---------------------------------------------------------------------------
 function openUserPopover() {
   const pop = $('#userPopover'); if (!pop) return;
+  pop.classList.remove('hidden-initial'); // ver .hidden-initial en styles.css
   pop.style.display = '';
   // Posicionar el popover encima del botón de perfil
   const btn = $('#btnUserProfile');
@@ -974,6 +982,7 @@ function openQuickActionMenu() {
     btn.addEventListener('click', () => { closeQuickActionMenu(); switchToView(btn.dataset.goto); });
   });
 
+  menu.classList.remove('hidden-initial'); // ver .hidden-initial en styles.css
   menu.style.display = '';
   requestAnimationFrame(() => menu.classList.add('show'));
 }
@@ -1285,6 +1294,7 @@ $('#loginForm').addEventListener('submit', async (ev) => {
     }
   } catch (err) {
     errBox.textContent = err.message;
+    errBox.classList.remove('hidden-initial'); // ver .hidden-initial en styles.css
     errBox.style.display = '';
   } finally {
     btn.disabled = false; btn.textContent = 'Entrar';

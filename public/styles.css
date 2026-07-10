@@ -1138,3 +1138,20 @@ body.modal-open { overflow: hidden; }
 .asistencia-table thead th { font-weight: 600; color: var(--text-secondary); }
 .asistencia-table tbody tr:last-child td { border-bottom: none; }
 .asistencia-table input[type="checkbox"] { width: 18px; height: 18px; cursor: pointer; }
+
+/* ── Utilidades (reemplazan style="" inline, bloqueado por CSP) ──────────── */
+/* Estado oculto inicial en el HTML (reemplaza style="display:none" inline).
+   Sin !important a propósito: un inline style puesto por JS (el.style.display
+   = 'flex'/'none') siempre gana sobre esta regla sin necesidad de tocar la
+   clase. Solo cuando app.js "muestra" un elemento limpiando el inline
+   (el.style.display = '') hace falta también classList.remove('hidden-initial')
+   para que no vuelva a caer en esta regla — ver los comentarios en app.js en
+   cada uno de esos puntos. Debe ir DESPUÉS de .tabs/.install-banner/
+   .notif-badge/.sim-banner en este archivo para ganarles el empate de
+   especificidad (misma clase, gana el orden de declaración). */
+.hidden-initial { display: none; }
+#app.hidden-initial { display: none; } /* #app tiene su propio display:flex por ID, necesita más especificidad */
+
+.user-popover .btn:not(:last-child) { margin-bottom: 6px; }
+#drawerAdminActions { margin-top: 6px; }
+#drawerAdminActions .btn:not(:last-child) { margin-bottom: 6px; }

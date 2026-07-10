@@ -26,6 +26,14 @@
   --radius: 12px;
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
+
+  /* Alias de deuda técnica (prompt_deuda_css): --border/--muted/--color-warning
+     se usaban en styles.css sin estar definidas — no son colores nuevos, son
+     los mismos tokens ya establecidos (--border-color/--text-secondary/--yellow)
+     bajo el nombre con el que se referenciaron por error en algunos commits. */
+  --border: var(--border-color);
+  --muted: var(--text-secondary);
+  --color-warning: var(--yellow);
 }
 
 [data-theme="light"] {
@@ -208,6 +216,13 @@ h3.section-title { margin: 18px 0 10px; font-size: 0.95rem; color: var(--text-se
 .kpi.yellow .value { color: var(--yellow); }
 .kpi.red .value { color: var(--red); }
 .kpi.accent .value { color: var(--accent-gold); }
+/* renderDevPanel (prompt_deuda_css): mismo componente .kpi de arriba, pero su
+   stat() arma <div class="kpi-label">/<div class="kpi-value"> en vez de
+   <div class="label">/<div class="value"> — sin esta regla se veían planas
+   (sin mayúsculas/gris ni negrita grande) a diferencia de cualquier otra
+   tarjeta .kpi de la app. Mismos valores exactos que .kpi .label/.kpi .value. */
+.kpi-label { color: var(--text-secondary); font-size: 0.74rem; text-transform: uppercase; letter-spacing: 0.04em; }
+.kpi-value { font-size: 1.3rem; font-weight: 700; margin-top: 4px; }
 
 .chart-wrap { position: relative; height: 280px; margin: 6px 0 4px; }
 .chart-wrap.tall { height: 340px; }
@@ -363,6 +378,13 @@ body.modal-open { overflow: hidden; }
 [data-theme="light"] .alert-box.warn   { color: #92400e; border-color: rgba(217,119,6,0.45); background: rgba(234,179,8,0.10); }
 [data-theme="light"] .alert-box.danger { color: #991b1b; border-color: rgba(220,38,38,0.35); background: rgba(239,68,68,0.09); }
 [data-theme="light"] .alert-box.info   { color: #1e3a8a; border-color: rgba(59,130,246,0.35); background: rgba(56,189,248,0.09); }
+/* .alert-box.warning (prompt_deuda_css): 3 usos reales (backup codes de 2FA,
+   aviso de cambio de contraseña obligatorio, nota de reset de contraseña)
+   escriben "warning" en vez de "warn" — sin esta regla esos 3 alerts se veían
+   sin ningún tinte de color, planos, a diferencia de todos los demás
+   alert-box de la app. Mismos valores exactos que .alert-box.warn. */
+.alert-box.warning { background: rgba(234,179,8,0.12); border-color: rgba(234,179,8,0.4); color: #fde68a; }
+[data-theme="light"] .alert-box.warning { color: #92400e; border-color: rgba(217,119,6,0.45); background: rgba(234,179,8,0.10); }
 
 .toast {
   position: fixed; left: 50%; bottom: calc(24px + var(--safe-bottom)); transform: translateX(-50%);

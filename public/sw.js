@@ -1,6 +1,6 @@
 'use strict';
 
-const CACHE = 'ctrl-ppto-v92';
+const CACHE = 'ctrl-ppto-v93';
 const SHELL = [
   '/',
   '/index.html',

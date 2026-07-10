@@ -42,7 +42,7 @@ app.use((_req, res, next) => {
       "default-src 'self'",
       "script-src 'self'",
       "style-src 'self'",
-      "img-src 'self'",
+      "img-src 'self' data:", // data: para <img> de firma digital EPP (base64 inline, no un archivo)
       "connect-src 'self' https://*.vercel-storage.com",
       "worker-src 'self'",
       "manifest-src 'self'",

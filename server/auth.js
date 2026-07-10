@@ -75,11 +75,26 @@ async function requireAuth(req, res, next) {
   }
 }
 
+// Extrae IP del request (mismo patrón que login).
+function getIp(req) {
+  return ((req.headers['x-forwarded-for'] || '') + '').split(',')[0].trim() || req.socket?.remoteAddress || 'unknown';
+}
+
+// Inserta en audit_log de forma fire-and-forget: no bloquea la respuesta.
+function logDenied(req, razon) {
+  const ip = getIp(req);
+  db.pool.query(
+    'INSERT INTO audit_log (actor_id, actor_usuario, accion, target_usuario, ip) VALUES ($1,$2,$3,$4,$5)',
+    [req.user.id, req.user.usuario, 'acceso_denegado', `${req.method} ${req.originalUrl} — ${razon}`, ip]
+  ).catch(() => {});
+}
+
 // Restringe la ruta a los puestos indicados; 'admin' y 'desarrollador' siempre pasan.
 function allow(...puestos) {
   return (req, res, next) => {
     const p = req.user?.puesto;
     if (p === 'admin' || p === 'desarrollador' || puestos.includes(p)) return next();
+    logDenied(req, `puesto '${p}' no permitido`);
     return res.status(403).json({ error: 'No tienes permiso para realizar esta acción' });
   };
 }
@@ -94,7 +109,10 @@ async function verificarAccesoObra(req, res, next) {
     'SELECT 1 FROM usuario_proyectos WHERE usuario_id = $1 AND project_id = $2',
     [req.user.id, projectId]
   );
-  if (!rows.length) return res.status(403).json({ error: 'No tienes acceso a esta obra' });
+  if (!rows.length) {
+    logDenied(req, `sin acceso a obra ${projectId}`);
+    return res.status(403).json({ error: 'No tienes acceso a esta obra' });
+  }
   next();
 }
 

@@ -743,7 +743,6 @@ body.modal-open { overflow: hidden; }
   /* Mobile: hidden off-screen by default */
   transform: translateX(-105%);
   transition: transform 0.3s var(--ease-in-out), width 0.3s var(--ease-in-out);
-  will-change: transform, width;
 }
 #sidebar.mobile-open { transform: translateX(0); }
 
@@ -1113,13 +1112,6 @@ body.modal-open { overflow: hidden; }
   .fab { display: none !important; }
 }
 
-/* ── Reduced motion ───────────────────────────────────────────────────── */
-@media (prefers-reduced-motion: reduce) {
-  #sidebar, .sbar-group-body, .quick-action-sheet, .quick-action-menu, .user-popover {
-    transition: none;
-  }
-}
-
 /* ── Tooltip "próximamente" ────────────────────────────────────────────── */
 #proximamenteTooltip {
   position: fixed;
@@ -1190,7 +1182,7 @@ body.modal-open { overflow: hidden; }
 }
 .asist-cell {
   width: 44px; height: 46px; border-radius: 8px;
-  cursor: pointer; transition: filter 0.1s, transform 0.1s;
+  cursor: pointer; transition: filter 0.1s, transform 0.1s, background-color 150ms ease;
 }
 .asist-cell:active { transform: scale(0.92); }
 .asist-cell.presente { background: color-mix(in srgb, var(--green) 55%, transparent); }
@@ -1229,7 +1221,7 @@ body.modal-open { overflow: hidden; }
 .asist-heat-cell {
   aspect-ratio: 1; display: flex; align-items: center; justify-content: center;
   min-height: 40px; border-radius: 9px; font-size: 0.85rem; font-weight: 600; cursor: pointer;
-  background: var(--bg-surface-2); color: var(--text-secondary); transition: filter 0.1s, transform 0.1s;
+  background: var(--bg-surface-2); color: var(--text-secondary); transition: filter 0.1s, transform 0.1s, background-color 150ms ease;
 }
 .asist-heat-cell:active { transform: scale(0.92); }
 .asist-heat-cell.vacio-slot { cursor: default; background: transparent; }
@@ -1682,4 +1674,35 @@ body.modal-open { overflow: hidden; }
      siempre), solo la porción :hover se movió aquí. */
   .gantt-dates:hover { border-color: var(--border-color); color: var(--text-primary); }
   .search-result-item:hover { background: var(--bg-surface-2); border-left-color: var(--accent-gold); }
+}
+
+/* ── Reduced motion (G3) — va DESPUÉS del bloque @media (hover: hover) de
+   arriba a propósito: .welcome-project-card/.bienvenida-proj-card/
+   .proyecto-resumen-card comparten selector exacto (misma especificidad)
+   con sus reglas :hover/:active:hover de ese bloque, y en CSS un empate de
+   especificidad lo gana quien va después en el archivo — así esta regla
+   siempre gana sin necesitar !important, incluso para un usuario de
+   escritorio con mouse que tenga reduced motion activado. ──────────────── */
+@media (prefers-reduced-motion: reduce) {
+  #sidebar, .sbar-group-body, .quick-action-sheet, .quick-action-menu, .user-popover,
+  .modal, .toast, .notif-dropdown, .drawer, .overlay,
+  #proximamenteTooltip, .gantt-bar-inner, .collapse-body {
+    transition: none;
+  }
+
+  .welcome-proyectos.multi .welcome-project-card:hover,
+  .welcome-proyectos.multi .welcome-project-card:active,
+  .welcome-proyectos.multi .welcome-project-card:active:hover,
+  .bienvenida-proj-card:hover,
+  .bienvenida-proj-card:active,
+  .bienvenida-proj-card:active:hover,
+  .proyecto-resumen-card:hover,
+  .proyecto-resumen-card:active,
+  .proyecto-resumen-card:active:hover {
+    transform: none;
+  }
+
+  .notif-target-flash, .search-results-fancy {
+    animation: none;
+  }
 }

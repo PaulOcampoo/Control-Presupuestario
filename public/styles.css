@@ -1180,33 +1180,40 @@ body.modal-open { overflow: hidden; }
   display: flex; align-items: center; justify-content: center; gap: 14px;
   margin-bottom: 10px; font-size: 0.98rem;
 }
-/* prompt_pulir_celdas_calendario: separate + spacing (en vez de collapse) para
-   poder darle border-radius y un gap real a cada celda — mismo <table>, mismo
-   JS, solo cambia cómo se dibuja. Celdas más grandes (36→40px) para un área
-   de tap cómoda con el dedo. */
+/* prompt_pulir_celdas_calendario + prompt_fix_sticky_calendario:
+   El gap entre celdas NO usa border-spacing (ese espacio vive fuera de la
+   caja de cada <td>, así que la columna sticky no lo cubre al deslizar —
+   el contenido que scrollea asoma justo en el borde). En su lugar, cada
+   celda lleva su propio borde transparente + background-clip:padding-box:
+   el "gap" queda dentro de la caja de la celda, así que en la columna
+   sticky (con background sólido) también se sticky-ea, sin huecos. */
 .asist-grid-scroll {
   overflow-x: auto; border: 1px solid var(--border-color); border-radius: var(--radius);
   background: var(--bg-surface); padding: 6px;
 }
-.asist-grid-table { border-collapse: separate; border-spacing: 3px; font-size: 0.82rem; white-space: nowrap; }
-.asist-grid-table th, .asist-grid-table td { padding: 0; text-align: center; }
+.asist-grid-table { border-collapse: separate; border-spacing: 0; font-size: 0.82rem; white-space: nowrap; }
+.asist-grid-table th, .asist-grid-table td {
+  padding: 0; text-align: center; box-sizing: border-box;
+  border: 3px solid transparent; background-clip: padding-box;
+}
 .asist-th-trab {
-  position: sticky; left: 0; z-index: 2; background: var(--bg-surface);
+  position: sticky; left: 0; z-index: 3; background: var(--bg-surface); background-clip: padding-box;
   padding: 8px 12px !important; text-align: left !important; font-weight: 600; color: var(--text-secondary);
-  border-right: 1px solid var(--border-color);
+  box-shadow: inset -1px 0 0 var(--border-color);
 }
 .asist-th-dia {
-  width: 40px; padding: 8px 2px !important; font-weight: 600; color: var(--text-secondary);
+  width: 44px; padding: 8px 2px !important; font-weight: 600; color: var(--text-secondary);
 }
 .asist-td-trab {
-  position: sticky; left: 0; z-index: 1; background: var(--bg-surface);
+  position: sticky; left: 0; z-index: 2; background: var(--bg-surface); background-clip: padding-box;
   padding: 6px 12px !important; text-align: left !important; cursor: pointer;
-  border-radius: 6px; border-right: 1px solid var(--border-color);
+  border-radius: 6px;
+  box-shadow: inset -1px 0 0 var(--border-color);
   max-width: 160px; overflow: hidden; text-overflow: ellipsis;
 }
 .asist-td-trab:hover { color: var(--accent-gold); }
 .asist-cell {
-  width: 40px; height: 42px; border-radius: 8px;
+  width: 44px; height: 46px; border-radius: 8px;
   cursor: pointer; transition: filter 0.1s, transform 0.1s;
 }
 .asist-cell:hover { filter: brightness(1.15); }

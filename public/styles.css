@@ -552,7 +552,16 @@ body.modal-open { overflow: hidden; }
   color: #04212f;
 }
 .gallery-hero-top { display: flex; justify-content: space-between; align-items: center; }
-.gallery-hero-top .topbar-brand strong { color: #04212f; }
+/* prompt_agrandar_logo_header: "GRUPO ROFORB" como elemento de marca
+   principal del header, no texto chico junto al logo — ~1.8x el tamaño
+   base. Logo agrandado en la misma proporción para que quede balanceado
+   (pedido explícito, aunque el prompt no lo menciona). Gap del contenedor
+   ajustado para que no se vean pegados con las piezas más grandes. */
+.gallery-hero-top .topbar-brand { gap: 12px; }
+.gallery-hero-top .topbar-brand strong {
+  color: #04212f; font-size: 1.7rem; font-weight: 800; letter-spacing: 0.01em;
+}
+.gallery-hero-top .topbar-logo { height: 46px; }
 .gallery-hero-top .btn.small {
   background: rgba(4,33,47,0.12); border-color: rgba(4,33,47,0.25); color: #04212f;
 }

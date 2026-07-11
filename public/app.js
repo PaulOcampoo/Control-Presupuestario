@@ -214,6 +214,24 @@ $('#btnDismissInstall').addEventListener('click', () => {
 
 if (isIOS() && !isStandalone()) showInstallBanner('ios');
 
+// ---------------------------------------------------------------------------
+// 2FA opcional (julio 2026, ver CLAUDE.md) — banner de recordatorio a nivel de
+// shell (vive fuera de #view, igual que #installBanner), visible en TODAS las
+// pantallas principales mientras dure la sesión. Solo se marca como "visto"
+// en el backend cuando el usuario cierra explícitamente con la X — no al
+// mostrarse, no al navegar, no al reingresar (la condición de los 3 días es
+// la única que decide si vuelve a aparecer en una sesión futura).
+// ---------------------------------------------------------------------------
+function updateTotpReminderBanner() {
+  $('#totpReminderBanner').style.display = state.needsTotpReminder ? 'flex' : 'none';
+}
+$('#btnTotpReminderConfigurar').addEventListener('click', startTotpEnrollment);
+$('#btnTotpReminderClose').addEventListener('click', () => {
+  state.needsTotpReminder = false;
+  updateTotpReminderBanner();
+  api('/usuarios/totp-reminder-dismissed', { method: 'POST' }).catch(() => {});
+});
+
 function installApp() {
   if (isStandalone()) { toast('La app ya está instalada en este dispositivo', 'success'); return; }
   if (deferredInstallPrompt) {
@@ -473,6 +491,7 @@ function applySession(user, tabs, needsTotpReminder = false) {
   state.allowedTabs = tabs;
   state._realAllowedTabs = tabs;
   state.needsTotpReminder = needsTotpReminder;
+  updateTotpReminderBanner();
   state.simulatedPuesto = null; // resetea simulación al re-autenticar
   const isAdminUser = user.puesto === 'admin' || user.puesto === 'desarrollador';
   $('#btnUpload').style.display = isAdminUser ? '' : 'none';
@@ -1307,6 +1326,8 @@ async function logout() {
   state.clienteId = null;
   state.cache = {};
   state.simulatedPuesto = null;
+  state.needsTotpReminder = false;
+  updateTotpReminderBanner();
   sessionStorage.removeItem('sim_puesto');
   stopNotifPolling();
   closeDrawer();
@@ -1445,7 +1466,7 @@ function openBackupCodesModal(codes, sessionData) {
       localStorage.setItem(TOKEN_KEY, sessionData.token);
     }
     state.needsTotpReminder = false;
-    $('#totpReminderBanner')?.remove();
+    updateTotpReminderBanner();
     toast('Verificación en dos pasos activada', 'success');
   });
 }
@@ -2273,38 +2294,12 @@ async function renderInicio(view) {
     `;
   }
 
-  // 2FA opcional (julio 2026, ver CLAUDE.md): banner no intrusivo, solo en
-  // Inicio, para quien no tiene TOTP inscrito y no lo vio en los últimos 3+
-  // días. Se marca como mostrado de una vez al renderizarse (no espera a que
-  // el usuario cierre el banner ni a que navegue fuera) para no reaparecer
-  // más de una vez por sesión.
-  const showTotpBanner = state.needsTotpReminder;
-  if (showTotpBanner) {
-    state.needsTotpReminder = false;
-    api('/usuarios/totp-reminder-dismissed', { method: 'POST' }).catch(() => {});
-  }
-  const totpBannerHtml = showTotpBanner ? `
-    <div class="alert-box info row between" id="totpReminderBanner">
-      <span>🔐 Recomendado: protege tu cuenta con verificación en dos pasos.</span>
-      <span class="row">
-        <button class="btn small btn-primary" id="btnTotpReminderConfigurar">Configurar ahora</button>
-        <button class="btn small btn-ghost" id="btnTotpReminderClose" title="Cerrar">✕</button>
-      </span>
-    </div>
-  ` : '';
-
   view.innerHTML = `
-    ${totpBannerHtml}
     ${puedeVerResumen ? '' : '<h2 class="section-title">Inicio</h2>'}
     <h3 class="section-title">Secciones</h3>
     ${seccionesGridHtml()}
     ${puedeVerResumen ? dashboardHtml : ''}
   `;
-
-  if (showTotpBanner) {
-    $('#btnTotpReminderConfigurar').addEventListener('click', startTotpEnrollment);
-    $('#btnTotpReminderClose').addEventListener('click', () => $('#totpReminderBanner').remove());
-  }
 
   if (puedeVerResumen) {
     const ctx = $('#chartResumenDona').getContext('2d');

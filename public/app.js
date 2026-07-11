@@ -42,6 +42,7 @@ const state = {
   notificaciones: [],
   notifNoLeidas: 0,
   notifTimer: null,
+  needsTotpReminder: false, // 2FA opcional: banner en Inicio pendiente de mostrarse esta sesión
 };
 
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -467,10 +468,11 @@ function puedeVerNominas() { return !!state.user && (isAdmin() || ['residente'].
 function puedeCapturarAsistencia() { return !!state.user && (isAdmin() || ['residente'].includes(effectivePuesto())); }
 function puedeAprobarNomina() { return isAdmin(); }
 
-function applySession(user, tabs) {
+function applySession(user, tabs, needsTotpReminder = false) {
   state.user = user;
   state.allowedTabs = tabs;
   state._realAllowedTabs = tabs;
+  state.needsTotpReminder = needsTotpReminder;
   state.simulatedPuesto = null; // resetea simulación al re-autenticar
   const isAdminUser = user.puesto === 'admin' || user.puesto === 'desarrollador';
   $('#btnUpload').style.display = isAdminUser ? '' : 'none';
@@ -1275,7 +1277,7 @@ async function tryRestoreSession() {
   state.token = token;
   try {
     const data = await api('/auth/me');
-    applySession(data.user, data.tabs);
+    applySession(data.user, data.tabs, data.needsTotpReminder);
     // Restaurar simulación activa antes del reload (solo si el usuario es desarrollador)
     const savedSim = sessionStorage.getItem('sim_puesto');
     if (savedSim && data.user.puesto === 'desarrollador' && ROLE_TABS[savedSim]) {
@@ -1324,7 +1326,7 @@ async function completeLogin(data) {
   }
   state.token = data.token;
   localStorage.setItem(TOKEN_KEY, data.token);
-  applySession(data.user, data.tabs);
+  applySession(data.user, data.tabs, data.needsTotpReminder);
   await bootApp();
   if (data.must_change_password) {
     setTimeout(() => openMiCuentaModal(true), 400);
@@ -1342,9 +1344,7 @@ $('#loginForm').addEventListener('submit', async (ev) => {
   try {
     const data = await api('/auth/login', { method: 'POST', body: { usuario, password } });
     $('#loginPassword').value = '';
-    if (data.requiresEnrollment) {
-      openTotpEnrollModal(data.preAuthToken, data.qrDataUri, data.manualEntryKey);
-    } else if (data.requiresTotp) {
+    if (data.requiresTotp) {
       openTotpLoginModal(data.preAuthToken);
     } else {
       await completeLogin(data);
@@ -1359,30 +1359,39 @@ $('#loginForm').addEventListener('submit', async (ev) => {
 });
 
 // ---------------------------------------------------------------------------
-// 2FA (TOTP) — inscripción forzada y verificación en login normal
+// 2FA (TOTP) — inscripción voluntaria (desde el banner de Inicio) y
+// verificación del 2° factor en login normal para cuentas ya inscritas.
 // ---------------------------------------------------------------------------
-// Primer login sin 2FA configurado: muestra el QR (o clave manual) y pide
-// confirmar un código antes de activar totp_enabled y entrar.
+// Dispara el enrollment a pedido del usuario (botón "Configurar ahora" del
+// banner de recordatorio). El usuario ya tiene sesión completa en este punto.
+async function startTotpEnrollment() {
+  try {
+    const data = await api('/auth/totp/enroll-start', { method: 'POST' });
+    openTotpEnrollModal(data.preAuthToken, data.qrDataUri, data.manualEntryKey);
+  } catch (err) {
+    toast(err.message, 'danger');
+  }
+}
+
+// Muestra el QR (o clave manual) y pide confirmar un código antes de activar
+// totp_enabled. A diferencia del enrollment forzado que existía antes (ver
+// CLAUDE.md — 2FA es opcional desde julio 2026), el usuario ya tiene sesión
+// completa aquí: cancelar solo cierra el modal, no hay pantalla de login que restaurar.
 function openTotpEnrollModal(preAuthToken, qrDataUri, manualEntryKey) {
-  // .login-screen tiene z-index:100, por encima de .modal (60) y .overlay
-  // (40) — sin ocultarla, el modal se crea y se muestra bien en el DOM pero
-  // queda tapado visualmente por la pantalla de login (nada se ve, y como
-  // no hay ningún error de JS, no se nota nada raro en consola).
-  $('#loginScreen').style.display = 'none';
   openModal(`
     <h3>Configura la verificación en dos pasos</h3>
-    <p class="muted">Es obligatoria para todas las cuentas. Escanea este código con Google Authenticator, Authy o cualquier app compatible con TOTP.</p>
+    <p class="muted">Escanea este código con Google Authenticator, Authy o cualquier app compatible con TOTP.</p>
     <div class="totp-qr-wrap"><img src="${qrDataUri}" alt="Código QR para configurar 2FA" class="totp-qr-img" /></div>
     <p class="muted fs-078">¿No puedes escanear el QR? Ingresa esta clave manualmente en tu app: <code class="totp-manual-key">${esc(manualEntryKey)}</code></p>
     <div class="field"><label>Código de 6 dígitos generado por la app</label><input id="totpEnrollCode" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="000000" /></div>
     <div id="totpEnrollError" class="alert-box danger hidden-initial"></div>
     <div class="modal-actions">
       <button class="btn" id="btnCancelTotpEnroll">Cancelar</button>
-      <button class="btn btn-primary" id="btnConfirmTotpEnroll">Confirmar e ingresar</button>
+      <button class="btn btn-primary" id="btnConfirmTotpEnroll">Confirmar</button>
     </div>
   `);
   $('#totpEnrollCode').focus();
-  $('#btnCancelTotpEnroll').addEventListener('click', () => { closeModal(); showLoginScreen(); });
+  $('#btnCancelTotpEnroll').addEventListener('click', closeModal);
   const submit = async () => {
     const code = $('#totpEnrollCode').value.trim();
     const errBox = $('#totpEnrollError');
@@ -1396,7 +1405,7 @@ function openTotpEnrollModal(preAuthToken, qrDataUri, manualEntryKey) {
       errBox.textContent = err.message;
       errBox.classList.remove('hidden-initial'); // ver .hidden-initial en styles.css
       errBox.style.display = '';
-      btn.disabled = false; btn.textContent = 'Confirmar e ingresar';
+      btn.disabled = false; btn.textContent = 'Confirmar';
     }
   };
   $('#btnConfirmTotpEnroll').addEventListener('click', submit);
@@ -1425,22 +1434,28 @@ function openBackupCodesModal(codes, sessionData) {
   $('#chkBackupSaved').addEventListener('change', (e) => {
     $('#btnBackupContinue').disabled = !e.target.checked;
   });
-  $('#btnBackupContinue').addEventListener('click', async () => {
+  $('#btnBackupContinue').addEventListener('click', () => {
     blockOverlayDismiss = false;
     closeModal();
-    try {
-      await completeLogin(sessionData);
-    } catch (err) {
-      toast(err.message, 'danger');
+    // El enrollment ya emitió una sesión completa nueva (issueFullSession) —
+    // se adopta ese token sin re-arrancar la app, para no sacar al usuario
+    // de donde estaba (a diferencia del login inicial, aquí ya está navegando la app).
+    if (sessionData && sessionData.token) {
+      state.token = sessionData.token;
+      localStorage.setItem(TOKEN_KEY, sessionData.token);
     }
+    state.needsTotpReminder = false;
+    $('#totpReminderBanner')?.remove();
+    toast('Verificación en dos pasos activada', 'success');
   });
 }
 
 // Login normal ya inscrito: pide el código TOTP o, alternativamente, un
 // código de respaldo de un solo uso.
 function openTotpLoginModal(preAuthToken) {
-  // Ver comentario en openTotpEnrollModal: .login-screen (z-index:100) tapa
-  // visualmente al modal (60)/overlay (40) si no se oculta explícitamente.
+  // .login-screen tiene z-index:100, por encima de .modal (60) y .overlay
+  // (40) — sin ocultarla, el modal se crea y se muestra bien en el DOM pero
+  // queda tapado visualmente por la pantalla de login.
   $('#loginScreen').style.display = 'none';
   openModal(`
     <h3>Verificación en dos pasos</h3>
@@ -2258,12 +2273,38 @@ async function renderInicio(view) {
     `;
   }
 
+  // 2FA opcional (julio 2026, ver CLAUDE.md): banner no intrusivo, solo en
+  // Inicio, para quien no tiene TOTP inscrito y no lo vio en los últimos 3+
+  // días. Se marca como mostrado de una vez al renderizarse (no espera a que
+  // el usuario cierre el banner ni a que navegue fuera) para no reaparecer
+  // más de una vez por sesión.
+  const showTotpBanner = state.needsTotpReminder;
+  if (showTotpBanner) {
+    state.needsTotpReminder = false;
+    api('/usuarios/totp-reminder-dismissed', { method: 'POST' }).catch(() => {});
+  }
+  const totpBannerHtml = showTotpBanner ? `
+    <div class="alert-box info row between" id="totpReminderBanner">
+      <span>🔐 Recomendado: protege tu cuenta con verificación en dos pasos.</span>
+      <span class="row">
+        <button class="btn small btn-primary" id="btnTotpReminderConfigurar">Configurar ahora</button>
+        <button class="btn small btn-ghost" id="btnTotpReminderClose" title="Cerrar">✕</button>
+      </span>
+    </div>
+  ` : '';
+
   view.innerHTML = `
+    ${totpBannerHtml}
     ${puedeVerResumen ? '' : '<h2 class="section-title">Inicio</h2>'}
     <h3 class="section-title">Secciones</h3>
     ${seccionesGridHtml()}
     ${puedeVerResumen ? dashboardHtml : ''}
   `;
+
+  if (showTotpBanner) {
+    $('#btnTotpReminderConfigurar').addEventListener('click', startTotpEnrollment);
+    $('#btnTotpReminderClose').addEventListener('click', () => $('#totpReminderBanner').remove());
+  }
 
   if (puedeVerResumen) {
     const ctx = $('#chartResumenDona').getContext('2d');
@@ -5271,7 +5312,7 @@ function paintUsuariosList(usuarios) {
           <span class="badge ${u.puesto === 'admin' ? 'green' : u.puesto === 'desarrollador' ? 'purple' : u.puesto === 'logistica' ? 'yellow' : 'muted'}">${esc(PUESTO_LABELS[u.puesto] || u.puesto)}</span>
           ${!u.activo ? '<span class="badge red">Inactivo</span>' : ''}
           ${u.must_change_password ? '<span class="badge yellow" title="Debe cambiar contraseña en el próximo login">🔑 Cambio pendiente</span>' : ''}
-          ${u.totp_enabled ? '<span class="badge green" title="2FA configurado">🔒 2FA</span>' : '<span class="badge yellow" title="Se le pedirá inscribirse en 2FA en su próximo login">🔓 Sin 2FA</span>'}
+          ${u.totp_enabled ? '<span class="badge green" title="2FA configurado">🔒 2FA</span>' : '<span class="badge yellow" title="2FA es opcional: verá un recordatorio no intrusivo hasta que lo configure">🔓 Sin 2FA</span>'}
         </div>
       </div>
       <div class="row end mt8-gap8">

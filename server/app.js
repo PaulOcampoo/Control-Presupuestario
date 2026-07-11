@@ -126,7 +126,7 @@ function issueFullSession(res, user, extra = {}) {
   res.setHeader('Set-Cookie', auth.buildRefreshCookie(refreshToken));
   res.json({
     token,
-    user: { id: user.id, nombre: user.nombre, usuario: user.usuario, puesto: user.puesto },
+    user: { id: user.id, nombre: user.nombre, usuario: user.usuario, puesto: user.puesto, totp_enabled: !!user.totp_enabled },
     tabs: auth.PERMISSIONS[user.puesto] ? auth.PERMISSIONS[user.puesto].tabs : [],
     must_change_password: user.must_change_password || false,
     ...extra,
@@ -475,7 +475,7 @@ app.get('/api/auth/me', h(async (req, res) => {
   );
   if (!rows[0]) return res.status(401).json({ error: 'Sesión inválida' });
   res.json({
-    user: { id: rows[0].id, nombre: rows[0].nombre, usuario: rows[0].usuario, puesto: rows[0].puesto },
+    user: { id: rows[0].id, nombre: rows[0].nombre, usuario: rows[0].usuario, puesto: rows[0].puesto, totp_enabled: !!rows[0].totp_enabled },
     tabs: auth.PERMISSIONS[rows[0].puesto] ? auth.PERMISSIONS[rows[0].puesto].tabs : [],
     must_change_password: rows[0].must_change_password || false,
     needsTotpReminder: shouldShowTotpReminder(rows[0]),

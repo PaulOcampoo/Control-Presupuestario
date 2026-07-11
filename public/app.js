@@ -1465,6 +1465,7 @@ function openBackupCodesModal(codes, sessionData) {
       state.token = sessionData.token;
       localStorage.setItem(TOKEN_KEY, sessionData.token);
     }
+    if (state.user) state.user.totp_enabled = true;
     state.needsTotpReminder = false;
     updateTotpReminderBanner();
     toast('Verificación en dos pasos activada', 'success');
@@ -4936,6 +4937,13 @@ async function openMiCuentaModal(mustChange) {
     <div class="field"><label>Nombre completo</label><input id="mcNombre" value="${esc(state.user?.nombre || '')}" /></div>
     <div class="field"><label>Usuario (login)</label><input id="mcUsuario" value="${esc(state.user?.usuario || '')}" autocomplete="username" /></div>
     <hr class="hr-14">
+    <div class="row between">
+      <span>Verificación en dos pasos (2FA)</span>
+      ${state.user?.totp_enabled
+        ? '<span class="badge green" title="2FA activo">✓ Activado</span>'
+        : '<button class="btn small btn-primary" id="btnMiCuenta2FA">Configurar</button>'}
+    </div>
+    <hr class="hr-14">
     <p class="muted fs08-m0010">Deja los campos de contraseña vacíos si no quieres cambiarla.</p>
     <div class="field"><label>Contraseña actual</label><input id="mcPwActual" type="password" autocomplete="current-password" /></div>
     <div class="field"><label>Contraseña nueva</label><input id="mcPwNueva" type="password" autocomplete="new-password" placeholder="Mínimo 6 caracteres" /></div>
@@ -4948,6 +4956,11 @@ async function openMiCuentaModal(mustChange) {
       </div>
     </div>
   `);
+
+  $('#btnMiCuenta2FA')?.addEventListener('click', () => {
+    closeModal();
+    startTotpEnrollment();
+  });
 
   if (!mustChange) {
     $('#btnCerrarTodasSesiones')?.addEventListener('click', async () => {

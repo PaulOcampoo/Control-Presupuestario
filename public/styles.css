@@ -1180,31 +1180,37 @@ body.modal-open { overflow: hidden; }
   display: flex; align-items: center; justify-content: center; gap: 14px;
   margin-bottom: 10px; font-size: 0.98rem;
 }
-.asist-grid-scroll { overflow-x: auto; border: 1px solid var(--border-color); border-radius: var(--radius); }
-.asist-grid-table { border-collapse: collapse; font-size: 0.8rem; white-space: nowrap; }
+/* prompt_pulir_celdas_calendario: separate + spacing (en vez de collapse) para
+   poder darle border-radius y un gap real a cada celda — mismo <table>, mismo
+   JS, solo cambia cómo se dibuja. Celdas más grandes (36→40px) para un área
+   de tap cómoda con el dedo. */
+.asist-grid-scroll {
+  overflow-x: auto; border: 1px solid var(--border-color); border-radius: var(--radius);
+  background: var(--bg-surface); padding: 6px;
+}
+.asist-grid-table { border-collapse: separate; border-spacing: 3px; font-size: 0.82rem; white-space: nowrap; }
 .asist-grid-table th, .asist-grid-table td { padding: 0; text-align: center; }
 .asist-th-trab {
   position: sticky; left: 0; z-index: 2; background: var(--bg-surface);
   padding: 8px 12px !important; text-align: left !important; font-weight: 600; color: var(--text-secondary);
-  border-right: 1px solid var(--border-color); border-bottom: 1px solid var(--border-color);
+  border-right: 1px solid var(--border-color);
 }
 .asist-th-dia {
-  width: 30px; padding: 8px 2px !important; font-weight: 600; color: var(--text-secondary);
-  border-bottom: 1px solid var(--border-color);
+  width: 40px; padding: 8px 2px !important; font-weight: 600; color: var(--text-secondary);
 }
 .asist-td-trab {
   position: sticky; left: 0; z-index: 1; background: var(--bg-surface);
-  padding: 4px 12px !important; text-align: left !important; cursor: pointer;
-  border-right: 1px solid var(--border-color); border-bottom: 1px solid var(--border-color);
+  padding: 6px 12px !important; text-align: left !important; cursor: pointer;
+  border-radius: 6px; border-right: 1px solid var(--border-color);
   max-width: 160px; overflow: hidden; text-overflow: ellipsis;
 }
 .asist-td-trab:hover { color: var(--accent-gold); }
 .asist-cell {
-  width: 30px; height: 34px; border-bottom: 1px solid var(--border-color);
-  border-left: 1px solid color-mix(in srgb, var(--border-color) 50%, transparent);
-  cursor: pointer; transition: filter 0.1s;
+  width: 40px; height: 42px; border-radius: 8px;
+  cursor: pointer; transition: filter 0.1s, transform 0.1s;
 }
 .asist-cell:hover { filter: brightness(1.15); }
+.asist-cell:active { transform: scale(0.92); }
 .asist-cell.presente { background: color-mix(in srgb, var(--green) 55%, transparent); }
 .asist-cell.falta-just { background: color-mix(in srgb, var(--yellow) 55%, transparent); }
 .asist-cell.falta-injust { background: color-mix(in srgb, var(--red) 55%, transparent); }
@@ -1233,17 +1239,18 @@ body.modal-open { overflow: hidden; }
 
 .asist-heatmap { margin-top: 4px; }
 .asist-heatmap-dow, .asist-heatmap-grid {
-  display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px;
+  display: grid; grid-template-columns: repeat(7, 1fr); gap: 8px;
 }
 .asist-heatmap-dow span {
   text-align: center; font-size: 0.72rem; font-weight: 600; color: var(--text-secondary); padding-bottom: 4px;
 }
 .asist-heat-cell {
   aspect-ratio: 1; display: flex; align-items: center; justify-content: center;
-  border-radius: 8px; font-size: 0.8rem; font-weight: 600; cursor: pointer;
-  background: var(--bg-surface-2); color: var(--text-secondary); transition: filter 0.1s;
+  min-height: 40px; border-radius: 9px; font-size: 0.85rem; font-weight: 600; cursor: pointer;
+  background: var(--bg-surface-2); color: var(--text-secondary); transition: filter 0.1s, transform 0.1s;
 }
 .asist-heat-cell:hover { filter: brightness(1.15); }
+.asist-heat-cell:active { transform: scale(0.92); }
 .asist-heat-cell.vacio-slot { cursor: default; background: transparent; }
 .asist-heat-cell.presente { background: color-mix(in srgb, var(--green) 60%, transparent); color: #04210f; }
 .asist-heat-cell.falta-just { background: color-mix(in srgb, var(--yellow) 60%, transparent); color: #2b2103; }

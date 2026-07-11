@@ -500,7 +500,6 @@ function applySession(user, tabs, needsTotpReminder = false) {
     if (isAdminUser) adminAct.classList.remove('hidden-initial'); // ver .hidden-initial en styles.css
     adminAct.style.display = isAdminUser ? '' : 'none';
   }
-  renderDrawerAccount();
   state.view = tabs.length <= 1 ? (tabs[0] || 'inicio') : 'inicio';
   state.section = VIEW_TO_SECTION[state.view] || null;
   startNotifPolling();
@@ -1232,19 +1231,6 @@ $('#btnMarcarTodasLeidas').addEventListener('click', async (e) => {
     renderNotifList();
   } catch (err) { toast(err.message, 'danger'); }
 });
-
-function renderDrawerAccount() {
-  const box = $('#drawerAccount');
-  if (!state.user) { box.innerHTML = ''; return; }
-  box.innerHTML = `
-    <div class="who">
-      <strong>${esc(state.user.nombre)}</strong>
-      <span>${esc(PUESTO_LABELS[state.user.puesto] || state.user.puesto)}</span>
-    </div>
-    <button class="btn small" id="btnLogoutDrawer">Salir</button>
-  `;
-  $('#btnLogoutDrawer').addEventListener('click', logout);
-}
 
 function handleSessionExpired() {
   if (!state.token) return; // already logged out, avoid duplicate toasts

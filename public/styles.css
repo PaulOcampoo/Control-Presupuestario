@@ -685,15 +685,6 @@ body.modal-open { overflow: hidden; }
   .global-chart-kpis { grid-template-columns: repeat(2, 1fr); width: 100%; }
 }
 
-.drawer-account {
-  display: flex; align-items: center; justify-content: space-between; gap: 8px;
-  background: var(--bg-surface-2); border: 1px solid var(--border-color); border-radius: 10px;
-  padding: 10px 12px; margin-bottom: 14px;
-}
-.drawer-account .who { display: flex; flex-direction: column; line-height: 1.3; min-width: 0; }
-.drawer-account .who strong { font-size: 0.88rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.drawer-account .who span { font-size: 0.72rem; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.03em; }
-
 /* Sección colapsable (avance semanal por destajista) */
 .collapse-toggle {
   display: flex; align-items: center; justify-content: space-between; gap: 8px;
@@ -870,6 +861,10 @@ body.modal-open { overflow: hidden; }
 .sidebar-volver-wrap { padding: 2px 8px 0; }
 .sbar-back-clientes { color: var(--text-secondary); font-size: 0.82rem; }
 .sbar-back-clientes:hover { color: var(--text-primary); }
+.drawer-back-clientes {
+  color: var(--accent-gold); font-size: 0.95rem; font-weight: 700;
+}
+.drawer-back-clientes:hover { color: var(--accent-gold); background: color-mix(in srgb, var(--accent-gold) 12%, transparent); }
 .sbar-divider { border: none; border-top: 1px solid var(--border-color); margin: 4px 0; }
 
 /* ── Items ocultos en vista simulada (solo desarrollador) ─────────────── */

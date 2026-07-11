@@ -142,6 +142,20 @@ button, a, select, label,
 .install-banner-actions { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
 .install-banner-actions .icon-btn.small { width: 32px; height: 32px; font-size: 0.9rem; border-radius: 8px; }
 
+/* Revelación de altura + fundido para banners no bloqueantes (instalación
+   PWA, recordatorio de TOTP) — reemplaza el corte duro de style.display,
+   que hacía saltar de golpe el contenido de abajo. */
+#totpReminderBanner, #installBanner {
+  overflow: hidden;
+  max-height: 0;
+  opacity: 0;
+  transition: max-height 200ms var(--ease-out), opacity 200ms var(--ease-out);
+}
+#totpReminderBanner.show, #installBanner.show {
+  max-height: 80px;
+  opacity: 1;
+}
+
 .tabs {
   display: flex; overflow-x: auto; gap: 8px; padding: 10px 12px;
   background: var(--bg-surface); border-bottom: 1px solid var(--border-color);
@@ -1686,7 +1700,8 @@ body.modal-open { overflow: hidden; }
 @media (prefers-reduced-motion: reduce) {
   #sidebar, .sbar-group-body, .quick-action-sheet, .quick-action-menu, .user-popover,
   .modal, .toast, .notif-dropdown, .drawer, .overlay,
-  #proximamenteTooltip, .gantt-bar-inner, .collapse-body {
+  #proximamenteTooltip, .gantt-bar-inner, .collapse-body,
+  #totpReminderBanner, #installBanner {
     transition: none;
   }
 

@@ -1601,7 +1601,7 @@ body.modal-open { overflow: hidden; }
 .checkbox-label-inline { display: flex; align-items: center; gap: 6px; font-size: 0.88rem; cursor: pointer; }
 .align-start { align-items: flex-start; }
 .mt4-fs08 { margin-top: 4px; font-size: 0.8rem; }
-.row-nowrap-gap6-start { gap: 6px; flex-wrap: nowrap; align-items: flex-start; }
+.row-nowrap-gap6-start { gap: 6px; flex-wrap: wrap; align-items: flex-start; }
 .fs078-mt4 { font-size: 0.78rem; margin-top: 4px; }
 
 /* openTrabajadorModal */

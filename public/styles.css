@@ -513,47 +513,72 @@ body.modal-open { overflow: hidden; }
 .login-card .field { text-align: left; }
 .login-card .btn.full { margin-top: 16px; }
 
-/* Galería de clientes (pantalla intermedia entre login y drawer de proyectos) */
+/* Galería de clientes (pantalla intermedia entre login y drawer de proyectos).
+   Rediseño (prompt_rediseno_header_clientes): header edge-to-edge sobre el
+   fondo de la pantalla, no una tarjeta flotante con márgenes. */
 .gallery-screen {
   position: fixed; inset: 0; z-index: 100; display: flex; flex-direction: column;
-  align-items: center; justify-content: flex-start;
-  background: radial-gradient(circle at 30% 20%, var(--bg-surface) 0%, var(--bg-primary) 60%);
-  padding: 20px; overflow-y: auto;
+  align-items: stretch; justify-content: flex-start;
+  background: var(--bg-primary);
+  overflow-y: auto;
   /* Evita que el scroll de rubber-band de iOS se propague al body */
   overscroll-behavior-y: contain;
 }
-.gallery-card {
-  width: 100%; max-width: 720px; background: var(--bg-surface); border: 1px solid var(--border-color);
-  border-radius: 18px; padding: 28px 24px; box-shadow: 0 20px 60px rgba(0,0,0,0.45);
-  /* margin: auto centra verticalmente cuando sobra espacio; colapsa a 0 cuando no hay → no corta por arriba */
-  margin: auto;
+
+/* Header: ancho completo, ~30-40% del alto visible, esquinas redondeadas
+   solo abajo. El gradiente se deriva 100% de --accent-gold vía color-mix
+   (nunca un hex fijo) para que se adapte solo entre tema claro/oscuro,
+   igual que el resto de la paleta — mismo par gradiente-dorado/texto-#04212f
+   que ya usa .btn-primary ("+ Cargar presupuesto").
+   Variantes consideradas (queda esta, ver abajo para cambiar de opinión):
+   1) ELEGIDA — tinte claro → accent-gold → tono oscurecido (más profundidad).
+   2) Más plana/pastel: un solo tono con leve tinte claro arriba:
+      background: linear-gradient(160deg, color-mix(in srgb, var(--accent-gold) 25%, white) 0%, var(--accent-gold) 100%);
+   3) Más dramática (mejor con texto blanco en vez de #04212f):
+      background: linear-gradient(160deg, var(--accent-gold) 0%, color-mix(in srgb, var(--accent-gold) 55%, black) 100%);
+      + color: #fff; text-shadow: 0 1px 4px rgba(0,0,0,0.35); */
+.gallery-hero {
+  flex-shrink: 0;
+  width: 100%;
+  min-height: clamp(220px, 34vh, 340px);
+  padding: calc(16px + env(safe-area-inset-top, 0px)) 20px 26px;
+  border-radius: 0 0 32px 32px;
+  background: linear-gradient(160deg,
+    color-mix(in srgb, var(--accent-gold) 32%, white) 0%,
+    var(--accent-gold) 55%,
+    color-mix(in srgb, var(--accent-gold) 65%, black) 100%);
+  box-shadow: 0 10px 30px color-mix(in srgb, var(--accent-gold) 30%, transparent);
+  display: flex; flex-direction: column; justify-content: space-between;
+  color: #04212f;
 }
-.gallery-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
-.gallery-card h1 { font-size: 1.2rem; margin: 4px 0; }
-.gallery-greeting {
-  margin-bottom: 20px;
-  background: linear-gradient(135deg, #b45309 0%, #78350f 55%, #1c0800 100%);
-  border-radius: 14px;
-  padding: 22px 20px 18px;
-  border: 1px solid rgba(217,119,6,0.3);
-  box-shadow: 0 4px 24px rgba(120,53,15,0.35);
-  position: relative;
-  overflow: hidden;
+.gallery-hero-top { display: flex; justify-content: space-between; align-items: center; }
+.gallery-hero-top .topbar-brand strong { color: #04212f; }
+.gallery-hero-top .btn.small {
+  background: rgba(4,33,47,0.12); border-color: rgba(4,33,47,0.25); color: #04212f;
 }
-.gallery-greeting::before {
-  content: '';
-  position: absolute;
-  top: -40px; right: -20px;
-  width: 120px; height: 120px;
-  background: radial-gradient(circle, rgba(251,191,36,0.22) 0%, transparent 70%);
-  pointer-events: none;
+.gallery-hero-top .btn.small:hover { background: rgba(4,33,47,0.2); }
+.gallery-greeting h2 {
+  font-size: clamp(1.5rem, 5vw, 2rem); font-weight: 800; color: #04212f; margin: 0 0 6px;
 }
-.gallery-greeting h2 { font-size: 1.5rem; font-weight: 800; color: #ffffff; margin: 0 0 5px; text-shadow: 0 1px 4px rgba(0,0,0,0.3); }
-.gallery-greeting .muted { font-size: 0.88rem; margin: 0; color: rgba(255,255,255,0.72); }
-.cliente-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; margin-top: 14px; }
+.gallery-greeting .muted { font-size: 0.92rem; margin: 0; color: color-mix(in srgb, #04212f 65%, transparent); }
+
+/* Contenido debajo del header: sin la tarjeta/borde de antes, scrollea junto
+   con la pantalla completa (.gallery-screen ya es el scroll container). */
+.gallery-body {
+  flex: 1; width: 100%; max-width: 760px; margin: 0 auto;
+  padding: 22px 20px calc(20px + env(safe-area-inset-bottom, 0px));
+}
+.gallery-body h1 { font-size: 1.2rem; margin: 4px 0; }
+
+/* Grid de clientes: minmax + auto-fit (no auto-fill) para que, con pocos
+   clientes, las tarjetas existentes llenen el ancho en vez de dejar
+   columnas vacías. 130px da 2 columnas en un móvil estándar (~360-390px de
+   ancho útil) y sube a 3 en pantallas más anchas (phablet/tablet/landscape),
+   sin depender de un breakpoint fijo ni del número de clientes. */
+.cliente-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 12px; margin-top: 14px; }
 .cliente-card {
   background: var(--bg-surface-2); border: 1px solid var(--border-color); border-radius: var(--radius);
-  padding: 22px 14px; text-align: center; cursor: pointer;
+  padding: 20px 12px; text-align: center; cursor: pointer;
   display: flex; flex-direction: column; gap: 8px; align-items: center;
   transition: border-color 0.2s, box-shadow 0.2s, transform 0.1s;
 }
@@ -1082,9 +1107,9 @@ body.modal-open { overflow: hidden; }
   /* Padding de #view: el offset del nav ya lo absorbe la altura de .main-area;
      solo necesitamos un margen visual al fondo del contenido */
   #view { padding-bottom: 28px; }
-  /* Galería móvil: safe-area top para el notch; align-items se mantiene center
-     (columna) para seguir centrando horizontalmente */
-  .gallery-screen { padding-top: calc(env(safe-area-inset-top, 0px) + 20px); }
+  /* Galería móvil: el safe-area top del notch ya lo absorbe el propio
+     padding de .gallery-hero (header edge-to-edge) — .gallery-screen no
+     necesita padding propio, tiene que quedar pegada al borde. */
 
   /* Topbar: solo mostrar el nombre del proyecto/cliente — ocultar todos los
      controles de acción para no duplicar lo que ya vive en la barra inferior */

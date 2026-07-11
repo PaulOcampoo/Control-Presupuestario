@@ -807,6 +807,9 @@ function renderSidebar() {
   // Actualizar ícono del botón "Volver a clientes" (estático en index.html)
   const vcIcon = $('#sbarVolverClientes .sbar-icon');
   if (vcIcon) vcIcon.innerHTML = icon('chevron-left', 16);
+  // Mismo botón, en el panel de "Presupuestos cargados" (drawer)
+  const dvcIcon = $('#drawerVolverClientes .sbar-icon');
+  if (dvcIcon) dvcIcon.innerHTML = icon('chevron-left', 16);
 
   let html = '';
 
@@ -1528,6 +1531,7 @@ document.querySelector('.topbar-title').addEventListener('click', () => {
 });
 $('#btnCloseDrawer').addEventListener('click', closeDrawer);
 $('#drawerOverlay').addEventListener('click', closeDrawer);
+$('#drawerVolverClientes').addEventListener('click', () => goToClientGallery());
 
 async function goToClientGallery() {
   closeDrawer();
@@ -5844,7 +5848,17 @@ if ('serviceWorker' in navigator) {
 // ---------------------------------------------------------------------------
 applySidebarCollapse();
 
-$('#btnSidebarCollapse').addEventListener('click', toggleSidebarCollapse);
+// En móvil el sidebar es un overlay de pantalla completa (no una barra angosta
+// icon-only como en desktop) — el CSS de .collapsed solo tiene efecto visual
+// dentro de @media (min-width: 861px), así que colapsar ahí no hace nada visible.
+// "Colapsar" en móvil equivale a cerrar el panel (mismo patrón ya usado en #btnMenu).
+$('#btnSidebarCollapse').addEventListener('click', () => {
+  if (window.innerWidth <= 860) {
+    closeSidebar();
+  } else {
+    toggleSidebarCollapse();
+  }
+});
 $('#btnSidebarProject').addEventListener('click', openDrawer);
 $('#sbarVolverClientes').addEventListener('click', () => goToClientGallery());
 $('#sidebarOverlay').addEventListener('click', closeSidebar);

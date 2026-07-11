@@ -133,6 +133,16 @@ function issueFullSession(res, user, extra = {}) {
   });
 }
 
+// 2FA opcional (julio 2026, ver CLAUDE.md): un usuario sin TOTP inscrito ya no
+// se bloquea, pero se le recuerda cada 3+ días vía banner no intrusivo en
+// Inicio. true si no tiene TOTP Y (nunca se le mostró O pasaron 3+ días).
+const TOTP_REMINDER_INTERVAL_MS = 3 * 24 * 60 * 60 * 1000;
+function shouldShowTotpReminder(user) {
+  if (user.totp_enabled) return false;
+  if (!user.totp_reminder_last_shown_at) return true;
+  return Date.now() - new Date(user.totp_reminder_last_shown_at).getTime() >= TOTP_REMINDER_INTERVAL_MS;
+}
+
 // ---------------------------------------------------------------------------
 // Autenticación (pública) — a partir de aquí, todo /api/* exige sesión
 // ---------------------------------------------------------------------------
@@ -184,58 +194,11 @@ app.post('/api/auth/login', h(async (req, res) => {
     return res.status(401).json({ error: 'Usuario o contraseña incorrectos' });
   }
 
-  // 2FA obligatorio para todos los roles: la contraseña correcta ya no basta
-  // para emitir el JWT completo — falta el paso de TOTP.
+  // 2FA opcional (julio 2026, ver CLAUDE.md): un usuario sin TOTP inscrito ya
+  // no se bloquea en el login — entra directo. Si está inscrito, sigue exactamente
+  // igual que antes: se le exige el 2° factor.
   if (!user.totp_enabled) {
-    // Inscripción forzada. Si ya había un secret pendiente sin confirmar (el
-    // usuario escaneó el QR pero no llegó a confirmar el código en un intento
-    // anterior), se reutiliza para que ese QR ya escaneado siga siendo válido
-    // en vez de invalidarlo con un secret nuevo en cada intento.
-    let secretBase32;
-    let hadUndecryptableSecret = false;
-    if (user.totp_secret) {
-      try {
-        secretBase32 = auth.decryptTotpSecret(user.totp_secret);
-      } catch {
-        // El secret guardado no descifra con la TOTP_ENC_KEY actual (ej. quedó
-        // de una prueba con una clave distinta a la que corre hoy en prod — así
-        // se rompió el 2FA de Paul). Es irrecuperable: no reutilizarlo, tratarlo
-        // como si no existiera y generar uno nuevo (rama de abajo lo sobreescribe).
-        hadUndecryptableSecret = true;
-      }
-    }
-    if (!user.totp_secret || hadUndecryptableSecret) {
-      // COALESCE + RETURNING hace esto atómico a nivel de DB: si dos /login
-      // concurrentes llegan aquí a la vez (mismo usuario en dos dispositivos,
-      // doble tab, o una petición duplicada por el SW/red), cada uno genera su
-      // propio candidato pero solo el PRIMERO en llegar a la DB se persiste —
-      // el resto lee (via RETURNING) ese mismo secret ganador en vez de pisarlo.
-      // Sin esto, un SELECT-luego-UPDATE separado deja una ventana de carrera
-      // donde ambos ven totp_secret NULL y el último UPDATE gana en silencio,
-      // dejando huérfano el QR que el usuario ya había escaneado del perdedor.
-      const candidate = auth.encryptTotpSecret(auth.generateTotpSecret());
-      // Si el secret existente es indescifrable, forzar el reemplazo (no tiene
-      // caso preservarlo vía COALESCE — ya sabemos que es basura). Si no había
-      // ninguno, COALESCE mantiene la atomicidad de siempre ante /login concurrentes.
-      const { rows: upserted } = hadUndecryptableSecret
-        ? await db.pool.query(
-            'UPDATE usuarios SET totp_secret = $1 WHERE id = $2 RETURNING totp_secret',
-            [candidate, user.id]
-          )
-        : await db.pool.query(
-            'UPDATE usuarios SET totp_secret = COALESCE(totp_secret, $1) WHERE id = $2 RETURNING totp_secret',
-            [candidate, user.id]
-          );
-      secretBase32 = auth.decryptTotpSecret(upserted[0].totp_secret);
-    }
-    const otpauthUri = auth.buildTotpUri(user.usuario, secretBase32);
-    const qrDataUri = await QRCode.toDataURL(otpauthUri);
-    return res.json({
-      requiresEnrollment: true,
-      preAuthToken: auth.signPreAuthToken(user, { enroll: true }),
-      qrDataUri,
-      manualEntryKey: secretBase32,
-    });
+    return issueFullSession(res, user, { needsTotpReminder: shouldShowTotpReminder(user) });
   }
 
   return res.json({ requiresTotp: true, preAuthToken: auth.signPreAuthToken(user, { enroll: false }) });
@@ -295,7 +258,9 @@ app.post('/api/auth/totp/enroll-confirm', h(async (req, res) => {
 
   const { plain: backupCodes, hashed } = await auth.generateBackupCodes(10);
   await db.pool.query(
-    'UPDATE usuarios SET totp_enabled = true, totp_backup_codes = $1 WHERE id = $2',
+    // totp_reminder_last_shown_at = NULL: ya está inscrito, el banner de
+    // recordatorio no tiene nada más que recordarle.
+    'UPDATE usuarios SET totp_enabled = true, totp_backup_codes = $1, totp_reminder_last_shown_at = NULL WHERE id = $2',
     [JSON.stringify(hashed), user.id]
   );
 
@@ -505,7 +470,7 @@ app.use('/api', auth.requireAuth);
 
 app.get('/api/auth/me', h(async (req, res) => {
   const { rows } = await db.pool.query(
-    'SELECT id, nombre, usuario, puesto, must_change_password FROM usuarios WHERE id = $1 AND activo = true',
+    'SELECT id, nombre, usuario, puesto, must_change_password, totp_enabled, totp_reminder_last_shown_at FROM usuarios WHERE id = $1 AND activo = true',
     [req.user.id]
   );
   if (!rows[0]) return res.status(401).json({ error: 'Sesión inválida' });
@@ -513,7 +478,58 @@ app.get('/api/auth/me', h(async (req, res) => {
     user: { id: rows[0].id, nombre: rows[0].nombre, usuario: rows[0].usuario, puesto: rows[0].puesto },
     tabs: auth.PERMISSIONS[rows[0].puesto] ? auth.PERMISSIONS[rows[0].puesto].tabs : [],
     must_change_password: rows[0].must_change_password || false,
+    needsTotpReminder: shouldShowTotpReminder(rows[0]),
   });
+}));
+
+// Inicia inscripción TOTP a pedido del usuario (banner de recordatorio en
+// Inicio, o desde Mi cuenta) — desde que 2FA dejó de ser obligatorio (ver
+// CLAUDE.md), este es el único punto de entrada al enrollment fuera del login
+// forzado original. Misma lógica de generación/reuso de secret que antes vivía
+// en /login: si ya había un secret pendiente sin confirmar, se reutiliza.
+app.post('/api/auth/totp/enroll-start', h(async (req, res) => {
+  const { rows } = await db.pool.query('SELECT * FROM usuarios WHERE id = $1 AND activo = true', [req.user.id]);
+  const user = rows[0];
+  if (!user) return res.status(401).json({ error: 'Sesión inválida, inicia sesión de nuevo' });
+  if (user.totp_enabled) return res.status(400).json({ error: 'Ya tienes la verificación en dos pasos configurada' });
+
+  let secretBase32;
+  let hadUndecryptableSecret = false;
+  if (user.totp_secret) {
+    try {
+      secretBase32 = auth.decryptTotpSecret(user.totp_secret);
+    } catch {
+      hadUndecryptableSecret = true;
+    }
+  }
+  if (!user.totp_secret || hadUndecryptableSecret) {
+    const candidate = auth.encryptTotpSecret(auth.generateTotpSecret());
+    const { rows: upserted } = hadUndecryptableSecret
+      ? await db.pool.query(
+          'UPDATE usuarios SET totp_secret = $1 WHERE id = $2 RETURNING totp_secret',
+          [candidate, user.id]
+        )
+      : await db.pool.query(
+          'UPDATE usuarios SET totp_secret = COALESCE(totp_secret, $1) WHERE id = $2 RETURNING totp_secret',
+          [candidate, user.id]
+        );
+    secretBase32 = auth.decryptTotpSecret(upserted[0].totp_secret);
+  }
+  const otpauthUri = auth.buildTotpUri(user.usuario, secretBase32);
+  const qrDataUri = await QRCode.toDataURL(otpauthUri);
+  res.json({
+    preAuthToken: auth.signPreAuthToken(user, { enroll: true }),
+    qrDataUri,
+    manualEntryKey: secretBase32,
+  });
+}));
+
+// Marca que ya se le mostró el banner de recordatorio de 2FA — usa siempre el
+// ID del JWT autenticado (req.user.id), nunca uno recibido en el body, para no
+// abrir un IDOR que permita a cualquier usuario silenciar el recordatorio de otro.
+app.post('/api/usuarios/totp-reminder-dismissed', h(async (req, res) => {
+  await db.pool.query('UPDATE usuarios SET totp_reminder_last_shown_at = NOW() WHERE id = $1', [req.user.id]);
+  res.json({ ok: true });
 }));
 
 // Autogestión: el usuario puede cambiar su nombre, usuario y contraseña.

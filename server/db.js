@@ -381,6 +381,11 @@ const SCHEMA = `
   ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS totp_enabled BOOLEAN NOT NULL DEFAULT false;
   ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS totp_backup_codes JSONB;
 
+  -- 2FA opcional (julio 2026): totp_enabled=false ya NO fuerza inscripción.
+  -- totp_reminder_last_shown_at trackea cuándo se le mostró el banner de
+  -- recordatorio por última vez, para no repetirlo antes de 3 días.
+  ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS totp_reminder_last_shown_at TIMESTAMP;
+
   -- Intentos de login para rate limiting por usuario (serverless-safe:
   -- persiste entre instancias). Índice compuesto para la consulta de ventana
   -- temporal (identificador + creado_en).

@@ -192,11 +192,41 @@ app.post('/api/auth/login', h(async (req, res) => {
     // anterior), se reutiliza para que ese QR ya escaneado siga siendo válido
     // en vez de invalidarlo con un secret nuevo en cada intento.
     let secretBase32;
+    let hadUndecryptableSecret = false;
     if (user.totp_secret) {
-      secretBase32 = auth.decryptTotpSecret(user.totp_secret);
-    } else {
-      secretBase32 = auth.generateTotpSecret();
-      await db.pool.query('UPDATE usuarios SET totp_secret = $1 WHERE id = $2', [auth.encryptTotpSecret(secretBase32), user.id]);
+      try {
+        secretBase32 = auth.decryptTotpSecret(user.totp_secret);
+      } catch {
+        // El secret guardado no descifra con la TOTP_ENC_KEY actual (ej. quedó
+        // de una prueba con una clave distinta a la que corre hoy en prod — así
+        // se rompió el 2FA de Paul). Es irrecuperable: no reutilizarlo, tratarlo
+        // como si no existiera y generar uno nuevo (rama de abajo lo sobreescribe).
+        hadUndecryptableSecret = true;
+      }
+    }
+    if (!user.totp_secret || hadUndecryptableSecret) {
+      // COALESCE + RETURNING hace esto atómico a nivel de DB: si dos /login
+      // concurrentes llegan aquí a la vez (mismo usuario en dos dispositivos,
+      // doble tab, o una petición duplicada por el SW/red), cada uno genera su
+      // propio candidato pero solo el PRIMERO en llegar a la DB se persiste —
+      // el resto lee (via RETURNING) ese mismo secret ganador en vez de pisarlo.
+      // Sin esto, un SELECT-luego-UPDATE separado deja una ventana de carrera
+      // donde ambos ven totp_secret NULL y el último UPDATE gana en silencio,
+      // dejando huérfano el QR que el usuario ya había escaneado del perdedor.
+      const candidate = auth.encryptTotpSecret(auth.generateTotpSecret());
+      // Si el secret existente es indescifrable, forzar el reemplazo (no tiene
+      // caso preservarlo vía COALESCE — ya sabemos que es basura). Si no había
+      // ninguno, COALESCE mantiene la atomicidad de siempre ante /login concurrentes.
+      const { rows: upserted } = hadUndecryptableSecret
+        ? await db.pool.query(
+            'UPDATE usuarios SET totp_secret = $1 WHERE id = $2 RETURNING totp_secret',
+            [candidate, user.id]
+          )
+        : await db.pool.query(
+            'UPDATE usuarios SET totp_secret = COALESCE(totp_secret, $1) WHERE id = $2 RETURNING totp_secret',
+            [candidate, user.id]
+          );
+      secretBase32 = auth.decryptTotpSecret(upserted[0].totp_secret);
     }
     const otpauthUri = auth.buildTotpUri(user.usuario, secretBase32);
     const qrDataUri = await QRCode.toDataURL(otpauthUri);
@@ -249,7 +279,15 @@ app.post('/api/auth/totp/enroll-confirm', h(async (req, res) => {
   const user = rows[0];
   if (!user || !user.totp_secret) return res.status(401).json({ error: 'Sesión inválida, inicia sesión de nuevo' });
 
-  const secretBase32 = auth.decryptTotpSecret(user.totp_secret);
+  let secretBase32;
+  try {
+    secretBase32 = auth.decryptTotpSecret(user.totp_secret);
+  } catch {
+    // Secret indescifrable con la TOTP_ENC_KEY actual (irrecuperable). Limpiarlo
+    // para que el próximo /login genere uno nuevo en vez de repetir el mismo error.
+    await db.pool.query('UPDATE usuarios SET totp_secret = NULL WHERE id = $1', [user.id]);
+    return res.status(401).json({ error: 'No se pudo verificar el código, inicia sesión de nuevo para generar un QR nuevo' });
+  }
   if (!auth.verifyTotpCode(secretBase32, code)) {
     await registerTotpFailure(user.id);
     return res.status(401).json({ error: 'Código incorrecto' });
@@ -296,7 +334,18 @@ app.post('/api/auth/totp/verify', h(async (req, res) => {
     return issueFullSession(res, user);
   }
 
-  const secretBase32 = auth.decryptTotpSecret(user.totp_secret);
+  let secretBase32;
+  try {
+    secretBase32 = auth.decryptTotpSecret(user.totp_secret);
+  } catch (err) {
+    // Cuenta ya inscrita con un secret indescifrable (TOTP_ENC_KEY no coincide
+    // con la que lo cifró). No hay código que vaya a funcionar nunca — no lo
+    // tratamos como "código incorrecto" para no hacer reintentar en vano, y no
+    // lo limpiamos solos (eso desactivaría 2FA sin verificar identidad primero,
+    // ver Forbidden Actions del prompt de 2FA). Requiere scripts/emergency-totp-reset.js.
+    console.error(`totp_secret indescifrable para usuario id=${user.id} (${user.usuario}):`, err.message);
+    return res.status(401).json({ error: 'No se pudo verificar tu código. Usa un código de respaldo o contacta a un administrador para reiniciar tu 2FA.' });
+  }
   if (!auth.verifyTotpCode(secretBase32, code)) {
     await registerTotpFailure(user.id);
     return res.status(401).json({ error: 'Código incorrecto' });

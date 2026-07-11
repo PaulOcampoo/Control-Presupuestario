@@ -3789,6 +3789,35 @@ app.delete('/api/projects/:id/trabajadores/:wId/epp-entregas/:entregaId', h(auth
 // ===========================================================================
 // ASISTENCIA DIARIA
 // ===========================================================================
+
+// Rango de fechas (para el calendario: vista general del mes + detalle por
+// trabajador) — a diferencia de GET /asistencia (un solo día), esta trae
+// todos los registros de un periodo en una sola llamada. Tope de 92 días
+// (~3 meses) para que nadie pida el historial completo de golpe por error.
+app.get('/api/projects/:id/asistencia-rango', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  const { desde, hasta } = req.query;
+  if (!desde || !/^\d{4}-\d{2}-\d{2}$/.test(desde)) return res.status(400).json({ error: 'desde requerido (YYYY-MM-DD)' });
+  if (!hasta || !/^\d{4}-\d{2}-\d{2}$/.test(hasta)) return res.status(400).json({ error: 'hasta requerido (YYYY-MM-DD)' });
+  if (desde > hasta) return res.status(400).json({ error: 'desde debe ser anterior o igual a hasta' });
+  const dias = (new Date(hasta) - new Date(desde)) / 86400000;
+  if (dias > 92) return res.status(400).json({ error: 'El rango no puede superar 92 días' });
+
+  const { rows: trabajadores } = await db.pool.query(
+    `SELECT id, nombre, puesto, tipo_pago FROM trabajadores
+     WHERE project_id = $1 AND activo = true ORDER BY orden, nombre`,
+    [req.project.id]
+  );
+  // fecha viaja tal cual "YYYY-MM-DD": este proyecto registra un type parser
+  // para OID 1082 (DATE) que devuelve el valor crudo del driver, sin
+  // convertirlo a Date (ver server/db.js) — no hace falta reformatear aquí.
+  const { rows: asistencias } = await db.pool.query(
+    `SELECT trabajador_id, fecha, estado FROM asistencia_diaria
+     WHERE project_id = $1 AND fecha BETWEEN $2 AND $3`,
+    [req.project.id, desde, hasta]
+  );
+  res.json({ desde, hasta, trabajadores, asistencias });
+}));
+
 app.get('/api/projects/:id/asistencia', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
   const { fecha } = req.query;
   if (!fecha || !/^\d{4}-\d{2}-\d{2}$/.test(fecha)) return res.status(400).json({ error: 'fecha requerida (YYYY-MM-DD)' });

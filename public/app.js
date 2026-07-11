@@ -6657,91 +6657,220 @@ async function renderNominas(view) {
     `;
   }
 
+  // Calendario visual de asistencia: vista general (todos los trabajadores ×
+  // días del mes) y vista de detalle por trabajador (heatmap tipo habit
+  // tracker + resumen). Un solo fetch por mes (asistencia-rango), clic en una
+  // celda cicla el estado con actualización optimista + guardado real.
+  const ASIST_ESTADOS = ['presente', 'falta_justificada', 'falta_injustificada'];
+  const ASIST_META = {
+    presente:            { label: 'Presente',        cls: 'presente' },
+    falta_justificada:   { label: 'Falta justificada', cls: 'falta-just' },
+    falta_injustificada: { label: 'Falta injustificada', cls: 'falta-injust' },
+  };
+  const ASIST_DIAS_CORTO = ['D', 'L', 'M', 'M', 'J', 'V', 'S'];
+  const asistDiasEnMes = (y, m) => new Date(y, m + 1, 0).getDate();
+  const asistFechaStr = (y, m, d) => `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+  const asistLeyendaHtml = () => `
+    <div class="asist-leyenda">
+      <span class="asist-leyenda-item"><span class="asist-dot presente"></span>Presente</span>
+      <span class="asist-leyenda-item"><span class="asist-dot falta-just"></span>Falta justif.</span>
+      <span class="asist-leyenda-item"><span class="asist-dot falta-injust"></span>Falta injust.</span>
+      <span class="asist-leyenda-item"><span class="asist-dot vacio"></span>Sin registro</span>
+    </div>`;
+
   async function showAsistencia() {
     subView = 'asistencia';
-    const today = new Date().toISOString().slice(0, 10);
-    view.innerHTML = `
-      <h2 class="section-title">Personal</h2>
-      ${renderSubNav()}
-      <div class="card mt-12">
-        <div class="row between nomina-row-wrap">
-          <div class="field asistencia-field">
-            <label>Fecha</label>
-            <input type="date" id="asistenciaFecha" value="${today}" class="nomina-date-input" />
-          </div>
-          <button class="btn btn-primary" id="btnCargarAsistencia">Cargar</button>
-        </div>
-      </div>
-      <div id="asistenciaPanel"></div>
-    `;
-    bindSubNav();
-    $('#btnCargarAsistencia').addEventListener('click', () => loadAsistencia($('#asistenciaFecha').value));
-    await loadAsistencia(today);
-  }
+    const hoy = new Date();
+    const asist = { year: hoy.getFullYear(), month: hoy.getMonth(), trabajadorId: null, trabajadores: [], mapa: {} };
 
-  async function loadAsistencia(fecha) {
-    const panel = $('#asistenciaPanel');
-    if (!panel) return;
-    panel.innerHTML = '<div class="empty-state">Cargando…</div>';
-    try {
-      const data = await api(`/projects/${state.projectId}/asistencia?fecha=${fecha}`);
-      if (!data.trabajadores?.length) {
+    function mesLabel() {
+      const m = MESES_ES[asist.month];
+      return `${m.charAt(0).toUpperCase()}${m.slice(1)} ${asist.year}`;
+    }
+
+    async function cargarMes() {
+      const desde = asistFechaStr(asist.year, asist.month, 1);
+      const hasta = asistFechaStr(asist.year, asist.month, asistDiasEnMes(asist.year, asist.month));
+      const data = await api(`/projects/${state.projectId}/asistencia-rango?desde=${desde}&hasta=${hasta}`);
+      asist.trabajadores = data.trabajadores || [];
+      asist.mapa = {};
+      (data.asistencias || []).forEach((a) => { asist.mapa[`${a.trabajador_id}_${a.fecha}`] = a.estado; });
+    }
+
+    async function cambiarMes(delta) {
+      asist.month += delta;
+      if (asist.month < 0) { asist.month = 11; asist.year--; }
+      if (asist.month > 11) { asist.month = 0; asist.year++; }
+      await refrescar();
+    }
+
+    async function refrescar() {
+      const panel = $('#asistenciaPanel');
+      if (!panel) return;
+      panel.innerHTML = '<div class="empty-state">Cargando…</div>';
+      try {
+        await cargarMes();
+        renderPanel();
+      } catch (err) {
+        panel.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+      }
+    }
+
+    function renderPanel() {
+      const panel = $('#asistenciaPanel');
+      if (!panel) return;
+      if (!asist.trabajadores.length) {
         panel.innerHTML = '<div class="empty-state">No hay trabajadores activos en esta obra.</div>';
         return;
       }
-      const ASIST_OPTS = [
-        { v: 'presente',            label: 'Presente',   cls: 'green' },
-        { v: 'falta_justificada',   label: 'F. Just.',   cls: 'yellow' },
-        { v: 'falta_injustificada', label: 'F. Injust.', cls: 'red' },
-      ];
+      if (asist.trabajadorId) renderDetalle(panel); else renderGeneral(panel);
+    }
+
+    function renderGeneral(panel) {
+      const totalDias = asistDiasEnMes(asist.year, asist.month);
+      const dias = Array.from({ length: totalDias }, (_, i) => i + 1);
       const canEdit = puedeCapturarAsistencia();
       panel.innerHTML = `
-        <div class="card mt-8">
-          <table class="asistencia-table">
-            <thead><tr><th>Trabajador</th><th>Puesto</th><th>Asistencia</th></tr></thead>
+        <div class="asist-mes-nav">
+          <button class="icon-btn" id="btnAsistMesPrev" aria-label="Mes anterior">‹</button>
+          <strong>${mesLabel()}</strong>
+          <button class="icon-btn" id="btnAsistMesNext" aria-label="Mes siguiente">›</button>
+        </div>
+        <div class="asist-grid-scroll">
+          <table class="asist-grid-table">
+            <thead>
+              <tr>
+                <th class="asist-th-trab">Trabajador</th>
+                ${dias.map((d) => `<th class="asist-th-dia">${d}</th>`).join('')}
+              </tr>
+            </thead>
             <tbody>
-              ${data.trabajadores.map((t) => {
-                const cur = t.estado || 'presente';
-                return `<tr>
-                  <td>${esc(t.nombre)}</td>
-                  <td class="muted fs-08">${esc(t.puesto || '—')}</td>
-                  <td>
-                    ${canEdit
-                      ? `<select class="asistencia-sel nomina-select" data-tid="${t.id}">
-                          ${ASIST_OPTS.map((o) => `<option value="${o.v}" ${cur === o.v ? 'selected' : ''}>${o.label}</option>`).join('')}
-                        </select>`
-                      : `<span class="badge ${ASIST_OPTS.find((o) => o.v === cur)?.cls || 'muted'}">${ASIST_OPTS.find((o) => o.v === cur)?.label || cur}</span>`
-                    }
-                  </td>
-                </tr>`;
-              }).join('')}
+              ${asist.trabajadores.map((t) => `
+                <tr>
+                  <td class="asist-td-trab" data-tid="${t.id}">${esc(t.nombre)}</td>
+                  ${dias.map((d) => {
+                    const fecha = asistFechaStr(asist.year, asist.month, d);
+                    const estado = asist.mapa[`${t.id}_${fecha}`] || null;
+                    const cls = estado ? ASIST_META[estado].cls : 'vacio';
+                    return `<td class="asist-cell ${cls}" data-tid="${t.id}" data-fecha="${fecha}" title="${esc(t.nombre)} — ${fecha}${estado ? ': ' + ASIST_META[estado].label : ''}"></td>`;
+                  }).join('')}
+                </tr>
+              `).join('')}
             </tbody>
           </table>
-          ${canEdit ? `
-            <div class="row end mt-12">
-              <button class="btn btn-primary" id="btnGuardarAsistencia">Guardar asistencia</button>
-            </div>` : ''}
         </div>
+        ${asistLeyendaHtml()}
+        ${canEdit ? '<p class="muted fs-08 mt-6">Toca una celda para marcar/cambiar el estado. Toca un nombre para ver el detalle.</p>' : ''}
       `;
-      $('#btnGuardarAsistencia')?.addEventListener('click', async () => {
-        const asistencia = $$('.asistencia-sel', panel).map((sel) => ({
-          trabajador_id: Number(sel.dataset.tid),
-          estado: sel.value,
-        }));
-        const btn = $('#btnGuardarAsistencia');
-        btn.disabled = true;
-        try {
-          await api(`/projects/${state.projectId}/asistencia`, {
-            method: 'PUT',
-            body: { fecha, asistencia },
-          });
-          toast('Asistencia guardada', 'success');
-        } catch (err) { toast(err.message, 'danger'); }
-        btn.disabled = false;
+      $('#btnAsistMesPrev').addEventListener('click', () => cambiarMes(-1));
+      $('#btnAsistMesNext').addEventListener('click', () => cambiarMes(1));
+      $$('.asist-td-trab', panel).forEach((td) => {
+        td.addEventListener('click', () => { asist.trabajadorId = Number(td.dataset.tid); renderPanel(); });
       });
-    } catch (err) {
-      panel.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+      if (canEdit) {
+        $$('.asist-cell', panel).forEach((cell) => cell.addEventListener('click', () => toggleCelda(cell, Number(cell.dataset.tid), cell.dataset.fecha, null)));
+      }
     }
+
+    async function toggleCelda(cell, tid, fecha, onDone) {
+      const key = `${tid}_${fecha}`;
+      const actual = asist.mapa[key] || null;
+      const idx = actual ? ASIST_ESTADOS.indexOf(actual) : -1;
+      const nuevo = ASIST_ESTADOS[(idx + 1) % ASIST_ESTADOS.length];
+      const prevCls = actual ? ASIST_META[actual].cls : 'vacio';
+      // Optimistic update — cambia el color de inmediato, sin esperar al backend
+      cell.classList.remove('presente', 'falta-just', 'falta-injust', 'vacio');
+      cell.classList.add(ASIST_META[nuevo].cls);
+      asist.mapa[key] = nuevo;
+      try {
+        await api(`/projects/${state.projectId}/asistencia`, {
+          method: 'PUT',
+          body: { fecha, asistencia: [{ trabajador_id: tid, estado: nuevo }] },
+        });
+        if (onDone) onDone();
+      } catch (err) {
+        // Revertir si el guardado real falla
+        cell.classList.remove(ASIST_META[nuevo].cls);
+        cell.classList.add(prevCls);
+        if (actual) asist.mapa[key] = actual; else delete asist.mapa[key];
+        toast(err.message, 'danger');
+      }
+    }
+
+    function renderDetalle(panel) {
+      const t = asist.trabajadores.find((x) => x.id === asist.trabajadorId);
+      if (!t) { asist.trabajadorId = null; renderGeneral(panel); return; }
+      const totalDias = asistDiasEnMes(asist.year, asist.month);
+      const primerDiaSemana = new Date(asist.year, asist.month, 1).getDay();
+      const hoyCorte = new Date(); hoyCorte.setHours(0, 0, 0, 0);
+
+      let presentes = 0, conRegistro = 0;
+      const celdas = [];
+      for (let i = 0; i < primerDiaSemana; i++) celdas.push(null);
+      for (let d = 1; d <= totalDias; d++) {
+        const fecha = asistFechaStr(asist.year, asist.month, d);
+        const estado = asist.mapa[`${t.id}_${fecha}`] || null;
+        if (estado) { conRegistro++; if (estado === 'presente') presentes++; }
+        celdas.push({ d, fecha, estado });
+      }
+      const pct = conRegistro ? Math.round((presentes / conRegistro) * 100) : 0;
+
+      // Racha actual: días 'presente' consecutivos hacia atrás desde hoy
+      // (o el último día del mes mostrado, si es un mes pasado). Se corta en
+      // el primer día sin registro o con falta — acotada al mes visible.
+      let racha = 0;
+      for (let d = totalDias; d >= 1; d--) {
+        if (new Date(asist.year, asist.month, d) > hoyCorte) continue;
+        const estado = asist.mapa[`${t.id}_${asistFechaStr(asist.year, asist.month, d)}`] || null;
+        if (estado === 'presente') racha++; else break;
+      }
+
+      const canEdit = puedeCapturarAsistencia();
+      panel.innerHTML = `
+        <button class="btn small" id="btnAsistVolver">‹ Volver a la obra</button>
+        <div class="asist-detalle-card mt-8">
+          <h3 class="asist-detalle-nombre">${esc(t.nombre)}</h3>
+          <p class="muted fs-08">${esc(t.puesto || '—')}</p>
+          <div class="asist-resumen-grid">
+            <div class="asist-resumen-item"><div class="asist-resumen-value">${presentes}/${conRegistro}</div><div class="asist-resumen-label">Días asistidos</div></div>
+            <div class="asist-resumen-item"><div class="asist-resumen-value">${pct}%</div><div class="asist-resumen-label">Asistencia</div></div>
+            <div class="asist-resumen-item"><div class="asist-resumen-value">${racha}</div><div class="asist-resumen-label">Racha actual</div></div>
+          </div>
+        </div>
+        <div class="asist-mes-nav mt-8">
+          <button class="icon-btn" id="btnAsistMesPrev" aria-label="Mes anterior">‹</button>
+          <strong>${mesLabel()}</strong>
+          <button class="icon-btn" id="btnAsistMesNext" aria-label="Mes siguiente">›</button>
+        </div>
+        <div class="asist-heatmap">
+          <div class="asist-heatmap-dow">${ASIST_DIAS_CORTO.map((d) => `<span>${d}</span>`).join('')}</div>
+          <div class="asist-heatmap-grid">
+            ${celdas.map((c) => {
+              if (!c) return '<span class="asist-heat-cell vacio-slot"></span>';
+              const cls = c.estado ? ASIST_META[c.estado].cls : 'vacio';
+              return `<span class="asist-heat-cell ${cls}" data-fecha="${c.fecha}" title="${c.fecha}${c.estado ? ': ' + ASIST_META[c.estado].label : ''}">${c.d}</span>`;
+            }).join('')}
+          </div>
+        </div>
+        ${asistLeyendaHtml()}
+      `;
+      $('#btnAsistVolver').addEventListener('click', () => { asist.trabajadorId = null; renderPanel(); });
+      $('#btnAsistMesPrev').addEventListener('click', () => cambiarMes(-1));
+      $('#btnAsistMesNext').addEventListener('click', () => cambiarMes(1));
+      if (canEdit) {
+        $$('.asist-heat-cell:not(.vacio-slot)', panel).forEach((cell) => {
+          cell.addEventListener('click', () => toggleCelda(cell, t.id, cell.dataset.fecha, () => renderDetalle(panel)));
+        });
+      }
+    }
+
+    view.innerHTML = `
+      <h2 class="section-title">Personal</h2>
+      ${renderSubNav()}
+      <div id="asistenciaPanel" class="mt-12"></div>
+    `;
+    bindSubNav();
+    await refrescar();
   }
 
   async function showNominas() {

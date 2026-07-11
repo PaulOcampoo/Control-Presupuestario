@@ -1046,7 +1046,7 @@ function openQuickActionMenu() {
 function closeQuickActionMenu() {
   const menu = $('#quickActionMenu'); if (!menu) return;
   menu.classList.remove('show');
-  setTimeout(() => { if (!menu.classList.contains('show')) menu.style.display = 'none'; }, 220);
+  setTimeout(() => { if (!menu.classList.contains('show')) menu.style.display = 'none'; }, 250);
 }
 
 // ---------------------------------------------------------------------------

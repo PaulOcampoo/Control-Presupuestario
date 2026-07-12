@@ -1158,19 +1158,26 @@ body.modal-open { overflow: hidden; }
 .asist-grid-scroll {
   overflow-x: auto; border: 1px solid var(--border-color); border-radius: var(--radius);
   background: var(--bg-surface); padding: 6px;
+  /* scroll-snap: la causa real del "bleed-through" reportado (confirmada
+     con captura real) no era una franja de 1-3px — era una columna de día
+     ENTERA mostrando solo un fragmento (ej. el dígito suelto de "15" y su
+     celda vacía) porque el scroll horizontal es continuo y se puede quedar
+     a la mitad de cualquier columna. background-clip/border-radius/
+     box-shadow (intentos anteriores) no podían arreglar esto — no es un
+     problema de pintado, es de POSICIÓN de scroll. mandatory obliga a que
+     cualquier gesto de swipe termine siempre en un borde limpio de columna. */
+  scroll-snap-type: x mandatory;
 }
-/* Gris de contraste: --bg-surface-2 solo (usado en el primer intento) resultó
-   perceptualmente casi idéntico a --bg-surface en modo oscuro — #1D2740 vs
-   #131B2E, un salto de apenas ~10-18 unidades de RGB sobre una paleta de
-   azules muy oscuros y cerrados entre sí, invisible en pantalla real pese a
-   ser técnicamente un valor distinto. Se mezcla con --border-color (el
-   siguiente escalón de la misma paleta, ya usado para separadores visibles
-   en el resto de la app) para un salto perceptible sin inventar un color
-   nuevo ni tocar la variable compartida --bg-surface-2 (la siguen usando
-   otras pantallas sin cambios). */
+/* Gris de contraste: dos intentos previos (--bg-surface-2 solo, y luego una
+   mezcla al 45% con --border-color) seguían resultando casi blancos en modo
+   claro (#E7EBF3 aprox. — confirmado invisible en captura real de iPhone).
+   --border-color (#D5DCE8 en claro / #28324A en oscuro) ya es en sí mismo un
+   "gris claro" apropiado — usado sin diluir en toda la app para separadores
+   visibles — así que se usa directo, sin mezclar, para que el contraste sea
+   inequívoco. */
 .asist-grid-table {
   border-collapse: separate; border-spacing: 0; font-size: 0.82rem; white-space: nowrap;
-  background: color-mix(in srgb, var(--border-color) 45%, var(--bg-surface) 55%);
+  background: var(--border-color);
 }
 .asist-grid-table th, .asist-grid-table td {
   padding: 0; text-align: center; box-sizing: border-box;
@@ -1193,6 +1200,7 @@ body.modal-open { overflow: hidden; }
 }
 .asist-th-dia {
   width: 44px; padding: 8px 2px !important; font-weight: 600; color: var(--text-secondary);
+  scroll-snap-align: start;
 }
 .asist-th-dia.hoy { color: var(--accent-gold); font-weight: 800; }
 .asist-td-trab {
@@ -1216,6 +1224,7 @@ body.modal-open { overflow: hidden; }
 .asist-cell {
   width: 44px; height: 46px; border-radius: 8px;
   cursor: pointer; transition: filter 0.1s, transform 0.1s, background-color 150ms ease;
+  scroll-snap-align: start;
 }
 .asist-cell:active { transform: scale(0.92); }
 .asist-cell.presente { background: color-mix(in srgb, var(--green) 55%, transparent); }

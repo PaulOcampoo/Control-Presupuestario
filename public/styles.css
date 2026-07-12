@@ -1173,6 +1173,7 @@ body.modal-open { overflow: hidden; }
 .asist-th-dia {
   width: 44px; padding: 8px 2px !important; font-weight: 600; color: var(--text-secondary);
 }
+.asist-th-dia.hoy { color: var(--accent-gold); font-weight: 800; }
 .asist-td-trab {
   position: sticky; left: 0; z-index: 2; background: var(--bg-surface); background-clip: padding-box;
   padding: 6px 12px !important; text-align: left !important; cursor: pointer;

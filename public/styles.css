@@ -1165,7 +1165,14 @@ body.modal-open { overflow: hidden; }
   border: 3px solid transparent; background-clip: padding-box;
 }
 .asist-th-trab {
-  position: sticky; left: 0; z-index: 3; background: var(--bg-surface); background-clip: padding-box;
+  /* background-clip: border-box (con !important, igual que padding/text-align
+     abajo) — la regla compartida .asist-grid-table th/td pone
+     background-clip: padding-box + borde transparente de 3px para el look de
+     celdas separadas/redondeadas, pero en la columna STICKY eso deja un
+     anillo de 3px sin pintar por donde se asoman las celdas de color al
+     deslizar (el fondo no llega hasta el borde). border-box fuerza que el
+     fondo sólido cubra también esa franja. */
+  position: sticky; left: 0; z-index: 3; background: var(--bg-surface); background-clip: border-box !important;
   padding: 8px 12px !important; text-align: left !important; font-weight: 600; color: var(--text-secondary);
   box-shadow: inset -1px 0 0 var(--border-color);
 }
@@ -1174,7 +1181,8 @@ body.modal-open { overflow: hidden; }
 }
 .asist-th-dia.hoy { color: var(--accent-gold); font-weight: 800; }
 .asist-td-trab {
-  position: sticky; left: 0; z-index: 2; background: var(--bg-surface); background-clip: padding-box;
+  /* Ver comentario en .asist-th-trab — mismo fix, mismo motivo. */
+  position: sticky; left: 0; z-index: 2; background: var(--bg-surface); background-clip: border-box !important;
   padding: 6px 12px !important; text-align: left !important; cursor: pointer;
   border-radius: 6px;
   box-shadow: inset -1px 0 0 var(--border-color);

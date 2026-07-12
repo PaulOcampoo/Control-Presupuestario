@@ -1722,11 +1722,19 @@ async function computeAlertsAndTotals(projectId, items, ignoreRequisicionId = nu
   return out;
 }
 
-async function getRequisicionesData(pid) {
-  const { rows: reqs } = await db.pool.query(
-    'SELECT * FROM requisiciones WHERE project_id = $1 ORDER BY id DESC',
-    [pid]
-  );
+// usuarioId: si se pasa, restringe a las requisiciones creadas por ese
+// usuario (residente/cabo — ver ALTER TABLE requisiciones en db.js). null =
+// sin restricción (compras/logistica/admin siguen viendo todas las de la obra).
+async function getRequisicionesData(pid, usuarioId = null) {
+  const { rows: reqs } = usuarioId != null
+    ? await db.pool.query(
+        'SELECT * FROM requisiciones WHERE project_id = $1 AND usuario_id = $2 ORDER BY id DESC',
+        [pid, usuarioId]
+      )
+    : await db.pool.query(
+        'SELECT * FROM requisiciones WHERE project_id = $1 ORDER BY id DESC',
+        [pid]
+      );
   return Promise.all(reqs.map(async (r) => {
     const { rows } = await db.pool.query(`
       SELECT COUNT(*) AS num_items,
@@ -1740,18 +1748,20 @@ async function getRequisicionesData(pid) {
 }
 
 app.get('/api/projects/:id/requisiciones', h(auth.allow('residente', 'cabo', 'compras', 'logistica')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
-  let data = await getRequisicionesData(req.project.id);
-  if (['residente', 'cabo'].includes(req.user.puesto)) {
+  const soloPropias = ['residente', 'cabo'].includes(req.user.puesto);
+  let data = await getRequisicionesData(req.project.id, soloPropias ? req.user.id : null);
+  if (soloPropias) {
     data = data.map(({ importe_total, alertas_precio, ...rest }) => rest);
   }
   res.json(data);
 }));
 
 app.get('/api/projects/:id/requisiciones/export', h(auth.allow('residente', 'cabo', 'compras', 'logistica')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
-  const reqs = await getRequisicionesData(req.project.id);
+  const soloPropias = ['residente', 'cabo'].includes(req.user.puesto);
+  const reqs = await getRequisicionesData(req.project.id, soloPropias ? req.user.id : null);
   const reqMap = new Map(reqs.map((r) => [r.id, r]));
 
-  const { rows: itemRows } = await db.pool.query(`
+  const { rows: allItemRows } = await db.pool.query(`
     SELECT ri.requisicion_id, ri.cantidad_solicitada, ri.precio_solicitado, ri.importe,
            ri.alerta_cantidad, ri.alerta_precio,
            i.codigo AS insumo_codigo, i.concepto AS insumo_concepto, i.unidad
@@ -1761,6 +1771,8 @@ app.get('/api/projects/:id/requisiciones/export', h(auth.allow('residente', 'cab
     WHERE r.project_id = $1
     ORDER BY ri.requisicion_id, ri.id
   `, [req.project.id]);
+  // reqMap ya viene acotado a lo propio si aplica — se filtran los items igual.
+  const itemRows = allItemRows.filter((it) => reqMap.has(it.requisicion_id));
 
   await sendXlsxExport(res, {
     filename: buildExportFilename('Requisiciones', req.project.nombre),
@@ -1830,6 +1842,9 @@ app.get('/api/projects/:id/requisiciones/:reqId', h(auth.allow('residente', 'cab
     [Number(req.params.reqId), req.project.id]
   );
   if (!reqRows[0]) return res.status(404).json({ error: 'Requisición no encontrada' });
+  if (['residente', 'cabo'].includes(req.user.puesto) && reqRows[0].usuario_id !== req.user.id) {
+    return res.status(404).json({ error: 'Requisición no encontrada' });
+  }
   const { rows: rawItems } = await db.pool.query(`
     SELECT ri.*, i.codigo AS insumo_codigo, i.concepto AS insumo_concepto, i.categoria, i.unidad,
            i.cantidad_presupuesto, i.precio_presupuesto
@@ -1855,9 +1870,9 @@ app.post('/api/projects/:id/requisiciones', h(auth.allow('residente', 'cabo', 'c
     const computed = await computeAlertsAndTotals(pid, items);
     const created = await db.withTransaction(async (client) => {
       const { rows } = await client.query(
-        `INSERT INTO requisiciones (project_id, folio, fecha, estado, observaciones)
-         VALUES ($1, $2, COALESCE($3::date, CURRENT_DATE), 'borrador', $4) RETURNING *`,
-        [pid, folio || null, fecha || null, observaciones || null]
+        `INSERT INTO requisiciones (project_id, folio, fecha, estado, observaciones, usuario_id)
+         VALUES ($1, $2, COALESCE($3::date, CURRENT_DATE), 'borrador', $4, $5) RETURNING *`,
+        [pid, folio || null, fecha || null, observaciones || null, req.user.id]
       );
       const reqId = rows[0].id;
       for (const c of computed) {
@@ -1884,6 +1899,9 @@ app.put('/api/projects/:id/requisiciones/:reqId', h(auth.allow('residente', 'cab
     [reqId, pid]
   );
   if (!existRows[0]) return res.status(404).json({ error: 'Requisición no encontrada' });
+  if (['residente', 'cabo'].includes(req.user.puesto) && existRows[0].usuario_id !== req.user.id) {
+    return res.status(404).json({ error: 'Requisición no encontrada' });
+  }
   if (existRows[0].estado !== 'borrador') {
     return res.status(400).json({ error: 'Solo se pueden editar requisiciones en estado "borrador"' });
   }
@@ -1933,9 +1951,12 @@ app.put('/api/projects/:id/requisiciones/:reqId/estado', h(auth.allow('residente
   }
   const reqId = Number(req.params.reqId);
   const { rows: reqRows } = await db.pool.query(
-    'SELECT folio FROM requisiciones WHERE id = $1 AND project_id = $2', [reqId, req.project.id]
+    'SELECT folio, usuario_id FROM requisiciones WHERE id = $1 AND project_id = $2', [reqId, req.project.id]
   );
   if (!reqRows[0]) return res.status(404).json({ error: 'Requisición no encontrada' });
+  if (['residente', 'cabo'].includes(req.user.puesto) && reqRows[0].usuario_id !== req.user.id) {
+    return res.status(404).json({ error: 'Requisición no encontrada' });
+  }
 
   await db.pool.query('UPDATE requisiciones SET estado = $1 WHERE id = $2', [estado, reqId]);
 
@@ -1949,9 +1970,12 @@ app.put('/api/projects/:id/requisiciones/:reqId/estado', h(auth.allow('residente
 app.delete('/api/projects/:id/requisiciones/:reqId', h(auth.allow('residente', 'cabo', 'compras')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
   const reqId = Number(req.params.reqId);
   const { rows } = await db.pool.query(
-    'SELECT estado FROM requisiciones WHERE id = $1 AND project_id = $2', [reqId, req.project.id]
+    'SELECT estado, usuario_id FROM requisiciones WHERE id = $1 AND project_id = $2', [reqId, req.project.id]
   );
   if (!rows[0]) return res.status(404).json({ error: 'Requisición no encontrada' });
+  if (['residente', 'cabo'].includes(req.user.puesto) && rows[0].usuario_id !== req.user.id) {
+    return res.status(404).json({ error: 'Requisición no encontrada' });
+  }
   if (rows[0].estado !== 'borrador') {
     return res.status(400).json({ error: 'Solo se pueden eliminar requisiciones en estado "borrador"' });
   }

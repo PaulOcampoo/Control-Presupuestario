@@ -276,6 +276,15 @@ const SCHEMA = `
   ALTER TABLE ordenes_compra ADD COLUMN IF NOT EXISTS incluye_iva BOOLEAN NOT NULL DEFAULT true;
   ALTER TABLE pagos ADD COLUMN IF NOT EXISTS incluye_iva BOOLEAN NOT NULL DEFAULT true;
 
+  -- Creador de la requisición — permite que residente/cabo solo vean sus
+  -- propias requisiciones (compras/logistica/admin siguen viendo todas, las
+  -- necesitan completas para generar órdenes de compra). Nullable: las
+  -- requisiciones creadas antes de esta columna quedan sin dueño y no se le
+  -- muestran a ningún residente/cabo (nadie puede reclamarlas retroactivamente
+  -- con certeza), pero siguen visibles para compras/logistica/admin.
+  ALTER TABLE requisiciones ADD COLUMN IF NOT EXISTS usuario_id INTEGER REFERENCES usuarios(id);
+  CREATE INDEX IF NOT EXISTS idx_requisiciones_usuario ON requisiciones(usuario_id);
+
   -- Cliente (agrupador de proyectos) — agregado después de que 'proyectos' ya
   -- existía en producción. cliente_id es nullable para no romper proyectos
   -- existentes sin cliente asignado (los 2 originales se migraron a "VINTE"

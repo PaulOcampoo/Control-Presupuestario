@@ -1540,8 +1540,16 @@ body.modal-open { overflow: hidden; }
 .checkbox-row-mt14 { display: flex; align-items: center; gap: 8px; margin-top: 14px; }
 .w-auto { width: auto; }
 .fs076-m006 { font-size: 0.76rem; margin: 0 0 6px; }
-.checkbox-list-col { display: flex; flex-direction: column; gap: 8px; max-height: 180px; overflow-y: auto; }
+.checkbox-list-col { display: flex; flex-direction: column; gap: 8px; max-height: 260px; overflow-y: auto; }
 .checkbox-row-fw400 { display: flex; align-items: center; gap: 8px; font-weight: 400; font-size: 0.88rem; }
+/* Agrupa "Obras asignadas" por cliente (openUsuarioModal) — el nombre de la
+   obra sola no bastaba para saber a qué cliente se le daba acceso. */
+.checkbox-list-group-title {
+  font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em;
+  color: var(--text-secondary); margin: 10px 0 2px;
+}
+.checkbox-list-group-title:first-child { margin-top: 0; }
+.checkbox-row-indent { padding-left: 10px; }
 
 /* openResetPasswordModal */
 .m10-0-14 { margin: 10px 0 14px; }

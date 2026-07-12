@@ -186,7 +186,7 @@ function showInstallBanner(mode) {
     : 'Instala Control Presupuestal en tu dispositivo para acceso rápido, sin navegador.';
   $('#btnInstallApp').style.display = mode === 'ios' ? 'none' : '';
   banner.classList.remove('hidden-initial');
-  banner.classList.add('show');
+  requestAnimationFrame(() => banner.classList.add('show'));
 }
 
 window.addEventListener('beforeinstallprompt', (ev) => {
@@ -226,7 +226,7 @@ if (isIOS() && !isStandalone()) showInstallBanner('ios');
 function updateTotpReminderBanner() {
   const banner = $('#totpReminderBanner');
   banner.classList.remove('hidden-initial');
-  banner.classList.toggle('show', state.needsTotpReminder);
+  requestAnimationFrame(() => banner.classList.toggle('show', state.needsTotpReminder));
 }
 $('#btnTotpReminderConfigurar').addEventListener('click', startTotpEnrollment);
 $('#btnTotpReminderClose').addEventListener('click', () => {

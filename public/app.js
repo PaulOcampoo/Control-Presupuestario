@@ -3052,11 +3052,13 @@ async function renderRequisiciones(view) {
     <div class="section-actions">
       <button class="btn" id="btnGoCatalogo">+ Agregar insumos desde el catálogo</button>
       <button class="btn" id="btnExportRequisiciones">⭳ Exportar a Excel</button>
+      ${puedeGestionarUsuarios() ? `<button class="btn" id="btnReqHistorial">🕘 Historial</button>` : ''}
     </div>
     <div id="reqList"></div>
   `;
   $('#btnGoCatalogo').addEventListener('click', () => switchToView('insumos'));
   wireExportButton('#btnExportRequisiciones', `/projects/${state.projectId}/requisiciones/export`);
+  if (puedeGestionarUsuarios()) $('#btnReqHistorial').addEventListener('click', openRequisicionesHistorialModal);
   if (draft.length) $('#btnOpenDraft').addEventListener('click', openDraftModal);
 
   const list = $('#reqList');
@@ -3082,6 +3084,43 @@ async function renderRequisiciones(view) {
   }).join('');
 
   $$('[data-view-req]', list).forEach((btn) => btn.addEventListener('click', () => openRequisicionDetail(Number(btn.dataset.viewReq))));
+}
+
+const REQ_ACCION_LABEL = {
+  requisicion_crear: 'creó',
+  requisicion_editar: 'editó',
+  requisicion_estado: 'cambió el estado de',
+  requisicion_eliminar: 'eliminó',
+};
+
+// Historial de acciones de residente/cabo sobre requisiciones de esta obra —
+// control administrativo (solo admin/desarrollador/administracion, ver
+// GET /requisiciones-historial en el backend).
+async function openRequisicionesHistorialModal() {
+  openModal('<div class="spinner"></div>');
+  try {
+    const historial = await api(`/projects/${state.projectId}/requisiciones-historial`);
+    openModal(`
+      <h3>Historial de requisiciones</h3>
+      <p class="muted fs076-m006">Acciones de residentes y cabos sobre las requisiciones de esta obra.</p>
+      ${historial.length ? `
+      <div class="project-list gap-6">
+        ${historial.map((h) => `
+          <div class="project-item" style="cursor:default;">
+            <div>
+              <strong>${esc(h.actor_nombre)}</strong> ${esc(REQ_ACCION_LABEL[h.accion] || h.accion)}
+              <strong>${esc(h.target_usuario || `#${h.target_id}`)}</strong>
+            </div>
+            <div class="muted fs-078">${new Date(h.creado_en).toLocaleString('es-MX', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</div>
+          </div>`).join('')}
+      </div>` : '<p class="muted">Sin actividad de residentes/cabos registrada todavía.</p>'}
+      <div class="modal-actions"><button class="btn" id="btnCloseReqHistorial">Cerrar</button></div>
+    `);
+    $('#btnCloseReqHistorial').addEventListener('click', closeModal);
+  } catch (err) {
+    closeModal();
+    toast(err.message, 'danger');
+  }
 }
 
 function openDraftModal() {
@@ -3117,8 +3156,9 @@ function openDraftModal() {
         </div>
         <div class="qty-row">
           <div><label>Cantidad</label><input type="number" min="0" step="any" data-field="cantidad_solicitada" data-idx="${idx}" value="${d.cantidad_solicitada}" /></div>
+          ${puedeVerImportesRequisicion() ? `
           <div><label>Precio unitario</label><input type="number" min="0" step="any" data-field="precio_solicitado" data-idx="${idx}" value="${d.precio_solicitado}" /></div>
-          <div class="muted fs-078-right">= ${fmtMoney(d.cantidad_solicitada * d.precio_solicitado)}</div>
+          <div class="muted fs-078-right">= ${fmtMoney(d.cantidad_solicitada * d.precio_solicitado)}</div>` : ''}
         </div>
       </div>`;
     }).join('');
@@ -3128,9 +3168,9 @@ function openDraftModal() {
         const idx = Number(inp.dataset.idx);
         draft[idx][inp.dataset.field] = Number(inp.value) || 0;
         schedulePreview();
-        // live total update without full repaint
+        // live total update without full repaint (no existe si no puede ver importes)
         const totalEl = inp.closest('.req-item-row').querySelector('.qty-row .muted');
-        totalEl.textContent = `= ${fmtMoney(draft[idx].cantidad_solicitada * draft[idx].precio_solicitado)}`;
+        if (totalEl) totalEl.textContent = `= ${fmtMoney(draft[idx].cantidad_solicitada * draft[idx].precio_solicitado)}`;
       });
     });
     $$('[data-remove]', $('#draftItems')).forEach((btn) => {
@@ -3319,8 +3359,9 @@ function openEditRequisicionModal(requisicion) {
         </div>
         <div class="qty-row">
           <div><label>Cantidad</label><input type="number" min="0" step="any" data-field="cantidad_solicitada" data-idx="${idx}" value="${d.cantidad_solicitada}" /></div>
+          ${puedeVerImportesRequisicion() ? `
           <div><label>Precio unitario</label><input type="number" min="0" step="any" data-field="precio_solicitado" data-idx="${idx}" value="${d.precio_solicitado}" /></div>
-          <div class="muted fs-078-right">= ${fmtMoney(d.cantidad_solicitada * d.precio_solicitado)}</div>
+          <div class="muted fs-078-right">= ${fmtMoney(d.cantidad_solicitada * d.precio_solicitado)}</div>` : ''}
         </div>
       </div>`;
     }).join('');
@@ -3331,7 +3372,7 @@ function openEditRequisicionModal(requisicion) {
         items[idx][inp.dataset.field] = Number(inp.value) || 0;
         schedulePreview();
         const totalEl = inp.closest('.req-item-row').querySelector('.qty-row .muted');
-        totalEl.textContent = `= ${fmtMoney(items[idx].cantidad_solicitada * items[idx].precio_solicitado)}`;
+        if (totalEl) totalEl.textContent = `= ${fmtMoney(items[idx].cantidad_solicitada * items[idx].precio_solicitado)}`;
       });
     });
     $$('[data-remove]', box).forEach((btn) => {

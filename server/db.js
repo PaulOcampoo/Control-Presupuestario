@@ -276,6 +276,18 @@ const SCHEMA = `
   ALTER TABLE ordenes_compra ADD COLUMN IF NOT EXISTS incluye_iva BOOLEAN NOT NULL DEFAULT true;
   ALTER TABLE pagos ADD COLUMN IF NOT EXISTS incluye_iva BOOLEAN NOT NULL DEFAULT true;
 
+  -- Creador de la requisición — permite que residente/cabo solo vean sus
+  -- propias requisiciones (compras/logistica/admin siguen viendo todas, las
+  -- necesitan completas para generar órdenes de compra). Nullable: las
+  -- requisiciones creadas antes de esta columna quedan sin dueño. Para no
+  -- romper el historial ya capturado, esas quedan visibles/editables para
+  -- CUALQUIER residente/cabo con acceso a la obra (no se le puede atribuir a
+  -- nadie con certeza, pero tampoco se le oculta a todos) — ver
+  -- requisicionAjena() en server/app.js. Solo las requisiciones creadas desde
+  -- ahora en adelante quedan estrictamente acotadas a su creador.
+  ALTER TABLE requisiciones ADD COLUMN IF NOT EXISTS usuario_id INTEGER REFERENCES usuarios(id);
+  CREATE INDEX IF NOT EXISTS idx_requisiciones_usuario ON requisiciones(usuario_id);
+
   -- Cliente (agrupador de proyectos) — agregado después de que 'proyectos' ya
   -- existía en producción. cliente_id es nullable para no romper proyectos
   -- existentes sin cliente asignado (los 2 originales se migraron a "VINTE"
@@ -414,6 +426,13 @@ const SCHEMA = `
     creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW()
   );
   CREATE INDEX IF NOT EXISTS idx_audit_log_creado ON audit_log(creado_en DESC);
+
+  -- project_id agregado para poder filtrar el historial de acciones sobre
+  -- requisiciones por obra (residente/cabo — control de qué hacen en cada
+  -- obra). ON DELETE SET NULL: si algún día se borra un proyecto, el
+  -- historial de auditoría no desaparece con él.
+  ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS project_id INTEGER REFERENCES proyectos(id) ON DELETE SET NULL;
+  CREATE INDEX IF NOT EXISTS idx_audit_log_project ON audit_log(project_id, creado_en DESC);
 
   -- Última visita por usuario+cliente para navegación inteligente: cuando el
   -- usuario selecciona un cliente, la app navega automáticamente al último

@@ -1722,11 +1722,43 @@ async function computeAlertsAndTotals(projectId, items, ignoreRequisicionId = nu
   return out;
 }
 
-async function getRequisicionesData(pid) {
-  const { rows: reqs } = await db.pool.query(
-    'SELECT * FROM requisiciones WHERE project_id = $1 ORDER BY id DESC',
-    [pid]
-  );
+// true si el usuario (residente/cabo) NO es dueño de esta requisición y por
+// lo tanto no debe verla ni operarla. Las requisiciones sin dueño (usuario_id
+// NULL — creadas antes del control por creador) se respetan: siguen
+// visibles/editables para cualquier residente/cabo con acceso a la obra, no
+// solo para admin/compras/logistica.
+function requisicionAjena(row, user) {
+  return ['residente', 'cabo'].includes(user.puesto) && row.usuario_id != null && row.usuario_id !== user.id;
+}
+
+// Bitácora de qué hacen residente/cabo sobre requisiciones (control
+// administrativo pedido explícitamente — ver historial en
+// GET /api/projects/:id/requisiciones-historial). compras/logistica/admin no
+// están restringidos por dueño y no se registran aquí.
+async function logRequisicionAudit(req, accion, requisicion, detalleExtra) {
+  if (!['residente', 'cabo'].includes(req.user.puesto)) return;
+  const ip = ((req.headers['x-forwarded-for'] || '') + '').split(',')[0].trim() || req.socket?.remoteAddress || 'unknown';
+  const label = requisicion.folio || `Requisición #${requisicion.id}`;
+  await db.pool.query(
+    'INSERT INTO audit_log (actor_id, actor_usuario, accion, target_id, target_usuario, project_id, ip) VALUES ($1,$2,$3,$4,$5,$6,$7)',
+    [req.user.id, req.user.usuario, accion, requisicion.id, detalleExtra ? `${label} ${detalleExtra}` : label, req.project.id, ip]
+  ).catch(() => {});
+}
+
+// usuarioId: si se pasa, restringe a las requisiciones creadas por ese
+// usuario MÁS las que no tienen dueño (usuario_id NULL — ver
+// requisicionAjena arriba). null = sin restricción (compras/logistica/admin
+// siguen viendo todas las de la obra).
+async function getRequisicionesData(pid, usuarioId = null) {
+  const { rows: reqs } = usuarioId != null
+    ? await db.pool.query(
+        'SELECT * FROM requisiciones WHERE project_id = $1 AND (usuario_id = $2 OR usuario_id IS NULL) ORDER BY id DESC',
+        [pid, usuarioId]
+      )
+    : await db.pool.query(
+        'SELECT * FROM requisiciones WHERE project_id = $1 ORDER BY id DESC',
+        [pid]
+      );
   return Promise.all(reqs.map(async (r) => {
     const { rows } = await db.pool.query(`
       SELECT COUNT(*) AS num_items,
@@ -1740,18 +1772,20 @@ async function getRequisicionesData(pid) {
 }
 
 app.get('/api/projects/:id/requisiciones', h(auth.allow('residente', 'cabo', 'compras', 'logistica')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
-  let data = await getRequisicionesData(req.project.id);
-  if (['residente', 'cabo'].includes(req.user.puesto)) {
+  const soloPropias = ['residente', 'cabo'].includes(req.user.puesto);
+  let data = await getRequisicionesData(req.project.id, soloPropias ? req.user.id : null);
+  if (soloPropias) {
     data = data.map(({ importe_total, alertas_precio, ...rest }) => rest);
   }
   res.json(data);
 }));
 
 app.get('/api/projects/:id/requisiciones/export', h(auth.allow('residente', 'cabo', 'compras', 'logistica')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
-  const reqs = await getRequisicionesData(req.project.id);
+  const soloPropias = ['residente', 'cabo'].includes(req.user.puesto);
+  const reqs = await getRequisicionesData(req.project.id, soloPropias ? req.user.id : null);
   const reqMap = new Map(reqs.map((r) => [r.id, r]));
 
-  const { rows: itemRows } = await db.pool.query(`
+  const { rows: allItemRows } = await db.pool.query(`
     SELECT ri.requisicion_id, ri.cantidad_solicitada, ri.precio_solicitado, ri.importe,
            ri.alerta_cantidad, ri.alerta_precio,
            i.codigo AS insumo_codigo, i.concepto AS insumo_concepto, i.unidad
@@ -1761,6 +1795,8 @@ app.get('/api/projects/:id/requisiciones/export', h(auth.allow('residente', 'cab
     WHERE r.project_id = $1
     ORDER BY ri.requisicion_id, ri.id
   `, [req.project.id]);
+  // reqMap ya viene acotado a lo propio si aplica — se filtran los items igual.
+  const itemRows = allItemRows.filter((it) => reqMap.has(it.requisicion_id));
 
   await sendXlsxExport(res, {
     filename: buildExportFilename('Requisiciones', req.project.nombre),
@@ -1830,6 +1866,9 @@ app.get('/api/projects/:id/requisiciones/:reqId', h(auth.allow('residente', 'cab
     [Number(req.params.reqId), req.project.id]
   );
   if (!reqRows[0]) return res.status(404).json({ error: 'Requisición no encontrada' });
+  if (requisicionAjena(reqRows[0], req.user)) {
+    return res.status(404).json({ error: 'Requisición no encontrada' });
+  }
   const { rows: rawItems } = await db.pool.query(`
     SELECT ri.*, i.codigo AS insumo_codigo, i.concepto AS insumo_concepto, i.categoria, i.unidad,
            i.cantidad_presupuesto, i.precio_presupuesto
@@ -1851,13 +1890,19 @@ app.post('/api/projects/:id/requisiciones', h(auth.allow('residente', 'cabo', 'c
   if (!Array.isArray(items) || items.length === 0) {
     return res.status(400).json({ error: 'La requisición debe incluir al menos un insumo' });
   }
+  // Residente/cabo solo anexan cantidades — el precio siempre lo determina
+  // el presupuesto (computeAlertsAndTotals cae a insumo.precio_presupuesto
+  // cuando precio_solicitado es null), sin importar qué manden en el body.
+  if (['residente', 'cabo'].includes(req.user.puesto)) {
+    items.forEach((it) => { it.precio_solicitado = null; });
+  }
   try {
     const computed = await computeAlertsAndTotals(pid, items);
     const created = await db.withTransaction(async (client) => {
       const { rows } = await client.query(
-        `INSERT INTO requisiciones (project_id, folio, fecha, estado, observaciones)
-         VALUES ($1, $2, COALESCE($3::date, CURRENT_DATE), 'borrador', $4) RETURNING *`,
-        [pid, folio || null, fecha || null, observaciones || null]
+        `INSERT INTO requisiciones (project_id, folio, fecha, estado, observaciones, usuario_id)
+         VALUES ($1, $2, COALESCE($3::date, CURRENT_DATE), 'borrador', $4, $5) RETURNING *`,
+        [pid, folio || null, fecha || null, observaciones || null, req.user.id]
       );
       const reqId = rows[0].id;
       for (const c of computed) {
@@ -1870,6 +1915,7 @@ app.post('/api/projects/:id/requisiciones', h(auth.allow('residente', 'cabo', 'c
       }
       return rows[0];
     });
+    await logRequisicionAudit(req, 'requisicion_crear', created);
     res.status(201).json({ ...created, items: computed, tiene_alertas: computed.some((c) => c.alerta_cantidad || c.alerta_precio) });
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -1884,12 +1930,19 @@ app.put('/api/projects/:id/requisiciones/:reqId', h(auth.allow('residente', 'cab
     [reqId, pid]
   );
   if (!existRows[0]) return res.status(404).json({ error: 'Requisición no encontrada' });
+  if (requisicionAjena(existRows[0], req.user)) {
+    return res.status(404).json({ error: 'Requisición no encontrada' });
+  }
   if (existRows[0].estado !== 'borrador') {
     return res.status(400).json({ error: 'Solo se pueden editar requisiciones en estado "borrador"' });
   }
   const { folio, fecha, observaciones, items } = req.body || {};
   if (!Array.isArray(items) || items.length === 0) {
     return res.status(400).json({ error: 'La requisición debe incluir al menos un insumo' });
+  }
+  // Ver mismo candado en POST /requisiciones — residente/cabo no manipulan precios.
+  if (['residente', 'cabo'].includes(req.user.puesto)) {
+    items.forEach((it) => { it.precio_solicitado = null; });
   }
   try {
     const computed = await computeAlertsAndTotals(pid, items, reqId);
@@ -1910,6 +1963,7 @@ app.put('/api/projects/:id/requisiciones/:reqId', h(auth.allow('residente', 'cab
       }
       return rows[0];
     });
+    await logRequisicionAudit(req, 'requisicion_editar', updated);
     res.json({ ...updated, items: computed, tiene_alertas: computed.some((c) => c.alerta_cantidad || c.alerta_precio) });
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -1933,11 +1987,15 @@ app.put('/api/projects/:id/requisiciones/:reqId/estado', h(auth.allow('residente
   }
   const reqId = Number(req.params.reqId);
   const { rows: reqRows } = await db.pool.query(
-    'SELECT folio FROM requisiciones WHERE id = $1 AND project_id = $2', [reqId, req.project.id]
+    'SELECT folio, usuario_id FROM requisiciones WHERE id = $1 AND project_id = $2', [reqId, req.project.id]
   );
   if (!reqRows[0]) return res.status(404).json({ error: 'Requisición no encontrada' });
+  if (requisicionAjena(reqRows[0], req.user)) {
+    return res.status(404).json({ error: 'Requisición no encontrada' });
+  }
 
   await db.pool.query('UPDATE requisiciones SET estado = $1 WHERE id = $2', [estado, reqId]);
+  await logRequisicionAudit(req, 'requisicion_estado', { id: reqId, folio: reqRows[0].folio }, `→ ${estado}`);
 
   if (estado === 'enviada' && req.user.puesto !== 'admin') {
     const folio = reqRows[0].folio || `Requisición #${reqId}`;
@@ -1949,12 +2007,16 @@ app.put('/api/projects/:id/requisiciones/:reqId/estado', h(auth.allow('residente
 app.delete('/api/projects/:id/requisiciones/:reqId', h(auth.allow('residente', 'cabo', 'compras')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
   const reqId = Number(req.params.reqId);
   const { rows } = await db.pool.query(
-    'SELECT estado FROM requisiciones WHERE id = $1 AND project_id = $2', [reqId, req.project.id]
+    'SELECT estado, folio, usuario_id FROM requisiciones WHERE id = $1 AND project_id = $2', [reqId, req.project.id]
   );
   if (!rows[0]) return res.status(404).json({ error: 'Requisición no encontrada' });
+  if (requisicionAjena(rows[0], req.user)) {
+    return res.status(404).json({ error: 'Requisición no encontrada' });
+  }
   if (rows[0].estado !== 'borrador') {
     return res.status(400).json({ error: 'Solo se pueden eliminar requisiciones en estado "borrador"' });
   }
+  await logRequisicionAudit(req, 'requisicion_eliminar', { id: reqId, folio: rows[0].folio });
   await db.pool.query('DELETE FROM requisiciones WHERE id = $1', [reqId]);
   res.json({ ok: true });
 }));
@@ -1962,6 +2024,11 @@ app.delete('/api/projects/:id/requisiciones/:reqId', h(auth.allow('residente', '
 app.post('/api/projects/:id/requisiciones/preview', h(auth.allow('residente', 'cabo', 'compras')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
   const { items, ignore_requisicion_id } = req.body || {};
   if (!Array.isArray(items)) return res.status(400).json({ error: 'items debe ser un arreglo' });
+  // Mismo candado de precio que crear/editar — la preview debe reflejar
+  // exactamente lo que se va a guardar.
+  if (['residente', 'cabo'].includes(req.user.puesto)) {
+    items.forEach((it) => { it.precio_solicitado = null; });
+  }
   try {
     const computed = await computeAlertsAndTotals(
       req.project.id,
@@ -1972,6 +2039,24 @@ app.post('/api/projects/:id/requisiciones/preview', h(auth.allow('residente', 'c
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
+}));
+
+// Historial de qué hicieron residente/cabo sobre las requisiciones de esta
+// obra (crear/editar/cambiar estado/eliminar) — pedido explícito de control
+// administrativo. Solo administracion/admin/desarrollador, no residente/cabo
+// (no tiene sentido que vean el registro de vigilancia sobre ellos mismos) ni
+// compras/logistica (ellos ya ven todas las requisiciones sin restricción).
+app.get('/api/projects/:id/requisiciones-historial', h(auth.allow('administracion')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  const { rows } = await db.pool.query(`
+    SELECT al.id, al.accion, al.target_id, al.target_usuario, al.creado_en,
+           al.actor_id, COALESCE(u.nombre, al.actor_usuario) AS actor_nombre
+    FROM audit_log al
+    LEFT JOIN usuarios u ON u.id = al.actor_id
+    WHERE al.project_id = $1 AND al.accion LIKE 'requisicion_%'
+    ORDER BY al.creado_en DESC
+    LIMIT 300
+  `, [req.project.id]);
+  res.json(rows);
 }));
 
 // ---------------------------------------------------------------------------

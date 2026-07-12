@@ -1159,7 +1159,12 @@ body.modal-open { overflow: hidden; }
   overflow-x: auto; border: 1px solid var(--border-color); border-radius: var(--radius);
   background: var(--bg-surface); padding: 6px;
 }
-.asist-grid-table { border-collapse: separate; border-spacing: 0; font-size: 0.82rem; white-space: nowrap; }
+/* Gris suave (--bg-surface-2, ya usado en la app para superficies
+   secundarias/vacío) para diferenciar la tabla del fondo de la página —
+   distinto del --bg-surface que usan .asist-grid-scroll (el wrapper) y la
+   columna sticky, para que esta última se siga leyendo "más clara"/opaca
+   encima del resto. */
+.asist-grid-table { border-collapse: separate; border-spacing: 0; font-size: 0.82rem; white-space: nowrap; background: var(--bg-surface-2); }
 .asist-grid-table th, .asist-grid-table td {
   padding: 0; text-align: center; box-sizing: border-box;
   border: 3px solid transparent; background-clip: padding-box;
@@ -1171,21 +1176,34 @@ body.modal-open { overflow: hidden; }
      celdas separadas/redondeadas, pero en la columna STICKY eso deja un
      anillo de 3px sin pintar por donde se asoman las celdas de color al
      deslizar (el fondo no llega hasta el borde). border-box fuerza que el
-     fondo sólido cubra también esa franja. */
+     fondo sólido cubra también esa franja.
+     El segundo box-shadow (no-inset) extiende 2px el fondo sólido más allá
+     del borde derecho, como colchón contra redondeo de subpíxel al hacer
+     scroll — insurance barata, no debería notarse. */
   position: sticky; left: 0; z-index: 3; background: var(--bg-surface); background-clip: border-box !important;
   padding: 8px 12px !important; text-align: left !important; font-weight: 600; color: var(--text-secondary);
-  box-shadow: inset -1px 0 0 var(--border-color);
+  box-shadow: inset -1px 0 0 var(--border-color), 2px 0 0 0 var(--bg-surface);
 }
 .asist-th-dia {
   width: 44px; padding: 8px 2px !important; font-weight: 600; color: var(--text-secondary);
 }
 .asist-th-dia.hoy { color: var(--accent-gold); font-weight: 800; }
 .asist-td-trab {
-  /* Ver comentario en .asist-th-trab — mismo fix, mismo motivo. */
+  /* Ver comentario en .asist-th-trab (background-clip + box-shadow extra) —
+     mismo fix, mismo motivo.
+     border-radius solo en las esquinas IZQUIERDAS: con las 4 esquinas
+     redondeadas (como estaba), las 2 esquinas derechas — las que lindan con
+     la primera celda de día que desliza por debajo — recortaban un
+     triangulito del fondo sólido de esta celda. Ese hueco geométrico (no de
+     transparencia) es por donde se asomaban fragmentos de las celdas de
+     fecha al hacer scroll horizontal, incluso con background-clip:border-box
+     ya arreglado (border-radius aplica DESPUÉS, recortando la caja entera,
+     fondo incluido). Las esquinas izquierdas conservan el redondeo — nunca
+     lindan con contenido que se desliza detrás. */
   position: sticky; left: 0; z-index: 2; background: var(--bg-surface); background-clip: border-box !important;
   padding: 6px 12px !important; text-align: left !important; cursor: pointer;
-  border-radius: 6px;
-  box-shadow: inset -1px 0 0 var(--border-color);
+  border-radius: 6px 0 0 6px;
+  box-shadow: inset -1px 0 0 var(--border-color), 2px 0 0 0 var(--bg-surface);
   max-width: 160px; overflow: hidden; text-overflow: ellipsis;
 }
 .asist-cell {

@@ -5358,11 +5358,26 @@ function paintUsuariosList(usuarios) {
 
 async function openUsuarioModal(usuario) {
   const isEdit = !!usuario;
-  const [allProjects, assigned] = await Promise.all([
+  const [allProjects, clientes, assigned] = await Promise.all([
     api('/projects'),
+    api('/clientes'),
     isEdit ? api(`/usuarios/${usuario.id}/proyectos`) : Promise.resolve([]),
   ]);
   const assignedIds = new Set(assigned.map((p) => p.id));
+
+  // Agrupa las obras por cliente para que el admin identifique de un vistazo
+  // a qué cliente le está dando acceso, no solo el nombre suelto de la obra.
+  const SIN_CLIENTE = 'Sin cliente asignado';
+  const clienteNombrePorId = new Map(clientes.map((c) => [c.id, c.nombre]));
+  const proyectosPorCliente = new Map();
+  allProjects.forEach((p) => {
+    const nombreCliente = clienteNombrePorId.get(p.cliente_id) || SIN_CLIENTE;
+    if (!proyectosPorCliente.has(nombreCliente)) proyectosPorCliente.set(nombreCliente, []);
+    proyectosPorCliente.get(nombreCliente).push(p);
+  });
+  const gruposObras = [...proyectosPorCliente.entries()]
+    .sort(([a], [b]) => (a === SIN_CLIENTE ? 1 : b === SIN_CLIENTE ? -1 : a.localeCompare(b)));
+  gruposObras.forEach(([, proyectos]) => proyectos.sort((a, b) => a.nombre.localeCompare(b.nombre)));
 
   const puestoOptions = Object.keys(PUESTO_LABELS)
     .map((p) => `<option value="${p}" ${usuario && usuario.puesto === p ? 'selected' : ''}>${esc(PUESTO_LABELS[p])}</option>`)
@@ -5392,10 +5407,13 @@ async function openUsuarioModal(usuario) {
       <p class="muted fs076-m006">Solo verá y podrá operar en las obras marcadas aquí.</p>
       ${allProjects.length ? `
       <div id="uProyectosList" class="checkbox-list-col">
-        ${allProjects.map((p) => `
-          <label class="checkbox-row-fw400">
-            <input type="checkbox" value="${p.id}" class="w-auto" ${assignedIds.has(p.id) ? 'checked' : ''} /> ${esc(p.nombre)}
-          </label>`).join('')}
+        ${gruposObras.map(([nombreCliente, proyectos]) => `
+          <div class="checkbox-list-group-title">${esc(nombreCliente)}</div>
+          ${proyectos.map((p) => `
+            <label class="checkbox-row-fw400 checkbox-row-indent">
+              <input type="checkbox" value="${p.id}" class="w-auto" ${assignedIds.has(p.id) ? 'checked' : ''} /> ${esc(p.nombre)}
+            </label>`).join('')}
+        `).join('')}
       </div>` : '<p class="muted">No hay obras cargadas todavía.</p>'}
     </div>
     <div class="modal-actions">

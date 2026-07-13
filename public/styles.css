@@ -304,6 +304,14 @@ input, select, textarea {
     font-size: max(16px, 0.92rem);
   }
 }
+/* input[type=date] hereda el borde/fondo/radio del selector genérico de
+   arriba, pero el widget nativo (indicador de calendario + popup) ignora esos
+   colores sin color-scheme — en tema oscuro el ícono queda casi invisible y
+   el popup se abre en blanco puro, rompiendo la consistencia visual. Sigue
+   siendo el date picker nativo del sistema/navegador, solo se le indica en
+   qué esquema de color pintarse. */
+input[type="date"] { color-scheme: dark; cursor: pointer; }
+[data-theme="light"] input[type="date"] { color-scheme: light; }
 label { display: block; font-size: 0.8rem; color: var(--text-secondary); margin: 10px 0 4px; }
 .field { margin-bottom: 6px; }
 .field-null input, .field-null select { border-color: var(--yellow); }
@@ -437,6 +445,11 @@ body.modal-open { overflow: hidden; }
 .toast.show { opacity: 1; pointer-events: auto; }
 .toast.danger { border-color: var(--red); color: #fecaca; }
 .toast.success { border-color: var(--green); color: #bbf7d0; }
+/* Verde claro (#bbf7d0) sobre fondo claro en tema light era ilegible —
+   mismo tratamiento ya usado en .alert-box.danger/.info/.warning (color
+   oscuro y saturado propio de tema claro, no una simple inversión). Solo
+   .success: .danger no se toca (no reportado, fuera de alcance). */
+[data-theme="light"] .toast.success { color: #14532d; }
 /* En móvil el toast debe quedar por encima de la barra de navegación inferior */
 @media (max-width: 860px) {
   .toast { bottom: calc(var(--mobile-nav-h) + env(safe-area-inset-bottom, 0px) + 20px); }
@@ -667,7 +680,14 @@ body.modal-open { overflow: hidden; }
 .cliente-card .cliente-nombre { font-weight: 700; font-size: 0.98rem; text-transform: uppercase; }
 .cliente-card .cliente-count { color: var(--text-secondary); font-size: 0.76rem; }
 .cliente-card-orphan { border-style: dashed; border-color: var(--yellow); }
-.cliente-card-new { border-style: dashed; border-color: var(--accent-gold); justify-content: center; }
+/* Borde punteado (placeholder/drop-zone) leía como casilla vacía, no como
+   botón — fondo tintado + borde sólido lo distingue de una tarjeta de
+   cliente real (bg-surface-2 plano) sin parecer un marcador vacío. */
+.cliente-card-new {
+  background: color-mix(in srgb, var(--accent-gold) 14%, var(--bg-surface-2));
+  border: 1px solid var(--accent-gold);
+  justify-content: center;
+}
 .cliente-card-new .cliente-icon { color: var(--accent-gold); }
 
 /* ── Pantalla de bienvenida ──────────────────────────────────────────────── */

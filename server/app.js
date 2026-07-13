@@ -4378,6 +4378,39 @@ app.post('/api/projects/:id/estimaciones', h(auth.allow('residente')), h(require
   res.status(201).json(estimacion);
 }));
 
+// Defaults sugeridos para el modal "Nueva estimación" — registrado ANTES de
+// /estimaciones/:estId para que Express no lo confunda con un id numérico.
+// El periodo es continuo a nivel OBRA (el folio también lo es), no por
+// residente — por eso no se filtra por residente_id como en el listado.
+app.get('/api/projects/:id/estimaciones/defaults-periodo', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  const pid = req.project.id;
+  const hoy = new Date().toISOString().slice(0, 10);
+
+  const { rows: ultimaRows } = await db.pool.query(
+    `SELECT periodo_fin FROM estimaciones WHERE project_id = $1 AND activo = true AND estado <> 'rechazada' ORDER BY periodo_fin DESC LIMIT 1`,
+    [pid]
+  );
+  if (ultimaRows[0]) {
+    const siguiente = new Date(ultimaRows[0].periodo_fin);
+    siguiente.setDate(siguiente.getDate() + 1);
+    return res.json({ periodo_inicio: siguiente.toISOString().slice(0, 10), periodo_fin: hoy });
+  }
+
+  // Primera estimación de la obra: fecha de inicio de contrato si está
+  // capturada, si no la del primer avance registrado.
+  const { rows: metaRows } = await db.pool.query(
+    `SELECT valor FROM meta WHERE project_id = $1 AND clave = 'inicio_obra'`, [pid]
+  );
+  let periodoInicio = metaRows[0]?.valor || null;
+  if (!periodoInicio) {
+    const { rows: avanceRows } = await db.pool.query(
+      `SELECT MIN(fecha_inicio) AS fecha FROM avances_semanales WHERE project_id = $1`, [pid]
+    );
+    periodoInicio = avanceRows[0]?.fecha || null;
+  }
+  res.json({ periodo_inicio: periodoInicio, periodo_fin: hoy });
+}));
+
 app.get('/api/projects/:id/estimaciones/:estId', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
   const estId = Number(req.params.estId);
   const soloPropias = req.user.puesto === 'residente';

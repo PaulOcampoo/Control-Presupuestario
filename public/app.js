@@ -7637,13 +7637,20 @@ async function loadEstimaciones() {
   }
 }
 
-function openEstimacionModal(onSave) {
+async function openEstimacionModal(onSave) {
+  // Defaults sugeridos (editables): día siguiente al periodo_fin de la última
+  // estimación de la obra → hoy; o, si es la primera, inicio de contrato o
+  // primer avance registrado → hoy. Si el fetch falla, se abre igual con los
+  // campos vacíos — no bloquea la creación.
+  let defaults = {};
+  try { defaults = await api(`/projects/${state.projectId}/estimaciones/defaults-periodo`); } catch { /* sin default, campos vacíos */ }
+
   openModal(`
     <h3>Nueva estimación</h3>
     <p class="muted fs-088">Los montos se jalan automáticamente del avance ya registrado en el periodo — no se capturan aquí. Si algo no cuadra, corrígelo en Avance y vuelve a calcular.</p>
     <div class="trab-form-grid">
-      <div class="field"><label>Periodo inicio *</label><input id="ePeriodoInicio" type="date" /></div>
-      <div class="field"><label>Periodo fin *</label><input id="ePeriodoFin" type="date" /></div>
+      <div class="field"><label>Periodo inicio *</label><input id="ePeriodoInicio" type="date" value="${esc(defaults.periodo_inicio || '')}" /></div>
+      <div class="field"><label>Periodo fin *</label><input id="ePeriodoFin" type="date" value="${esc(defaults.periodo_fin || '')}" /></div>
     </div>
     <div class="modal-actions">
       <button class="btn" id="btnCancelEstimacion">Cancelar</button>

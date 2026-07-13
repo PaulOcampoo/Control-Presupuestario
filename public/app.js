@@ -5361,6 +5361,41 @@ const PERMISOS_ACCIONES = [
   { key: 'puede_editar_precios', label: 'Editar precios' },
   { key: 'puede_eliminar', label: 'Eliminar' },
 ];
+// Mirror de TAB_A_SECCION/defaultPermisosParaRol en server/auth.js — solo se
+// usa para PRE-MARCAR la matriz con lo que el rol ya puede hacer hoy (vía
+// ROLE_TABS/allow()) cuando el usuario todavía no tiene filas guardadas en
+// permisos_usuario para esa sección. Es puramente visual/de arranque: la
+// fuente de verdad real sigue siendo el middleware backend.
+const TAB_A_SECCION = {
+  resumen: 'presupuestos', programa: 'presupuestos', contrato: 'contrato',
+  impuestos: 'impuestos', insumos: 'insumos', requisiciones: 'requisiciones',
+  ordenes: 'ordenes_compra', avance: 'avance', destajo: 'destajo',
+  usuarios: 'usuarios', proveedores: 'proveedores', finanzas: 'finanzas',
+  mapeo: 'mapeo', nominas: 'nominas',
+};
+function defaultPermisosParaRolFrontend(puesto) {
+  const tabs = ROLE_TABS[puesto] || [];
+  const secciones = new Set(tabs.map((t) => TAB_A_SECCION[t]).filter(Boolean));
+  secciones.add('sugerencias');
+  const porSeccion = {};
+  secciones.forEach((seccion) => {
+    porSeccion[seccion] = {
+      seccion, puede_ver: true, puede_crear: false, puede_editar: false,
+      puede_editar_precios: false, puede_eliminar: false,
+    };
+  });
+  if (puesto === 'residente') {
+    if (porSeccion.nominas) porSeccion.nominas.puede_crear = true;
+    if (porSeccion.destajo) { porSeccion.destajo.puede_crear = true; porSeccion.destajo.puede_editar = true; }
+    if (porSeccion.avance)  porSeccion.avance.puede_crear = true;
+    if (porSeccion.requisiciones) porSeccion.requisiciones.puede_crear = true;
+  }
+  if (puesto === 'cabo') {
+    if (porSeccion.destajo) porSeccion.destajo.puede_editar = true;
+    if (porSeccion.avance)  porSeccion.avance.puede_crear = true;
+  }
+  return porSeccion;
+}
 
 async function renderUsuarios(view) {
   if (!puedeGestionarUsuarios()) {
@@ -5412,7 +5447,7 @@ async function renderUsuarios(view) {
           <select id="permUsuarioSelect">
             <option value="">Selecciona un usuario…</option>
             ${usuarios.filter((u) => !['admin', 'desarrollador'].includes(u.puesto)).map((u) =>
-              `<option value="${u.id}">${esc(u.nombre)} (${esc(PUESTO_LABELS[u.puesto] || u.puesto)})</option>`
+              `<option value="${u.id}" data-puesto="${esc(u.puesto)}">${esc(u.nombre)} (${esc(PUESTO_LABELS[u.puesto] || u.puesto)})</option>`
             ).join('')}
           </select>
         </div>
@@ -5422,34 +5457,47 @@ async function renderUsuarios(view) {
     bindSubNav();
     $('#permUsuarioSelect').addEventListener('change', async (e) => {
       const usuarioId = Number(e.target.value);
+      const puesto = e.target.selectedOptions[0]?.dataset.puesto;
       const wrap = $('#permMatrizWrap');
       if (!usuarioId) { wrap.innerHTML = '<p class="muted">Selecciona un usuario para ver y editar su matriz de permisos.</p>'; return; }
       wrap.innerHTML = '<div class="empty-state">Cargando…</div>';
       try {
-        await renderMatrizPermisos(wrap, usuarioId);
+        await renderMatrizPermisos(wrap, usuarioId, puesto);
       } catch (err) {
         wrap.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
       }
     });
   }
 
-  async function renderMatrizPermisos(wrap, usuarioId) {
+  async function renderMatrizPermisos(wrap, usuarioId, puesto) {
     const [obras, permisosActuales] = await Promise.all([
       api(`/usuarios/${usuarioId}/proyectos`),
       api(`/permisos/${usuarioId}`),
     ]);
+    const defaultsDelRol = defaultPermisosParaRolFrontend(puesto);
 
     // Sin obras asignadas: solo tiene sentido editar la fila "todas las obras" (proyecto NULL).
     const tieneVariasObras = obras.length > 1;
     let proyectoIdActivo = obras.length === 1 ? obras[0].id : null;
 
+    // Si ya hay una fila guardada para esta sección (en este proyecto o en la
+    // regla general de proyecto_id NULL), esa manda — es una personalización
+    // ya hecha antes. Si no existe ninguna fila todavía, se pre-marca con lo
+    // que el rol ya puede hacer hoy por auth.allow() (ver defaultsDelRol),
+    // para que el admin solo tenga que desmarcar/marcar diferencias.
     function permisosParaProyecto(proyectoId) {
-      const filas = permisosActuales.filter((p) => p.proyecto_id === proyectoId);
-      const porSeccion = Object.fromEntries(filas.map((f) => [f.seccion, f]));
-      return PERMISOS_SECCIONES.map((seccion) => porSeccion[seccion] || {
-        seccion, puede_ver: false, puede_crear: false, puede_editar: false,
-        puede_editar_precios: false, puede_eliminar: false,
-      });
+      const filasEspecificas = Object.fromEntries(
+        permisosActuales.filter((p) => p.proyecto_id === proyectoId).map((f) => [f.seccion, f])
+      );
+      const filasGenerales = Object.fromEntries(
+        permisosActuales.filter((p) => p.proyecto_id === null).map((f) => [f.seccion, f])
+      );
+      return PERMISOS_SECCIONES.map((seccion) =>
+        filasEspecificas[seccion] || filasGenerales[seccion] || defaultsDelRol[seccion] || {
+          seccion, puede_ver: false, puede_crear: false, puede_editar: false,
+          puede_editar_precios: false, puede_eliminar: false,
+        }
+      );
     }
 
     function pintarMatriz() {

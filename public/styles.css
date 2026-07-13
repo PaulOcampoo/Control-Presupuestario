@@ -1439,30 +1439,31 @@ body.modal-open { overflow: hidden; }
 .trab-form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 
 /* Periodo inicio/fin (modal "Nueva estimación") — clase propia en vez de
-   reutilizar .trab-form-grid para no afectar Nóminas/Trabajadores.
-   DIAGNÓSTICO del intento anterior (grid 1fr 1fr + min-width:0 en .field):
-   ese fix solo resuelve que la PISTA del grid pueda encogerse — no alcanza
-   porque input[type=date] tiene un ancho mínimo intrínseco propio del
-   navegador (el widget nativo día/mes/año, ~140-160px en Chrome/Safari)
-   que ignora el width:100%/min-width:0 heredado del padre una vez que el
-   contenedor real disponible cae por debajo de eso. En un modal de ~520px
-   con padding, dos columnas de 1fr SÍ pueden terminar por debajo de ese
-   piso en teléfonos angostos (320-375px) — el grid nunca estaba "roto" en
-   el código, el input de fecha simplemente se niega a encogerse tanto como
-   pide su columna y se desborda del padre (que no recorta, por eso se veía
-   "cortado" contra el modal en vez de comprimido). No hay ninguna regla
-   con más especificidad ni overflow:hidden de por medio — confirmado
-   revisando el resto de la hoja. Fix real: min-width:0 explícito también
-   en el input (no solo en .field), y en pantallas angostas se apila a una
-   columna — cada casilla usa el ancho completo del modal, muy por encima
-   del piso nativo del navegador, sin depender de que el input acepte
-   encogerse. */
+   reutilizar .trab-form-grid para no afectar Nóminas/Trabajadores. Dos
+   columnas siempre (Paul prefiere el layout lado a lado, no apilado); el
+   ancho mínimo intrínseco de input[type=date] (~140-160px en Chrome, algo
+   menos en iOS Safari que no dibuja un ícono de calendario aparte) se baja
+   con menos padding horizontal — NO se toca el font-size: la regla móvil de
+   arriba lo fija en mínimo 16px a propósito para evitar el auto-zoom de iOS
+   Safari al enfocar un input, y bajarlo aquí reintroduciría ese bug. Con
+   modal ~520px, padding 18px y gap 14px, dos columnas de 1fr dan ~150-160px
+   útiles en 375-390px (iPhone) — suficiente con el padding reducido. Debajo
+   de 350px (fuera del rango de cualquier iPhone) se apila a una columna
+   como red de seguridad. */
 .estimacion-periodo-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 .estimacion-periodo-grid .field { min-width: 0; }
-.estimacion-periodo-grid input[type="date"] { min-width: 0; width: 100%; }
-@media (max-width: 480px) {
+.estimacion-periodo-grid input[type="date"] { min-width: 0; width: 100%; padding-left: 6px; padding-right: 6px; }
+@media (max-width: 350px) {
   .estimacion-periodo-grid { grid-template-columns: 1fr; }
 }
+
+/* El modal en sí (.modal) tiene overflow-y:auto + max-height:88dvh a
+   propósito para los modales con contenido largo (listas, tablas) — no se
+   toca esa regla global. Este modal específico (identificado por contener
+   .estimacion-periodo-grid) es corto a propósito (2 campos + botones) y
+   nunca debería necesitar scroll propio; :has() lo scopea sin afectar a
+   ningún otro modal de la app. */
+.modal:has(.estimacion-periodo-grid) { overflow-y: visible; max-height: none; }
 
 /* ── Barrido estáticas 2/6 — EPP + Contratos (URGENTE) ───────────────────── */
 /* Compartidas entre openContratosModal / openEppModal / openCatalogoEppModal

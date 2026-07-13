@@ -13,6 +13,13 @@
   <!-- Aplica el tema guardado antes de pintar, para evitar un parpadeo del
        tema equivocado. 'system' se resuelve aquí con matchMedia. -->
   <script src="/theme-init.js"></script>
+  <!-- Manrope (títulos/wordmark) + Inter (cuerpo/UI) — solo los pesos
+       realmente usados (ver --font-heading/--font-body en styles.css),
+       font-display=swap incluido por default en la API css2 de Google Fonts
+       para no bloquear el render con la fuente todavía sin cargar. -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@600;700;800&family=Inter:wght@400;500;600;700&display=swap" />
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>

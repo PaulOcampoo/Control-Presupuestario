@@ -37,6 +37,12 @@
 
   --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
   --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+
+  /* Manrope (títulos/wordmark) + Inter (cuerpo/UI) vía Google Fonts, cargadas
+     en el <head> de index.html. Fallback al stack de sistema si el link de
+     Google Fonts no llega a cargar (offline en el primer visit, red lenta). */
+  --font-heading: 'Manrope', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-body: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 }
 
 [data-theme="light"] {
@@ -55,7 +61,7 @@
 html, body { height: 100%; }
 body {
   margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-family: var(--font-body);
   background: var(--bg-primary);
   color: var(--text-primary);
   -webkit-tap-highlight-color: transparent;
@@ -63,6 +69,18 @@ body {
      (overflow-x:hidden eleva implícitamente overflow-y a auto, creando un
      doble scroll cuando hay elementos fixed con overflow-y:auto propios) */
   overflow-x: clip;
+}
+
+/* Los controles de formulario NO heredan el font-family de body por default
+   del navegador (usan la fuente del sistema/UI) — hay que forzarlo. Cubre
+   "inputs, botones... labels" del pedido de tipografía sin tocar tamaños. */
+button, input, select, textarea { font-family: var(--font-body); }
+
+/* Manrope para títulos/wordmark — jerarquía visual, no tamaños (esos ya
+   están definidos por selector más específico más abajo en la hoja). */
+h1, h2, h3, h4, h5, h6, .section-title {
+  font-family: var(--font-heading);
+  font-weight: 700;
 }
 
 /* Elimina el delay de 300ms en todos los elementos interactivos.
@@ -576,20 +594,27 @@ body.modal-open { overflow: hidden; }
    de abajo no debería activarse en anchos normales (≥360px), pero evita que
    el bloque de marca choque/recorte contra "Salir" en vez de desbordar si
    algún viewport extremo lo aprieta. */
-.gallery-hero-top { display: flex; flex-wrap: wrap; row-gap: 6px; justify-content: space-between; align-items: center; }
-/* prompt_agrandar_logo_header_v2: la v1 (1.7rem fijo) seguía perdiendo
-   contra "Bienvenido/a" (clamp hasta 2rem) — casi el mismo tamaño. Ahora
-   "GRUPO ROFORB" es ~2.5-3x el tamaño de "Bienvenido/a" en viewports anchos
-   (clamp hasta 5rem vs el tope de 2rem de abajo), y en mobile baja con vw
-   pero el piso (2.2rem) se mantiene siempre por encima del tope de
-   "Bienvenido/a" (2rem) — nunca compiten. Logo escalado en proporción
-   menor (no 1:1 con el texto) para no comerse el ancho disponible junto al
-   botón "Salir" en pantallas angostas.  */
-.gallery-hero-top .topbar-brand { gap: 12px; }
-.gallery-hero-top .topbar-brand strong {
-  color: #04212f; font-size: clamp(2.2rem, 8vw, 5rem); font-weight: 800; letter-spacing: 0.01em;
+.gallery-hero-top {
+  display: flex; flex-wrap: wrap; row-gap: 6px; justify-content: space-between; align-items: center;
+  margin-bottom: 20px; /* aire respecto a "Bienvenido/a" — antes quedaban apilados */
 }
-.gallery-hero-top .topbar-logo { height: clamp(46px, 9vw, 80px); }
+/* prompt_agrandar_logo_header_v3 (refinamiento — v2 quedó muy tosco/pesado):
+   techo del clamp bajado de 5rem a 3.6rem para que "GRUPO ROFORB" siga
+   siendo claramente el elemento dominante frente a "Bienvenido/a" (tope
+   2rem) sin sentirse un bloque macizo. Logo reescalado en la misma
+   proporción que el nuevo techo del texto (3.6/5 ≈ 0.72x del rango
+   anterior) para mantener la relación visual.
+   Peso/letter-spacing: la v3 los había bajado a 700/0.015em para aligerar
+   el peso 800 del font-stack de sistema — con Manrope (pedido de tipografía
+   global, ver --font-heading) un 800 real ya se lee más fino/refinado que
+   un 800 de sistema, así que se vuelve a 800 con letter-spacing 0.01em,
+   como pidió explícitamente ese prompt para este elemento en particular. */
+.gallery-hero-top .topbar-brand { gap: 12px; align-items: center; }
+.gallery-hero-top .topbar-brand strong {
+  font-family: var(--font-heading);
+  color: #04212f; font-size: clamp(2rem, 6.5vw, 3.6rem); font-weight: 800; letter-spacing: 0.01em;
+}
+.gallery-hero-top .topbar-logo { height: clamp(44px, 7vw, 58px); }
 .gallery-hero-top .btn.small {
   background: rgba(4,33,47,0.12); border-color: rgba(4,33,47,0.25); color: #04212f;
 }

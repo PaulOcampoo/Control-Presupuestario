@@ -590,12 +590,8 @@ body.modal-open { overflow: hidden; }
   display: flex; flex-direction: column; justify-content: space-between;
   color: #04212f;
 }
-/* flex-wrap: solo como red de seguridad — con el tamaño de "GRUPO ROFORB"
-   de abajo no debería activarse en anchos normales (≥360px), pero evita que
-   el bloque de marca choque/recorte contra "Salir" en vez de desbordar si
-   algún viewport extremo lo aprieta. */
 .gallery-hero-top {
-  display: flex; flex-wrap: wrap; row-gap: 6px; justify-content: space-between; align-items: center;
+  display: flex; justify-content: space-between; align-items: center;
   margin-bottom: 20px; /* aire respecto a "Bienvenido/a" — antes quedaban apilados */
 }
 /* prompt_agrandar_logo_header_v3 (refinamiento — v2 quedó muy tosco/pesado):
@@ -617,6 +613,29 @@ body.modal-open { overflow: hidden; }
 .gallery-hero-top .topbar-logo { height: clamp(44px, 7vw, 58px); }
 .gallery-hero-top .btn.small {
   background: rgba(4,33,47,0.12); border-color: rgba(4,33,47,0.25); color: #04212f;
+}
+/* Mobile (≤480px, mismo breakpoint que el resto de "Mejoras móvil" de la
+   hoja): el flex-wrap que se había agregado como red de seguridad SÍ se
+   activó en dispositivo real — "Salir" caía a una segunda línea debajo del
+   logo en vez de quedarse arriba a la derecha. Se reemplaza por una
+   estructura donde "Salir" sale del flujo (position:absolute, ancla fija en
+   la esquina superior derecha del banner) y el bloque logo+"GRUPO ROFORB"
+   pasa a ocupar el ancho completo centrado, con margin-top para no
+   solaparse con "Salir". Con "Salir" fuera del flujo, .gallery-hero-top
+   solo tiene un hijo en flujo normal (.topbar-brand), así que no hace falta
+   flex-wrap ni tocar su justify-content. */
+@media (max-width: 480px) {
+  .gallery-hero-top { position: relative; }
+  .gallery-hero-top .topbar-brand {
+    width: 100%;
+    justify-content: center;
+    margin-top: 44px;
+  }
+  .gallery-hero-top .btn.small {
+    position: absolute;
+    top: 0;
+    right: 0;
+  }
 }
 .gallery-greeting h2 {
   font-size: clamp(1.5rem, 5vw, 2rem); font-weight: 800; color: #04212f; margin: 0 0 6px;

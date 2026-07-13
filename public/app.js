@@ -439,17 +439,31 @@ function showProximamenteTooltip(label) {
 // de que termine pone display:none; mostrar quita hidden-initial, fija el
 // display, y en el siguiente frame agrega 'show' (dispara la transición a
 // opacity:1). 180 debe calzar con la duración de styles.css.
+//
+// z-index temporal durante la transición: .login-screen/.gallery-screen
+// tienen z-index:100 y .welcome-screen z-index:150 en su CSS (para tapar
+// el resto de la app cuando están activas), pero #app no tiene ninguno
+// (no se le puede subir uno alto de forma permanente — #modal/#modalOverlay
+// viven FUERA de #app en el HTML con z-index:60/40, y quedarían tapados
+// por #app en cualquier momento normal, rompiendo todos los modales). En
+// vez de eso, la pantalla que se está YENDO se manda momentáneamente al
+// fondo (z-index:1) apenas empieza su fade-out, y la que ENTRA recupera su
+// z-index normal de la clase — así la entrante siempre queda visible
+// encima de la saliente durante el cruce, sin tocar el z-index real de
+// #app ni su relación con los modales.
 const TOP_SCREEN_FADE_MS = 180;
 function ocultarPantalla(id) {
   const el = $('#' + id);
   if (!el) return;
   el.classList.remove('show');
+  el.style.zIndex = '1';
   setTimeout(() => { if (!el.classList.contains('show')) el.style.display = 'none'; }, TOP_SCREEN_FADE_MS);
 }
 function mostrarPantalla(id, display) {
   const el = $('#' + id);
   if (!el) return;
   el.classList.remove('hidden-initial'); // ver .hidden-initial en styles.css
+  el.style.zIndex = ''; // restaura el z-index de su clase (ver comentario arriba)
   el.style.display = display;
   requestAnimationFrame(() => el.classList.add('show'));
 }

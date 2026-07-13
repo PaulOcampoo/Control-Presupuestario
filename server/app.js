@@ -4497,10 +4497,13 @@ app.put('/api/projects/:id/estimaciones/:estId/estado', h(auth.allow('residente'
   const esAdmin = req.user.puesto === 'admin' || req.user.puesto === 'desarrollador';
   if (!esAdmin && est.residente_id !== req.user.id) return res.status(404).json({ error: 'Estimación no encontrada' });
 
+  // Desde 'rechazada' se reenvía directo (recalcular + enviar) — la UI no
+  // ofrece un paso intermedio a 'borrador', el residente corrige en Avance
+  // y vuelve a calcular/enviar esta misma estimación.
   const transicionesPermitidas = {
     borrador:  { enviada: true },
     enviada:   { aprobada: esAdmin, rechazada: esAdmin },
-    rechazada: { borrador: true },
+    rechazada: { enviada: true },
     aprobada:  {},
   };
   if (!transicionesPermitidas[est.estado]?.[estado]) {

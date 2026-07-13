@@ -77,6 +77,21 @@ button, a, select, label,
 
 #app { display: flex; flex-direction: column; min-height: 100dvh; }
 
+/* G10: crossfade corto entre las 4 pantallas de nivel superior, mutuamente
+   excluyentes (login/galería de clientes/bienvenida/app), que antes se
+   alternaban con corte duro de style.display puro. Mismo patrón que
+   openUserPopover()/openQuickActionMenu(): opacity:0 base + transición,
+   coordinado en JS con el toggle de display vía requestAnimationFrame (ver
+   ocultarPantalla()/mostrarPantalla() en app.js). Solo opacity, sin
+   transform — el hallazgo original no pedía movimiento. */
+#loginScreen, #clientGalleryScreen, #welcomeScreen, #app {
+  opacity: 0;
+  transition: opacity 180ms var(--ease-out);
+}
+#loginScreen.show, #clientGalleryScreen.show, #welcomeScreen.show, #app.show {
+  opacity: 1;
+}
+
 .muted { color: var(--text-secondary); font-size: 0.8em; }
 
 .topbar {
@@ -1711,7 +1726,8 @@ body.modal-open { overflow: hidden; }
 @media (prefers-reduced-motion: reduce) {
   #sidebar, .sbar-group-body, .quick-action-sheet, .quick-action-menu, .user-popover,
   .modal, .toast, .notif-dropdown, .drawer, .overlay,
-  #proximamenteTooltip, .gantt-bar-inner, .collapse-body {
+  #proximamenteTooltip, .gantt-bar-inner, .collapse-body,
+  #loginScreen, #clientGalleryScreen, #welcomeScreen, #app {
     transition: none;
   }
 

@@ -433,33 +433,53 @@ function showProximamenteTooltip(label) {
 // Autenticación: pantalla de login que filtra el acceso por puesto. El token
 // se guarda en localStorage; cada puesto ve solo sus pestañas permitidas.
 // ---------------------------------------------------------------------------
+// G10: crossfade corto (solo opacity, ver styles.css) entre las 4 pantallas
+// de nivel superior — mismo patrón que openUserPopover()/closeUserPopover():
+// ocultar quita 'show' (dispara la transición a opacity:0) y recién después
+// de que termine pone display:none; mostrar quita hidden-initial, fija el
+// display, y en el siguiente frame agrega 'show' (dispara la transición a
+// opacity:1). 180 debe calzar con la duración de styles.css.
+const TOP_SCREEN_FADE_MS = 180;
+function ocultarPantalla(id) {
+  const el = $('#' + id);
+  if (!el) return;
+  el.classList.remove('show');
+  setTimeout(() => { if (!el.classList.contains('show')) el.style.display = 'none'; }, TOP_SCREEN_FADE_MS);
+}
+function mostrarPantalla(id, display) {
+  const el = $('#' + id);
+  if (!el) return;
+  el.classList.remove('hidden-initial'); // ver .hidden-initial en styles.css
+  el.style.display = display;
+  requestAnimationFrame(() => el.classList.add('show'));
+}
+
 function showLoginScreen() {
-  $('#app').style.display = 'none';
-  $('#clientGalleryScreen').style.display = 'none';
-  $('#welcomeScreen').style.display = 'none';
-  $('#loginScreen').style.display = 'flex';
+  ocultarPantalla('app');
+  ocultarPantalla('clientGalleryScreen');
+  ocultarPantalla('welcomeScreen');
+  mostrarPantalla('loginScreen', 'flex');
   $('#loginUsuario').focus();
 }
 function showApp() {
-  $('#loginScreen').style.display = 'none';
-  $('#clientGalleryScreen').style.display = 'none';
-  $('#welcomeScreen').style.display = 'none';
-  $('#app').classList.remove('hidden-initial'); // ver .hidden-initial en styles.css
-  $('#app').style.display = '';
+  ocultarPantalla('loginScreen');
+  ocultarPantalla('clientGalleryScreen');
+  ocultarPantalla('welcomeScreen');
+  mostrarPantalla('app', '');
   requestAnimationFrame(initTopbarObserver);
   requestAnimationFrame(initDebugBadge);
 }
 function showClientGallery() {
-  $('#loginScreen').style.display = 'none';
-  $('#app').style.display = 'none';
-  $('#welcomeScreen').style.display = 'none';
-  $('#clientGalleryScreen').style.display = 'flex';
+  ocultarPantalla('loginScreen');
+  ocultarPantalla('app');
+  ocultarPantalla('welcomeScreen');
+  mostrarPantalla('clientGalleryScreen', 'flex');
 }
 function showWelcomeScreen() {
-  $('#loginScreen').style.display = 'none';
-  $('#clientGalleryScreen').style.display = 'none';
-  $('#app').style.display = 'none';
-  $('#welcomeScreen').style.display = 'flex';
+  ocultarPantalla('loginScreen');
+  ocultarPantalla('clientGalleryScreen');
+  ocultarPantalla('app');
+  mostrarPantalla('welcomeScreen', 'flex');
 }
 
 // Devuelve el puesto efectivo: el simulado (si está activo) o el real del usuario.
@@ -1463,7 +1483,11 @@ function openBackupCodesModal(codes, sessionData) {
 function openTotpLoginModal(preAuthToken) {
   // .login-screen tiene z-index:100, por encima de .modal (60) y .overlay
   // (40) — sin ocultarla, el modal se crea y se muestra bien en el DOM pero
-  // queda tapado visualmente por la pantalla de login.
+  // queda tapado visualmente por la pantalla de login. Se oculta al toque
+  // (sin pasar por ocultarPantalla(), que retrasaría 180ms la aparición del
+  // modal) pero SÍ se quita 'show' aquí mismo — si no, showLoginScreen()
+  // la traería de vuelta ya con la clase puesta y se saltaría el fade-in.
+  $('#loginScreen').classList.remove('show');
   $('#loginScreen').style.display = 'none';
   openModal(`
     <h3>Verificación en dos pasos</h3>

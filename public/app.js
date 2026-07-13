@@ -6596,13 +6596,27 @@ async function openEppModal(trabajadorId, nombreTrab) {
       const src = ev.touches ? ev.touches[0] : ev;
       return [(src.clientX - r.left) * (canvas.width / r.width), (src.clientY - r.top) * (canvas.height / r.height)];
     };
-    canvas?.addEventListener('mousedown', (e) => { drawing = true; ctx.beginPath(); ctx.moveTo(...getPos(e)); });
-    canvas?.addEventListener('mousemove', (e) => { if (!drawing) return; ctx.lineTo(...getPos(e)); ctx.strokeStyle = '#1a1a1a'; ctx.lineWidth = 2; ctx.lineCap = 'round'; ctx.stroke(); });
-    canvas?.addEventListener('mouseup', () => { drawing = false; });
-    canvas?.addEventListener('mouseleave', () => { drawing = false; });
-    canvas?.addEventListener('touchstart', (e) => { e.preventDefault(); drawing = true; ctx.beginPath(); ctx.moveTo(...getPos(e)); }, { passive: false });
-    canvas?.addEventListener('touchmove', (e) => { e.preventDefault(); if (!drawing) return; ctx.lineTo(...getPos(e)); ctx.strokeStyle = '#1a1a1a'; ctx.lineWidth = 2; ctx.lineCap = 'round'; ctx.stroke(); }, { passive: false });
-    canvas?.addEventListener('touchend', () => { drawing = false; });
+    // Pointer Events unificados (mouse + touch + pen en 3 listeners, en vez
+    // de 6 separados) + setPointerCapture: el trazo sigue llegando aunque el
+    // dedo salga brevemente del canvas y vuelva a entrar durante el gesto —
+    // relevante porque esto es una firma legal de cumplimiento (entrega de
+    // EPP), no solo un detalle de UX. pointercancel cubre el caso de que el
+    // SO interrumpa el gesto (ej. una notificación) a medio trazo.
+    canvas?.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      drawing = true;
+      canvas.setPointerCapture(e.pointerId);
+      ctx.beginPath();
+      ctx.moveTo(...getPos(e));
+    });
+    canvas?.addEventListener('pointermove', (e) => {
+      if (!drawing) return;
+      ctx.lineTo(...getPos(e));
+      ctx.strokeStyle = '#1a1a1a'; ctx.lineWidth = 2; ctx.lineCap = 'round';
+      ctx.stroke();
+    });
+    canvas?.addEventListener('pointerup', () => { drawing = false; });
+    canvas?.addEventListener('pointercancel', () => { drawing = false; });
     $('#btnLimpiarFirma')?.addEventListener('click', () => { ctx?.clearRect(0, 0, canvas.width, canvas.height); });
 
     $('#btnGuardarEpp')?.addEventListener('click', async () => {

@@ -6755,11 +6755,17 @@ async function renderNominas(view) {
   // días del mes) y vista de detalle por trabajador (heatmap tipo habit
   // tracker + resumen). Un solo fetch por mes (asistencia-rango), clic en una
   // celda cicla el estado con actualización optimista + guardado real.
-  const ASIST_ESTADOS = ['presente', 'falta_justificada', 'falta_injustificada'];
+  // 'sin_registro' cierra el ciclo (ver toggleCelda) — se ve idéntico a una
+  // celda nunca marcada (mismo cls 'vacio'), pero es un valor guardado en
+  // vez de una fila ausente. Al último del array a propósito: con
+  // ASIST_ESTADOS.indexOf(actual) + 1 % length, después de
+  // falta_injustificada el ciclo cae aquí, y desde aquí vuelve a 'presente'.
+  const ASIST_ESTADOS = ['presente', 'falta_justificada', 'falta_injustificada', 'sin_registro'];
   const ASIST_META = {
     presente:            { label: 'Presente',        cls: 'presente' },
     falta_justificada:   { label: 'Falta justificada', cls: 'falta-just' },
     falta_injustificada: { label: 'Falta injustificada', cls: 'falta-injust' },
+    sin_registro:        { label: 'Sin registro',     cls: 'vacio' },
   };
   const ASIST_DIAS_CORTO = ['D', 'L', 'M', 'M', 'J', 'V', 'S'];
   const asistDiasEnMes = (y, m) => new Date(y, m + 1, 0).getDate();
@@ -6824,42 +6830,54 @@ async function renderNominas(view) {
       const totalDias = asistDiasEnMes(asist.year, asist.month);
       const dias = Array.from({ length: totalDias }, (_, i) => i + 1);
       const canEdit = puedeCapturarAsistencia();
+      const hoy = new Date();
+      const esMesActual = asist.year === hoy.getFullYear() && asist.month === hoy.getMonth();
+      const diaHoy = esMesActual ? hoy.getDate() : null;
       panel.innerHTML = `
         <div class="asist-mes-nav">
           <button class="icon-btn" id="btnAsistMesPrev" aria-label="Mes anterior">‹</button>
           <strong>${mesLabel()}</strong>
           <button class="icon-btn" id="btnAsistMesNext" aria-label="Mes siguiente">›</button>
         </div>
-        <div class="asist-grid-scroll">
-          <table class="asist-grid-table">
-            <thead>
-              <tr>
-                <th class="asist-th-trab">Trabajador</th>
-                ${dias.map((d) => `<th class="asist-th-dia">${d}</th>`).join('')}
-              </tr>
-            </thead>
-            <tbody>
-              ${asist.trabajadores.map((t) => `
+        <div class="asist-grid-wrap">
+          <div class="asist-fixed-col">
+            <div class="asist-fixed-th">Trabajador</div>
+            ${asist.trabajadores.map((t) => `
+              <div class="asist-fixed-row" data-tid="${t.id}">
+                <span class="asist-fixed-row-name">${esc(t.nombre)}</span>
+                <span class="asist-fixed-row-chevron">${icon('chevron-right', 15)}</span>
+              </div>
+            `).join('')}
+          </div>
+          <div class="asist-grid-scroll">
+            <table class="asist-grid-table">
+              <thead>
                 <tr>
-                  <td class="asist-td-trab" data-tid="${t.id}">${esc(t.nombre)}</td>
-                  ${dias.map((d) => {
-                    const fecha = asistFechaStr(asist.year, asist.month, d);
-                    const estado = asist.mapa[`${t.id}_${fecha}`] || null;
-                    const cls = estado ? ASIST_META[estado].cls : 'vacio';
-                    return `<td class="asist-cell ${cls}" data-tid="${t.id}" data-fecha="${fecha}" title="${esc(t.nombre)} — ${fecha}${estado ? ': ' + ASIST_META[estado].label : ''}"></td>`;
-                  }).join('')}
+                  ${dias.map((d) => `<th class="asist-th-dia${d === diaHoy ? ' hoy' : ''}">${d}</th>`).join('')}
                 </tr>
-              `).join('')}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                ${asist.trabajadores.map((t) => `
+                  <tr>
+                    ${dias.map((d) => {
+                      const fecha = asistFechaStr(asist.year, asist.month, d);
+                      const estado = asist.mapa[`${t.id}_${fecha}`] || null;
+                      const cls = estado ? ASIST_META[estado].cls : 'vacio';
+                      return `<td class="asist-cell ${cls}" data-tid="${t.id}" data-fecha="${fecha}" title="${esc(t.nombre)} — ${fecha}${estado ? ': ' + ASIST_META[estado].label : ''}"></td>`;
+                    }).join('')}
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
         </div>
         ${asistLeyendaHtml()}
         ${canEdit ? '<p class="muted fs-08 mt-6">Toca una celda para marcar/cambiar el estado. Toca un nombre para ver el detalle.</p>' : ''}
       `;
       $('#btnAsistMesPrev').addEventListener('click', () => cambiarMes(-1));
       $('#btnAsistMesNext').addEventListener('click', () => cambiarMes(1));
-      $$('.asist-td-trab', panel).forEach((td) => {
-        td.addEventListener('click', () => { asist.trabajadorId = Number(td.dataset.tid); renderPanel(); });
+      $$('.asist-fixed-row', panel).forEach((row) => {
+        row.addEventListener('click', () => { asist.trabajadorId = Number(row.dataset.tid); renderPanel(); });
       });
       if (canEdit) {
         $$('.asist-cell', panel).forEach((cell) => cell.addEventListener('click', () => toggleCelda(cell, Number(cell.dataset.tid), cell.dataset.fecha, null)));
@@ -6904,7 +6922,10 @@ async function renderNominas(view) {
       for (let d = 1; d <= totalDias; d++) {
         const fecha = asistFechaStr(asist.year, asist.month, d);
         const estado = asist.mapa[`${t.id}_${fecha}`] || null;
-        if (estado) { conRegistro++; if (estado === 'presente') presentes++; }
+        // 'sin_registro' es una fila real (para el ciclo de toggleCelda) pero
+        // debe contar como si no hubiera fila — mismo criterio que el cálculo
+        // de nómina en el backend.
+        if (estado && estado !== 'sin_registro') { conRegistro++; if (estado === 'presente') presentes++; }
         celdas.push({ d, fecha, estado });
       }
       const pct = conRegistro ? Math.round((presentes / conRegistro) * 100) : 0;

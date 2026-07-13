@@ -1149,37 +1149,54 @@ body.modal-open { overflow: hidden; }
   display: flex; align-items: center; justify-content: center; gap: 14px;
   margin-bottom: 10px; font-size: 0.98rem;
 }
-/* prompt_pulir_celdas_calendario + prompt_fix_sticky_calendario:
-   El gap entre celdas NO usa border-spacing (ese espacio vive fuera de la
-   caja de cada <td>, así que la columna sticky no lo cubre al deslizar —
-   el contenido que scrollea asoma justo en el borde). En su lugar, cada
-   celda lleva su propio borde transparente + background-clip:padding-box:
-   el "gap" queda dentro de la caja de la celda, así que en la columna
-   sticky (con background sólido) también se sticky-ea, sin huecos. */
-.asist-grid-scroll {
-  overflow-x: auto; border: 1px solid var(--border-color); border-radius: var(--radius);
+/* Columna de nombres SEPARADA del contenedor de scroll — no usa
+   position:sticky en absoluto. 6 intentos distintos de sticky-en-tabla
+   (z-index, background-clip, border-radius, box-shadow, overlay ::after,
+   scroll-snap) confirmaron en dispositivo real que las celdas de día
+   seguían asomándose por el borde. En vez de intentar "tapar" el borde de
+   una celda que comparte contenedor de scroll con el contenido que se
+   desliza, .asist-fixed-col vive FUERA de .asist-grid-scroll — es un bloque
+   estático que nunca se mueve ni comparte región de scroll/pintado con las
+   celdas de día, así que no hay borde que cubrir ni subpíxel que redondear.
+   Las alturas de fila (40px encabezado / 46px datos) están fijas y
+   duplicadas a propósito en ambas columnas para que las filas alineen
+   pixel a pixel sin depender de que el contenido mida igual por accidente. */
+.asist-grid-wrap {
+  display: flex; align-items: flex-start;
+  border: 1px solid var(--border-color); border-radius: var(--radius);
   background: var(--bg-surface); padding: 6px;
 }
+.asist-fixed-col {
+  flex: 0 0 auto; display: flex; flex-direction: column;
+  max-width: 160px; border-right: 1px solid var(--border-color);
+}
+.asist-fixed-th {
+  height: 40px; box-sizing: border-box; display: flex; align-items: center;
+  padding: 8px 12px; font-size: 0.82rem; font-weight: 600; color: var(--text-secondary);
+  border-bottom: 1px solid var(--border-color); white-space: nowrap;
+}
+/* Chevron + gap para que el nombre se lea como botón tappeable (abre el
+   detalle del trabajador) — antes no había ninguna pista visual de que
+   fuera interactivo más allá del cursor:pointer, invisible en touch. */
+.asist-fixed-row {
+  height: 46px; box-sizing: border-box; display: flex; align-items: center; gap: 6px;
+  padding: 0 10px 0 12px; font-size: 0.82rem; cursor: pointer;
+}
+.asist-fixed-row-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.asist-fixed-row-chevron { flex-shrink: 0; display: flex; color: var(--text-secondary); }
+.asist-fixed-row-chevron .icon-svg { width: 15px; height: 15px; }
+.asist-fixed-row:active { background: var(--bg-surface-2); }
+.asist-grid-scroll { flex: 1 1 auto; min-width: 0; overflow-x: auto; }
 .asist-grid-table { border-collapse: separate; border-spacing: 0; font-size: 0.82rem; white-space: nowrap; }
 .asist-grid-table th, .asist-grid-table td {
   padding: 0; text-align: center; box-sizing: border-box;
   border: 3px solid transparent; background-clip: padding-box;
 }
-.asist-th-trab {
-  position: sticky; left: 0; z-index: 3; background: var(--bg-surface); background-clip: padding-box;
-  padding: 8px 12px !important; text-align: left !important; font-weight: 600; color: var(--text-secondary);
-  box-shadow: inset -1px 0 0 var(--border-color);
-}
 .asist-th-dia {
-  width: 44px; padding: 8px 2px !important; font-weight: 600; color: var(--text-secondary);
+  width: 44px; height: 40px; box-sizing: border-box;
+  padding: 8px 2px !important; font-weight: 600; color: var(--text-secondary);
 }
-.asist-td-trab {
-  position: sticky; left: 0; z-index: 2; background: var(--bg-surface); background-clip: padding-box;
-  padding: 6px 12px !important; text-align: left !important; cursor: pointer;
-  border-radius: 6px;
-  box-shadow: inset -1px 0 0 var(--border-color);
-  max-width: 160px; overflow: hidden; text-overflow: ellipsis;
-}
+.asist-th-dia.hoy { color: var(--accent-gold); font-weight: 800; }
 .asist-cell {
   width: 44px; height: 46px; border-radius: 8px;
   cursor: pointer; transition: filter 0.1s, transform 0.1s, background-color 150ms ease;
@@ -1622,7 +1639,7 @@ body.modal-open { overflow: hidden; }
   .sidebar-profile-btn:hover { background: var(--bg-surface-2); }
   .mobile-nav-item:hover { color: var(--text-primary); }
   .quick-action-item:hover { border-color: var(--accent-gold); }
-  .asist-td-trab:hover { color: var(--accent-gold); }
+  .asist-fixed-row:hover { color: var(--accent-gold); }
   .asist-cell:hover { filter: brightness(1.15); }
   .asist-heat-cell:hover { filter: brightness(1.15); }
 

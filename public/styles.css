@@ -37,6 +37,12 @@
 
   --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
   --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+
+  /* Manrope (títulos/wordmark) + Inter (cuerpo/UI) vía Google Fonts, cargadas
+     en el <head> de index.html. Fallback al stack de sistema si el link de
+     Google Fonts no llega a cargar (offline en el primer visit, red lenta). */
+  --font-heading: 'Manrope', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-body: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 }
 
 [data-theme="light"] {
@@ -55,7 +61,7 @@
 html, body { height: 100%; }
 body {
   margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-family: var(--font-body);
   background: var(--bg-primary);
   color: var(--text-primary);
   -webkit-tap-highlight-color: transparent;
@@ -63,6 +69,18 @@ body {
      (overflow-x:hidden eleva implícitamente overflow-y a auto, creando un
      doble scroll cuando hay elementos fixed con overflow-y:auto propios) */
   overflow-x: clip;
+}
+
+/* Los controles de formulario NO heredan el font-family de body por default
+   del navegador (usan la fuente del sistema/UI) — hay que forzarlo. Cubre
+   "inputs, botones... labels" del pedido de tipografía sin tocar tamaños. */
+button, input, select, textarea { font-family: var(--font-body); }
+
+/* Manrope para títulos/wordmark — jerarquía visual, no tamaños (esos ya
+   están definidos por selector más específico más abajo en la hoja). */
+h1, h2, h3, h4, h5, h6, .section-title {
+  font-family: var(--font-heading);
+  font-weight: 700;
 }
 
 /* Elimina el delay de 300ms en todos los elementos interactivos.
@@ -572,19 +590,52 @@ body.modal-open { overflow: hidden; }
   display: flex; flex-direction: column; justify-content: space-between;
   color: #04212f;
 }
-.gallery-hero-top { display: flex; justify-content: space-between; align-items: center; }
-/* prompt_agrandar_logo_header: "GRUPO ROFORB" como elemento de marca
-   principal del header, no texto chico junto al logo — ~1.8x el tamaño
-   base. Logo agrandado en la misma proporción para que quede balanceado
-   (pedido explícito, aunque el prompt no lo menciona). Gap del contenedor
-   ajustado para que no se vean pegados con las piezas más grandes. */
-.gallery-hero-top .topbar-brand { gap: 12px; }
-.gallery-hero-top .topbar-brand strong {
-  color: #04212f; font-size: 1.7rem; font-weight: 800; letter-spacing: 0.01em;
+.gallery-hero-top {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: 20px; /* aire respecto a "Bienvenido/a" — antes quedaban apilados */
 }
-.gallery-hero-top .topbar-logo { height: 46px; }
+/* prompt_agrandar_logo_header_v3 (refinamiento — v2 quedó muy tosco/pesado):
+   techo del clamp bajado de 5rem a 3.6rem para que "GRUPO ROFORB" siga
+   siendo claramente el elemento dominante frente a "Bienvenido/a" (tope
+   2rem) sin sentirse un bloque macizo. Logo reescalado en la misma
+   proporción que el nuevo techo del texto (3.6/5 ≈ 0.72x del rango
+   anterior) para mantener la relación visual.
+   Peso/letter-spacing: la v3 los había bajado a 700/0.015em para aligerar
+   el peso 800 del font-stack de sistema — con Manrope (pedido de tipografía
+   global, ver --font-heading) un 800 real ya se lee más fino/refinado que
+   un 800 de sistema, así que se vuelve a 800 con letter-spacing 0.01em,
+   como pidió explícitamente ese prompt para este elemento en particular. */
+.gallery-hero-top .topbar-brand { gap: 12px; align-items: center; }
+.gallery-hero-top .topbar-brand strong {
+  font-family: var(--font-heading);
+  color: #04212f; font-size: clamp(2rem, 6.5vw, 3.6rem); font-weight: 800; letter-spacing: 0.01em;
+}
+.gallery-hero-top .topbar-logo { height: clamp(44px, 7vw, 58px); }
 .gallery-hero-top .btn.small {
   background: rgba(4,33,47,0.12); border-color: rgba(4,33,47,0.25); color: #04212f;
+}
+/* Mobile (≤480px, mismo breakpoint que el resto de "Mejoras móvil" de la
+   hoja): el flex-wrap que se había agregado como red de seguridad SÍ se
+   activó en dispositivo real — "Salir" caía a una segunda línea debajo del
+   logo en vez de quedarse arriba a la derecha. Se reemplaza por una
+   estructura donde "Salir" sale del flujo (position:absolute, ancla fija en
+   la esquina superior derecha del banner) y el bloque logo+"GRUPO ROFORB"
+   pasa a ocupar el ancho completo centrado, con margin-top para no
+   solaparse con "Salir". Con "Salir" fuera del flujo, .gallery-hero-top
+   solo tiene un hijo en flujo normal (.topbar-brand), así que no hace falta
+   flex-wrap ni tocar su justify-content. */
+@media (max-width: 480px) {
+  .gallery-hero-top { position: relative; }
+  .gallery-hero-top .topbar-brand {
+    width: 100%;
+    justify-content: center;
+    margin-top: 44px;
+  }
+  .gallery-hero-top .btn.small {
+    position: absolute;
+    top: 0;
+    right: 0;
+  }
 }
 .gallery-greeting h2 {
   font-size: clamp(1.5rem, 5vw, 2rem); font-weight: 800; color: #04212f; margin: 0 0 6px;

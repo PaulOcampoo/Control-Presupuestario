@@ -7648,21 +7648,43 @@ async function openEstimacionModal(onSave) {
   openModal(`
     <h3>Nueva estimación</h3>
     <p class="muted fs-088">Los montos se jalan automáticamente del avance ya registrado en el periodo — no se capturan aquí. Si algo no cuadra, corrígelo en Avance y vuelve a calcular.</p>
-    <div class="trab-form-grid">
+    <div class="estimacion-periodo-grid">
       <div class="field"><label>Periodo inicio *</label><input id="ePeriodoInicio" type="date" value="${esc(defaults.periodo_inicio || '')}" /></div>
       <div class="field"><label>Periodo fin *</label><input id="ePeriodoFin" type="date" value="${esc(defaults.periodo_fin || '')}" /></div>
     </div>
+    <p class="alert-box danger hidden-initial" id="ePeriodoError"></p>
     <div class="modal-actions">
       <button class="btn" id="btnCancelEstimacion">Cancelar</button>
       <button class="btn btn-primary" id="btnSaveEstimacion">Crear estimación</button>
     </div>
   `);
+  const inicioEl = $('#ePeriodoInicio');
+  const finEl = $('#ePeriodoFin');
+  const errorEl = $('#ePeriodoError');
+  const saveBtn = $('#btnSaveEstimacion');
+  // Valida en vivo (no solo al enviar) — el default calculado puede llegar
+  // invertido en casos borde (última estimación cerrando en/después de hoy)
+  // y el usuario también puede invertirlas a mano; en ambos casos se bloquea
+  // el envío en vez de confiar solo en el default o en la validación del server.
+  function validarPeriodo() {
+    const inicio = inicioEl.value;
+    const fin = finEl.value;
+    const invalido = !!(inicio && fin && inicio > fin);
+    errorEl.classList.toggle('hidden-initial', !invalido); // ver .hidden-initial en styles.css
+    if (invalido) errorEl.textContent = 'Periodo inicio no puede ser posterior a Periodo fin.';
+    saveBtn.disabled = invalido;
+    return !invalido;
+  }
+  inicioEl.addEventListener('input', validarPeriodo);
+  finEl.addEventListener('input', validarPeriodo);
+  validarPeriodo();
+
   $('#btnCancelEstimacion').addEventListener('click', closeModal);
   $('#btnSaveEstimacion').addEventListener('click', async () => {
-    const periodo_inicio = $('#ePeriodoInicio').value;
-    const periodo_fin = $('#ePeriodoFin').value;
+    const periodo_inicio = inicioEl.value;
+    const periodo_fin = finEl.value;
     if (!periodo_inicio || !periodo_fin) { toast('Las fechas de inicio y fin son obligatorias', 'danger'); return; }
-    if (periodo_fin < periodo_inicio) { toast('La fecha fin debe ser igual o posterior a inicio', 'danger'); return; }
+    if (!validarPeriodo()) return;
     const btn = $('#btnSaveEstimacion');
     btn.disabled = true;
     try {

@@ -4393,7 +4393,13 @@ app.get('/api/projects/:id/estimaciones/defaults-periodo', h(auth.allow('residen
   if (ultimaRows[0]) {
     const siguiente = new Date(ultimaRows[0].periodo_fin);
     siguiente.setDate(siguiente.getDate() + 1);
-    return res.json({ periodo_inicio: siguiente.toISOString().slice(0, 10), periodo_fin: hoy });
+    const periodoInicioSugerido = siguiente.toISOString().slice(0, 10);
+    // Si la última estimación cerró en/después de "hoy" (fecha del sistema
+    // desfasada, obra recién arrancada, o solo pruebas), periodo_inicio + 1
+    // día puede caer en el futuro respecto a "hoy" — periodo_fin nunca debe
+    // quedar antes de periodo_inicio, así que en ese caso se empareja con él.
+    const periodoFinSugerido = periodoInicioSugerido > hoy ? periodoInicioSugerido : hoy;
+    return res.json({ periodo_inicio: periodoInicioSugerido, periodo_fin: periodoFinSugerido });
   }
 
   // Primera estimación de la obra: fecha de inicio de contrato si está

@@ -1438,6 +1438,15 @@ body.modal-open { overflow: hidden; }
    CSP desde antes de hoy (confirmado byte-idéntico contra 5f0ba86). */
 .trab-form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 
+/* Periodo inicio/fin (modal "Nueva estimación") — clase propia en vez de
+   reutilizar .trab-form-grid para no afectar Nóminas/Trabajadores. Columnas
+   1fr 1fr (relativas, no anchos fijos) + min-width:0 en .field: sin esto el
+   input[type=date] resiste encogerse por debajo de su ancho intrínseco
+   (segmentos día/mes/año del widget nativo) y se corta contra el modal en
+   pantallas angostas aunque el grid ya sea relativo. */
+.estimacion-periodo-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.estimacion-periodo-grid .field { min-width: 0; }
+
 /* ── Barrido estáticas 2/6 — EPP + Contratos (URGENTE) ───────────────────── */
 /* Compartidas entre openContratosModal / openEppModal / openCatalogoEppModal
    (mismo patrón visual: header + botón cerrar + separador + label + grid,

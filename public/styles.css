@@ -670,7 +670,8 @@ body.modal-open { overflow: hidden; }
    sin depender de un breakpoint fijo ni del número de clientes. */
 .cliente-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 12px; margin-top: 14px; }
 .cliente-card {
-  background: var(--bg-surface-2); border: 1px solid var(--border-color); border-radius: var(--radius);
+  background: color-mix(in srgb, var(--accent-gold) 14%, var(--bg-surface-2));
+  border: 1px solid var(--accent-gold); border-radius: var(--radius);
   padding: 20px 12px; text-align: center; cursor: pointer;
   display: flex; flex-direction: column; gap: 8px; align-items: center;
   transition: border-color 0.2s, box-shadow 0.2s, transform 0.1s;
@@ -679,16 +680,18 @@ body.modal-open { overflow: hidden; }
 .cliente-card .cliente-icon { font-size: 1.8rem; }
 .cliente-card .cliente-nombre { font-weight: 700; font-size: 0.98rem; text-transform: uppercase; }
 .cliente-card .cliente-count { color: var(--text-secondary); font-size: 0.76rem; }
-.cliente-card-orphan { border-style: dashed; border-color: var(--yellow); }
-/* Borde punteado (placeholder/drop-zone) leía como casilla vacía, no como
-   botón — fondo tintado + borde sólido lo distingue de una tarjeta de
-   cliente real (bg-surface-2 plano) sin parecer un marcador vacío. */
+/* No hereda el fondo/borde dorado de .cliente-card base — sigue siendo un
+   caso especial (solo admin, obras sin cliente asignado), no una tarjeta
+   de cliente real ni el botón "+ Nuevo cliente". */
+.cliente-card-orphan { background: var(--bg-surface-2); border-style: dashed; border-color: var(--yellow); }
+/* "+ Nuevo cliente": estilo blanco/neutro simple (el que antes tenían las
+   tarjetas de cliente reales) — el fondo/borde dorado ahora distingue a
+   las tarjetas de cliente reales, más llamativas que el botón de agregar. */
 .cliente-card-new {
-  background: color-mix(in srgb, var(--accent-gold) 14%, var(--bg-surface-2));
-  border: 1px solid var(--accent-gold);
+  background: var(--bg-surface-2);
+  border: 1px solid var(--border-color);
   justify-content: center;
 }
-.cliente-card-new .cliente-icon { color: var(--accent-gold); }
 
 /* ── Pantalla de bienvenida ──────────────────────────────────────────────── */
 .welcome-screen {

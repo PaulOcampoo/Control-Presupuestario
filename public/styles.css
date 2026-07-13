@@ -75,7 +75,31 @@ button, a, select, label,
   touch-action: manipulation;
 }
 
-#app { display: flex; flex-direction: column; min-height: 100dvh; }
+/* position:relative + z-index:5 (bajo a propósito): z-index solo compite
+   entre elementos POSICIONADOS — sin esto #app nunca puede pintarse encima
+   de .login-screen/.gallery-screen/.welcome-screen (position:fixed) durante
+   el crossfade entre pantallas, sin importar qué tan bajo baje ocultarPantalla()
+   el z-index de la pantalla saliente (ver app.js). 5 es suficiente para eso
+   (esas 3 quedan en z-index:1 mientras salen) y se mantiene muy por debajo
+   de .overlay/.drawer/.modal (40/50/60) — #app nunca les gana el paso a los
+   overlays reales de la app, solo a las pantallas de nivel superior que ya
+   deberían estar ocultas en cualquier momento normal. */
+#app { display: flex; flex-direction: column; min-height: 100dvh; position: relative; z-index: 5; }
+
+/* G10: crossfade corto entre las 4 pantallas de nivel superior, mutuamente
+   excluyentes (login/galería de clientes/bienvenida/app), que antes se
+   alternaban con corte duro de style.display puro. Mismo patrón que
+   openUserPopover()/openQuickActionMenu(): opacity:0 base + transición,
+   coordinado en JS con el toggle de display vía requestAnimationFrame (ver
+   ocultarPantalla()/mostrarPantalla() en app.js). Solo opacity, sin
+   transform — el hallazgo original no pedía movimiento. */
+#loginScreen, #clientGalleryScreen, #welcomeScreen, #app {
+  opacity: 0;
+  transition: opacity 180ms var(--ease-out);
+}
+#loginScreen.show, #clientGalleryScreen.show, #welcomeScreen.show, #app.show {
+  opacity: 1;
+}
 
 .muted { color: var(--text-secondary); font-size: 0.8em; }
 
@@ -1711,7 +1735,8 @@ body.modal-open { overflow: hidden; }
 @media (prefers-reduced-motion: reduce) {
   #sidebar, .sbar-group-body, .quick-action-sheet, .quick-action-menu, .user-popover,
   .modal, .toast, .notif-dropdown, .drawer, .overlay,
-  #proximamenteTooltip, .gantt-bar-inner, .collapse-body {
+  #proximamenteTooltip, .gantt-bar-inner, .collapse-body,
+  #loginScreen, #clientGalleryScreen, #welcomeScreen, #app {
     transition: none;
   }
 

@@ -6850,7 +6850,7 @@ async function renderNominas(view) {
             <tbody>
               ${asist.trabajadores.map((t) => `
                 <tr>
-                  <td class="asist-td-trab" data-tid="${t.id}">${esc(t.nombre)}</td>
+                  <td class="asist-td-trab" data-tid="${t.id}"><span class="asist-td-trab-name">${esc(t.nombre)}</span></td>
                   ${dias.map((d) => {
                     const fecha = asistFechaStr(asist.year, asist.month, d);
                     const estado = asist.mapa[`${t.id}_${fecha}`] || null;

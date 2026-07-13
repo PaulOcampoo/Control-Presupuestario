@@ -1158,15 +1158,11 @@ body.modal-open { overflow: hidden; }
 .asist-grid-scroll {
   overflow-x: auto; border: 1px solid var(--border-color); border-radius: var(--radius);
   background: var(--bg-surface); padding: 6px;
-  /* scroll-snap: la causa real del "bleed-through" reportado (confirmada
-     con captura real) no era una franja de 1-3px — era una columna de día
-     ENTERA mostrando solo un fragmento (ej. el dígito suelto de "15" y su
-     celda vacía) porque el scroll horizontal es continuo y se puede quedar
-     a la mitad de cualquier columna. background-clip/border-radius/
-     box-shadow (intentos anteriores) no podían arreglar esto — no es un
-     problema de pintado, es de POSICIÓN de scroll. mandatory obliga a que
-     cualquier gesto de swipe termine siempre en un borde limpio de columna. */
-  scroll-snap-type: x mandatory;
+  /* scroll-snap-type:x mandatory se probó aquí y se revirtió — con la
+     columna sticky presente, bloqueaba el scroll antes de cierto punto
+     (reportado: no dejaba ver antes del día 8) sin arreglar el
+     bleed-through. Ver .asist-td-trab::after / .asist-th-trab::after para
+     el fix real (overlay sólido, no depende de puntos de parada de scroll). */
 }
 /* Gris de contraste: dos intentos previos (--bg-surface-2 solo, y luego una
    mezcla al 45% con --border-color) seguían resultando casi blancos en modo
@@ -1191,20 +1187,36 @@ body.modal-open { overflow: hidden; }
      anillo de 3px sin pintar por donde se asoman las celdas de color al
      deslizar (el fondo no llega hasta el borde). border-box fuerza que el
      fondo sólido cubra también esa franja.
-     El segundo box-shadow (no-inset) extiende 2px el fondo sólido más allá
-     del borde derecho, como colchón contra redondeo de subpíxel al hacer
-     scroll — insurance barata, no debería notarse. */
+     border-bottom: divisor tenue entre el encabezado "TRABAJADOR" y las
+     filas de trabajadores (!important por el mismo motivo que arriba — la
+     regla compartida ya pone border en las 4 esquinas). */
   position: sticky; left: 0; z-index: 3; background: var(--bg-surface); background-clip: border-box !important;
   padding: 8px 12px !important; text-align: left !important; font-weight: 600; color: var(--text-secondary);
-  box-shadow: inset -1px 0 0 var(--border-color), 2px 0 0 0 var(--bg-surface);
+  box-shadow: inset -1px 0 0 var(--border-color);
+  border-bottom: 1px solid var(--border-color) !important;
+}
+/* Overlay sólido para el bleed-through — reemplaza los intentos anteriores
+   (box-shadow extendido, border-radius asimétrico): en vez de depender de
+   que el box-model de LA MISMA celda cubra exactamente su borde (matemática
+   que ya falló 3 veces contra dispositivo real), se pinta un rectángulo
+   aparte, deliberadamente ancho (10px, muy por encima de cualquier margen
+   de error de subpíxel), del mismo color sólido, pegado al borde derecho de
+   la columna sticky. position:sticky ya establece el containing block para
+   ::after (mismo comportamiento que position:relative/absolute a este
+   efecto), así que el overlay se mueve pegado a la columna al hacer scroll. */
+.asist-th-trab::after, .asist-td-trab::after {
+  content: '';
+  position: absolute;
+  top: 0; bottom: 0; right: -10px; width: 10px;
+  background: var(--bg-surface);
 }
 .asist-th-dia {
   width: 44px; padding: 8px 2px !important; font-weight: 600; color: var(--text-secondary);
-  scroll-snap-align: start;
+  border-bottom: 1px solid var(--border-color) !important;
 }
 .asist-th-dia.hoy { color: var(--accent-gold); font-weight: 800; }
 .asist-td-trab {
-  /* Ver comentario en .asist-th-trab (background-clip + box-shadow extra) —
+  /* Ver comentario en .asist-th-trab (background-clip + overlay ::after) —
      mismo fix, mismo motivo.
      border-radius solo en las esquinas IZQUIERDAS: con las 4 esquinas
      redondeadas (como estaba), las 2 esquinas derechas — las que lindan con
@@ -1214,17 +1226,19 @@ body.modal-open { overflow: hidden; }
      fecha al hacer scroll horizontal, incluso con background-clip:border-box
      ya arreglado (border-radius aplica DESPUÉS, recortando la caja entera,
      fondo incluido). Las esquinas izquierdas conservan el redondeo — nunca
-     lindan con contenido que se desliza detrás. */
+     lindan con contenido que se desliza detrás.
+     El truncado con "…" se movió a .asist-td-trab-name (span interno) — si
+     overflow:hidden quedaba en este <td>, recortaba también el ::after de
+     abajo (que necesita salirse de esta caja para tapar el borde). */
   position: sticky; left: 0; z-index: 2; background: var(--bg-surface); background-clip: border-box !important;
   padding: 6px 12px !important; text-align: left !important; cursor: pointer;
   border-radius: 6px 0 0 6px;
-  box-shadow: inset -1px 0 0 var(--border-color), 2px 0 0 0 var(--bg-surface);
-  max-width: 160px; overflow: hidden; text-overflow: ellipsis;
+  box-shadow: inset -1px 0 0 var(--border-color);
 }
+.asist-td-trab-name { display: block; max-width: 160px; overflow: hidden; text-overflow: ellipsis; }
 .asist-cell {
   width: 44px; height: 46px; border-radius: 8px;
   cursor: pointer; transition: filter 0.1s, transform 0.1s, background-color 150ms ease;
-  scroll-snap-align: start;
 }
 .asist-cell:active { transform: scale(0.92); }
 .asist-cell.presente { background: color-mix(in srgb, var(--green) 55%, transparent); }

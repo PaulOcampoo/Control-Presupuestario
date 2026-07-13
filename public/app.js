@@ -1075,16 +1075,26 @@ function openQuickActionMenu() {
     actions.push({ label: 'Registrar Avance',     icon: 'avance',        goto: 'avance' });
   if (puedeGenerarOC() && state.allowedTabs.includes('ordenes'))
     actions.push({ label: 'Nueva Orden de Compra', icon: 'ordenes',      goto: 'ordenes' });
+  // Mismos accesos que en el panel "Presupuestos cargados" (drawer) — mismo
+  // handler, mismo permiso (isAdmin()), solo un atajo adicional.
+  if (isAdmin()) {
+    actions.push({ label: 'Cargar presupuesto (.xlsx)', icon: '➕', fn: promptUpload });
+    actions.push({ label: 'Cargar Contrato PDF',        icon: '📄', fn: promptUploadContrato });
+  }
 
   list.innerHTML = actions.length
-    ? actions.map((a) => `
-      <button class="quick-action-item" data-goto="${a.goto}">
-        <span class="quick-action-icon">${TAB_ICONS[a.icon] || ''}</span><span>${esc(a.label)}</span>
+    ? actions.map((a, i) => `
+      <button class="quick-action-item" data-idx="${i}">
+        <span class="quick-action-icon">${TAB_ICONS[a.icon] || a.icon || ''}</span><span>${esc(a.label)}</span>
       </button>`).join('')
     : '<p class="muted py-8">No tienes permiso para esta función.</p>';
 
-  $$('.quick-action-item', list).forEach((btn) => {
-    btn.addEventListener('click', () => { closeQuickActionMenu(); switchToView(btn.dataset.goto); });
+  $$('.quick-action-item', list).forEach((btn, i) => {
+    const a = actions[i];
+    btn.addEventListener('click', () => {
+      closeQuickActionMenu();
+      if (a.fn) a.fn(); else switchToView(a.goto);
+    });
   });
 
   menu.classList.remove('hidden-initial'); // ver .hidden-initial en styles.css

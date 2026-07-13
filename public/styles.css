@@ -1059,13 +1059,16 @@ body.modal-open { overflow: hidden; }
   font-weight: 700; font-size: 0.82rem; margin-bottom: 12px;
   color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.04em;
 }
-.quick-action-list { display: flex; flex-direction: column; gap: 6px; }
+.quick-action-list { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .quick-action-item {
-  display: flex; align-items: center; gap: 12px; padding: 13px 12px;
+  display: flex; align-items: center; gap: 10px; padding: 12px 10px;
   border: 1px solid var(--border-color); border-radius: 10px;
   background: var(--bg-surface-2); color: var(--text-primary);
-  font-size: 0.9rem; cursor: pointer; text-align: left;
+  font-size: 0.82rem; line-height: 1.2; cursor: pointer; text-align: left;
   transition: border-color 0.15s;
+}
+@media (max-width: 360px) {
+  .quick-action-item { padding: 10px 8px; font-size: 0.76rem; gap: 8px; }
 }
 
 /* ── Desktop: sidebar fijo, main-area empujada ────────────────────────── */
@@ -1530,7 +1533,7 @@ body.modal-open { overflow: hidden; }
 .install-step-num { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 50%; background: var(--accent-gold); color: #000; font-weight: 700; font-size: 0.78rem; margin-right: 8px; flex-shrink: 0; }
 
 /* openQuickActionMenu */
-.quick-action-icon { font-size: 1.2em; }
+.quick-action-icon { font-size: 1.1em; flex-shrink: 0; }
 .py-8 { padding: 8px 0; }
 
 /* renderNotifList */

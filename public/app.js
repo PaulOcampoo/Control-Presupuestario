@@ -176,6 +176,16 @@ function isStandalone() {
 function isIOS() {
   return /iphone|ipad|ipod/i.test(navigator.userAgent) && !window.MSStream;
 }
+// Opera GX es Chromium por debajo (mismo motor que Chrome/Edge, instalación
+// de PWA soportada), pero el navigator.userAgent de Opera GX en la práctica
+// NO trae un token "GX" distinguible del de Opera de escritorio normal —
+// ambos comparten el mismo token "OPR/<version>". Por eso se detecta
+// "cualquier Opera" (OPR) en vez de intentar aislar específicamente GX: el
+// menú de instalación es el mismo en ambos, así que las instrucciones
+// alternas de abajo aplican igual sin importar cuál de los dos sea.
+function isOperaGX() {
+  return /\bOPR\//i.test(navigator.userAgent);
+}
 
 function showInstallBanner(mode) {
   if (isStandalone() || localStorage.getItem(INSTALL_DISMISSED_KEY)) return;
@@ -254,6 +264,13 @@ function installApp() {
       'Toca el menú <strong>⋮</strong> (tres puntos) arriba a la derecha',
       'Toca <strong>"Instalar app"</strong> o <strong>"Agregar a pantalla de inicio"</strong>',
       'Confirma tocando <strong>"Instalar"</strong>',
+    ];
+  } else if (isOperaGX()) {
+    steps = [
+      'Abre esta página en <strong>Chrome</strong>, <strong>Edge</strong> u <strong>Opera GX</strong>',
+      'Busca el ícono <strong>⊕</strong> en la barra de direcciones, o abre el menú <strong>Opera</strong> (esquina superior izquierda) → busca <strong>"Instalar Control Presupuestal"</strong>',
+      'Haz clic en <strong>"Instalar Control Presupuestal"</strong> o <strong>"Guardar e instalar"</strong>',
+      'Confirma haciendo clic en <strong>"Instalar"</strong>',
     ];
   } else {
     steps = [

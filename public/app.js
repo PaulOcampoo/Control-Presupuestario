@@ -6843,7 +6843,10 @@ async function renderNominas(view) {
           <div class="asist-fixed-col">
             <div class="asist-fixed-th">Trabajador</div>
             ${asist.trabajadores.map((t) => `
-              <div class="asist-fixed-row" data-tid="${t.id}">${esc(t.nombre)}</div>
+              <div class="asist-fixed-row" data-tid="${t.id}">
+                <span class="asist-fixed-row-name">${esc(t.nombre)}</span>
+                <span class="asist-fixed-row-chevron">${icon('chevron-right', 15)}</span>
+              </div>
             `).join('')}
           </div>
           <div class="asist-grid-scroll">

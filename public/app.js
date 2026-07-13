@@ -6755,17 +6755,11 @@ async function renderNominas(view) {
   // días del mes) y vista de detalle por trabajador (heatmap tipo habit
   // tracker + resumen). Un solo fetch por mes (asistencia-rango), clic en una
   // celda cicla el estado con actualización optimista + guardado real.
-  // 'sin_registro' cierra el ciclo (ver toggleCelda) — se ve idéntico a una
-  // celda nunca marcada (mismo cls 'vacio'), pero es un valor guardado en
-  // vez de una fila ausente. Al último del array a propósito: con
-  // ASIST_ESTADOS.indexOf(actual) + 1 % length, después de
-  // falta_injustificada el ciclo cae aquí, y desde aquí vuelve a 'presente'.
-  const ASIST_ESTADOS = ['presente', 'falta_justificada', 'falta_injustificada', 'sin_registro'];
+  const ASIST_ESTADOS = ['presente', 'falta_justificada', 'falta_injustificada'];
   const ASIST_META = {
     presente:            { label: 'Presente',        cls: 'presente' },
     falta_justificada:   { label: 'Falta justificada', cls: 'falta-just' },
     falta_injustificada: { label: 'Falta injustificada', cls: 'falta-injust' },
-    sin_registro:        { label: 'Sin registro',     cls: 'vacio' },
   };
   const ASIST_DIAS_CORTO = ['D', 'L', 'M', 'M', 'J', 'V', 'S'];
   const asistDiasEnMes = (y, m) => new Date(y, m + 1, 0).getDate();
@@ -6850,7 +6844,7 @@ async function renderNominas(view) {
             <tbody>
               ${asist.trabajadores.map((t) => `
                 <tr>
-                  <td class="asist-td-trab" data-tid="${t.id}"><span class="asist-td-trab-name">${esc(t.nombre)}</span></td>
+                  <td class="asist-td-trab" data-tid="${t.id}">${esc(t.nombre)}</td>
                   ${dias.map((d) => {
                     const fecha = asistFechaStr(asist.year, asist.month, d);
                     const estado = asist.mapa[`${t.id}_${fecha}`] || null;
@@ -6913,10 +6907,7 @@ async function renderNominas(view) {
       for (let d = 1; d <= totalDias; d++) {
         const fecha = asistFechaStr(asist.year, asist.month, d);
         const estado = asist.mapa[`${t.id}_${fecha}`] || null;
-        // 'sin_registro' es una fila real (para el ciclo de toggleCelda) pero
-        // debe contar como si no hubiera fila — mismo criterio que el cálculo
-        // de nómina en el backend.
-        if (estado && estado !== 'sin_registro') { conRegistro++; if (estado === 'presente') presentes++; }
+        if (estado) { conRegistro++; if (estado === 'presente') presentes++; }
         celdas.push({ d, fecha, estado });
       }
       const pct = conRegistro ? Math.round((presentes / conRegistro) * 100) : 0;

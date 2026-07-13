@@ -3953,15 +3953,7 @@ app.put('/api/projects/:id/asistencia', h(auth.allow('residente')), h(requirePro
   );
   if (bloqRows.length) return res.status(409).json({ error: 'Esta fecha está cubierta por una nómina aprobada y no puede modificarse' });
 
-  // 'sin_registro' cierra el ciclo de toggleCelda() (vacío -> presente ->
-  // falta_just -> falta_injust -> sin_registro -> ...) sin necesidad de un
-  // DELETE: se guarda como fila real (conserva capturado_por/actualizado_en
-  // para auditoría de quién "desmarcó" una celda), pero para todo cálculo de
-  // nómina/reporte se comporta exactamente como si la fila no existiera —
-  // ver ESTADO_PAGA en /nominas/:nomId/calcular, que solo cuenta
-  // estado='presente' (cualquier otro valor, incluido este, ya quedaba
-  // fuera del conteo por diseño).
-  const ESTADOS_ASIST = ['presente', 'falta_justificada', 'falta_injustificada', 'sin_registro'];
+  const ESTADOS_ASIST = ['presente', 'falta_justificada', 'falta_injustificada'];
   await db.withTransaction(async (client) => {
     for (const item of asistencia) {
       const wId = Number(item.trabajador_id);

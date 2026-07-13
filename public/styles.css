@@ -790,8 +790,6 @@ body.modal-open { overflow: hidden; }
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   text-transform: uppercase;
 }
-.sidebar-collapse-btn { flex-shrink: 0; width: 32px; height: 32px; border-radius: 8px; }
-
 .sidebar-project-btn {
   display: flex; align-items: center; gap: 9px; width: calc(100% - 16px);
   margin: 0 8px 6px; padding: 9px 10px;

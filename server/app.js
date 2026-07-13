@@ -666,6 +666,17 @@ app.post('/api/usuarios', h(auth.allow('administracion')), h(async (req, res) =>
       'INSERT INTO usuarios (nombre, usuario, password_hash, puesto) VALUES ($1,$2,$3,$4) RETURNING id, nombre, usuario, puesto, activo, creado_en',
       [nombre.trim(), usuario.trim(), hash, puesto]
     );
+    // Permisos default por rol (proyecto_id NULL = aplica a todas las obras
+    // que se le asignen) — editable después desde el panel de checkboxes.
+    const defaults = auth.defaultPermisosParaRol(puesto);
+    for (const p of defaults) {
+      await db.pool.query(
+        `INSERT INTO permisos_usuario
+           (usuario_id, proyecto_id, seccion, puede_ver, puede_crear, puede_editar, puede_editar_precios, puede_eliminar)
+         VALUES ($1,NULL,$2,$3,$4,$5,$6,$7)`,
+        [rows[0].id, p.seccion, p.puede_ver, p.puede_crear, p.puede_editar, p.puede_editar_precios, p.puede_eliminar]
+      );
+    }
     const ip = ((req.headers['x-forwarded-for'] || '') + '').split(',')[0].trim() || req.socket?.remoteAddress || 'unknown';
     await db.pool.query(
       'INSERT INTO audit_log (actor_id, actor_usuario, accion, target_id, target_usuario, ip) VALUES ($1,$2,$3,$4,$5,$6)',
@@ -785,6 +796,63 @@ app.put('/api/usuarios/:id/proyectos', h(auth.allow('administracion')), h(async 
     WHERE up.usuario_id = $1
     ORDER BY p.nombre
   `, [id]);
+  res.json(rows);
+}));
+
+// ---------------------------------------------------------------------------
+// Permisos granulares por usuario/obra/sección (tabla permisos_usuario).
+// CRUD accesible solo a admin/desarrollador — mismo patrón restrictivo que
+// /usuarios/:id/totp-reset (auth.allow() sin roles extra).
+// ---------------------------------------------------------------------------
+app.get('/api/permisos/:usuario_id', h(auth.allow()), h(async (req, res) => {
+  const usuarioId = Number(req.params.usuario_id);
+  const { rows: userRows } = await db.pool.query('SELECT id FROM usuarios WHERE id = $1', [usuarioId]);
+  if (!userRows[0]) return res.status(404).json({ error: 'Usuario no encontrado' });
+  const { rows } = await db.pool.query(
+    `SELECT id, proyecto_id, seccion, puede_ver, puede_crear, puede_editar, puede_editar_precios, puede_eliminar
+     FROM permisos_usuario WHERE usuario_id = $1 ORDER BY proyecto_id NULLS FIRST, seccion`,
+    [usuarioId]
+  );
+  res.json(rows);
+}));
+
+// Upsert masivo de la matriz sección×acción para un usuario+proyecto (proyecto
+// null = aplica a todas las obras asignadas). No usa ON CONFLICT porque
+// proyecto_id es nullable y Postgres no trata NULL=NULL en índices únicos —
+// se hace delete+insert por sección dentro de una transacción.
+app.put('/api/permisos/:usuario_id', h(auth.allow()), h(async (req, res) => {
+  const usuarioId = Number(req.params.usuario_id);
+  const { rows: userRows } = await db.pool.query('SELECT id FROM usuarios WHERE id = $1', [usuarioId]);
+  if (!userRows[0]) return res.status(404).json({ error: 'Usuario no encontrado' });
+
+  const { proyecto_id, permisos } = req.body || {};
+  const proyectoId = proyecto_id != null ? Number(proyecto_id) : null;
+  if (proyectoId != null && !Number.isFinite(proyectoId)) return res.status(400).json({ error: 'proyecto_id inválido' });
+  if (!Array.isArray(permisos) || !permisos.length) return res.status(400).json({ error: 'permisos debe ser un arreglo no vacío' });
+  for (const p of permisos) {
+    if (!auth.SECCIONES_PERMISOS.includes(p.seccion)) return res.status(400).json({ error: `Sección inválida: ${p.seccion}` });
+  }
+
+  await db.withTransaction(async (client) => {
+    for (const p of permisos) {
+      await client.query(
+        'DELETE FROM permisos_usuario WHERE usuario_id = $1 AND seccion = $2 AND proyecto_id IS NOT DISTINCT FROM $3',
+        [usuarioId, p.seccion, proyectoId]
+      );
+      await client.query(
+        `INSERT INTO permisos_usuario
+           (usuario_id, proyecto_id, seccion, puede_ver, puede_crear, puede_editar, puede_editar_precios, puede_eliminar)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+        [usuarioId, proyectoId, p.seccion, !!p.puede_ver, !!p.puede_crear, !!p.puede_editar, !!p.puede_editar_precios, !!p.puede_eliminar]
+      );
+    }
+  });
+
+  const { rows } = await db.pool.query(
+    `SELECT id, proyecto_id, seccion, puede_ver, puede_crear, puede_editar, puede_editar_precios, puede_eliminar
+     FROM permisos_usuario WHERE usuario_id = $1 ORDER BY proyecto_id NULLS FIRST, seccion`,
+    [usuarioId]
+  );
   res.json(rows);
 }));
 
@@ -3264,6 +3332,14 @@ app.post('/api/projects/:id/destajistas/:destId/items', h(auth.allow('residente'
   let { concepto_id, codigo, concepto, unidad, cantidad_asignada, precio_destajo } = req.body || {};
   if (!concepto?.trim()) return res.status(400).json({ error: 'El concepto es requerido' });
 
+  // Igual que requisiciones (precio_solicitado): sin puede_editar_precios el
+  // campo se fuerza server-side sin importar qué mande el body, en vez de
+  // rechazar la request entera con 400.
+  if (precio_destajo != null && !(await auth.tienePermiso(req, 'destajo', 'puede_editar_precios'))) {
+    auth.logDenied(req, `intento de fijar precio_destajo sin puede_editar_precios (destajista ${destId})`);
+    precio_destajo = null;
+  }
+
   if (concepto_id) {
     const { rows: cRows } = await db.pool.query(
       'SELECT codigo, concepto, unidad FROM conceptos WHERE id = $1 AND project_id = $2',
@@ -3285,7 +3361,11 @@ app.post('/api/projects/:id/destajistas/:destId/items', h(auth.allow('residente'
 app.put('/api/projects/:id/destajistas/:destId/items/:itemId', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
   const pid = req.project.id;
   const itemId = Number(req.params.itemId);
-  const { cantidad_asignada, precio_destajo } = req.body || {};
+  let { cantidad_asignada, precio_destajo } = req.body || {};
+  if (precio_destajo != null && !(await auth.tienePermiso(req, 'destajo', 'puede_editar_precios'))) {
+    auth.logDenied(req, `intento de editar precio_destajo sin puede_editar_precios (item ${itemId})`);
+    precio_destajo = null;
+  }
   const { rows } = await db.pool.query(
     `UPDATE destajo_items
      SET cantidad_asignada = COALESCE($1, cantidad_asignada),
@@ -3985,7 +4065,35 @@ app.put('/api/projects/:id/asistencia', h(auth.allow('residente')), h(requirePro
 // ===========================================================================
 const ESTADOS_NOMINA = ['borrador', 'revision', 'aprobada', 'rechazada'];
 
-app.get('/api/projects/:id/nominas', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+// Vista global — solo admin/desarrollador: todas las nóminas de todas las
+// obras y todos los residentes (a diferencia de GET /projects/:id/nominas,
+// que un residente solo ve las propias de su obra). Agrupada/ordenada por
+// residente y luego por obra.
+app.get('/api/nominas', h(auth.allow()), h(async (_req, res) => {
+  const { rows } = await db.pool.query(`
+    SELECT n.*,
+           p.nombre AS obra_nombre,
+           c.nombre AS creado_por_nombre,
+           u.nombre AS aprobada_por_nombre,
+           COUNT(ni.id)::int AS num_trabajadores,
+           COALESCE(SUM(ni.monto_total), 0) AS total_nomina
+    FROM nominas n
+    JOIN proyectos p ON p.id = n.project_id
+    LEFT JOIN usuarios c ON c.id = n.creado_por
+    LEFT JOIN usuarios u ON u.id = n.aprobada_por
+    LEFT JOIN nomina_items ni ON ni.nomina_id = n.id
+    GROUP BY n.id, p.nombre, c.nombre, u.nombre
+    ORDER BY COALESCE(c.nombre, ''), p.nombre, n.fecha_inicio DESC`
+  );
+  res.json(rows);
+}));
+
+app.get('/api/projects/:id/nominas', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('nominas', 'puede_ver')), h(async (req, res) => {
+  // Un residente solo ve las nóminas que él mismo creó — verificarAccesoObra ya
+  // garantiza que está asignado a esta obra, pero varios residentes pueden
+  // compartir la misma obra y no deben ver las nóminas del otro (admin/dev
+  // pasan checkPermiso por bypass y sí ven todas las de la obra).
+  const soloPropias = req.user.puesto === 'residente';
   const { rows } = await db.pool.query(`
     SELECT n.*,
            u.nombre AS aprobada_por_nombre,
@@ -3996,15 +4104,15 @@ app.get('/api/projects/:id/nominas', h(auth.allow('residente')), h(requireProjec
     LEFT JOIN usuarios u ON u.id = n.aprobada_por
     LEFT JOIN usuarios c ON c.id = n.creado_por
     LEFT JOIN nomina_items ni ON ni.nomina_id = n.id
-    WHERE n.project_id = $1
+    WHERE n.project_id = $1 AND ($2::boolean = false OR n.creado_por = $3)
     GROUP BY n.id, u.nombre, c.nombre
     ORDER BY n.fecha_inicio DESC`,
-    [req.project.id]
+    [req.project.id, soloPropias, req.user.id]
   );
   res.json(rows);
 }));
 
-app.post('/api/projects/:id/nominas', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+app.post('/api/projects/:id/nominas', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('nominas', 'puede_crear')), h(async (req, res) => {
   const { fecha_inicio, fecha_fin } = req.body || {};
   if (!fecha_inicio || !fecha_fin) return res.status(400).json({ error: 'fecha_inicio y fecha_fin son requeridas' });
   if (fecha_inicio > fecha_fin) return res.status(400).json({ error: 'fecha_inicio debe ser anterior a fecha_fin' });
@@ -4023,9 +4131,12 @@ app.post('/api/projects/:id/nominas', h(auth.allow('residente')), h(requireProje
 
 app.get('/api/projects/:id/nominas/:nomId', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
   const nomId = Number(req.params.nomId);
+  // Mismo criterio que la lista: un residente no puede abrir por ID el detalle
+  // de una nómina creada por otro residente de la misma obra.
+  const soloPropias = req.user.puesto === 'residente';
   const { rows: nomRows } = await db.pool.query(
-    'SELECT n.*, u.nombre AS aprobada_por_nombre FROM nominas n LEFT JOIN usuarios u ON u.id=n.aprobada_por WHERE n.id=$1 AND n.project_id=$2',
-    [nomId, req.project.id]
+    'SELECT n.*, u.nombre AS aprobada_por_nombre FROM nominas n LEFT JOIN usuarios u ON u.id=n.aprobada_por WHERE n.id=$1 AND n.project_id=$2 AND ($3::boolean = false OR n.creado_por = $4)',
+    [nomId, req.project.id, soloPropias, req.user.id]
   );
   if (!nomRows[0]) return res.status(404).json({ error: 'Nómina no encontrada' });
   const { rows: items } = await db.pool.query(`

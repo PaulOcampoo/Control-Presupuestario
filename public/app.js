@@ -818,8 +818,6 @@ function applySidebarCollapse() {
   const collapsed = isSidebarCollapsed();
   const sb = $('#sidebar'); if (!sb) return;
   sb.classList.toggle('collapsed', collapsed);
-  const btn = $('#btnSidebarCollapse');
-  if (btn) btn.innerHTML = icon(collapsed ? 'chevron-right' : 'chevron-left', 16);
 }
 
 function toggleSidebarCollapse() {
@@ -5349,23 +5347,181 @@ async function renderSugerencias(view) {
 // =========================================================================
 // VISTA: Usuarios (solo Administrador) — alta, edición y baja de cuentas
 // =========================================================================
+const PERMISOS_SECCION_LABELS = {
+  presupuestos: 'Presupuestos', requisiciones: 'Requisiciones', proveedores: 'Proveedores',
+  ordenes_compra: 'Órdenes de Compra', avance: 'Avance', destajo: 'Destajo', finanzas: 'Finanzas',
+  insumos: 'Insumos', mapeo: 'Mapeo', usuarios: 'Usuarios', contrato: 'Contrato', impuestos: 'Impuestos',
+  nominas: 'Nóminas', sugerencias: 'Sugerencias',
+};
+const PERMISOS_SECCIONES = Object.keys(PERMISOS_SECCION_LABELS);
+const PERMISOS_ACCIONES = [
+  { key: 'puede_ver', label: 'Ver' },
+  { key: 'puede_crear', label: 'Crear' },
+  { key: 'puede_editar', label: 'Editar' },
+  { key: 'puede_editar_precios', label: 'Editar precios' },
+  { key: 'puede_eliminar', label: 'Eliminar' },
+];
+
 async function renderUsuarios(view) {
   if (!puedeGestionarUsuarios()) {
     view.innerHTML = `<div class="alert-box danger">⚠️ No tienes permiso para ver esta sección.</div>`;
     return;
   }
-  const usuarios = await api('/usuarios');
+  let subView = 'cuentas'; // 'cuentas' | 'permisos'
 
-  view.innerHTML = `
-    <h2 class="section-title">Usuarios</h2>
-    <p class="muted">Cuentas del equipo y su puesto. El puesto determina qué pestañas y acciones puede usar cada quien.</p>
-    <div class="section-actions">
-      <button class="btn btn-primary" id="btnNuevoUsuario">+ Nuevo usuario</button>
-    </div>
-    <div id="usuariosList"></div>
-  `;
-  $('#btnNuevoUsuario').addEventListener('click', () => openUsuarioModal(null));
-  paintUsuariosList(usuarios);
+  function renderSubNav() {
+    if (!isAdmin()) return ''; // Permisos de Acceso: solo admin/desarrollador (igual que el backend)
+    return `
+      <div class="nominas-subnav">
+        <button class="btn ${subView === 'cuentas' ? 'btn-primary' : ''}" id="btnSubCuentas">Cuentas</button>
+        <button class="btn ${subView === 'permisos' ? 'btn-primary' : ''}" id="btnSubPermisos">Permisos de Acceso</button>
+      </div>
+    `;
+  }
+  function bindSubNav() {
+    $('#btnSubCuentas')?.addEventListener('click', showCuentas);
+    $('#btnSubPermisos')?.addEventListener('click', showPermisos);
+  }
+
+  async function showCuentas() {
+    subView = 'cuentas';
+    const usuarios = await api('/usuarios');
+    view.innerHTML = `
+      <h2 class="section-title">Usuarios</h2>
+      <p class="muted">Cuentas del equipo y su puesto. El puesto determina qué pestañas y acciones puede usar cada quien.</p>
+      ${renderSubNav()}
+      <div class="section-actions mt-12">
+        <button class="btn btn-primary" id="btnNuevoUsuario">+ Nuevo usuario</button>
+      </div>
+      <div id="usuariosList"></div>
+    `;
+    bindSubNav();
+    $('#btnNuevoUsuario').addEventListener('click', () => openUsuarioModal(null));
+    paintUsuariosList(usuarios);
+  }
+
+  async function showPermisos() {
+    subView = 'permisos';
+    const usuarios = await api('/usuarios');
+    view.innerHTML = `
+      <h2 class="section-title">Usuarios</h2>
+      ${renderSubNav()}
+      <div class="mt-12">
+        <div class="field">
+          <label>Usuario</label>
+          <select id="permUsuarioSelect">
+            <option value="">Selecciona un usuario…</option>
+            ${usuarios.filter((u) => !['admin', 'desarrollador'].includes(u.puesto)).map((u) =>
+              `<option value="${u.id}">${esc(u.nombre)} (${esc(PUESTO_LABELS[u.puesto] || u.puesto)})</option>`
+            ).join('')}
+          </select>
+        </div>
+        <div id="permMatrizWrap"><p class="muted">Selecciona un usuario para ver y editar su matriz de permisos.</p></div>
+      </div>
+    `;
+    bindSubNav();
+    $('#permUsuarioSelect').addEventListener('change', async (e) => {
+      const usuarioId = Number(e.target.value);
+      const wrap = $('#permMatrizWrap');
+      if (!usuarioId) { wrap.innerHTML = '<p class="muted">Selecciona un usuario para ver y editar su matriz de permisos.</p>'; return; }
+      wrap.innerHTML = '<div class="empty-state">Cargando…</div>';
+      try {
+        await renderMatrizPermisos(wrap, usuarioId);
+      } catch (err) {
+        wrap.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+      }
+    });
+  }
+
+  async function renderMatrizPermisos(wrap, usuarioId) {
+    const [obras, permisosActuales] = await Promise.all([
+      api(`/usuarios/${usuarioId}/proyectos`),
+      api(`/permisos/${usuarioId}`),
+    ]);
+
+    // Sin obras asignadas: solo tiene sentido editar la fila "todas las obras" (proyecto NULL).
+    const tieneVariasObras = obras.length > 1;
+    let proyectoIdActivo = obras.length === 1 ? obras[0].id : null;
+
+    function permisosParaProyecto(proyectoId) {
+      const filas = permisosActuales.filter((p) => p.proyecto_id === proyectoId);
+      const porSeccion = Object.fromEntries(filas.map((f) => [f.seccion, f]));
+      return PERMISOS_SECCIONES.map((seccion) => porSeccion[seccion] || {
+        seccion, puede_ver: false, puede_crear: false, puede_editar: false,
+        puede_editar_precios: false, puede_eliminar: false,
+      });
+    }
+
+    function pintarMatriz() {
+      const filas = permisosParaProyecto(proyectoIdActivo);
+      wrap.innerHTML = `
+        ${tieneVariasObras ? `
+        <div class="field">
+          <label>Obra</label>
+          <select id="permObraSelect">
+            <option value="" ${proyectoIdActivo === null ? 'selected' : ''}>Todas sus obras (regla general)</option>
+            ${obras.map((o) => `<option value="${o.id}" ${proyectoIdActivo === o.id ? 'selected' : ''}>${esc(o.nombre)}</option>`).join('')}
+          </select>
+        </div>` : obras.length === 1 ? `<p class="muted fs-08">Obra: <strong>${esc(obras[0].nombre)}</strong></p>`
+          : `<p class="muted fs-08">Este usuario no tiene obras asignadas todavía — los permisos aquí aplican como regla general en cuanto se le asigne una.</p>`}
+        <div class="card mt-12">
+          <div class="table-scroll">
+            <table>
+              <thead><tr>
+                <th>Sección</th>
+                ${PERMISOS_ACCIONES.map((a) => `<th>${esc(a.label)}</th>`).join('')}
+              </tr></thead>
+              <tbody>
+                ${filas.map((f) => `
+                  <tr data-seccion="${f.seccion}">
+                    <td>${esc(PERMISOS_SECCION_LABELS[f.seccion])}</td>
+                    ${PERMISOS_ACCIONES.map((a) => `
+                      <td><input type="checkbox" class="w-auto" data-accion="${a.key}" ${f[a.key] ? 'checked' : ''} /></td>
+                    `).join('')}
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div class="modal-actions">
+          <button class="btn btn-primary" id="btnGuardarPermisos">Guardar permisos</button>
+        </div>
+      `;
+      $('#permObraSelect')?.addEventListener('change', (e) => {
+        proyectoIdActivo = e.target.value ? Number(e.target.value) : null;
+        pintarMatriz();
+      });
+      $('#btnGuardarPermisos').addEventListener('click', async () => {
+        const btn = $('#btnGuardarPermisos');
+        btn.disabled = true;
+        const permisos = $$('#permMatrizWrap tbody tr').map((tr) => {
+          const seccion = tr.dataset.seccion;
+          const fila = { seccion };
+          PERMISOS_ACCIONES.forEach((a) => {
+            fila[a.key] = tr.querySelector(`input[data-accion="${a.key}"]`).checked;
+          });
+          return fila;
+        });
+        try {
+          const actualizados = await api(`/permisos/${usuarioId}`, {
+            method: 'PUT',
+            body: { proyecto_id: proyectoIdActivo, permisos },
+          });
+          permisosActuales.length = 0;
+          permisosActuales.push(...actualizados);
+          toast('Permisos guardados', 'success');
+        } catch (err) {
+          toast(err.message, 'danger');
+        } finally {
+          btn.disabled = false;
+        }
+      });
+    }
+    pintarMatriz();
+  }
+
+  await showCuentas();
 }
 
 function paintUsuariosList(usuarios) {
@@ -5442,10 +5598,14 @@ async function openUsuarioModal(usuario) {
     api('/clientes'),
     isEdit ? api(`/usuarios/${usuario.id}/proyectos`) : Promise.resolve([]),
   ]);
-  const assignedIds = new Set(assigned.map((p) => p.id));
+  // selectedProjectIds sobrevive al cambiar de cliente en el selector (abajo
+  // solo se muestran las obras del cliente activo, pero la selección de
+  // otros clientes ya elegidos antes no se pierde).
+  const selectedProjectIds = new Set(assigned.map((p) => p.id));
 
-  // Agrupa las obras por cliente para que el admin identifique de un vistazo
-  // a qué cliente le está dando acceso, no solo el nombre suelto de la obra.
+  // Agrupa las obras por cliente: el admin debe elegir cliente primero, y
+  // solo entonces se habilita/muestra el checklist de sus obras — evita
+  // asignar una obra "a ciegas" sin saber a qué cliente pertenece.
   const SIN_CLIENTE = 'Sin cliente asignado';
   const clienteNombrePorId = new Map(clientes.map((c) => [c.id, c.nombre]));
   const proyectosPorCliente = new Map();
@@ -5457,6 +5617,9 @@ async function openUsuarioModal(usuario) {
   const gruposObras = [...proyectosPorCliente.entries()]
     .sort(([a], [b]) => (a === SIN_CLIENTE ? 1 : b === SIN_CLIENTE ? -1 : a.localeCompare(b)));
   gruposObras.forEach(([, proyectos]) => proyectos.sort((a, b) => a.nombre.localeCompare(b.nombre)));
+  const clienteOptionsHtml = gruposObras
+    .map(([nombreCliente]) => `<option value="${esc(nombreCliente)}">${esc(nombreCliente)}</option>`)
+    .join('');
 
   const puestoOptions = Object.keys(PUESTO_LABELS)
     .map((p) => `<option value="${p}" ${usuario && usuario.puesto === p ? 'selected' : ''}>${esc(PUESTO_LABELS[p])}</option>`)
@@ -5485,15 +5648,18 @@ async function openUsuarioModal(usuario) {
       <label>Obras asignadas</label>
       <p class="muted fs076-m006">Solo verá y podrá operar en las obras marcadas aquí.</p>
       ${allProjects.length ? `
+      <div class="field">
+        <label>Cliente *</label>
+        <select id="uClienteSelect">
+          <option value="">Selecciona un cliente…</option>
+          ${clienteOptionsHtml}
+        </select>
+      </div>
       <div id="uProyectosList" class="checkbox-list-col">
-        ${gruposObras.map(([nombreCliente, proyectos]) => `
-          <div class="checkbox-list-group-title">${esc(nombreCliente)}</div>
-          ${proyectos.map((p) => `
-            <label class="checkbox-row-fw400 checkbox-row-indent">
-              <input type="checkbox" value="${p.id}" class="w-auto" ${assignedIds.has(p.id) ? 'checked' : ''} /> ${esc(p.nombre)}
-            </label>`).join('')}
-        `).join('')}
-      </div>` : '<p class="muted">No hay obras cargadas todavía.</p>'}
+        <p class="muted">Selecciona un cliente para ver y marcar sus obras.</p>
+      </div>
+      <p class="muted fs-08" id="uProyectosResumen"></p>
+      ` : '<p class="muted">No hay obras cargadas todavía.</p>'}
     </div>
     <div class="modal-actions">
       <button class="btn" id="btnCancelUsuario">Cerrar</button>
@@ -5506,6 +5672,41 @@ async function openUsuarioModal(usuario) {
     if (!isAdminSel) field.classList.remove('hidden-initial'); // ver .hidden-initial en styles.css
     field.style.display = isAdminSel ? 'none' : '';
   });
+
+  // Checklist de obras acotado al cliente elegido en uClienteSelect — no se
+  // puede marcar una obra sin haber seleccionado antes su cliente. Cambiar
+  // de cliente no pierde lo ya marcado en otros clientes (selectedProjectIds
+  // vive fuera del DOM re-renderizado).
+  function renderProyectosResumen() {
+    const el = $('#uProyectosResumen');
+    if (!el) return;
+    el.textContent = selectedProjectIds.size
+      ? `${selectedProjectIds.size} obra(s) asignada(s) en total (puede abarcar más de un cliente).`
+      : '';
+  }
+  function renderProyectosDeCliente(nombreCliente) {
+    const list = $('#uProyectosList');
+    if (!nombreCliente) {
+      list.innerHTML = '<p class="muted">Selecciona un cliente para ver y marcar sus obras.</p>';
+      return;
+    }
+    const grupo = gruposObras.find(([nc]) => nc === nombreCliente);
+    const proyectos = grupo ? grupo[1] : [];
+    list.innerHTML = proyectos.map((p) => `
+      <label class="checkbox-row-fw400 checkbox-row-indent">
+        <input type="checkbox" value="${p.id}" class="w-auto" ${selectedProjectIds.has(p.id) ? 'checked' : ''} /> ${esc(p.nombre)}
+      </label>`).join('');
+    $$('#uProyectosList input[type="checkbox"]', list).forEach((cb) => {
+      cb.addEventListener('change', () => {
+        const id = Number(cb.value);
+        if (cb.checked) selectedProjectIds.add(id); else selectedProjectIds.delete(id);
+        renderProyectosResumen();
+      });
+    });
+  }
+  $('#uClienteSelect')?.addEventListener('change', (e) => renderProyectosDeCliente(e.target.value));
+  renderProyectosResumen();
+
   $('#btnCancelUsuario').addEventListener('click', closeModal);
   $('#btnSaveUsuario').addEventListener('click', async () => {
     const nombre = $('#uNombre').value.trim();
@@ -5530,8 +5731,7 @@ async function openUsuarioModal(usuario) {
         toast('Usuario creado', 'success');
       }
       if (puesto !== 'admin') {
-        const projectIds = $$('#uProyectosList input[type="checkbox"]:checked').map((cb) => Number(cb.value));
-        await api(`/usuarios/${targetId}/proyectos`, { method: 'PUT', body: { project_ids: projectIds } });
+        await api(`/usuarios/${targetId}/proyectos`, { method: 'PUT', body: { project_ids: [...selectedProjectIds] } });
       }
       closeModal();
       renderView();
@@ -5980,17 +6180,6 @@ if ('serviceWorker' in navigator) {
 // ---------------------------------------------------------------------------
 applySidebarCollapse();
 
-// En móvil el sidebar es un overlay de pantalla completa (no una barra angosta
-// icon-only como en desktop) — el CSS de .collapsed solo tiene efecto visual
-// dentro de @media (min-width: 861px), así que colapsar ahí no hace nada visible.
-// "Colapsar" en móvil equivale a cerrar el panel (mismo patrón ya usado en #btnMenu).
-$('#btnSidebarCollapse').addEventListener('click', () => {
-  if (window.innerWidth <= 860) {
-    closeSidebar();
-  } else {
-    toggleSidebarCollapse();
-  }
-});
 $('#btnSidebarProject').addEventListener('click', openDrawer);
 $('#sbarVolverClientes').addEventListener('click', () => goToClientGallery());
 $('#sidebarOverlay').addEventListener('click', closeSidebar);

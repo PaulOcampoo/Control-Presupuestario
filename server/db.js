@@ -644,6 +644,30 @@ const SCHEMA = `
   );
   CREATE INDEX IF NOT EXISTS idx_epp_entregas_trabajador ON epp_entregas(trabajador_id);
   CREATE INDEX IF NOT EXISTS idx_epp_entregas_item ON epp_entregas(item_id);
+
+  -- Permisos granulares por usuario/obra/sección — conviven con auth.allow()
+  -- (rol) sin reemplazarlo. proyecto_id nullable = aplica a todas las obras
+  -- asignadas al usuario. Alcance inicial de enforcement real: Nómina y
+  -- Destajo (ver server/app.js); el resto de secciones sigue gobernado por
+  -- auth.allow() por ahora — esta tabla ya persiste su matriz completa para
+  -- cuando se amplíe.
+  CREATE TABLE IF NOT EXISTS permisos_usuario (
+    id SERIAL PRIMARY KEY,
+    usuario_id INTEGER NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+    proyecto_id INTEGER REFERENCES proyectos(id) ON DELETE CASCADE,
+    seccion TEXT NOT NULL CHECK (seccion IN (
+      'presupuestos','requisiciones','proveedores','ordenes_compra','avance',
+      'destajo','finanzas','insumos','mapeo','usuarios','contrato','impuestos',
+      'nominas','sugerencias'
+    )),
+    puede_ver BOOLEAN NOT NULL DEFAULT false,
+    puede_crear BOOLEAN NOT NULL DEFAULT false,
+    puede_editar BOOLEAN NOT NULL DEFAULT false,
+    puede_editar_precios BOOLEAN NOT NULL DEFAULT false,
+    puede_eliminar BOOLEAN NOT NULL DEFAULT false,
+    UNIQUE (usuario_id, proyecto_id, seccion)
+  );
+  CREATE INDEX IF NOT EXISTS idx_permisos_usuario_usuario ON permisos_usuario(usuario_id);
 `;
 
 async function initSchema() {

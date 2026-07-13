@@ -41,6 +41,92 @@ function isValidPuesto(p) {
   return PUESTOS.includes(p);
 }
 
+// ---------------------------------------------------------------------------
+// Permisos granulares por usuario/obra/sección (tabla permisos_usuario).
+// Conviven con PERMISSIONS/allow() de arriba — no lo reemplazan. Alcance de
+// enforcement real (checkPermiso aplicado en endpoints): Nómina y Destajo.
+// ---------------------------------------------------------------------------
+const SECCIONES_PERMISOS = [
+  'presupuestos', 'requisiciones', 'proveedores', 'ordenes_compra', 'avance',
+  'destajo', 'finanzas', 'insumos', 'mapeo', 'usuarios', 'contrato', 'impuestos',
+  'nominas', 'sugerencias',
+];
+const ACCIONES_PERMISOS = ['puede_ver', 'puede_crear', 'puede_editar', 'puede_editar_precios', 'puede_eliminar'];
+
+// Traduce las pestañas de PERMISSIONS[puesto].tabs a secciones del sistema de
+// permisos granulares (algunas pestañas de la app no tienen sección propia
+// aquí — 'programa' se pliega en 'presupuestos', 'trabajadores' queda fuera
+// del alcance de este sistema por ahora).
+const TAB_A_SECCION = {
+  resumen: 'presupuestos', programa: 'presupuestos', contrato: 'contrato',
+  impuestos: 'impuestos', insumos: 'insumos', requisiciones: 'requisiciones',
+  ordenes: 'ordenes_compra', avance: 'avance', destajo: 'destajo',
+  usuarios: 'usuarios', proveedores: 'proveedores', finanzas: 'finanzas',
+  mapeo: 'mapeo', nominas: 'nominas',
+};
+
+// Set de permisos default al dar de alta un usuario: puede_ver=true en las
+// secciones ya cubiertas por sus tabs de rol (PERMISSIONS), más el mínimo de
+// puede_crear/puede_editar necesario para que el rol siga operando igual que
+// hoy en las secciones con enforcement real (nóminas, destajo, avance).
+// puede_editar_precios y puede_eliminar quedan en false para todos por
+// default — se conceden manualmente desde el panel de checkboxes.
+function defaultPermisosParaRol(puesto) {
+  const tabs = PERMISSIONS[puesto]?.tabs || [];
+  const secciones = new Set(tabs.map((t) => TAB_A_SECCION[t]).filter(Boolean));
+  secciones.add('sugerencias'); // accesible para todos los roles en la app
+  const filas = [...secciones].map((seccion) => ({
+    seccion, puede_ver: true, puede_crear: false, puede_editar: false,
+    puede_editar_precios: false, puede_eliminar: false,
+  }));
+  const porSeccion = Object.fromEntries(filas.map((f) => [f.seccion, f]));
+  if (puesto === 'residente') {
+    if (porSeccion.nominas) { porSeccion.nominas.puede_crear = true; }
+    if (porSeccion.destajo) { porSeccion.destajo.puede_crear = true; porSeccion.destajo.puede_editar = true; }
+    if (porSeccion.avance)  { porSeccion.avance.puede_crear = true; }
+    if (porSeccion.requisiciones) { porSeccion.requisiciones.puede_crear = true; }
+  }
+  if (puesto === 'cabo') {
+    if (porSeccion.destajo) { porSeccion.destajo.puede_editar = true; }
+    if (porSeccion.avance)  { porSeccion.avance.puede_crear = true; }
+  }
+  return filas;
+}
+
+// Consulta directa (sin middleware) de un permiso puntual — usado dentro de
+// un handler cuando la decisión no es "bloquear toda la request" sino, p.ej.,
+// ignorar en silencio un campo del payload (ver precio_destajo en /destajistas
+// .../items). admin/desarrollador siempre true.
+async function tienePermiso(req, seccion, accion) {
+  if (!SECCIONES_PERMISOS.includes(seccion)) throw new Error(`tienePermiso: sección inválida '${seccion}'`);
+  if (!ACCIONES_PERMISOS.includes(accion)) throw new Error(`tienePermiso: acción inválida '${accion}'`);
+  if (req.user.puesto === 'admin' || req.user.puesto === 'desarrollador') return true;
+  const projectId = req.project ? req.project.id : null;
+  const { rows } = await db.pool.query(
+    `SELECT ${accion} AS ok FROM permisos_usuario
+     WHERE usuario_id = $1 AND seccion = $2 AND (proyecto_id = $3 OR proyecto_id IS NULL)
+     ORDER BY proyecto_id NULLS LAST LIMIT 1`,
+    [req.user.id, seccion, projectId]
+  );
+  return !!rows[0]?.ok;
+}
+
+// Middleware: exige que el usuario tenga `accion` (una de ACCIONES_PERMISOS)
+// en `seccion` (una de SECCIONES_PERMISOS), consultando permisos_usuario.
+// admin/desarrollador siempre pasan (bypass hardcodeado, no dependen de la
+// tabla). Si hay una fila con proyecto_id específico Y otra con proyecto_id
+// NULL (aplica a todas sus obras) para la misma sección, gana la específica.
+// Debe ir después de requireProject cuando el endpoint es de una obra.
+function checkPermiso(seccion, accion) {
+  if (!SECCIONES_PERMISOS.includes(seccion)) throw new Error(`checkPermiso: sección inválida '${seccion}'`);
+  if (!ACCIONES_PERMISOS.includes(accion)) throw new Error(`checkPermiso: acción inválida '${accion}'`);
+  return async (req, res, next) => {
+    if (await tienePermiso(req, seccion, accion)) return next();
+    logDenied(req, `sin permiso '${accion}' en sección '${seccion}'`);
+    return res.status(403).json({ error: 'No tienes permiso para realizar esta acción' });
+  };
+}
+
 async function hashPassword(plain) {
   return bcrypt.hash(plain, 10);
 }
@@ -282,4 +368,10 @@ module.exports = {
   allow,
   verificarAccesoObra,
   ensureBootstrapAdmin,
+  SECCIONES_PERMISOS,
+  ACCIONES_PERMISOS,
+  defaultPermisosParaRol,
+  checkPermiso,
+  tienePermiso,
+  logDenied,
 };

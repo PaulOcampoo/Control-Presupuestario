@@ -668,6 +668,58 @@ const SCHEMA = `
     UNIQUE (usuario_id, proyecto_id, seccion)
   );
   CREATE INDEX IF NOT EXISTS idx_permisos_usuario_usuario ON permisos_usuario(usuario_id);
+
+  -- Contador de folios por obra + tipo de documento. INSERT...ON CONFLICT DO
+  -- UPDATE...RETURNING es atómico a nivel de fila en Postgres (no necesita
+  -- SELECT FOR UPDATE aparte) — evita folios duplicados si dos residentes
+  -- crean una estimación de la misma obra al mismo tiempo. 'tipo' deja abierto
+  -- reusar esta tabla para otros documentos foliados en el futuro.
+  CREATE TABLE IF NOT EXISTS folio_counters (
+    project_id INTEGER NOT NULL REFERENCES proyectos(id) ON DELETE CASCADE,
+    tipo TEXT NOT NULL,
+    ultimo_folio INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (project_id, tipo)
+  );
+
+  -- Estimaciones de obra: corte de avance periódico que jala montos de
+  -- avance_conceptos (NO captura manual). total_acumulado/cantidad_acumulada
+  -- (aquí y en estimacion_conceptos) reflejan solo estimaciones previas ya
+  -- APROBADAS + el periodo actual — no el avance físico crudo — para que el
+  -- PDF firmado siempre reconcilie con los documentos previos ya entregados
+  -- al cliente (decisión explícita, ver prompt_modulo_estimaciones_obra.md).
+  -- Soft-delete vía 'activo': nunca DELETE físico de una estimación.
+  CREATE TABLE IF NOT EXISTS estimaciones (
+    id SERIAL PRIMARY KEY,
+    project_id INTEGER NOT NULL REFERENCES proyectos(id) ON DELETE CASCADE,
+    folio INTEGER NOT NULL,
+    periodo_inicio DATE NOT NULL,
+    periodo_fin DATE NOT NULL,
+    estado TEXT NOT NULL DEFAULT 'borrador',
+    residente_id INTEGER REFERENCES usuarios(id),
+    admin_aprobador_id INTEGER REFERENCES usuarios(id),
+    fecha_captura TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    fecha_aprobacion TIMESTAMPTZ,
+    total_periodo DOUBLE PRECISION DEFAULT 0,
+    total_acumulado DOUBLE PRECISION DEFAULT 0,
+    pdf_url TEXT,
+    comentario_rechazo TEXT,
+    activo BOOLEAN NOT NULL DEFAULT true,
+    UNIQUE (project_id, folio)
+  );
+  CREATE INDEX IF NOT EXISTS idx_estimaciones_project ON estimaciones(project_id);
+
+  CREATE TABLE IF NOT EXISTS estimacion_conceptos (
+    id SERIAL PRIMARY KEY,
+    estimacion_id INTEGER NOT NULL REFERENCES estimaciones(id) ON DELETE CASCADE,
+    concepto_id INTEGER NOT NULL REFERENCES conceptos(id),
+    cantidad_periodo DOUBLE PRECISION DEFAULT 0,
+    importe_periodo DOUBLE PRECISION DEFAULT 0,
+    cantidad_acumulada DOUBLE PRECISION DEFAULT 0,
+    importe_acumulado DOUBLE PRECISION DEFAULT 0,
+    porcentaje_avance DOUBLE PRECISION DEFAULT 0,
+    UNIQUE (estimacion_id, concepto_id)
+  );
+  CREATE INDEX IF NOT EXISTS idx_estimacion_conceptos_estimacion ON estimacion_conceptos(estimacion_id);
 `;
 
 async function initSchema() {

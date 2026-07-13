@@ -536,6 +536,9 @@ function puedeGestionarTrabajadores() { return isAdmin(); }
 function puedeVerNominas() { return !!state.user && (isAdmin() || ['residente'].includes(effectivePuesto())); }
 function puedeCapturarAsistencia() { return !!state.user && (isAdmin() || ['residente'].includes(effectivePuesto())); }
 function puedeAprobarNomina() { return isAdmin(); }
+function puedeVerEstimaciones() { return !!state.user && (isAdmin() || ['residente'].includes(effectivePuesto())); }
+function puedeCapturarEstimacion() { return !!state.user && (isAdmin() || ['residente'].includes(effectivePuesto())); }
+function puedeAprobarEstimacion() { return isAdmin(); }
 
 function applySession(user, tabs, needsTotpReminder = false) {
   state.user = user;
@@ -691,7 +694,7 @@ const TAB_POR_TIPO_NOTIF = {
 // def.tabs.length === 0 es 100% futura (hoy solo Maquinaria).
 // ---------------------------------------------------------------------------
 const SECTION_DEFS = {
-  obra:          { label: 'Obra',           icon: 'obra',           emoji: '🏗️',  tabs: ['programa', 'avance', 'destajo'],                     proximamente: ['Estimaciones'] },
+  obra:          { label: 'Obra',           icon: 'obra',           emoji: '🏗️',  tabs: ['programa', 'avance', 'destajo', 'estimaciones'],     proximamente: [] },
   compras:       { label: 'Compras',        icon: 'compras',        emoji: '🛒',   tabs: ['requisiciones', 'insumos', 'proveedores', 'ordenes'], proximamente: ['Subcontratos'] },
   tesoreria:     { label: 'Tesorería',      icon: 'tesoreria',      emoji: '💰',   tabs: ['finanzas', 'impuestos'],                             proximamente: [] },
   administracion:{ label: 'Administración', icon: 'administracion', emoji: '📂',  tabs: ['mapeo', 'contrato', 'trabajadores', 'nominas', 'usuarios'], proximamente: ['Almacenes'] },
@@ -701,12 +704,12 @@ const SECTION_DEFS = {
 const TAB_ICONS = {
   resumen: '📊', contrato: '📄', impuestos: '🧾', insumos: '📦', requisiciones: '🧾',
   proveedores: '🏭', ordenes: '🛒', programa: '🗓️', avance: '📈', destajo: '👷',
-  finanzas: '💰', mapeo: '🔗', usuarios: '👤', trabajadores: '👷', nominas: '💵',
+  finanzas: '💰', mapeo: '🔗', usuarios: '👤', trabajadores: '👷', nominas: '💵', estimaciones: '🧮',
 };
 const TAB_LABELS = {
   resumen: 'Resumen', contrato: 'Contrato', impuestos: 'Impuestos', insumos: 'Insumos', requisiciones: 'Requisiciones',
   proveedores: 'Proveedores', ordenes: 'Órdenes de Compra', programa: 'Programa', avance: 'Avance', destajo: 'Destajo',
-  finanzas: 'Finanzas', mapeo: 'Mapeo', usuarios: 'Usuarios', trabajadores: 'Trabajadores', nominas: 'Nóminas',
+  finanzas: 'Finanzas', mapeo: 'Mapeo', usuarios: 'Usuarios', trabajadores: 'Trabajadores', nominas: 'Nóminas', estimaciones: 'Estimaciones',
 };
 
 const VIEW_TO_SECTION = {};
@@ -1834,9 +1837,21 @@ function renderClientGallery() {
         <span class="cliente-count">${huerfanos.length} presupuesto${huerfanos.length !== 1 ? 's' : ''}</span>
       </div>`;
   }
+  // Mismo permiso que "+ Nuevo cliente" en el drawer "Presupuestos cargados"
+  // (isAdmin(), ver applySession()) — mismo handler, solo un atajo adicional.
+  if (isAdmin()) {
+    html += `
+      <div class="cliente-card cliente-card-new" data-cliente="__nuevo__">
+        <span class="cliente-icon">➕</span>
+        <span class="cliente-nombre">Nuevo cliente</span>
+      </div>`;
+  }
   grid.innerHTML = html || `<div class="empty-state"><div class="big">🏢</div>Aún no hay clientes registrados.</div>`;
   $$('.cliente-card', grid).forEach((el) => {
-    el.addEventListener('click', () => selectCliente(el.dataset.cliente === 'sin-cliente' ? 'sin-cliente' : Number(el.dataset.cliente)));
+    el.addEventListener('click', () => {
+      if (el.dataset.cliente === '__nuevo__') { openNuevoClienteModal(); return; }
+      selectCliente(el.dataset.cliente === 'sin-cliente' ? 'sin-cliente' : Number(el.dataset.cliente));
+    });
   });
 }
 
@@ -2254,6 +2269,7 @@ async function renderView() {
       case 'mapeo': await renderMapeo(view); break;
       case 'trabajadores': await renderTrabajadores(view); break;
       case 'nominas': await renderNominas(view); break;
+      case 'estimaciones': await renderEstimaciones(view); break;
       default: view.innerHTML = '';
     }
   } catch (err) {
@@ -7509,6 +7525,221 @@ async function openCambioEstadoModal(nominaId, nuevoEstado, pedirNota, onDone) {
       await api(`/projects/${state.projectId}/nominas/${nominaId}/estado`, {
         method: 'PUT',
         body: { estado: nuevoEstado, nota },
+      });
+      toast('Estado actualizado', 'success');
+      closeModal();
+      if (onDone) await onDone();
+    } catch (err) { toast(err.message, 'danger'); btn.disabled = false; }
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Estimaciones (corte de avance periódico → aprobación → PDF firmado)
+// ---------------------------------------------------------------------------
+const ESTIMACION_ESTADO_LABELS = {
+  borrador: 'Borrador', enviada: 'Enviada', aprobada: 'Aprobada', rechazada: 'Rechazada',
+};
+const ESTIMACION_ESTADO_BADGE = {
+  borrador: 'muted', enviada: 'yellow', aprobada: 'green', rechazada: 'red',
+};
+
+async function renderEstimaciones(view) {
+  if (!puedeVerEstimaciones()) {
+    view.innerHTML = `<div class="alert-box danger">⚠️ No tienes permiso para ver esta sección.</div>`;
+    return;
+  }
+  view.innerHTML = `
+    <h2 class="section-title">Estimaciones</h2>
+    <div class="section-actions mt-12">
+      ${puedeCapturarEstimacion() ? `<button class="btn btn-primary" id="btnNuevaEstimacion">+ Nueva estimación</button>` : ''}
+    </div>
+    <div id="estimacionesList"><div class="empty-state">Cargando…</div></div>
+  `;
+  $('#btnNuevaEstimacion')?.addEventListener('click', () => openEstimacionModal(loadEstimaciones));
+  await loadEstimaciones();
+}
+
+async function loadEstimaciones() {
+  const el = $('#estimacionesList');
+  if (!el) return;
+  try {
+    const estimaciones = await api(`/projects/${state.projectId}/estimaciones`);
+    if (!estimaciones.length) { el.innerHTML = '<div class="empty-state">No hay estimaciones registradas.</div>'; return; }
+    el.innerHTML = estimaciones.map((e) => `
+      <div class="card">
+        <div class="row between nomina-row-6">
+          <div>
+            <strong>Estimación #${e.folio}</strong>
+            <div class="muted fs-08">${esc(e.periodo_inicio)} al ${esc(e.periodo_fin)} · $${Number(e.total_periodo || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })}</div>
+          </div>
+          <div class="row nomina-row-6-center">
+            <span class="badge ${ESTIMACION_ESTADO_BADGE[e.estado] || 'muted'}">${esc(ESTIMACION_ESTADO_LABELS[e.estado] || e.estado)}</span>
+          </div>
+        </div>
+        ${e.comentario_rechazo ? `<div class="muted fs-08 nomina-nota">Motivo de rechazo: ${esc(e.comentario_rechazo)}</div>` : ''}
+        <div class="row end nomina-actions-row">
+          <button class="btn small" data-ver-estimacion="${e.id}">Ver detalle</button>
+          ${(e.estado === 'borrador' || e.estado === 'rechazada') && puedeCapturarEstimacion() ? `<button class="btn small btn-primary" data-calcular-estimacion="${e.id}">Calcular</button>` : ''}
+          ${(e.estado === 'borrador' || e.estado === 'rechazada') && puedeCapturarEstimacion() ? `<button class="btn small" data-enviar-estimacion="${e.id}">Enviar a aprobación</button>` : ''}
+          ${e.estado === 'enviada' && puedeAprobarEstimacion() ? `
+            <button class="btn small btn-primary" data-aprobar-estimacion="${e.id}">Aprobar</button>
+            <button class="btn small btn-danger" data-rechazar-estimacion="${e.id}">Rechazar</button>` : ''}
+          ${e.estado === 'borrador' && puedeCapturarEstimacion() ? `<button class="btn small btn-danger" data-eliminar-estimacion="${e.id}">Eliminar</button>` : ''}
+          ${e.estado === 'aprobada' && e.pdf_url ? `<button class="btn small btn-primary" data-descargar-estimacion="${e.id}" data-folio="${e.folio}">Descargar PDF</button>` : ''}
+        </div>
+      </div>
+    `).join('');
+
+    $$('[data-ver-estimacion]', el).forEach((btn) => {
+      btn.addEventListener('click', () => openVerEstimacionModal(Number(btn.dataset.verEstimacion)));
+    });
+    $$('[data-calcular-estimacion]', el).forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        btn.disabled = true;
+        try {
+          await api(`/projects/${state.projectId}/estimaciones/${btn.dataset.calcularEstimacion}/calcular`, { method: 'POST' });
+          toast('Estimación calculada — se jaló el avance registrado en el periodo', 'success');
+          await loadEstimaciones();
+        } catch (err) { toast(err.message, 'danger'); btn.disabled = false; }
+      });
+    });
+    $$('[data-enviar-estimacion]', el).forEach((btn) => {
+      btn.addEventListener('click', () => openCambioEstadoEstimacionModal(Number(btn.dataset.enviarEstimacion), 'enviada', false, loadEstimaciones));
+    });
+    $$('[data-aprobar-estimacion]', el).forEach((btn) => {
+      btn.addEventListener('click', () => openCambioEstadoEstimacionModal(Number(btn.dataset.aprobarEstimacion), 'aprobada', false, loadEstimaciones));
+    });
+    $$('[data-rechazar-estimacion]', el).forEach((btn) => {
+      btn.addEventListener('click', () => openCambioEstadoEstimacionModal(Number(btn.dataset.rechazarEstimacion), 'rechazada', true, loadEstimaciones));
+    });
+    $$('[data-eliminar-estimacion]', el).forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        if (!confirm('¿Eliminar esta estimación en borrador?')) return;
+        btn.disabled = true;
+        try {
+          await api(`/projects/${state.projectId}/estimaciones/${btn.dataset.eliminarEstimacion}`, { method: 'DELETE' });
+          toast('Estimación eliminada', 'success');
+          await loadEstimaciones();
+        } catch (err) { toast(err.message, 'danger'); btn.disabled = false; }
+      });
+    });
+    $$('[data-descargar-estimacion]', el).forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        btn.disabled = true;
+        try {
+          await apiDownload(`/projects/${state.projectId}/estimaciones/${btn.dataset.descargarEstimacion}/pdf`, `Estimacion_${btn.dataset.folio}.pdf`);
+        } catch (err) { toast(err.message, 'danger'); }
+        btn.disabled = false;
+      });
+    });
+  } catch (err) {
+    el.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+  }
+}
+
+function openEstimacionModal(onSave) {
+  openModal(`
+    <h3>Nueva estimación</h3>
+    <p class="muted fs-088">Los montos se jalan automáticamente del avance ya registrado en el periodo — no se capturan aquí. Si algo no cuadra, corrígelo en Avance y vuelve a calcular.</p>
+    <div class="trab-form-grid">
+      <div class="field"><label>Periodo inicio *</label><input id="ePeriodoInicio" type="date" /></div>
+      <div class="field"><label>Periodo fin *</label><input id="ePeriodoFin" type="date" /></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" id="btnCancelEstimacion">Cancelar</button>
+      <button class="btn btn-primary" id="btnSaveEstimacion">Crear estimación</button>
+    </div>
+  `);
+  $('#btnCancelEstimacion').addEventListener('click', closeModal);
+  $('#btnSaveEstimacion').addEventListener('click', async () => {
+    const periodo_inicio = $('#ePeriodoInicio').value;
+    const periodo_fin = $('#ePeriodoFin').value;
+    if (!periodo_inicio || !periodo_fin) { toast('Las fechas de inicio y fin son obligatorias', 'danger'); return; }
+    if (periodo_fin < periodo_inicio) { toast('La fecha fin debe ser igual o posterior a inicio', 'danger'); return; }
+    const btn = $('#btnSaveEstimacion');
+    btn.disabled = true;
+    try {
+      await api(`/projects/${state.projectId}/estimaciones`, {
+        method: 'POST',
+        body: { periodo_inicio, periodo_fin },
+      });
+      toast('Estimación creada', 'success');
+      closeModal();
+      if (onSave) await onSave();
+    } catch (err) { toast(err.message, 'danger'); btn.disabled = false; }
+  });
+}
+
+async function openVerEstimacionModal(estimacionId) {
+  openModal(`<h3>Detalle de estimación</h3><div id="verEstimacionBody"><div class="empty-state">Cargando…</div></div><div class="modal-actions"><button class="btn" id="btnCerrarVerEstimacion">Cerrar</button></div>`);
+  $('#btnCerrarVerEstimacion').addEventListener('click', closeModal);
+  try {
+    const data = await api(`/projects/${state.projectId}/estimaciones/${estimacionId}`);
+    const items = data.items || [];
+    const el = $('#verEstimacionBody');
+    if (!el) return;
+    if (!items.length) { el.innerHTML = '<div class="empty-state">Sin conceptos calculados. Usa el botón Calcular primero.</div>'; return; }
+    const money = (n) => `$${Number(n || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })}`;
+    el.innerHTML = `
+      <div class="muted nomina-detalle-fecha">Folio #${data.folio} · ${esc(data.periodo_inicio)} al ${esc(data.periodo_fin)}</div>
+      <div class="nomina-table-wrap">
+      <table class="nomina-table">
+        <thead><tr>
+          <th class="nomina-th-left">Concepto</th>
+          <th class="nomina-th-right">Cant. periodo</th>
+          <th class="nomina-th-right">Importe periodo</th>
+          <th class="nomina-th-right">Cant. acumulada</th>
+          <th class="nomina-th-right">Importe acumulado</th>
+          <th class="nomina-th-right">% avance</th>
+        </tr></thead>
+        <tbody>
+          ${items.map((i) => `
+            <tr>
+              <td class="nomina-td">${esc(i.codigo ? i.codigo + ' — ' : '')}${esc(i.concepto)}</td>
+              <td class="nomina-td-right">${Number(i.cantidad_periodo || 0).toLocaleString('es-MX')}</td>
+              <td class="nomina-td-right">${money(i.importe_periodo)}</td>
+              <td class="nomina-td-right">${Number(i.cantidad_acumulada || 0).toLocaleString('es-MX')}</td>
+              <td class="nomina-td-right">${money(i.importe_acumulado)}</td>
+              <td class="nomina-td-right">${Number(i.porcentaje_avance || 0).toFixed(1)}%</td>
+            </tr>`).join('')}
+        </tbody>
+        <tfoot><tr>
+          <td colspan="2" class="nomina-tfoot-label">Total periodo / acumulado</td>
+          <td class="nomina-tfoot-total">${money(data.total_periodo)}</td>
+          <td></td>
+          <td class="nomina-tfoot-total">${money(data.total_acumulado)}</td>
+          <td></td>
+        </tr></tfoot>
+      </table>
+      </div>
+    `;
+  } catch (err) {
+    const el = $('#verEstimacionBody');
+    if (el) el.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+  }
+}
+
+async function openCambioEstadoEstimacionModal(estimacionId, nuevoEstado, pedirComentario, onDone) {
+  const accionLabel = { enviada: 'Enviar a aprobación', aprobada: 'Aprobar estimación', rechazada: 'Rechazar estimación' }[nuevoEstado];
+  openModal(`
+    <h3>${accionLabel}</h3>
+    ${pedirComentario ? `<div class="field"><label>Motivo de rechazo *</label><textarea id="estimacionComentario" rows="3"></textarea></div>` : ''}
+    <p class="muted fs-088">¿Confirmas el cambio de estado?</p>
+    <div class="modal-actions">
+      <button class="btn" id="btnCancelEstadoEstimacion">Cancelar</button>
+      <button class="btn btn-primary" id="btnConfirmEstadoEstimacion">Confirmar</button>
+    </div>
+  `);
+  $('#btnCancelEstadoEstimacion').addEventListener('click', closeModal);
+  $('#btnConfirmEstadoEstimacion').addEventListener('click', async () => {
+    const btn = $('#btnConfirmEstadoEstimacion');
+    const comentario_rechazo = pedirComentario ? ($('#estimacionComentario')?.value.trim() || '') : null;
+    if (pedirComentario && !comentario_rechazo) { toast('El motivo de rechazo es obligatorio', 'danger'); return; }
+    btn.disabled = true;
+    try {
+      await api(`/projects/${state.projectId}/estimaciones/${estimacionId}/estado`, {
+        method: 'PUT',
+        body: { estado: nuevoEstado, comentario_rechazo },
       });
       toast('Estado actualizado', 'success');
       closeModal();

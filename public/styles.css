@@ -667,6 +667,8 @@ body.modal-open { overflow: hidden; }
 .cliente-card .cliente-nombre { font-weight: 700; font-size: 0.98rem; text-transform: uppercase; }
 .cliente-card .cliente-count { color: var(--text-secondary); font-size: 0.76rem; }
 .cliente-card-orphan { border-style: dashed; border-color: var(--yellow); }
+.cliente-card-new { border-style: dashed; border-color: var(--accent-gold); justify-content: center; }
+.cliente-card-new .cliente-icon { color: var(--accent-gold); }
 
 /* ── Pantalla de bienvenida ──────────────────────────────────────────────── */
 .welcome-screen {

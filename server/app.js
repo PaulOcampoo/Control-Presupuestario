@@ -20,6 +20,7 @@ const auth = require('./auth');
 const { sendXlsxExport, buildExportFilename } = require('./exportHelper');
 const { extraerDatosContrato, CAMPOS_CONTRATO } = require('./extraccionContrato');
 const { crearNotificacion, notificarAdmins } = require('./notificaciones');
+const { buildEstimacionPdf } = require('./estimacionesPdf');
 const { calcularDiasRestantes, determinarUmbral, construirMensaje } = require('./alertasContrato');
 
 const app = express();
@@ -4306,6 +4307,283 @@ app.get('/api/projects/:id/nominas/:nomId/export', h(auth.allow()), h(requirePro
       rows: items,
     }],
   });
+}));
+
+// ===========================================================================
+// ESTIMACIONES DE OBRA
+// ===========================================================================
+// Corte de avance periódico: los montos se jalan SIEMPRE de avance_conceptos
+// (nunca captura manual aquí, ver POST .../calcular) — evita dos fuentes de
+// verdad con el módulo Avance. total_acumulado/cantidad_acumulada reflejan
+// solo estimaciones previas ya APROBADAS + el periodo actual (no el avance
+// físico crudo), para que el PDF firmado siempre reconcilie con lo ya
+// entregado al cliente en documentos previos (decisión explícita).
+const ESTADOS_ESTIMACION = ['borrador', 'enviada', 'aprobada', 'rechazada'];
+
+// Vista global — solo admin/desarrollador: todas las estimaciones "enviada"
+// de todas las obras, para revisar y aprobar/rechazar. Mismo patrón que
+// GET /api/nominas.
+app.get('/api/estimaciones', h(auth.allow()), h(async (_req, res) => {
+  const { rows } = await db.pool.query(`
+    SELECT e.*, p.nombre AS obra_nombre, u.nombre AS residente_nombre
+    FROM estimaciones e
+    JOIN proyectos p ON p.id = e.project_id
+    LEFT JOIN usuarios u ON u.id = e.residente_id
+    WHERE e.activo = true AND e.estado = 'enviada'
+    ORDER BY p.nombre, e.folio`
+  );
+  res.json(rows);
+}));
+
+app.get('/api/projects/:id/estimaciones', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  // Varios residentes pueden compartir la misma obra — cada uno solo ve las
+  // que él mismo capturó (admin/dev sí ven todas, igual que en Nóminas).
+  const soloPropias = req.user.puesto === 'residente';
+  const { rows } = await db.pool.query(`
+    SELECT e.*, u.nombre AS residente_nombre, a.nombre AS admin_aprobador_nombre
+    FROM estimaciones e
+    LEFT JOIN usuarios u ON u.id = e.residente_id
+    LEFT JOIN usuarios a ON a.id = e.admin_aprobador_id
+    WHERE e.project_id = $1 AND e.activo = true AND ($2::boolean = false OR e.residente_id = $3)
+    ORDER BY e.folio DESC`,
+    [req.project.id, soloPropias, req.user.id]
+  );
+  res.json(rows);
+}));
+
+app.post('/api/projects/:id/estimaciones', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  const { periodo_inicio, periodo_fin } = req.body || {};
+  if (!periodo_inicio || !periodo_fin) return res.status(400).json({ error: 'periodo_inicio y periodo_fin son requeridos' });
+  if (periodo_fin < periodo_inicio) return res.status(400).json({ error: 'periodo_fin debe ser igual o posterior a periodo_inicio' });
+
+  // Folio consecutivo por obra: INSERT...ON CONFLICT DO UPDATE...RETURNING es
+  // atómico en Postgres — protege contra dos residentes creando al mismo
+  // tiempo en la misma obra, sin necesitar un lock explícito aparte. Va en la
+  // misma transacción que el INSERT de la estimación.
+  const estimacion = await db.withTransaction(async (client) => {
+    const { rows: folioRows } = await client.query(
+      `INSERT INTO folio_counters (project_id, tipo, ultimo_folio) VALUES ($1, 'estimacion', 1)
+       ON CONFLICT (project_id, tipo) DO UPDATE SET ultimo_folio = folio_counters.ultimo_folio + 1
+       RETURNING ultimo_folio`,
+      [req.project.id]
+    );
+    const folio = folioRows[0].ultimo_folio;
+    const { rows } = await client.query(
+      `INSERT INTO estimaciones (project_id, folio, periodo_inicio, periodo_fin, residente_id)
+       VALUES ($1,$2,$3,$4,$5) RETURNING *`,
+      [req.project.id, folio, periodo_inicio, periodo_fin, req.user.id]
+    );
+    return rows[0];
+  });
+  res.status(201).json(estimacion);
+}));
+
+app.get('/api/projects/:id/estimaciones/:estId', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  const estId = Number(req.params.estId);
+  const soloPropias = req.user.puesto === 'residente';
+  const { rows: estRows } = await db.pool.query(`
+    SELECT e.*, u.nombre AS residente_nombre, a.nombre AS admin_aprobador_nombre
+    FROM estimaciones e
+    LEFT JOIN usuarios u ON u.id = e.residente_id
+    LEFT JOIN usuarios a ON a.id = e.admin_aprobador_id
+    WHERE e.id = $1 AND e.project_id = $2 AND e.activo = true AND ($3::boolean = false OR e.residente_id = $4)`,
+    [estId, req.project.id, soloPropias, req.user.id]
+  );
+  if (!estRows[0]) return res.status(404).json({ error: 'Estimación no encontrada' });
+  const { rows: items } = await db.pool.query(`
+    SELECT ec.*, c.codigo, c.concepto, c.unidad
+    FROM estimacion_conceptos ec JOIN conceptos c ON c.id = ec.concepto_id
+    WHERE ec.estimacion_id = $1 ORDER BY c.orden`,
+    [estId]
+  );
+  res.json({ ...estRows[0], items });
+}));
+
+// Jala el avance ya registrado (avance_conceptos, vía las semanas de
+// avances_semanales que caen dentro del periodo) y recalcula
+// estimacion_conceptos. Solo lectura de Avance — nunca escribe ahí. Puede
+// llamarse varias veces mientras la estimación siga en 'borrador'/'rechazada'
+// (ej. tras corregir el avance) para refrescar el corte antes de enviar.
+app.post('/api/projects/:id/estimaciones/:estId/calcular', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  const pid = req.project.id;
+  const estId = Number(req.params.estId);
+  const { rows: estRows } = await db.pool.query('SELECT * FROM estimaciones WHERE id = $1 AND project_id = $2 AND activo = true', [estId, pid]);
+  if (!estRows[0]) return res.status(404).json({ error: 'Estimación no encontrada' });
+  const est = estRows[0];
+  if (req.user.puesto === 'residente' && est.residente_id !== req.user.id) {
+    return res.status(404).json({ error: 'Estimación no encontrada' });
+  }
+  if (!['borrador', 'rechazada'].includes(est.estado)) {
+    return res.status(409).json({ error: 'Solo se puede calcular una estimación en borrador o rechazada' });
+  }
+
+  // Semanas de avances_semanales que se solapan con el periodo elegido
+  const { rows: semanasPeriodo } = await db.pool.query(
+    `SELECT semana FROM avances_semanales WHERE project_id = $1 AND fecha_inicio <= $3 AND fecha_fin >= $2`,
+    [pid, est.periodo_inicio, est.periodo_fin]
+  );
+  const semanas = semanasPeriodo.map((s) => s.semana);
+
+  // Mismo filtro de "concepto real" (no subtotal/total) que /avances/:semana/conceptos
+  const { rows: conceptos } = await db.pool.query(
+    `SELECT id AS concepto_id, precio_unitario FROM conceptos
+     WHERE project_id = $1 AND es_total = 0 AND cantidad > 0 AND TRIM(COALESCE(unidad, '')) <> ''`,
+    [pid]
+  );
+
+  let periodoMap = {};
+  if (semanas.length) {
+    const { rows } = await db.pool.query(
+      `SELECT concepto_id, COALESCE(SUM(cantidad_ejecutada), 0) AS total FROM avance_conceptos WHERE semana = ANY($1) GROUP BY concepto_id`,
+      [semanas]
+    );
+    periodoMap = Object.fromEntries(rows.map((r) => [r.concepto_id, Number(r.total)]));
+  }
+
+  // Acumulado previo: SOLO estimaciones ya aprobadas de esta obra (no avance físico crudo)
+  const { rows: acumRows } = await db.pool.query(
+    `SELECT ec.concepto_id, COALESCE(SUM(ec.cantidad_periodo), 0) AS cantidad, COALESCE(SUM(ec.importe_periodo), 0) AS importe
+     FROM estimacion_conceptos ec
+     JOIN estimaciones e ON e.id = ec.estimacion_id
+     WHERE e.project_id = $1 AND e.estado = 'aprobada' AND e.id <> $2
+     GROUP BY ec.concepto_id`,
+    [pid, estId]
+  );
+  const acumMap = Object.fromEntries(acumRows.map((r) => [r.concepto_id, { cantidad: Number(r.cantidad), importe: Number(r.importe) }]));
+
+  const presupuestoTotal = await presupuestoTotalDe(pid);
+  const items = conceptos.map((c) => {
+    const cantidadPeriodo = periodoMap[c.concepto_id] || 0;
+    const importePeriodo = cantidadPeriodo * Number(c.precio_unitario);
+    const prev = acumMap[c.concepto_id] || { cantidad: 0, importe: 0 };
+    const cantidadAcumulada = prev.cantidad + cantidadPeriodo;
+    const importeAcumulado = prev.importe + importePeriodo;
+    const pct = presupuestoTotal > 0 ? Math.min(100, (importeAcumulado / presupuestoTotal) * 100) : 0;
+    return { concepto_id: c.concepto_id, cantidadPeriodo, importePeriodo, cantidadAcumulada, importeAcumulado, pct };
+  }).filter((it) => it.cantidadPeriodo > 0 || it.cantidadAcumulada > 0);
+
+  await db.withTransaction(async (client) => {
+    await client.query('DELETE FROM estimacion_conceptos WHERE estimacion_id = $1', [estId]);
+    for (const it of items) {
+      await client.query(
+        `INSERT INTO estimacion_conceptos (estimacion_id, concepto_id, cantidad_periodo, importe_periodo, cantidad_acumulada, importe_acumulado, porcentaje_avance)
+         VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+        [estId, it.concepto_id, it.cantidadPeriodo, it.importePeriodo, it.cantidadAcumulada, it.importeAcumulado, it.pct]
+      );
+    }
+    const totalPeriodo = items.reduce((s, it) => s + it.importePeriodo, 0);
+    const totalAcumulado = items.reduce((s, it) => s + it.importeAcumulado, 0);
+    await client.query('UPDATE estimaciones SET total_periodo = $1, total_acumulado = $2 WHERE id = $3', [totalPeriodo, totalAcumulado, estId]);
+  });
+
+  const { rows: itemsOut } = await db.pool.query(`
+    SELECT ec.*, c.codigo, c.concepto, c.unidad
+    FROM estimacion_conceptos ec JOIN conceptos c ON c.id = ec.concepto_id
+    WHERE ec.estimacion_id = $1 ORDER BY c.orden`,
+    [estId]
+  );
+  const { rows: updEst } = await db.pool.query('SELECT * FROM estimaciones WHERE id = $1', [estId]);
+  res.json({ estimacion: updEst[0], items: itemsOut });
+}));
+
+app.put('/api/projects/:id/estimaciones/:estId/estado', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  const estId = Number(req.params.estId);
+  const { estado, comentario_rechazo } = req.body || {};
+  if (!ESTADOS_ESTIMACION.includes(estado)) return res.status(400).json({ error: 'Estado inválido' });
+
+  const { rows: estRows } = await db.pool.query('SELECT * FROM estimaciones WHERE id = $1 AND project_id = $2 AND activo = true', [estId, req.project.id]);
+  if (!estRows[0]) return res.status(404).json({ error: 'Estimación no encontrada' });
+  const est = estRows[0];
+  const esAdmin = req.user.puesto === 'admin' || req.user.puesto === 'desarrollador';
+  if (!esAdmin && est.residente_id !== req.user.id) return res.status(404).json({ error: 'Estimación no encontrada' });
+
+  const transicionesPermitidas = {
+    borrador:  { enviada: true },
+    enviada:   { aprobada: esAdmin, rechazada: esAdmin },
+    rechazada: { borrador: true },
+    aprobada:  {},
+  };
+  if (!transicionesPermitidas[est.estado]?.[estado]) {
+    return res.status(403).json({ error: `No puedes cambiar de '${est.estado}' a '${estado}'` });
+  }
+  if (estado === 'rechazada' && !comentario_rechazo?.trim()) {
+    return res.status(400).json({ error: 'El comentario de rechazo es obligatorio' });
+  }
+  if (estado === 'enviada') {
+    const { rows: itemCount } = await db.pool.query('SELECT COUNT(*)::int AS n FROM estimacion_conceptos WHERE estimacion_id = $1', [estId]);
+    if (!itemCount[0].n) return res.status(400).json({ error: 'Calcula la estimación (jala el avance del periodo) antes de enviarla' });
+  }
+
+  if (estado === 'aprobada') {
+    const { rows: items } = await db.pool.query(`
+      SELECT ec.*, c.codigo, c.concepto, c.unidad
+      FROM estimacion_conceptos ec JOIN conceptos c ON c.id = ec.concepto_id
+      WHERE ec.estimacion_id = $1 ORDER BY c.orden`,
+      [estId]
+    );
+    const { rows: clienteRows } = await db.pool.query(
+      'SELECT cl.nombre FROM proyectos p LEFT JOIN clientes cl ON cl.id = p.cliente_id WHERE p.id = $1',
+      [req.project.id]
+    );
+    const { rows: residenteRows } = await db.pool.query('SELECT nombre FROM usuarios WHERE id = $1', [est.residente_id]);
+    const pdfBuffer = await buildEstimacionPdf({
+      project: req.project,
+      clienteNombre: clienteRows[0]?.nombre,
+      estimacion: est,
+      items,
+      residenteNombre: residenteRows[0]?.nombre,
+      adminNombre: req.user.nombre,
+    });
+    const blobKey = `estimaciones/${req.project.id}/${est.folio}-${Date.now()}.pdf`;
+    const blobResult = await put(blobKey, pdfBuffer, { access: 'private', contentType: 'application/pdf' });
+    const { rows } = await db.pool.query(
+      `UPDATE estimaciones SET estado = $1, admin_aprobador_id = $2, fecha_aprobacion = NOW(), pdf_url = $3, comentario_rechazo = NULL WHERE id = $4 RETURNING *`,
+      [estado, req.user.id, blobResult.url, estId]
+    );
+    return res.json(rows[0]);
+  }
+
+  const { rows } = await db.pool.query(
+    `UPDATE estimaciones SET estado = $1, comentario_rechazo = $2 WHERE id = $3 RETURNING *`,
+    [estado, estado === 'rechazada' ? comentario_rechazo.trim() : null, estId]
+  );
+
+  if (estado === 'enviada') {
+    await notificarAdmins(req.project.id, 'estimacion_pendiente', estId, `${req.user.nombre} envió la Estimación #${est.folio} para aprobación`);
+  }
+  if (estado === 'rechazada' && est.residente_id) {
+    await crearNotificacion(est.residente_id, req.project.id, 'estimacion_rechazada', estId, `Tu Estimación #${est.folio} fue rechazada: ${comentario_rechazo.trim()}`);
+  }
+  res.json(rows[0]);
+}));
+
+// Soft-delete únicamente — nunca DELETE físico de una estimación. Solo
+// mientras siga en 'borrador' (igual que Requisiciones).
+app.delete('/api/projects/:id/estimaciones/:estId', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  const estId = Number(req.params.estId);
+  const { rows } = await db.pool.query('SELECT estado, residente_id FROM estimaciones WHERE id = $1 AND project_id = $2 AND activo = true', [estId, req.project.id]);
+  if (!rows[0]) return res.status(404).json({ error: 'Estimación no encontrada' });
+  const esAdmin = req.user.puesto === 'admin' || req.user.puesto === 'desarrollador';
+  if (!esAdmin && rows[0].residente_id !== req.user.id) return res.status(404).json({ error: 'Estimación no encontrada' });
+  if (rows[0].estado !== 'borrador') return res.status(400).json({ error: 'Solo se pueden eliminar estimaciones en estado "borrador"' });
+  await db.pool.query('UPDATE estimaciones SET activo = false WHERE id = $1', [estId]);
+  res.json({ ok: true });
+}));
+
+// Proxy del PDF (blob privado) — mismo patrón que /contrato/pdf.
+app.get('/api/projects/:id/estimaciones/:estId/pdf', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  const estId = Number(req.params.estId);
+  const soloPropias = req.user.puesto === 'residente';
+  const { rows } = await db.pool.query(
+    `SELECT pdf_url, folio FROM estimaciones WHERE id = $1 AND project_id = $2 AND activo = true AND ($3::boolean = false OR residente_id = $4)`,
+    [estId, req.project.id, soloPropias, req.user.id]
+  );
+  if (!rows[0] || !rows[0].pdf_url) return res.status(404).json({ error: 'PDF no disponible para esta estimación' });
+  const blobResult = await get(rows[0].pdf_url, { access: 'private' });
+  if (!blobResult) return res.status(404).json({ error: 'Archivo no encontrado en almacenamiento' });
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `inline; filename="Estimacion_${rows[0].folio}.pdf"`);
+  await pipeline(Readable.fromWeb(blobResult.stream), res);
 }));
 
 // ---------------------------------------------------------------------------

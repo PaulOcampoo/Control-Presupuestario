@@ -2,19 +2,23 @@
 
 const PDFDocument = require('pdfkit');
 
+// Anchos medidos contra el texto real (doc.widthOfString) para que ninguna
+// columna numérica se parta en dos líneas en el encabezado — el resto del
+// espacio disponible (712pt = letter landscape - márgenes de 40) se lo lleva
+// Concepto, que es la única columna pensada para wrapear a varias líneas.
 const COLS = [
-  { key: 'codigo', label: 'Código', width: 55, align: 'left' },
-  { key: 'concepto', label: 'Concepto', width: 215, align: 'left' },
-  { key: 'unidad', label: 'Unidad', width: 45, align: 'center' },
-  { key: 'cantidad_periodo', label: 'Cant. periodo', width: 70, align: 'right' },
-  { key: 'importe_periodo', label: 'Importe periodo', width: 90, align: 'right' },
+  { key: 'codigo', label: 'Código', width: 60, align: 'left' },
+  { key: 'concepto', label: 'Concepto', width: 297, align: 'left' },
+  { key: 'unidad', label: 'Unidad', width: 35, align: 'center' },
+  { key: 'cantidad_periodo', label: 'Cant. periodo', width: 55, align: 'right' },
+  { key: 'importe_periodo', label: 'Importe periodo', width: 70, align: 'right' },
   { key: 'cantidad_acumulada', label: 'Cant. acumulada', width: 70, align: 'right' },
-  { key: 'importe_acumulado', label: 'Importe acumulado', width: 90, align: 'right' },
-  { key: 'porcentaje_avance', label: '% avance', width: 55, align: 'right' },
+  { key: 'importe_acumulado', label: 'Importe acumulado', width: 80, align: 'right' },
+  { key: 'porcentaje_avance', label: '% avance', width: 45, align: 'right' },
 ];
 const TABLE_LEFT = 40;
 const TABLE_TOP = 190;
-const ROW_H = 18;
+const ROW_PADDING = 6; // espacio vertical entre el texto de una fila y la siguiente
 const PAGE_BOTTOM = 560; // pdfkit landscape letter margin 40 -> usable hasta ~572
 
 const money = (n) => `$${Number(n || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })}`;
@@ -31,10 +35,8 @@ function drawTableHeader(doc, y) {
   return y + 20;
 }
 
-function drawRow(doc, y, item) {
-  doc.font('Helvetica').fontSize(8).fillColor('#000000');
-  let x = TABLE_LEFT;
-  const values = {
+function rowValues(item) {
+  return {
     codigo: item.codigo || '',
     concepto: item.concepto || '',
     unidad: item.unidad || '',
@@ -44,11 +46,29 @@ function drawRow(doc, y, item) {
     importe_acumulado: money(item.importe_acumulado),
     porcentaje_avance: `${num(item.porcentaje_avance)}%`,
   };
+}
+
+// Altura real que va a ocupar la fila: la columna Concepto es la única que
+// wrapea a varias líneas con datos reales, pero se mide contra todas las
+// columnas por si algún código llega a wrapear también.
+function rowHeight(doc, values) {
+  doc.font('Helvetica').fontSize(8);
+  let maxH = 0;
+  for (const c of COLS) {
+    const h = doc.heightOfString(values[c.key], { width: c.width });
+    if (h > maxH) maxH = h;
+  }
+  return maxH + ROW_PADDING;
+}
+
+function drawRow(doc, y, values, height) {
+  doc.font('Helvetica').fontSize(8).fillColor('#000000');
+  let x = TABLE_LEFT;
   COLS.forEach((c) => {
-    doc.text(values[c.key], x, y, { width: c.width, align: c.align, ellipsis: true });
+    doc.text(values[c.key], x, y, { width: c.width, align: c.align });
     x += c.width;
   });
-  return y + ROW_H;
+  return y + height;
 }
 
 // Genera el PDF formal de una Estimación (encabezado de obra/cliente/folio/
@@ -73,11 +93,15 @@ function buildEstimacionPdf({ project, clienteNombre, estimacion, items, residen
 
     let y = drawTableHeader(doc, TABLE_TOP);
     for (const item of items) {
-      if (y > PAGE_BOTTOM) {
+      const values = rowValues(item);
+      const height = rowHeight(doc, values);
+      // Se checa ANTES de dibujar (con la altura real de esta fila) para que
+      // nunca se corte una fila a la mitad entre dos páginas.
+      if (y + height > PAGE_BOTTOM) {
         doc.addPage();
         y = drawTableHeader(doc, 40);
       }
-      y = drawRow(doc, y, item);
+      y = drawRow(doc, y, values, height);
     }
 
     y += 10;

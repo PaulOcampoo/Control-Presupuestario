@@ -195,7 +195,8 @@ function showInstallBanner(mode) {
     ? 'Instala esta app: toca Compartir ⬆️ en Safari y elige "Agregar a pantalla de inicio".'
     : 'Instala Control Presupuestal en tu dispositivo para acceso rápido, sin navegador.';
   $('#btnInstallApp').style.display = mode === 'ios' ? 'none' : '';
-  banner.style.display = 'flex';
+  banner.classList.remove('hidden-initial');
+  requestAnimationFrame(() => banner.classList.add('show'));
 }
 
 window.addEventListener('beforeinstallprompt', (ev) => {
@@ -206,7 +207,7 @@ window.addEventListener('beforeinstallprompt', (ev) => {
 
 window.addEventListener('appinstalled', () => {
   deferredInstallPrompt = null;
-  $('#installBanner').style.display = 'none';
+  $('#installBanner').classList.remove('show');
 });
 
 $('#btnInstallApp').addEventListener('click', async () => {
@@ -214,12 +215,12 @@ $('#btnInstallApp').addEventListener('click', async () => {
   deferredInstallPrompt.prompt();
   await deferredInstallPrompt.userChoice;
   deferredInstallPrompt = null;
-  $('#installBanner').style.display = 'none';
+  $('#installBanner').classList.remove('show');
 });
 
 $('#btnDismissInstall').addEventListener('click', () => {
   localStorage.setItem(INSTALL_DISMISSED_KEY, '1');
-  $('#installBanner').style.display = 'none';
+  $('#installBanner').classList.remove('show');
 });
 
 if (isIOS() && !isStandalone()) showInstallBanner('ios');
@@ -233,7 +234,9 @@ if (isIOS() && !isStandalone()) showInstallBanner('ios');
 // la única que decide si vuelve a aparecer en una sesión futura).
 // ---------------------------------------------------------------------------
 function updateTotpReminderBanner() {
-  $('#totpReminderBanner').style.display = state.needsTotpReminder ? 'flex' : 'none';
+  const banner = $('#totpReminderBanner');
+  banner.classList.remove('hidden-initial');
+  requestAnimationFrame(() => banner.classList.toggle('show', state.needsTotpReminder));
 }
 $('#btnTotpReminderConfigurar').addEventListener('click', startTotpEnrollment);
 $('#btnTotpReminderClose').addEventListener('click', () => {

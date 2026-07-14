@@ -34,6 +34,7 @@ const state = {
   section: null,     // sección activa (obra/compras/administracion/tesoreria/maquinaria) o null
   cache: {},     // per-project cached API responses
   charts: {},    // active Chart.js instances (destroyed on re-render)
+  chartsSeen: new Set(), // keys de gráficas ya animadas una vez en esta sesión — ver animationForChart()
   token: null,
   user: null,        // { id, nombre, usuario, puesto }
   allowedTabs: [],
@@ -124,6 +125,19 @@ function chartColors() {
     grid: light ? '#e2e8f0' : '#334155',
     tick: light ? '#475569' : '#94a3b8',
   };
+}
+
+// Chart.js recrea la instancia en cada repintado de vista (el <canvas> se
+// reconstruye junto con el resto del HTML — no hay forma barata de reusar la
+// instancia vía .update() sin reestructurar el render de cada vista). Lo que
+// sí podemos evitar es que la animación de "crecer desde cero" (~1000ms
+// default de Chart.js) se repita en cada refresco: una gráfica ya vista una
+// vez en esta sesión (por proyecto+key) no necesita volver a animarse igual
+// que la primera vez — solo la primera vez amerita el efecto de entrada.
+function animationForChart(key) {
+  if (state.chartsSeen.has(key)) return false;
+  state.chartsSeen.add(key);
+  return undefined; // undefined = Chart.js usa su animación default
 }
 
 function applyTheme(pref) {
@@ -1383,6 +1397,7 @@ async function logout() {
   state.clientes = [];
   state.clienteId = null;
   state.cache = {};
+  state.chartsSeen.clear();
   state.simulatedPuesto = null;
   state.needsTotpReminder = false;
   updateTotpReminderBanner();
@@ -1971,6 +1986,7 @@ async function renderGlobalChart() {
     options: {
       responsive: false,
       cutout: '62%',
+      animation: animationForChart('globalPie'),
       plugins: {
         legend: { display: false },
         tooltip: { callbacks: { label: (c) => `${c.label}: ${fmtMoney(c.raw)}` } },
@@ -2397,6 +2413,7 @@ async function renderInicio(view) {
       },
       options: {
         responsive: true, maintainAspectRatio: false,
+        animation: animationForChart(`resumenDona:${state.projectId}`),
         plugins: {
           legend: { position: 'bottom', labels: { color: cc.text, boxWidth: 14, font: { size: 11 } } },
           tooltip: { callbacks: { label: (c) => `${c.label}: ${fmtMoney(c.raw)}` } },
@@ -4046,6 +4063,7 @@ function paintAvanceChart(avances) {
     },
     options: {
       responsive: true, maintainAspectRatio: false,
+      animation: animationForChart(`semanal:${state.projectId}`),
       scales: {
         x: { ticks: { color: cc.tick, maxRotation: 0, autoSkip: true, font: { size: 10 } }, grid: { color: cc.grid } },
         y: { min: 0, max: 100, ticks: { color: cc.tick, callback: (v) => `${v}%` }, grid: { color: cc.grid } },
@@ -4077,6 +4095,7 @@ function paintFisFinChart(avances) {
     },
     options: {
       responsive: true, maintainAspectRatio: false,
+      animation: animationForChart(`fisfin:${state.projectId}`),
       scales: {
         x: { stacked: false, ticks: { color: cc.tick, maxRotation: 0, autoSkip: true, font: { size: 10 } }, grid: { display: false } },
         y: { min: 0, max: 100, ticks: { color: cc.tick, callback: (v) => `${v}%` }, grid: { color: cc.grid } },
@@ -4577,6 +4596,7 @@ function paintDestajoSemanaChart(destId, semanas) {
     },
     options: {
       responsive: true, maintainAspectRatio: false,
+      animation: animationForChart(key),
       scales: {
         x: { ticks: { color: '#94a3b8', maxRotation: 0, autoSkip: true, font: { size: 10 } }, grid: { color: '#334155' } },
         y: { min: 0, max: 100, ticks: { color: '#94a3b8', callback: (v) => `${v}%` }, grid: { color: '#334155' } },

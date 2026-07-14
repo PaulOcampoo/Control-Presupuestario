@@ -857,6 +857,25 @@ app.put('/api/permisos/:usuario_id', h(auth.allow()), h(async (req, res) => {
   res.json(rows);
 }));
 
+// Autoconsulta (cualquier usuario autenticado, sobre sí mismo): resuelve sus
+// propios flags de permisos_usuario para una sección dentro de una obra —
+// usado por el frontend para ocultar/deshabilitar controles de edición sin
+// depender del endpoint admin-only de arriba. admin/desarrollador siempre
+// regresan todo en true (mismo bypass que checkPermiso).
+app.get('/api/projects/:id/mis-permisos/:seccion', h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  const { seccion } = req.params;
+  if (!auth.SECCIONES_PERMISOS.includes(seccion)) return res.status(400).json({ error: 'Sección inválida' });
+  if (req.user.puesto === 'admin' || req.user.puesto === 'desarrollador') {
+    return res.json({ puede_ver: true, puede_crear: true, puede_editar: true, puede_editar_precios: true, puede_eliminar: true });
+  }
+  const acciones = ['puede_ver', 'puede_crear', 'puede_editar', 'puede_editar_precios', 'puede_eliminar'];
+  const resultado = {};
+  for (const accion of acciones) {
+    resultado[accion] = await auth.tienePermiso(req, seccion, accion);
+  }
+  res.json(resultado);
+}));
+
 // ---------------------------------------------------------------------------
 // Proveedores (catálogo global — no depende de project_id ni de obra)
 // ---------------------------------------------------------------------------
@@ -2916,11 +2935,11 @@ async function getAvancesData(pid) {
   return rows;
 }
 
-app.get('/api/projects/:id/avances', h(auth.allow('residente', 'cabo', 'logistica')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+app.get('/api/projects/:id/avances', h(auth.allow('residente', 'cabo', 'logistica')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('avance', 'puede_ver')), h(async (req, res) => {
   res.json(await getAvancesData(req.project.id));
 }));
 
-app.get('/api/projects/:id/avances/export', h(auth.allow('residente', 'cabo', 'logistica')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+app.get('/api/projects/:id/avances/export', h(auth.allow('residente', 'cabo', 'logistica')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('avance', 'puede_ver')), h(async (req, res) => {
   const avances = await getAvancesData(req.project.id);
   const presupuestoTotal = await presupuestoTotalDe(req.project.id);
   // Misma fórmula que paintAvanceTable() en el frontend: importe del periodo =
@@ -2965,7 +2984,7 @@ function calcularEstadoAutorizacion(estadoPrevio, actorEsAdmin) {
   return { nuevoEstado: 'pendiente_autorizacion', notificar: estadoPrevio !== 'pendiente_autorizacion' };
 }
 
-app.put('/api/projects/:id/avances/:semana', h(auth.allow('residente', 'cabo')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+app.put('/api/projects/:id/avances/:semana', h(auth.allow('residente', 'cabo')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('avance', 'puede_crear')), h(async (req, res) => {
   const pid = req.project.id;
   const semana = Number(req.params.semana);
   const { rows: existRows } = await db.pool.query(
@@ -3016,7 +3035,7 @@ async function presupuestoTotalDe(projectId) {
   return rows[0] ? rows[0].importe : 0;
 }
 
-app.get('/api/projects/:id/avances/:semana/conceptos', h(auth.allow('residente', 'cabo', 'logistica')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+app.get('/api/projects/:id/avances/:semana/conceptos', h(auth.allow('residente', 'cabo', 'logistica')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('avance', 'puede_ver')), h(async (req, res) => {
   const pid = req.project.id;
   const semana = Number(req.params.semana);
   const { rows: existRows } = await db.pool.query(
@@ -3065,7 +3084,7 @@ app.get('/api/projects/:id/avances/:semana/conceptos', h(auth.allow('residente',
   res.json({ semana, items });
 }));
 
-app.put('/api/projects/:id/avances/:semana/conceptos', h(auth.allow('residente', 'cabo')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+app.put('/api/projects/:id/avances/:semana/conceptos', h(auth.allow('residente', 'cabo')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('avance', 'puede_crear')), h(async (req, res) => {
   const pid = req.project.id;
   const semana = Number(req.params.semana);
   const { rows: existRows } = await db.pool.query(

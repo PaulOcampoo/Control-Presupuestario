@@ -4009,10 +4009,12 @@ function openRegistrarPagoModal(orden) {
 // VISTA: Avance (semanal + físico-financiero)
 // =========================================================================
 async function renderAvance(view) {
-  const [avances, resumen] = await Promise.all([
+  const [avances, resumen, misPermisosAvance] = await Promise.all([
     api(`/projects/${state.projectId}/avances`),
     cached('resumen', () => api(`/projects/${state.projectId}/resumen`)),
+    api(`/projects/${state.projectId}/mis-permisos/avance`),
   ]);
+  const puedeEditar = !!misPermisosAvance.puede_crear;
   if (!avances.length) {
     view.innerHTML = `<div class="empty-state"><div class="big">📅</div>No fue posible generar la curva de avance: el presupuesto no contiene fechas de inicio y fin de obra.</div>`;
     return;
@@ -4044,7 +4046,7 @@ async function renderAvance(view) {
   wireExportButton('#btnExportAvance', `/projects/${state.projectId}/avances/export`);
   paintAvanceChart(avances);
   paintFisFinChart(avances);
-  paintAvanceTable(avances, presupuestoTotal);
+  paintAvanceTable(avances, presupuestoTotal, puedeEditar);
 }
 
 function paintAvanceChart(avances) {
@@ -4105,7 +4107,7 @@ function paintFisFinChart(avances) {
   });
 }
 
-function paintAvanceTable(avances, presupuestoTotal) {
+function paintAvanceTable(avances, presupuestoTotal, puedeEditar) {
   const tbody = $('#avanceTbody');
   tbody.innerHTML = avances.map((a, idx) => {
     const prevPct = idx > 0 ? (avances[idx - 1].avance_financiero_programado || 0) : 0;
@@ -4120,8 +4122,8 @@ function paintAvanceTable(avances, presupuestoTotal) {
       <td>${fmtDate(a.fecha_inicio)} – ${fmtDate(a.fecha_fin)}</td>
       ${puedeVerImportesAvance() ? `<td class="num">${fmtMoney(importePeriodo)}<br><span class="muted fs-07">(${fmtPct(pctPeriodo)} del total)</span></td>` : '<td class="num">—</td>'}
       <td class="num">${fmtPct(a.avance_financiero_programado)}</td>
-      <td class="num"><input type="number" min="0" max="100" step="0.1" data-field="avance_fisico_real" value="${a.avance_fisico_real ?? ''}" class="w-84-right" ${!puedeEditarAvance() ? 'disabled' : ''} /></td>
-      <td class="num">${puedeVerImportesAvance() ? `<input type="number" min="0" max="100" step="0.1" data-field="avance_financiero_real" value="${a.avance_financiero_real ?? ''}" class="w-84-right" ${!puedeEditarAvance() ? 'disabled' : ''} />` : '—'}</td>
+      <td class="num"><input type="number" min="0" max="100" step="0.1" data-field="avance_fisico_real" value="${a.avance_fisico_real ?? ''}" class="w-84-right" ${!puedeEditar ? 'disabled' : ''} /></td>
+      <td class="num">${puedeVerImportesAvance() ? `<input type="number" min="0" max="100" step="0.1" data-field="avance_financiero_real" value="${a.avance_financiero_real ?? ''}" class="w-84-right" ${!puedeEditar ? 'disabled' : ''} />` : '—'}</td>
       <td>
         <span class="badge ${autBadge}">${autLabel}</span>
         ${isAdmin() && estadoAut === 'pendiente_autorizacion' ? `
@@ -4131,10 +4133,10 @@ function paintAvanceTable(avances, presupuestoTotal) {
         </div>` : ''}
       </td>
       <td>
-        ${puedeEditarAvance() ? `<div class="row row-nowrap-gap6">
+        ${puedeEditar ? `<div class="row row-nowrap-gap6">
           <button class="btn small" data-detalle="${a.semana}" title="Capturar avance por concepto">Por concepto</button>
           <button class="btn small btn-primary" data-save="${a.semana}">Guardar</button>
-        </div>` : ''}
+        </div>` : `<button class="btn small" data-detalle="${a.semana}" title="Ver avance por concepto">Ver detalle</button>`}
       </td>
     </tr>
   `;
@@ -4144,7 +4146,7 @@ function paintAvanceTable(avances, presupuestoTotal) {
     btn.addEventListener('click', () => {
       const semana = Number(btn.dataset.detalle);
       const avance = avances.find((a) => a.semana === semana);
-      if (avance) openAvanceConceptosModal(avance, presupuestoTotal);
+      if (avance) openAvanceConceptosModal(avance, presupuestoTotal, puedeEditar);
     });
   });
 
@@ -4190,14 +4192,14 @@ function paintAvanceTable(avances, presupuestoTotal) {
 // Modal: captura de avance físico real por concepto del catálogo (descripción,
 // unidad y cantidad presupuestada como referencia, cantidad ejecutada en el
 // periodo como captura). El % de avance real de la semana se recalcula solo.
-async function openAvanceConceptosModal(avance, presupuestoTotal) {
+async function openAvanceConceptosModal(avance, presupuestoTotal, puedeEditar = true) {
   const semana = avance.semana;
   openModal(`
     <h3>Avance físico por concepto — Semana ${semana}</h3>
     <p class="muted">${fmtDate(avance.fecha_inicio)} – ${fmtDate(avance.fecha_fin)}<br>
-      Anota la cantidad realmente ejecutada de cada concepto del catálogo durante este periodo
-      (no acumulada — solo lo avanzado en esta semana). El % de avance real se calculará
-      automáticamente a partir de estas cantidades y se guardará en la tabla semanal.</p>
+      ${puedeEditar
+        ? 'Anota la cantidad realmente ejecutada de cada concepto del catálogo durante este periodo (no acumulada — solo lo avanzado en esta semana). El % de avance real se calculará automáticamente a partir de estas cantidades y se guardará en la tabla semanal.'
+        : 'Solo consulta — no tienes permiso para modificar el avance de esta obra.'}</p>
     <div id="avcList"><div class="spinner"></div></div>
     <div class="card hidden-initial" id="avcSummary">
       <div class="card-row"><span class="k">Importe ejecutado acumulado a la fecha</span><span class="v" id="avcImporte">—</span></div>
@@ -4205,7 +4207,7 @@ async function openAvanceConceptosModal(avance, presupuestoTotal) {
     </div>
     <div class="modal-actions">
       <button class="btn" id="btnCancelAvc">Cerrar</button>
-      <button class="btn btn-primary" id="btnSaveAvc">Guardar avance</button>
+      ${puedeEditar ? '<button class="btn btn-primary" id="btnSaveAvc">Guardar avance</button>' : ''}
     </div>
   `);
   $('#btnCancelAvc').addEventListener('click', closeModal);
@@ -4246,7 +4248,7 @@ async function openAvanceConceptosModal(avance, presupuestoTotal) {
           <label>Ejecutado este periodo</label>
           <input type="number" min="0" step="0.01" data-cantidad="${c.concepto_id}"
                  data-precio="${c.precio_unitario}" data-presup="${c.cantidad_presupuesto}" data-prev="${c.cantidad_acumulada_previa}"
-                 value="${c.cantidad_ejecutada_periodo ?? ''}" />
+                 value="${c.cantidad_ejecutada_periodo ?? ''}" ${puedeEditar ? '' : 'disabled'} />
         </div>
         <div class="muted acum-out" data-acum-out></div>
       </div>
@@ -4279,25 +4281,27 @@ async function openAvanceConceptosModal(avance, presupuestoTotal) {
   recalc();
   $$('[data-cantidad]').forEach((inp) => inp.addEventListener('input', recalc));
 
-  $('#btnSaveAvc').addEventListener('click', async () => {
-    const btn = $('#btnSaveAvc');
-    const payloadItems = $$('[data-cantidad]').map((inp) => ({
-      concepto_id: Number(inp.dataset.cantidad),
-      cantidad_ejecutada: inp.value === '' ? 0 : Math.max(0, Number(inp.value)),
-    }));
-    btn.disabled = true; btn.textContent = 'Guardando…';
-    try {
-      const result = await api(`/projects/${state.projectId}/avances/${semana}/conceptos`, { method: 'PUT', body: { items: payloadItems } });
-      closeModal();
-      invalidate('resumen');
-      const pct = result.avance_calculado_pct;
-      toast(pct != null ? `Avance de la semana ${semana} guardado: ${fmtPct(pct)} calculado` : `Avance por concepto de la semana ${semana} guardado`, 'success');
-      renderView();
-    } catch (err) {
-      toast(err.message, 'danger');
-      btn.disabled = false; btn.textContent = 'Guardar avance';
-    }
-  });
+  if (puedeEditar) {
+    $('#btnSaveAvc').addEventListener('click', async () => {
+      const btn = $('#btnSaveAvc');
+      const payloadItems = $$('[data-cantidad]').map((inp) => ({
+        concepto_id: Number(inp.dataset.cantidad),
+        cantidad_ejecutada: inp.value === '' ? 0 : Math.max(0, Number(inp.value)),
+      }));
+      btn.disabled = true; btn.textContent = 'Guardando…';
+      try {
+        const result = await api(`/projects/${state.projectId}/avances/${semana}/conceptos`, { method: 'PUT', body: { items: payloadItems } });
+        closeModal();
+        invalidate('resumen');
+        const pct = result.avance_calculado_pct;
+        toast(pct != null ? `Avance de la semana ${semana} guardado: ${fmtPct(pct)} calculado` : `Avance por concepto de la semana ${semana} guardado`, 'success');
+        renderView();
+      } catch (err) {
+        toast(err.message, 'danger');
+        btn.disabled = false; btn.textContent = 'Guardar avance';
+      }
+    });
+  }
 }
 
 // =========================================================================

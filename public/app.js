@@ -4009,9 +4009,12 @@ function openRegistrarPagoModal(orden) {
 // VISTA: Avance (semanal + físico-financiero)
 // =========================================================================
 async function renderAvance(view) {
+  // Mismo guard que renderInicio/renderPrograma — /resumen es admin/desarrollador
+  // solamente, y residente/cabo/logística sí tienen acceso a Avance.
+  const puedeVerResumen = state.allowedTabs.includes('resumen');
   const [avances, resumen, misPermisosAvance] = await Promise.all([
     api(`/projects/${state.projectId}/avances`),
-    cached('resumen', () => api(`/projects/${state.projectId}/resumen`)),
+    puedeVerResumen ? cached('resumen', () => api(`/projects/${state.projectId}/resumen`)) : Promise.resolve(null),
     api(`/projects/${state.projectId}/mis-permisos/avance`),
   ]);
   const puedeEditar = !!misPermisosAvance.puede_crear;
@@ -4019,7 +4022,7 @@ async function renderAvance(view) {
     view.innerHTML = `<div class="empty-state"><div class="big">📅</div>No fue posible generar la curva de avance: el presupuesto no contiene fechas de inicio y fin de obra.</div>`;
     return;
   }
-  const presupuestoTotal = resumen.presupuesto_total || 0;
+  const presupuestoTotal = resumen?.presupuesto_total || 0;
   view.innerHTML = `
     <h2 class="section-title">Avance semanal</h2>
     <p class="muted">Curva programada (calculada a partir del presupuesto y las fechas de obra) contra el avance real que captures cada semana.</p>
@@ -4308,16 +4311,21 @@ async function openAvanceConceptosModal(avance, presupuestoTotal, puedeEditar = 
 // VISTA: Programa de ejecución (Gantt simple)
 // =========================================================================
 async function renderPrograma(view) {
+  // /resumen expone datos financieros agregados de la obra — admin/desarrollador
+  // solamente (auth.allow() sin roles operativos, a propósito). Residente/cabo/
+  // compras/logística sí pueden ver Programa, así que no debe depender de esa
+  // llamada: mismo guard que ya usa renderInicio (ver más abajo).
+  const puedeVerResumen = state.allowedTabs.includes('resumen');
   const [programa, resumen] = await Promise.all([
     api(`/projects/${state.projectId}/programa`),
-    cached('resumen', () => api(`/projects/${state.projectId}/resumen`)),
+    puedeVerResumen ? cached('resumen', () => api(`/projects/${state.projectId}/resumen`)) : Promise.resolve(null),
   ]);
   if (!programa.length) {
     view.innerHTML = `<div class="empty-state"><div class="big">🗓️</div>No fue posible generar el programa de ejecución: el presupuesto no contiene fechas de inicio y fin de obra, o no tiene conceptos con cantidades.</div>`;
     return;
   }
-  const obraInicio = resumen.meta?.inicio_obra || null;
-  const obraFin = resumen.meta?.fin_obra || null;
+  const obraInicio = resumen?.meta?.inicio_obra || null;
+  const obraFin = resumen?.meta?.fin_obra || null;
   const start = new Date(`${programa.reduce((min, p) => (p.fecha_inicio < min ? p.fecha_inicio : min), programa[0].fecha_inicio)}T00:00:00`);
   const end = new Date(`${programa.reduce((max, p) => (p.fecha_fin > max ? p.fecha_fin : max), programa[0].fecha_fin)}T00:00:00`);
   const totalDays = Math.max(1, Math.round((end - start) / 86400000) + 1);
@@ -4552,15 +4560,23 @@ async function toggleDestajoSemanal(btn, destajistas) {
   try {
     const data = await api(`/projects/${state.projectId}/destajistas/${destId}/avance`);
     if (!data.semanas.length) {
+      // "Corregir inicio/fin de obra" necesita /resumen (admin/desarrollador
+      // solamente) — mismo guard que renderInicio/renderPrograma/renderAvance:
+      // se oculta en vez de tronar al usuario sin acceso.
+      const puedeVerResumen = state.allowedTabs.includes('resumen');
       body.innerHTML = `
         <div class="py10-px4">
           <p class="muted m0-0-8">El proyecto no tiene periodos de programa de obra generados (faltan las fechas de inicio/fin de obra).</p>
-          <button class="btn small btn-primary" id="btnFixFechasObra${destId}">Corregir inicio/fin de obra</button>
+          ${puedeVerResumen
+            ? `<button class="btn small btn-primary" id="btnFixFechasObra${destId}">Corregir inicio/fin de obra</button>`
+            : `<p class="muted fs-08">Pide a un administrador que corrija las fechas de inicio/fin de la obra.</p>`}
         </div>`;
-      $(`#btnFixFechasObra${destId}`, body).addEventListener('click', async () => {
-        const resumen = await cached('resumen', () => api(`/projects/${state.projectId}/resumen`));
-        openEditFechasObraModal(resumen.meta);
-      });
+      if (puedeVerResumen) {
+        $(`#btnFixFechasObra${destId}`, body).addEventListener('click', async () => {
+          const resumen = await cached('resumen', () => api(`/projects/${state.projectId}/resumen`));
+          openEditFechasObraModal(resumen.meta);
+        });
+      }
       return;
     }
     const dest = destajistas.find((d) => d.id === destId);

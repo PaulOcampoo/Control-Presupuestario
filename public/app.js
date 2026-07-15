@@ -2216,6 +2216,11 @@ function promptUpload() {
 $('#btnUpload').addEventListener('click', promptUpload);
 $('#btnUploadDrawer').addEventListener('click', promptUpload);
 
+// Aviso de "tardando más de lo normal" si la carga no ha terminado después de
+// este tiempo — no cancela nada, solo le da al usuario la opción de seguir
+// esperando o cancelar en vez de un spinner infinito sin información.
+const UPLOAD_SLOW_WARNING_MS = 90 * 1000;
+
 $('#fileInput').addEventListener('change', async (ev) => {
   const file = ev.target.files[0];
   ev.target.value = '';
@@ -2225,23 +2230,59 @@ $('#fileInput').addEventListener('change', async (ev) => {
   state.pendingUploadClienteId = null;
   if (!clienteId) { toast('Selecciona un cliente antes de subir el archivo', 'danger'); return; }
 
-  openModal(`
-    <h3>Cargando presupuesto…</h3>
-    <p class="muted">Analizando "${esc(file.name)}" y generando una base de datos independiente para este presupuesto.</p>
-    <div class="spinner"></div>
-  `);
+  const controller = new AbortController();
+  let cancelled = false;
+
+  const renderUploadModal = ({ slow = false } = {}) => {
+    openModal(`
+      <h3>Cargando presupuesto…</h3>
+      <p class="muted">Subiendo "${esc(file.name)}" y generando una base de datos independiente para este presupuesto.</p>
+      <div class="spinner"></div>
+      ${slow ? `<div class="alert-box danger upload-slow-warning">⚠️ Esto está tardando más de lo normal (posiblemente tu conexión es lenta). Puedes seguir esperando o cancelar e intentar de nuevo.</div>` : ''}
+      <div class="modal-actions">
+        ${slow ? '<button class="btn" id="btnSeguirEsperando">Seguir esperando</button>' : ''}
+        <button class="btn btn-danger" id="btnCancelarCarga">Cancelar</button>
+      </div>
+    `);
+    // Mientras la carga está en curso, un click fuera del modal no debe poder
+    // cerrarlo dejando la subida corriendo "invisible" en segundo plano — igual
+    // que el modal de códigos de respaldo TOTP, solo el botón explícito cancela.
+    blockOverlayDismiss = true;
+    $('#btnCancelarCarga').addEventListener('click', () => { cancelled = true; controller.abort(); closeModal(); });
+    $('#btnSeguirEsperando')?.addEventListener('click', () => { renderUploadModal({ slow: false }); armSlowWarning(); });
+  };
+
+  let slowTimer = null;
+  const armSlowWarning = () => {
+    clearTimeout(slowTimer);
+    slowTimer = setTimeout(() => renderUploadModal({ slow: true }), UPLOAD_SLOW_WARNING_MS);
+  };
+
+  renderUploadModal();
+  armSlowWarning();
+
   try {
     // Sube directo a Vercel Blob desde el navegador (bypassa el límite de
     // tamaño de body de la función serverless — ver Prompts_mod1.md Tarea 1).
+    // OJO: no pasar onUploadProgress aquí — activa una rama interna distinta
+    // en @vercel/blob (convierte el body a ReadableStream + fetch con
+    // duplex:'half') en vez de la ruta simple de fetch() ya probada en
+    // producción; en pruebas reales esa rama se quedó colgada en 0% sin
+    // completar nunca la subida. abortSignal sí es seguro — solo agrega
+    // `signal` al mismo fetch()/XHR que ya se usaba, no cambia el mecanismo.
     const blob = await VercelBlobClient.upload(file.name, file, {
       access: 'private',
       handleUploadUrl: '/api/projects/upload-token',
       headers: state.token ? { Authorization: `Bearer ${state.token}` } : {},
+      abortSignal: controller.signal,
     });
     const result = await api('/projects', {
       method: 'POST',
       body: { cliente_id: clienteId, archivo_url: blob.url, archivo_nombre: file.name },
+      signal: controller.signal,
     });
+    clearTimeout(slowTimer);
+    blockOverlayDismiss = false; // libera el bloqueo del modal de carga antes de abrir el siguiente
     state.clienteId = clienteId;
     await Promise.all([refreshClientList(), refreshProjectList()]);
     showApp();
@@ -2249,8 +2290,13 @@ $('#fileInput').addEventListener('change', async (ev) => {
     closeDrawer();
     openPostUploadModal(result);
   } catch (err) {
+    clearTimeout(slowTimer);
     closeModal();
-    toast(err.message, 'danger');
+    if (cancelled || err.name === 'AbortError') {
+      toast('Carga cancelada', '');
+    } else {
+      toast(err.message, 'danger');
+    }
   }
 });
 

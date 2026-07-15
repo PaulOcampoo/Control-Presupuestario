@@ -1569,6 +1569,39 @@ app.put('/api/projects/:id/fechas-obra', h(auth.allow()), h(requireProject), h(a
   res.json({ ok: true, inicio_obra, fin_obra, actividades: plan.programa.length, semanas: plan.avances.length });
 }));
 
+// Extensión rápida de fin_obra (ej. "cambio de SIROC" que amplía el contrato)
+// — a propósito NO reutiliza /fechas-obra: ese endpoint regenera todo el
+// Programa/Avance y se rechaza si ya hay avance real capturado, justo el
+// caso típico de una obra que necesita extender su fecha a medio proyecto.
+// Este endpoint solo actualiza el valor de fin_obra + auditoría de quién/
+// cuándo, sin tocar programa_ejecucion ni avances_semanales.
+app.put('/api/projects/:id/fin-obra', h(auth.allow()), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  const { fin_obra } = req.body || {};
+  if (!fin_obra) return res.status(400).json({ error: 'Debes indicar la nueva fecha de fin de obra' });
+
+  const pid = req.project.id;
+  const { rows: metaRows } = await db.pool.query(
+    `SELECT valor FROM meta WHERE project_id = $1 AND clave = 'inicio_obra'`, [pid]
+  );
+  const inicioObra = metaRows[0]?.valor;
+  if (inicioObra && fin_obra <= inicioObra) {
+    return res.status(400).json({ error: 'La fecha de fin de obra debe ser posterior a la de inicio' });
+  }
+
+  const upsertMeta = `
+    INSERT INTO meta (project_id, clave, valor) VALUES ($1, $2, $3)
+    ON CONFLICT (project_id, clave) DO UPDATE SET valor = EXCLUDED.valor
+  `;
+  const ahora = new Date().toISOString();
+  await db.withTransaction(async (client) => {
+    await client.query(upsertMeta, [pid, 'fin_obra', fin_obra]);
+    await client.query(upsertMeta, [pid, 'fin_obra_actualizado_por', req.user.nombre]);
+    await client.query(upsertMeta, [pid, 'fin_obra_actualizado_en', ahora]);
+  });
+
+  res.json({ ok: true, fin_obra, actualizado_por: req.user.nombre, actualizado_en: ahora });
+}));
+
 // ---------------------------------------------------------------------------
 // Contrato PDF — extracción vía Claude API (admin-only). Flujo separado de la
 // carga por Excel: no toca parseWorkbook/ingest ni el catálogo de conceptos/
@@ -3181,17 +3214,78 @@ function calcularEstadoAutorizacion(estadoPrevio, actorEsAdmin) {
   return { nuevoEstado: 'pendiente_autorizacion', notificar: estadoPrevio !== 'pendiente_autorizacion' };
 }
 
+// Avance-requiere-entrega: un concepto solo bloquea el reporte de avance si
+// tiene insumos mapeados en concepto_insumos (mapeo admin-curado, opt-in —
+// conceptos sin mapeo no se ven afectados) Y falta que llegue AL MENOS uno
+// de ellos a obra (decisión confirmada con Paul: "todos entregados", no
+// "basta con uno"). "Entregado" = alguna cantidad_recibida > 0 registrada en
+// recepcion_items para ese insumo, sin importar si la OC quedó completa o
+// parcial — se reusa el flujo de recepciones ya existente (rol "compras"),
+// no se agrega ningún campo/estado nuevo.
+// Devuelve Map<concepto_id, [{insumo_id, insumo_nombre}]> — solo incluye
+// conceptos que SÍ están bloqueados (con al menos un insumo pendiente).
+async function insumosPendientesPorConcepto(pid, conceptoIds) {
+  if (!conceptoIds.length) return new Map();
+  const { rows } = await db.pool.query(`
+    SELECT ci.concepto_id, i.id AS insumo_id, i.concepto AS insumo_nombre,
+           COALESCE(SUM(ri.cantidad_recibida), 0) AS total_recibido
+    FROM concepto_insumos ci
+    JOIN insumos i ON i.id = ci.insumo_id AND i.project_id = $1
+    LEFT JOIN requisicion_items reqi ON reqi.insumo_id = i.id
+    LEFT JOIN requisiciones req ON req.id = reqi.requisicion_id AND req.project_id = $1
+    LEFT JOIN orden_compra_items oci ON oci.requisicion_item_id = reqi.id
+    LEFT JOIN ordenes_compra oc ON oc.id = oci.orden_compra_id AND oc.project_id = $1
+    LEFT JOIN recepcion_items ri ON ri.orden_compra_item_id = oci.id
+    WHERE ci.concepto_id = ANY($2)
+    GROUP BY ci.concepto_id, i.id, i.concepto
+  `, [pid, conceptoIds]);
+  const pendientes = new Map();
+  for (const r of rows) {
+    if (Number(r.total_recibido) > 0) continue; // este insumo ya llegó, no bloquea
+    if (!pendientes.has(r.concepto_id)) pendientes.set(r.concepto_id, []);
+    pendientes.get(r.concepto_id).push({ insumo_id: r.insumo_id, insumo_nombre: r.insumo_nombre });
+  }
+  return pendientes;
+}
+
 app.put('/api/projects/:id/avances/:semana', h(auth.allow('residente', 'cabo')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('avance', 'puede_crear')), h(async (req, res) => {
   const pid = req.project.id;
   const semana = Number(req.params.semana);
   const { rows: existRows } = await db.pool.query(
-    'SELECT id, estado_autorizacion FROM avances_semanales WHERE project_id = $1 AND semana = $2',
+    'SELECT id, estado_autorizacion, avance_fisico_real, avance_financiero_real FROM avances_semanales WHERE project_id = $1 AND semana = $2',
     [pid, semana]
   );
   if (!existRows[0]) return res.status(404).json({ error: 'Semana no encontrada' });
 
   const clamp = (v) => (v == null || v === '' ? null : Math.max(0, Math.min(100, Number(v))));
   const { avance_fisico_real, avance_financiero_real } = req.body || {};
+  const nuevoFisico = clamp(avance_fisico_real);
+  const nuevoFinanciero = clamp(avance_financiero_real);
+
+  // Cierra el mismo gate de avance-requiere-entrega para este editor directo
+  // por % — sin granularidad de concepto, así que no puede validarse
+  // actividad por actividad. En vez de eso: si CUALQUIER concepto de la obra
+  // tiene insumos mapeados pendientes de entrega, se rechaza cualquier
+  // INTENTO DE AUMENTAR el % (bajar o dejar igual sigue permitido). Sin esto,
+  // el flujo detallado por concepto se podía saltar completo escribiendo el
+  // % agregado aquí directamente.
+  const { rows: conceptoRows } = await db.pool.query(
+    'SELECT id FROM conceptos WHERE project_id = $1 AND es_total = 0', [pid]
+  );
+  const pendientesProyecto = await insumosPendientesPorConcepto(pid, conceptoRows.map((c) => c.id));
+  if (pendientesProyecto.size > 0) {
+    const previoFisico = Number(existRows[0].avance_fisico_real) || 0;
+    const previoFinanciero = Number(existRows[0].avance_financiero_real) || 0;
+    const intentaAumentar = (nuevoFisico != null && nuevoFisico > previoFisico)
+      || (nuevoFinanciero != null && nuevoFinanciero > previoFinanciero);
+    if (intentaAumentar) {
+      auth.logDenied(req, `intento de aumentar % de avance directo con insumos pendientes de entrega (semana ${semana})`);
+      return res.status(409).json({
+        error: 'No se puede aumentar el avance: hay actividades con insumos pendientes de entrega en obra. Usa el detalle por concepto para ver cuáles y repórtalas ahí una vez que lleguen.',
+      });
+    }
+  }
+
   const { nuevoEstado, notificar } = calcularEstadoAutorizacion(existRows[0].estado_autorizacion, req.user.puesto === 'admin');
   const { rows } = await db.pool.query(`
     UPDATE avances_semanales
@@ -3200,7 +3294,7 @@ app.put('/api/projects/:id/avances/:semana', h(auth.allow('residente', 'cabo')),
         estado_autorizacion = $3
     WHERE project_id = $4 AND semana = $5
     RETURNING *
-  `, [clamp(avance_fisico_real), clamp(avance_financiero_real), nuevoEstado, pid, semana]);
+  `, [nuevoFisico, nuevoFinanciero, nuevoEstado, pid, semana]);
 
   if (notificar) {
     await notificarAdmins(pid, 'avance_pendiente', semana, `${req.user.nombre} reportó avance real de la semana ${semana} para autorización`);
@@ -3265,6 +3359,7 @@ app.get('/api/projects/:id/avances/:semana/conceptos', h(auth.allow('residente',
     WHERE c.project_id = $1 AND ac.semana = $2
   `, [pid, semana]);
   const actualMap = Object.fromEntries(actuales.map((a) => [a.concepto_id, a.cantidad_ejecutada]));
+  const pendientesPorConcepto = await insumosPendientesPorConcepto(pid, conceptos.map((c) => c.concepto_id));
 
   const items = conceptos.map((c) => {
     const acumulada_previa = acumPrevioMap[c.concepto_id] || 0;
@@ -3276,6 +3371,7 @@ app.get('/api/projects/:id/avances/:semana/conceptos', h(auth.allow('residente',
       cantidad_ejecutada_periodo: ejecutada_periodo,
       cantidad_acumulada_actual: acumulada_actual,
       importe_ejecutado_acumulado: acumulada_actual * c.precio_unitario,
+      insumos_pendientes: pendientesPorConcepto.get(c.concepto_id) || [],
     };
   });
   res.json({ semana, items });
@@ -3305,12 +3401,24 @@ app.put('/api/projects/:id/avances/:semana/conceptos', h(auth.allow('residente',
     }
   }
 
+  // Avance-requiere-entrega: solo bloquea conceptos con insumos mapeados
+  // (concepto_insumos) y algún insumo aún sin llegar a obra — decisión
+  // confirmada: "todos entregados", no basta con uno. Reducir cantidad a 0
+  // (quitar un avance mal capturado) nunca se bloquea, solo reportar > 0.
+  const pendientesPorConcepto = await insumosPendientesPorConcepto(pid, conceptoIds);
+  const omitidos = [];
+
   await db.withTransaction(async (client) => {
     for (const it of items) {
       const conceptoId = Number(it.concepto_id);
       if (!conceptoId) continue;
       const cantidad = it.cantidad_ejecutada == null || it.cantidad_ejecutada === ''
         ? 0 : Math.max(0, Number(it.cantidad_ejecutada));
+      if (cantidad > 0 && pendientesPorConcepto.has(conceptoId)) {
+        omitidos.push({ concepto_id: conceptoId, insumos_pendientes: pendientesPorConcepto.get(conceptoId) });
+        auth.logDenied(req, `avance omitido en concepto ${conceptoId}: insumos pendientes de entrega`);
+        continue;
+      }
       await client.query(`
         INSERT INTO avance_conceptos (semana, concepto_id, cantidad_ejecutada)
         VALUES ($1, $2, $3)
@@ -3351,7 +3459,7 @@ app.put('/api/projects/:id/avances/:semana/conceptos', h(auth.allow('residente',
     'SELECT * FROM avances_semanales WHERE project_id = $1 AND semana = $2',
     [pid, semana]
   );
-  res.json({ ok: true, semana, avance_calculado_pct: pctReal, avance: avRows[0], items: detalle });
+  res.json({ ok: true, semana, avance_calculado_pct: pctReal, avance: avRows[0], items: detalle, omitidos });
 }));
 
 // ---------------------------------------------------------------------------

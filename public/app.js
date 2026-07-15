@@ -328,6 +328,20 @@ const fmtDateShort = (s) => {
 };
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
+// Umbral simple para el aviso de "contrato por vencer" — ajustable después.
+const FIN_OBRA_AVISO_DIAS = 30;
+// Devuelve null si fin_obra no aplica todavía (falta más de FIN_OBRA_AVISO_DIAS),
+// o { vencido, dias } si ya venció (dias negativo) o está por vencer (dias >= 0).
+function finObraEstado(fin_obra) {
+  if (!fin_obra) return null;
+  const fin = new Date(`${String(fin_obra).slice(0, 10)}T00:00:00`);
+  if (Number.isNaN(fin.getTime())) return null;
+  const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
+  const dias = Math.round((fin - hoy) / 86400000);
+  if (dias > FIN_OBRA_AVISO_DIAS) return null;
+  return { vencido: dias < 0, dias };
+}
+
 // ---------------------------------------------------------------------------
 // API helper + JWT refresh automático
 // ---------------------------------------------------------------------------
@@ -1713,11 +1727,15 @@ function renderProjectList() {
     list.innerHTML = `<div class="empty-state"><div class="big">📂</div>Aún no hay presupuestos cargados.<br>Toca el botón de abajo para subir tu primer archivo Excel.</div>`;
     return;
   }
-  list.innerHTML = projects.map((p) => `
+  list.innerHTML = projects.map((p) => {
+    const finEstado = finObraEstado(p.fin_obra);
+    return `
     <div class="project-item ${p.id === state.projectId ? 'active' : ''}" data-id="${p.id}">
       <span class="pname" data-pnombre="${p.id}">${esc(p.nombre)}</span>
       ${p.lugar ? `<span class="pmeta">${esc(p.lugar)}</span>` : ''}
-      <span class="pmeta">${fmtMoney(p.total_sin_iva)} · ${fmtDate(p.inicio_obra)} – ${fmtDate(p.fin_obra)}</span>
+      <span class="pmeta">${fmtMoney(p.total_sin_iva)} · ${fmtDate(p.inicio_obra)} – ${fmtDate(p.fin_obra)}
+        ${finEstado ? `<span class="badge ${finEstado.vencido ? 'red' : 'yellow'}" title="${finEstado.vencido ? `Contrato vencido hace ${Math.abs(finEstado.dias)} día(s)` : `Contrato vence en ${finEstado.dias} día(s)`}">${finEstado.vencido ? '⚠️ Vencido' : '⏳ Por vencer'}</span>` : ''}
+      </span>
       ${isAdmin() ? `
       <div class="pactions">
         <button class="btn small" data-renombrar="${p.id}" title="Renombrar presupuesto">✏️</button>
@@ -1725,7 +1743,8 @@ function renderProjectList() {
         <button class="btn small btn-danger" data-del="${p.id}">Eliminar</button>
       </div>` : ''}
     </div>
-  `).join('');
+  `;
+  }).join('');
 
   $$('.project-item', list).forEach((el) => {
     el.addEventListener('click', (ev) => {
@@ -2439,11 +2458,26 @@ async function renderInicio(view) {
       <div class="card"><div class="chart-wrap"><canvas id="chartResumenDona"></canvas></div></div>
 
       <h3 class="section-title">Datos de la obra</h3>
+      ${(() => {
+        const finEstado = finObraEstado(m.fin_obra);
+        if (!finEstado) return '';
+        const msg = finEstado.vencido
+          ? `⚠️ El contrato de esta obra venció hace ${Math.abs(finEstado.dias)} día(s) (fin de obra: ${fmtDate(m.fin_obra)}).`
+          : `⏳ El contrato de esta obra vence en ${finEstado.dias} día(s) (fin de obra: ${fmtDate(m.fin_obra)}).`;
+        return `
+        <div class="alert-box ${finEstado.vencido ? 'danger' : 'warn'} mb-12">
+          <div class="row between">
+            <span>${msg}</span>
+            ${isAdmin() ? '<button class="btn small" id="btnActualizarFinObra">Actualizar fecha</button>' : ''}
+          </div>
+        </div>`;
+      })()}
       <div class="card">
         <div class="card-row"><span class="k">Obra</span><span class="v">${esc(m.obra || '—')}</span></div>
         <div class="card-row"><span class="k">Lugar</span><span class="v">${esc(m.lugar || '—')}</span></div>
         <div class="card-row"><span class="k">Inicio de obra</span><span class="v">${fmtDate(m.inicio_obra)}</span></div>
         <div class="card-row"><span class="k">Fin de obra</span><span class="v">${fmtDate(m.fin_obra)}</span></div>
+        ${m.fin_obra_actualizado_por ? `<div class="card-row"><span class="k muted fs-078">Última actualización</span><span class="v muted fs-078">${esc(m.fin_obra_actualizado_por)} · ${fmtDateShort(m.fin_obra_actualizado_en)}</span></div>` : ''}
         <div class="card-row"><span class="k">Total sin IVA</span><span class="v">${fmtMoney(resumen.presupuesto_total)}</span></div>
         ${m.total_con_iva ? `<div class="card-row"><span class="k">Total con IVA</span><span class="v">${fmtMoney(m.total_con_iva)}</span></div>` : ''}
         <div class="row end mt-10"><button class="btn small" id="btnEditFechasObra">Corregir inicio/fin de obra</button></div>
@@ -2495,6 +2529,7 @@ async function renderInicio(view) {
       },
     });
     $('#btnEditFechasObra').addEventListener('click', () => openEditFechasObraModal(m));
+    $('#btnActualizarFinObra')?.addEventListener('click', () => openQuickFinObraModal(m));
   }
 
   $$('.section-card', view).forEach((el) => el.addEventListener('click', () => goToSection(el.dataset.section)));
@@ -2528,6 +2563,41 @@ function openEditFechasObraModal(meta) {
     } catch (err) {
       toast(err.message, 'danger');
       btn.disabled = false; btn.textContent = 'Guardar y regenerar';
+    }
+  });
+}
+
+// Edición rápida de solo fin_obra (ej. "cambio de SIROC" que amplía el
+// contrato) — a propósito NO usa /fechas-obra: ese endpoint regenera todo
+// el Programa/Avance y se bloquea si ya hay avance real capturado, que es
+// justo el caso normal de una obra que necesita extender su fecha a medio
+// proyecto. Este modal solo actualiza la fecha de fin, sin tocar el programa.
+function openQuickFinObraModal(meta) {
+  openModal(`
+    <h3>Actualizar fecha de fin de obra</h3>
+    <p class="muted">Para cuando el cliente amplía el contrato (ej. cambio de SIROC). Esto solo actualiza la fecha registrada — no regenera el Programa de ejecución ni la curva de Avance.</p>
+    <div class="field"><label>Nueva fecha de fin de obra</label><input id="quickFinObraFecha" type="date" value="${esc(meta.fin_obra || '')}" /></div>
+    <div class="modal-actions">
+      <button class="btn" id="btnCancelQuickFinObra">Cerrar</button>
+      <button class="btn btn-primary" id="btnSaveQuickFinObra">Guardar</button>
+    </div>
+  `);
+  $('#btnCancelQuickFinObra').addEventListener('click', closeModal);
+  $('#btnSaveQuickFinObra').addEventListener('click', async () => {
+    const btn = $('#btnSaveQuickFinObra');
+    const fin_obra = $('#quickFinObraFecha').value;
+    if (!fin_obra) { toast('Indica la nueva fecha', 'danger'); return; }
+    btn.disabled = true; btn.textContent = 'Guardando…';
+    try {
+      await api(`/projects/${state.projectId}/fin-obra`, { method: 'PUT', body: { fin_obra } });
+      closeModal();
+      invalidate('resumen');
+      await refreshProjectList();
+      toast('Fecha de fin de obra actualizada', 'success');
+      renderView();
+    } catch (err) {
+      toast(err.message, 'danger');
+      btn.disabled = false; btn.textContent = 'Guardar';
     }
   });
 }
@@ -4312,7 +4382,10 @@ async function openAvanceConceptosModal(avance, presupuestoTotal, puedeEditar = 
 
   $('#avcList').innerHTML = [...groups.entries()].map(([grupo, groupItems]) => `
     <h3 class="section-title mt14-mb8">${esc(grupo)}</h3>
-    ${groupItems.map((c) => `
+    ${groupItems.map((c) => {
+      const pendientes = c.insumos_pendientes || [];
+      const bloqueado = pendientes.length > 0;
+      return `
     <div class="req-item-row">
       <div class="fw600-fs086">${esc(c.concepto)}</div>
       <div class="code muted">${esc(c.codigo)} · presup: ${fmtNum(c.cantidad_presupuesto, 3)} ${esc(c.unidad || '')} a ${fmtMoney(c.precio_unitario)}/u</div>
@@ -4325,12 +4398,15 @@ async function openAvanceConceptosModal(avance, presupuestoTotal, puedeEditar = 
           <label>Ejecutado este periodo</label>
           <input type="number" min="0" step="0.01" data-cantidad="${c.concepto_id}"
                  data-precio="${c.precio_unitario}" data-presup="${c.cantidad_presupuesto}" data-prev="${c.cantidad_acumulada_previa}"
-                 value="${c.cantidad_ejecutada_periodo ?? ''}" ${puedeEditar ? '' : 'disabled'} />
+                 value="${c.cantidad_ejecutada_periodo ?? ''}" ${(puedeEditar && !bloqueado) ? '' : 'disabled'}
+                 ${bloqueado ? `title="Faltan insumos por entregar en obra: ${esc(pendientes.map((p) => p.insumo_nombre).join(', '))}"` : ''} />
         </div>
         <div class="muted acum-out" data-acum-out></div>
       </div>
+      ${bloqueado ? `<div class="muted solo-lectura-note">🔒 Falta entrega de: ${esc(pendientes.map((p) => p.insumo_nombre).join(', '))}</div>` : ''}
     </div>
-    `).join('')}
+    `;
+    }).join('')}
   `).join('');
 
   const updateRowOutput = (inp) => {
@@ -4371,7 +4447,11 @@ async function openAvanceConceptosModal(avance, presupuestoTotal, puedeEditar = 
         closeModal();
         invalidate('resumen');
         const pct = result.avance_calculado_pct;
-        toast(pct != null ? `Avance de la semana ${semana} guardado: ${fmtPct(pct)} calculado` : `Avance por concepto de la semana ${semana} guardado`, 'success');
+        const base = pct != null ? `Avance de la semana ${semana} guardado: ${fmtPct(pct)} calculado` : `Avance por concepto de la semana ${semana} guardado`;
+        const numOmitidos = result.omitidos?.length || 0;
+        toast(numOmitidos > 0
+          ? `${base} — ${numOmitidos} actividad(es) no se guardaron: falta entrega de insumos en obra`
+          : base, numOmitidos > 0 ? 'danger' : 'success');
         renderView();
       } catch (err) {
         toast(err.message, 'danger');

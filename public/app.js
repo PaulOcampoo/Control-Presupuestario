@@ -14,8 +14,8 @@ const PUESTO_LABELS = {
 // Mirror de PERMISSIONS en server/auth.js — para calcular allowedTabs en vista simulada.
 // Actualizar aquí si se agregan roles o pestañas en auth.js.
 const ROLE_TABS = {
-  admin:          ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'finanzas', 'mapeo', 'trabajadores', 'nominas', 'estimaciones', 'maquinaria'],
-  desarrollador:  ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'finanzas', 'mapeo', 'trabajadores', 'nominas', 'estimaciones', 'maquinaria'],
+  admin:          ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'finanzas', 'mapeo', 'trabajadores', 'nominas', 'nominas_global', 'estimaciones', 'maquinaria'],
+  desarrollador:  ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'finanzas', 'mapeo', 'trabajadores', 'nominas', 'nominas_global', 'estimaciones', 'maquinaria'],
   residente:      ['programa', 'avance', 'destajo', 'requisiciones', 'insumos', 'ordenes', 'nominas', 'estimaciones'],
   cabo:           ['destajo', 'insumos', 'avance', 'requisiciones', 'maquinaria'],
   compras:        ['programa', 'requisiciones', 'insumos', 'ordenes', 'proveedores'],
@@ -716,7 +716,7 @@ const SECTION_DEFS = {
   obra:          { label: 'Obra',           icon: 'obra',           emoji: '🏗️',  tabs: ['programa', 'avance', 'destajo', 'estimaciones'],     proximamente: [] },
   compras:       { label: 'Compras',        icon: 'compras',        emoji: '🛒',   tabs: ['requisiciones', 'insumos', 'proveedores', 'ordenes'], proximamente: ['Subcontratos'] },
   tesoreria:     { label: 'Tesorería',      icon: 'tesoreria',      emoji: '💰',   tabs: ['finanzas', 'impuestos'],                             proximamente: [] },
-  administracion:{ label: 'Administración', icon: 'administracion', emoji: '📂',  tabs: ['mapeo', 'contrato', 'trabajadores', 'nominas', 'usuarios'], proximamente: ['Almacenes'] },
+  administracion:{ label: 'Administración', icon: 'administracion', emoji: '📂',  tabs: ['mapeo', 'contrato', 'trabajadores', 'nominas', 'nominas_global', 'usuarios'], proximamente: ['Almacenes'] },
   maquinaria:    { label: 'Maquinaria',     icon: 'maquinaria',     emoji: '🚜',   tabs: ['maquinaria'],                                        proximamente: [] },
 };
 
@@ -724,13 +724,13 @@ const TAB_ICONS = {
   resumen: '📊', contrato: '📄', impuestos: '🧾', insumos: '📦', requisiciones: '🧾',
   proveedores: '🏭', ordenes: '🛒', programa: '🗓️', avance: '📈', destajo: '👷',
   finanzas: '💰', mapeo: '🔗', usuarios: '👤', trabajadores: '👷', nominas: '💵', estimaciones: '🧮',
-  maquinaria: '🚜',
+  maquinaria: '🚜', nominas_global: '💵',
 };
 const TAB_LABELS = {
   resumen: 'Resumen', contrato: 'Contrato', impuestos: 'Impuestos', insumos: 'Insumos', requisiciones: 'Requisiciones',
   proveedores: 'Proveedores', ordenes: 'Órdenes de Compra', programa: 'Programa', avance: 'Avance', destajo: 'Destajo',
   finanzas: 'Finanzas', mapeo: 'Mapeo', usuarios: 'Usuarios', trabajadores: 'Trabajadores', nominas: 'Nóminas', estimaciones: 'Estimaciones',
-  maquinaria: 'Maquinaria',
+  maquinaria: 'Maquinaria', nominas_global: 'Nómina (todas las obras)',
 };
 
 const VIEW_TO_SECTION = {};
@@ -2262,10 +2262,11 @@ function destroyCharts() {
 async function renderView() {
   destroyCharts();
   const view = $('#view');
-  if (state.view === 'usuarios' || state.view === 'proveedores' || state.view === 'maquinaria') {
+  if (state.view === 'usuarios' || state.view === 'proveedores' || state.view === 'maquinaria' || state.view === 'nominas_global') {
     try {
       if (state.view === 'usuarios') await renderUsuarios(view);
       else if (state.view === 'proveedores') await renderProveedores(view);
+      else if (state.view === 'nominas_global') await renderNominasGlobal(view);
       else await renderMaquinaria(view);
     } catch (err) { view.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`; }
     syncFab();
@@ -4449,6 +4450,12 @@ async function renderDestajo(view) {
   const destajistas = await api(`/projects/${state.projectId}/destajistas`);
   const totalAsig = destajistas.reduce((s, d) => s + d.total_asignado, 0);
   const totalGanado = destajistas.reduce((s, d) => s + d.total_ganado, 0);
+  // Ocultamiento visual adicional al bloqueo server-side ya existente (ver
+  // precio_destajo en POST/PUT .../items en server/app.js, que ya ignora el
+  // campo en silencio sin este permiso) — un residente sin puede_editar_precios
+  // ya no ve el precio como editable, para no sugerir que su cambio se guarda.
+  const permisos = await cached('permisosMe', () => api(`/permisos/me?obra_id=${state.projectId}`));
+  const puedeEditarPrecios = !!permisos?.destajo?.puede_editar_precios;
 
   view.innerHTML = `
     <h2 class="section-title">Control de Destajo</h2>
@@ -4472,7 +4479,7 @@ async function renderDestajo(view) {
           ? 'Agrega trabajadores y asígnales los conceptos que ejecutarán a destajo.<br>Si tu Excel tenía una hoja llamada "Destajo" o "Destajistas", se importó automáticamente al cargar el presupuesto.'
           : 'Aún no hay destajistas registrados en este presupuesto.'}</p>
       </div>
-    ` : destajistas.map((d) => renderDestajistaCard(d)).join('')}
+    ` : destajistas.map((d) => renderDestajistaCard(d, puedeEditarPrecios)).join('')}
   `;
 
   $$('.dest-progress > span[data-pct]', view).forEach((span) => { span.style.width = span.dataset.pct + '%'; });
@@ -4502,7 +4509,7 @@ async function renderDestajo(view) {
   });
 
   $$('[data-add-item]', view).forEach((btn) => {
-    btn.addEventListener('click', () => openAgregarItemModal(Number(btn.dataset.addItem), destajistas));
+    btn.addEventListener('click', () => openAgregarItemModal(Number(btn.dataset.addItem), destajistas, puedeEditarPrecios));
   });
 
   $$('[data-save-item]', view).forEach((inp) => {
@@ -4541,7 +4548,7 @@ async function renderDestajo(view) {
   });
 }
 
-function renderDestajistaCard(d) {
+function renderDestajistaCard(d, puedeEditarPrecios) {
   const pct = Math.round(d.pct_avance || 0);
   return `
   <div class="card mb-12" data-dest-card="${d.id}">
@@ -4563,7 +4570,7 @@ function renderDestajistaCard(d) {
       <span class="badge ${pct >= 100 ? 'green' : 'yellow'}">${pct}%</span>
     </div>
     <div class="progress-bar dest-progress"><span data-pct="${Math.min(100, pct)}"></span></div>
-    ${renderDestajistaItems(d)}
+    ${renderDestajistaItems(d, puedeEditarPrecios)}
     ${canManageDestajo() ? `
     <div class="row mt-8">
       <button class="btn small" data-add-item="${d.id}">+ Agregar actividad</button>
@@ -4809,11 +4816,17 @@ async function openDestajoSemanaModal(destId, semana, nombre) {
   });
 }
 
-function renderDestajistaItems(d) {
+function renderDestajistaItems(d, puedeEditarPrecios) {
   if (!d.items.length) {
     return `<p class="muted dest-item-empty">Sin actividades asignadas aún.</p>`;
   }
   const canManage = canManageDestajo();
+  // El precio se oculta como editable si no se tiene puede_editar_precios,
+  // aunque canManage sea true (residente sin ese permiso granular) — el
+  // backend ya ignora en silencio este campo sin el permiso (ver
+  // precio_destajo en PUT .../items en server/app.js); esto es solo para que
+  // la UI no sugiera que el cambio sí se guarda.
+  const canEditPrecio = canManage && puedeEditarPrecios;
   return `
     <div class="table-scroll">
       <table>
@@ -4848,7 +4861,7 @@ function renderDestajistaItems(d) {
               ` : fmtNum(it.cantidad_asignada, 2)}
             </td>
             <td class="num">
-              ${canManage ? `
+              ${canEditPrecio ? `
               <input type="number" min="0" step="0.01" class="dest-item-input-precio"
                 value="${it.precio_destajo}"
                 data-save-item data-item-id="${it.id}" data-dest-id="${d.id}" data-field="precio_destajo" />
@@ -4936,7 +4949,7 @@ function openEditDestajistaModal(dest) {
   });
 }
 
-async function openAgregarItemModal(destId, destajistas) {
+async function openAgregarItemModal(destId, destajistas, puedeEditarPrecios) {
   const dest = destajistas.find((d) => d.id === destId);
   if (!dest) return;
 
@@ -4964,7 +4977,7 @@ async function openAgregarItemModal(destId, destajistas) {
     </div>
     <div class="row gap-8">
       <div class="field flex-1"><label>Cantidad asignada</label><input id="itemCant" type="number" min="0" step="any" /></div>
-      <div class="field flex-1"><label>P.U. destajo ($)</label><input id="itemPU" type="number" min="0" step="any" /></div>
+      ${puedeEditarPrecios ? `<div class="field flex-1"><label>P.U. destajo ($)</label><input id="itemPU" type="number" min="0" step="any" /></div>` : ''}
     </div>
     <div class="modal-actions">
       <button class="btn" id="btnCancelItem">Cerrar</button>
@@ -5036,7 +5049,7 @@ async function openAgregarItemModal(destId, destajistas) {
           concepto,
           unidad: $('#itemUnidad').value.trim() || null,
           cantidad_asignada: Number($('#itemCant').value) || 0,
-          precio_destajo: Number($('#itemPU').value) || 0,
+          precio_destajo: Number($('#itemPU')?.value) || 0,
         },
       });
       closeModal();
@@ -7618,6 +7631,50 @@ const NOMINA_ESTADO_LABELS = {
 const NOMINA_ESTADO_BADGE = {
   borrador: 'muted', revision: 'yellow', aprobada: 'green', rechazada: 'red',
 };
+
+// Vista global — solo admin/desarrollador (ver GET /api/nominas en server/app.js):
+// todas las nóminas de todas las obras y todos los residentes, de solo
+// lectura. El detalle/edición de cada nómina se hace desde la pestaña
+// Nóminas de la obra correspondiente (tab 'nominas', per-obra).
+async function renderNominasGlobal(view) {
+  view.innerHTML = '<div class="spinner"></div>';
+  const nominas = await api('/nominas');
+  if (!nominas.length) {
+    view.innerHTML = `
+      <h2 class="section-title">Nómina — todas las obras</h2>
+      <div class="empty-state">No hay nóminas registradas en ninguna obra.</div>`;
+    return;
+  }
+  view.innerHTML = `
+    <h2 class="section-title">Nómina — todas las obras</h2>
+    <p class="muted">Vista de solo lectura, agrupada por residente y obra. Para calcular, aprobar o exportar una nómina, entra a la pestaña Nóminas de esa obra.</p>
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>Residente</th>
+            <th>Obra</th>
+            <th>Periodo</th>
+            <th>Estado</th>
+            <th class="num">Trabajadores</th>
+            <th class="num">Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${nominas.map((n) => `
+          <tr>
+            <td>${esc(n.creado_por_nombre || '—')}</td>
+            <td>${esc(n.obra_nombre)}</td>
+            <td>${esc(n.fecha_inicio)} al ${esc(n.fecha_fin)}</td>
+            <td><span class="badge ${NOMINA_ESTADO_BADGE[n.estado] || 'muted'}">${esc(NOMINA_ESTADO_LABELS[n.estado] || n.estado)}</span></td>
+            <td class="num">${n.num_trabajadores}</td>
+            <td class="num">${fmtMoney(n.total_nomina)}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
 
 async function renderNominas(view) {
   if (!puedeVerNominas()) {

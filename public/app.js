@@ -14,8 +14,8 @@ const PUESTO_LABELS = {
 // Mirror de PERMISSIONS en server/auth.js — para calcular allowedTabs en vista simulada.
 // Actualizar aquí si se agregan roles o pestañas en auth.js.
 const ROLE_TABS = {
-  admin:          ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'finanzas', 'mapeo', 'trabajadores', 'nominas', 'nominas_global', 'estimaciones', 'maquinaria'],
-  desarrollador:  ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'finanzas', 'mapeo', 'trabajadores', 'nominas', 'nominas_global', 'estimaciones', 'maquinaria'],
+  admin:          ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'finanzas', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', 'maquinaria'],
+  desarrollador:  ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'finanzas', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', 'maquinaria'],
   residente:      ['programa', 'avance', 'destajo', 'requisiciones', 'insumos', 'ordenes', 'nominas', 'estimaciones'],
   cabo:           ['destajo', 'insumos', 'avance', 'requisiciones', 'maquinaria'],
   compras:        ['programa', 'requisiciones', 'insumos', 'ordenes', 'proveedores'],
@@ -730,7 +730,7 @@ const SECTION_DEFS = {
   obra:          { label: 'Obra',           icon: 'obra',           emoji: '🏗️',  tabs: ['programa', 'avance', 'destajo', 'estimaciones'],     proximamente: [] },
   compras:       { label: 'Compras',        icon: 'compras',        emoji: '🛒',   tabs: ['requisiciones', 'insumos', 'proveedores', 'ordenes'], proximamente: ['Subcontratos'] },
   tesoreria:     { label: 'Tesorería',      icon: 'tesoreria',      emoji: '💰',   tabs: ['finanzas', 'impuestos'],                             proximamente: [] },
-  administracion:{ label: 'Administración', icon: 'administracion', emoji: '📂',  tabs: ['mapeo', 'contrato', 'trabajadores', 'nominas', 'nominas_global', 'usuarios'], proximamente: ['Almacenes'] },
+  administracion:{ label: 'Administración', icon: 'administracion', emoji: '📂',  tabs: ['mapeo', 'contrato', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'usuarios'], proximamente: ['Almacenes'] },
   maquinaria:    { label: 'Maquinaria',     icon: 'maquinaria',     emoji: '🚜',   tabs: ['maquinaria'],                                        proximamente: [] },
 };
 
@@ -738,13 +738,13 @@ const TAB_ICONS = {
   resumen: '📊', contrato: '📄', impuestos: '🧾', insumos: '📦', requisiciones: '🧾',
   proveedores: '🏭', ordenes: '🛒', programa: '🗓️', avance: '📈', destajo: '👷',
   finanzas: '💰', mapeo: '🔗', usuarios: '👤', trabajadores: '👷', nominas: '💵', estimaciones: '🧮',
-  maquinaria: '🚜', nominas_global: '💵',
+  maquinaria: '🚜', nominas_global: '💵', trabajadores_global: '👷',
 };
 const TAB_LABELS = {
   resumen: 'Resumen', contrato: 'Contrato', impuestos: 'Impuestos', insumos: 'Insumos', requisiciones: 'Requisiciones',
   proveedores: 'Proveedores', ordenes: 'Órdenes de Compra', programa: 'Programa', avance: 'Avance', destajo: 'Destajo',
   finanzas: 'Finanzas', mapeo: 'Mapeo', usuarios: 'Usuarios', trabajadores: 'Trabajadores', nominas: 'Nóminas', estimaciones: 'Estimaciones',
-  maquinaria: 'Maquinaria', nominas_global: 'Nómina (todas las obras)',
+  maquinaria: 'Maquinaria', nominas_global: 'Nómina (todas las obras)', trabajadores_global: 'Trabajadores (todas las obras)',
 };
 
 const VIEW_TO_SECTION = {};
@@ -2327,11 +2327,12 @@ function destroyCharts() {
 async function renderView() {
   destroyCharts();
   const view = $('#view');
-  if (state.view === 'usuarios' || state.view === 'proveedores' || state.view === 'maquinaria' || state.view === 'nominas_global') {
+  if (state.view === 'usuarios' || state.view === 'proveedores' || state.view === 'maquinaria' || state.view === 'nominas_global' || state.view === 'trabajadores_global') {
     try {
       if (state.view === 'usuarios') await renderUsuarios(view);
       else if (state.view === 'proveedores') await renderProveedores(view);
       else if (state.view === 'nominas_global') await renderNominasGlobal(view);
+      else if (state.view === 'trabajadores_global') await renderTrabajadoresGlobal(view);
       else await renderMaquinaria(view);
     } catch (err) { view.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`; }
     syncFab();
@@ -7044,6 +7045,66 @@ const TIPO_PAGO_LABELS = { jornal: 'Jornal fijo', destajo: 'Destajo', mixto: 'Mi
 const PERIODICIDAD_LABELS = { semanal: 'Semanal', quincenal: 'Quincenal', mensual: 'Mensual' };
 const TIPO_DOC_LABELS = { ine_frente: 'INE frente', ine_reverso: 'INE reverso', curp_doc: 'CURP', domicilio: 'Comprobante domicilio', otro: 'Otro' };
 
+// Vista global — solo admin/desarrollador (ver GET /api/trabajadores en
+// server/app.js): todos los trabajadores de todas las obras, con la obra y
+// el/los residente(s) a cargo. Solo lectura — dar de alta/editar sigue
+// siendo por obra, en la pestaña Trabajadores normal.
+async function renderTrabajadoresGlobal(view) {
+  view.innerHTML = '<div class="spinner"></div>';
+  let mostrarInactivos = false;
+  async function repaint() {
+    const trabajadores = await api(`/trabajadores${mostrarInactivos ? '' : '?activo=1'}`);
+    pintarTabla(trabajadores);
+  }
+  function pintarTabla(trabajadores) {
+    const tbody = $('#trabGlobalTbody', view);
+    if (!tbody) return;
+    if (!trabajadores.length) {
+      tbody.innerHTML = `<tr><td colspan="6" class="empty-state">No hay trabajadores registrados.</td></tr>`;
+      return;
+    }
+    tbody.innerHTML = trabajadores.map((t) => `
+      <tr>
+        <td>${esc(t.nombre)}${!t.activo ? ' <span class="badge red">Inactivo</span>' : ''}</td>
+        <td>${esc(t.puesto || '—')}</td>
+        <td>${esc(t.cliente_nombre || '—')}</td>
+        <td>${esc(t.obra_nombre)}</td>
+        <td>${esc(t.residentes_a_cargo || '—')}</td>
+        <td>${esc(TIPO_PAGO_LABELS[t.tipo_pago] || t.tipo_pago)}</td>
+      </tr>
+    `).join('');
+  }
+  view.innerHTML = `
+    <h2 class="section-title">Trabajadores — todas las obras</h2>
+    <p class="muted">Vista de solo lectura. Para dar de alta o editar un trabajador, entra a la pestaña Trabajadores de su obra.</p>
+    <div class="section-actions">
+      <label class="checkbox-label-inline">
+        <input type="checkbox" id="chkTrabGlobalInactivos" class="w-auto"> Ver inactivos
+      </label>
+    </div>
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>Trabajador</th>
+            <th>Puesto</th>
+            <th>Cliente</th>
+            <th>Obra</th>
+            <th>Residente(s) a cargo</th>
+            <th>Tipo de pago</th>
+          </tr>
+        </thead>
+        <tbody id="trabGlobalTbody"><tr><td colspan="6" class="empty-state">Cargando…</td></tr></tbody>
+      </table>
+    </div>
+  `;
+  $('#chkTrabGlobalInactivos').addEventListener('change', async (e) => {
+    mostrarInactivos = e.target.checked;
+    await repaint();
+  });
+  await repaint();
+}
+
 async function renderTrabajadores(view) {
   if (!isAdmin()) {
     view.innerHTML = `<div class="alert-box danger">⚠️ No tienes permiso para ver esta sección.</div>`;
@@ -7762,44 +7823,179 @@ const NOMINA_ESTADO_BADGE = {
 // todas las nóminas de todas las obras y todos los residentes, de solo
 // lectura. El detalle/edición de cada nómina se hace desde la pestaña
 // Nóminas de la obra correspondiente (tab 'nominas', per-obra).
+// Vista global de Nóminas — dos sub-vistas:
+// 'todas'   -> jerarquía Cliente → Obra → Residente(s) → periodos de nómina
+//              (solo lectura; capturar/calcular/aprobar sigue siendo por obra,
+//              en la pestaña Nóminas normal — no se toca esa lógica).
+// 'reporte' -> reporte de nómina semanal por cliente, filtrable por fecha,
+//              con descarga Excel/PDF.
 async function renderNominasGlobal(view) {
-  view.innerHTML = '<div class="spinner"></div>';
-  const nominas = await api('/nominas');
-  if (!nominas.length) {
+  let subView = 'todas';
+
+  function renderSubNav() {
+    return `
+      <div class="nominas-subnav">
+        <button class="btn ${subView === 'todas' ? 'btn-primary' : ''}" id="btnSubTodasNominas">Todas las nóminas</button>
+        <button class="btn ${subView === 'reporte' ? 'btn-primary' : ''}" id="btnSubReporteSemanal">Reporte semanal por cliente</button>
+      </div>
+    `;
+  }
+  function bindSubNav() {
+    $('#btnSubTodasNominas').addEventListener('click', showTodas);
+    $('#btnSubReporteSemanal').addEventListener('click', showReporte);
+  }
+
+  async function showTodas() {
+    subView = 'todas';
+    view.innerHTML = `<h2 class="section-title">Nómina — todas las obras</h2>${renderSubNav()}<div id="nomGlobalBody" class="mt-12"><div class="spinner"></div></div>`;
+    bindSubNav();
+    const body = $('#nomGlobalBody');
+    try {
+      const nominas = await api('/nominas');
+      if (!nominas.length) { body.innerHTML = '<div class="empty-state">No hay nóminas registradas en ninguna obra.</div>'; return; }
+
+      // Agrupar Cliente -> Obra, preservando el orden ya dado por el backend
+      // (cliente, obra, fecha_inicio DESC).
+      const porCliente = new Map();
+      nominas.forEach((n) => {
+        const clienteKey = n.cliente_nombre || 'Sin cliente';
+        if (!porCliente.has(clienteKey)) porCliente.set(clienteKey, new Map());
+        const porObra = porCliente.get(clienteKey);
+        if (!porObra.has(n.project_id)) porObra.set(n.project_id, { obra_nombre: n.obra_nombre, residentes_a_cargo: n.residentes_a_cargo, nominas: [] });
+        porObra.get(n.project_id).nominas.push(n);
+      });
+
+      body.innerHTML = [...porCliente.entries()].map(([clienteNombre, porObra]) => `
+        <h3 class="section-title mt14-mb8">${esc(clienteNombre)}</h3>
+        ${[...porObra.entries()].map(([projectId, obra]) => `
+          <div class="card mb-12">
+            <div class="row between">
+              <div>
+                <strong>${esc(obra.obra_nombre)}</strong>
+                <div class="muted fs-08">Residente(s) a cargo: ${esc(obra.residentes_a_cargo || '—')}</div>
+              </div>
+              <button class="btn small" data-ir-obra="${projectId}">Ver en la obra →</button>
+            </div>
+            <div class="table-scroll mt-8">
+              <table>
+                <thead><tr><th>Periodo</th><th>Estado</th><th class="num">Trabajadores</th><th class="num">Total</th></tr></thead>
+                <tbody>
+                  ${obra.nominas.map((n) => `
+                  <tr>
+                    <td>${esc(n.fecha_inicio)} al ${esc(n.fecha_fin)}</td>
+                    <td><span class="badge ${NOMINA_ESTADO_BADGE[n.estado] || 'muted'}">${esc(NOMINA_ESTADO_LABELS[n.estado] || n.estado)}</span></td>
+                    <td class="num">${n.num_trabajadores}</td>
+                    <td class="num">${fmtMoney(n.total_nomina)}</td>
+                  </tr>`).join('')}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        `).join('')}
+      `).join('');
+
+      $$('[data-ir-obra]', body).forEach((btn) => {
+        btn.addEventListener('click', () => selectProject(Number(btn.dataset.irObra), 'nominas'));
+      });
+    } catch (err) {
+      body.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+    }
+  }
+
+  async function showReporte() {
+    subView = 'reporte';
+    // No usa cached(): esa caché vive en state.cache[state.projectId], que es
+    // null en esta vista global (no depende de una obra seleccionada).
+    const clientes = await api('/clientes');
+    const hoy = new Date().toISOString().slice(0, 10);
     view.innerHTML = `
       <h2 class="section-title">Nómina — todas las obras</h2>
-      <div class="empty-state">No hay nóminas registradas en ninguna obra.</div>`;
-    return;
+      ${renderSubNav()}
+      <p class="muted mt-12">Total de nómina de las obras activas (fin de obra sin vencer) de un cliente, en la semana que contiene la fecha elegida.</p>
+      <div class="row gap-8 mt-8">
+        <div class="field flex-1">
+          <label>Cliente</label>
+          <select id="repNomCliente">
+            <option value="">Selecciona un cliente…</option>
+            ${clientes.map((c) => `<option value="${c.id}">${esc(c.nombre)}</option>`).join('')}
+          </select>
+        </div>
+        <div class="field flex-1"><label>Fecha (cualquier día de la semana)</label><input id="repNomFecha" type="date" value="${hoy}" /></div>
+      </div>
+      <div class="row mt-8">
+        <button class="btn btn-primary" id="btnVerReporteNomina">Ver reporte</button>
+      </div>
+      <div id="reporteNomBody" class="mt-12"></div>
+    `;
+    bindSubNav();
+
+    $('#btnVerReporteNomina').addEventListener('click', async () => {
+      const clienteId = $('#repNomCliente').value;
+      const fecha = $('#repNomFecha').value;
+      if (!clienteId) { toast('Selecciona un cliente', 'danger'); return; }
+      if (!fecha) { toast('Selecciona una fecha', 'danger'); return; }
+      const body = $('#reporteNomBody');
+      body.innerHTML = '<div class="spinner"></div>';
+      try {
+        const reporte = await api(`/clientes/${clienteId}/nominas-reporte-semanal?fecha=${fecha}`);
+        pintarReporte(body, reporte, clienteId, fecha);
+      } catch (err) {
+        body.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+      }
+    });
   }
-  view.innerHTML = `
-    <h2 class="section-title">Nómina — todas las obras</h2>
-    <p class="muted">Vista de solo lectura, agrupada por residente y obra. Para calcular, aprobar o exportar una nómina, entra a la pestaña Nóminas de esa obra.</p>
-    <div class="table-scroll">
-      <table>
-        <thead>
-          <tr>
-            <th>Residente</th>
-            <th>Obra</th>
-            <th>Periodo</th>
-            <th>Estado</th>
-            <th class="num">Trabajadores</th>
-            <th class="num">Total</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${nominas.map((n) => `
-          <tr>
-            <td>${esc(n.creado_por_nombre || '—')}</td>
-            <td>${esc(n.obra_nombre)}</td>
-            <td>${esc(n.fecha_inicio)} al ${esc(n.fecha_fin)}</td>
-            <td><span class="badge ${NOMINA_ESTADO_BADGE[n.estado] || 'muted'}">${esc(NOMINA_ESTADO_LABELS[n.estado] || n.estado)}</span></td>
-            <td class="num">${n.num_trabajadores}</td>
-            <td class="num">${fmtMoney(n.total_nomina)}</td>
-          </tr>`).join('')}
-        </tbody>
-      </table>
-    </div>
-  `;
+
+  function pintarReporte(body, reporte, clienteId, fecha) {
+    if (!reporte.obras.length) {
+      body.innerHTML = '<div class="empty-state">Este cliente no tiene obras activas (fin de obra vigente o sin definir).</div>';
+      return;
+    }
+    const hayNominas = reporte.obras.some((o) => o.nominas.length > 0);
+    body.innerHTML = `
+      <div class="section-actions mb-12">
+        <button class="btn" id="btnExportReporteXlsx">⭳ Exportar a Excel</button>
+        <button class="btn" id="btnExportReportePdf">⭳ Exportar a PDF</button>
+      </div>
+      ${!hayNominas ? '<div class="empty-state">No hay nóminas registradas para esta semana en las obras activas de este cliente.</div>' : ''}
+      ${reporte.obras.map((obra) => `
+        <div class="card mb-12">
+          <div class="row between">
+            <div>
+              <strong>${esc(obra.obra_nombre)}</strong>
+              <div class="muted fs-08">Residente(s) a cargo: ${esc(obra.residentes_a_cargo || '—')}</div>
+            </div>
+            <span class="text-verde fw600">${fmtMoney(obra.total_obra)}</span>
+          </div>
+          ${!obra.nominas.length ? '<p class="muted mt-8">Sin nómina registrada para esta semana.</p>' : obra.nominas.map((nom) => `
+            <div class="table-scroll mt-8">
+              <p class="muted fs-08">Periodo: ${esc(nom.fecha_inicio)} al ${esc(nom.fecha_fin)} · <span class="badge ${NOMINA_ESTADO_BADGE[nom.estado] || 'muted'}">${esc(NOMINA_ESTADO_LABELS[nom.estado] || nom.estado)}</span></p>
+              <table>
+                <thead><tr><th>Trabajador</th><th>Puesto</th><th class="num">Días</th><th class="num">Jornal</th><th class="num">Destajo</th><th class="num">Total</th></tr></thead>
+                <tbody>
+                  ${nom.items.map((it) => `
+                  <tr>
+                    <td>${esc(it.trabajador_nombre)}</td>
+                    <td>${esc(it.trabajador_puesto || '—')}</td>
+                    <td class="num">${it.dias_trabajados ?? '—'}</td>
+                    <td class="num">${fmtMoney(it.monto_jornal)}</td>
+                    <td class="num">${fmtMoney(it.monto_destajo)}</td>
+                    <td class="num">${fmtMoney(it.monto_total)}</td>
+                  </tr>`).join('')}
+                </tbody>
+              </table>
+            </div>
+          `).join('')}
+        </div>
+      `).join('')}
+      <div class="card">
+        <div class="card-row"><span class="k">Total del cliente</span><span class="v text-verde fw600">${fmtMoney(reporte.total_cliente)}</span></div>
+      </div>
+    `;
+    wireExportButton('#btnExportReporteXlsx', `/clientes/${clienteId}/nominas-reporte-semanal/export?fecha=${fecha}`);
+    wireExportButton('#btnExportReportePdf', `/clientes/${clienteId}/nominas-reporte-semanal/export-pdf?fecha=${fecha}`);
+  }
+
+  await showTodas();
 }
 
 async function renderNominas(view) {

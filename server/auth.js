@@ -26,8 +26,8 @@ const TOTP_ISSUER = 'Grupo Roforb — Control Presupuestal';
 // Puestos y qué pestañas puede ver cada uno. 'admin' tiene acceso total
 // (se resuelve aparte en allow(), no necesita listarse en cada pestaña).
 const PERMISSIONS = {
-  admin:          { label: 'Administrador', tabs: ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'finanzas', 'mapeo', 'trabajadores', 'nominas', 'nominas_global', 'estimaciones', 'maquinaria'] },
-  desarrollador:  { label: 'Desarrollador', tabs: ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'finanzas', 'mapeo', 'trabajadores', 'nominas', 'nominas_global', 'estimaciones', 'maquinaria'] },
+  admin:          { label: 'Administrador', tabs: ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'finanzas', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', 'maquinaria'] },
+  desarrollador:  { label: 'Desarrollador', tabs: ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'finanzas', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', 'maquinaria'] },
   residente:      { label: 'Residente',     tabs: ['programa', 'avance', 'destajo', 'requisiciones', 'insumos', 'ordenes', 'nominas', 'estimaciones'] },
   cabo:           { label: 'Cabo',          tabs: ['destajo', 'insumos', 'avance', 'requisiciones', 'maquinaria'] },
   compras:        { label: 'Compras',       tabs: ['programa', 'requisiciones', 'insumos', 'ordenes', 'proveedores'] },

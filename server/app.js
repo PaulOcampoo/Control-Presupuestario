@@ -894,6 +894,52 @@ app.get('/api/mis-permisos/:seccion', h(async (req, res) => {
   res.json(resultado);
 }));
 
+// Generalización de las dos autoconsultas de arriba: en vez de una sección a
+// la vez, regresa TODAS las secciones de permisos_usuario del usuario
+// autenticado en una sola llamada (evita que el frontend dispare N requests
+// cuando necesita varios flags a la vez, ej. armar el sidebar o revisar
+// varios campos de una vista). obra_id es opcional en query string — si se
+// manda, una fila específica de esa obra gana sobre la fila general
+// (proyecto_id NULL) para la misma sección, igual que tienePermiso().
+// admin/desarrollador reciben todo en true (mismo bypass que checkPermiso).
+app.get('/api/permisos/me', h(async (req, res) => {
+  const obraId = req.query.obra_id ? Number(req.query.obra_id) : null;
+  if (req.user.puesto === 'admin' || req.user.puesto === 'desarrollador') {
+    const resultado = {};
+    for (const seccion of auth.SECCIONES_PERMISOS) {
+      resultado[seccion] = { puede_ver: true, puede_crear: true, puede_editar: true, puede_editar_precios: true, puede_eliminar: true };
+    }
+    return res.json(resultado);
+  }
+  if (obraId) {
+    const { rows: accesoRows } = await db.pool.query(
+      'SELECT 1 FROM usuario_proyectos WHERE usuario_id = $1 AND project_id = $2',
+      [req.user.id, obraId]
+    );
+    if (!accesoRows.length) return res.status(403).json({ error: 'No tienes acceso a esta obra' });
+  }
+  const { rows } = await db.pool.query(
+    `SELECT seccion, puede_ver, puede_crear, puede_editar, puede_editar_precios, puede_eliminar
+     FROM permisos_usuario
+     WHERE usuario_id = $1 AND (proyecto_id = $2 OR proyecto_id IS NULL)
+     ORDER BY proyecto_id NULLS FIRST`,
+    [req.user.id, obraId]
+  );
+  const resultado = {};
+  for (const seccion of auth.SECCIONES_PERMISOS) {
+    resultado[seccion] = { puede_ver: false, puede_crear: false, puede_editar: false, puede_editar_precios: false, puede_eliminar: false };
+  }
+  // NULLS FIRST: la fila general se inserta primero y la específica de la
+  // obra (si existe) la sobreescribe al recorrer en este orden.
+  for (const row of rows) {
+    resultado[row.seccion] = {
+      puede_ver: row.puede_ver, puede_crear: row.puede_crear, puede_editar: row.puede_editar,
+      puede_editar_precios: row.puede_editar_precios, puede_eliminar: row.puede_eliminar,
+    };
+  }
+  res.json(resultado);
+}));
+
 // ---------------------------------------------------------------------------
 // Proveedores (catálogo global — no depende de project_id ni de obra)
 // ---------------------------------------------------------------------------

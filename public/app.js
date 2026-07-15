@@ -5461,6 +5461,17 @@ const PERMISOS_ACCIONES = [
 // Actualizar esta lista cada vez que se le agregue checkPermiso a una
 // sección nueva (ver mismo patrón en server/auth.js SECCIONES_PERMISOS).
 const SECCIONES_CON_ENFORCEMENT = ['nominas', 'avance'];
+// Agrupa las secciones de permisos igual que SECTION_DEFS agrupa las pestañas
+// en la pantalla de inicio (Obra / Compras / Tesorería / Administración) —
+// mismo criterio de negocio, para que la matriz se lea en el mismo orden que
+// el resto de la app en vez de un orden alfabético/insertado sin relación.
+const PERMISOS_GRUPOS = [
+  { label: 'Obra',           secciones: ['presupuestos', 'avance', 'destajo'] },
+  { label: 'Compras',        secciones: ['requisiciones', 'insumos', 'proveedores', 'ordenes_compra'] },
+  { label: 'Tesorería',      secciones: ['finanzas', 'impuestos'] },
+  { label: 'Administración', secciones: ['mapeo', 'contrato', 'nominas', 'usuarios'] },
+  { label: 'General',        secciones: ['sugerencias'] },
+];
 // Mirror de TAB_A_SECCION/defaultPermisosParaRol en server/auth.js — solo se
 // usa para PRE-MARCAR la matriz con lo que el rol ya puede hacer hoy (vía
 // ROLE_TABS/allow()) cuando el usuario todavía no tiene filas guardadas en
@@ -5617,6 +5628,7 @@ async function renderUsuarios(view) {
 
     function pintarMatriz() {
       const filas = permisosParaProyecto(proyectoIdActivo);
+      const filasPorSeccion = Object.fromEntries(filas.map((f) => [f.seccion, f]));
       wrap.innerHTML = `
         ${tieneVariasObras ? `
         <div class="field">
@@ -5627,21 +5639,29 @@ async function renderUsuarios(view) {
           </select>
         </div>` : obras.length === 1 ? `<p class="muted fs-08">Obra: <strong>${esc(obras[0].nombre)}</strong></p>`
           : `<p class="muted fs-08">Este usuario no tiene obras asignadas todavía — los permisos aquí aplican como regla general en cuanto se le asigne una.</p>`}
-        <div class="card mt-12">
+        <div class="card mt-12 perm-matriz">
           <div class="table-scroll">
-            <table>
+            <table class="perm-matriz-table">
               <thead><tr>
                 <th>Sección</th>
                 ${PERMISOS_ACCIONES.map((a) => `<th>${esc(a.label)}</th>`).join('')}
               </tr></thead>
               <tbody>
-                ${filas.map((f) => `
-                  <tr data-seccion="${f.seccion}">
-                    <td>${esc(PERMISOS_SECCION_LABELS[f.seccion])}</td>
-                    ${PERMISOS_ACCIONES.map((a) => `
-                      <td><input type="checkbox" class="w-auto" data-accion="${a.key}" ${f[a.key] ? 'checked' : ''} /></td>
-                    `).join('')}
-                  </tr>
+                ${PERMISOS_GRUPOS.map((grupo) => `
+                  <tr class="perm-grupo-row"><td colspan="${PERMISOS_ACCIONES.length + 1}">${esc(grupo.label)}</td></tr>
+                  ${grupo.secciones.map((seccion) => {
+                    const f = filasPorSeccion[seccion];
+                    if (!f) return '';
+                    const sinEnforcement = !SECCIONES_CON_ENFORCEMENT.includes(seccion);
+                    return `
+                    <tr data-seccion="${f.seccion}">
+                      <td>${esc(PERMISOS_SECCION_LABELS[f.seccion])}${sinEnforcement ? '<span class="muted fs-07 perm-badge-info" title="El backend todavía no exige este permiso para esta sección — hoy el acceso real lo decide el rol del usuario, marcar/desmarcar aquí no tiene efecto todavía."> · informativo</span>' : ''}</td>
+                      ${PERMISOS_ACCIONES.map((a) => `
+                        <td><label class="perm-check"><input type="checkbox" data-accion="${a.key}" ${f[a.key] ? 'checked' : ''} /><span class="perm-check-track"><span class="perm-check-thumb"></span></span></label></td>
+                      `).join('')}
+                    </tr>
+                  `;
+                  }).join('')}
                 `).join('')}
               </tbody>
             </table>
@@ -5658,7 +5678,7 @@ async function renderUsuarios(view) {
       $('#btnGuardarPermisos').addEventListener('click', async () => {
         const btn = $('#btnGuardarPermisos');
         btn.disabled = true;
-        const permisos = $$('#permMatrizWrap tbody tr').map((tr) => {
+        const permisos = $$('#permMatrizWrap tbody tr[data-seccion]').map((tr) => {
           const seccion = tr.dataset.seccion;
           const fila = { seccion };
           PERMISOS_ACCIONES.forEach((a) => {

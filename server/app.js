@@ -22,6 +22,7 @@ const { extraerDatosContrato, CAMPOS_CONTRATO } = require('./extraccionContrato'
 const { crearNotificacion, notificarAdmins } = require('./notificaciones');
 const { buildEstimacionPdf } = require('./estimacionesPdf');
 const { calcularDiasRestantes, determinarUmbral, construirMensaje } = require('./alertasContrato');
+const maquinaria = require('./maquinaria');
 
 const app = express();
 
@@ -876,6 +877,23 @@ app.get('/api/projects/:id/mis-permisos/:seccion', h(requireProject), h(auth.ver
   res.json(resultado);
 }));
 
+// Misma autoconsulta que arriba, pero para secciones que NO son por obra
+// (ej. Maquinaria — catálogo global, igual que Proveedores). Sin req.project,
+// tienePermiso resuelve contra la fila de proyecto_id NULL ("regla general").
+app.get('/api/mis-permisos/:seccion', h(async (req, res) => {
+  const { seccion } = req.params;
+  if (!auth.SECCIONES_PERMISOS.includes(seccion)) return res.status(400).json({ error: 'Sección inválida' });
+  if (req.user.puesto === 'admin' || req.user.puesto === 'desarrollador') {
+    return res.json({ puede_ver: true, puede_crear: true, puede_editar: true, puede_editar_precios: true, puede_eliminar: true });
+  }
+  const acciones = ['puede_ver', 'puede_crear', 'puede_editar', 'puede_editar_precios', 'puede_eliminar'];
+  const resultado = {};
+  for (const accion of acciones) {
+    resultado[accion] = await auth.tienePermiso(req, seccion, accion);
+  }
+  res.json(resultado);
+}));
+
 // ---------------------------------------------------------------------------
 // Proveedores (catálogo global — no depende de project_id ni de obra)
 // ---------------------------------------------------------------------------
@@ -948,6 +966,124 @@ app.put('/api/proveedores/:id/estado', h(auth.allow('compras')), h(async (req, r
   );
   if (!rows[0]) return res.status(404).json({ error: 'Proveedor no encontrado' });
   res.json(rows[0]);
+}));
+
+// ---------------------------------------------------------------------------
+// Maquinaria propia (prompt-modulo-maquinaria) — catálogo global (no por
+// obra, igual que Proveedores). Código nuevo: usa checkPermiso desde el
+// inicio, sin auth.allow() legacy — el rol por sí solo no decide nada aquí,
+// solo la fila real en permisos_usuario (ver defaults en server/auth.js
+// defaultPermisosParaRol: taller/admin/desarrollador ya vienen con
+// puede_crear+puede_editar, cabo con puede_crear, para no bloquearse el
+// mismo día que se activa el enforcement).
+// DISEÑO DE PRIMER BORRADOR, pendiente de revisión (ver server/maquinaria.js).
+// ---------------------------------------------------------------------------
+app.get('/api/maquinaria/equipos', h(auth.checkPermiso('maquinaria', 'puede_ver')), h(async (req, res) => {
+  res.json(await maquinaria.listEquipos());
+}));
+
+app.post('/api/maquinaria/equipos', h(auth.checkPermiso('maquinaria', 'puede_crear')), h(async (req, res) => {
+  const { nombre, tipo, identificador, estado, obra_id } = req.body || {};
+  if (!nombre?.trim()) return res.status(400).json({ error: 'El nombre del equipo es requerido' });
+  const equipo = await maquinaria.createEquipo({
+    nombre: nombre.trim(), tipo: tipo?.trim(), identificador: identificador?.trim(), estado, obra_id,
+  });
+  res.status(201).json(equipo);
+}));
+
+app.put('/api/maquinaria/equipos/:id', h(auth.checkPermiso('maquinaria', 'puede_editar')), h(async (req, res) => {
+  const { nombre, tipo, identificador, estado, obra_id } = req.body || {};
+  const equipo = await maquinaria.updateEquipo(Number(req.params.id), {
+    nombre: nombre?.trim(), tipo: tipo?.trim(), identificador: identificador?.trim(), estado, obra_id,
+  });
+  if (!equipo) return res.status(404).json({ error: 'Equipo no encontrado' });
+  res.json(equipo);
+}));
+
+app.delete('/api/maquinaria/equipos/:id', h(auth.checkPermiso('maquinaria', 'puede_eliminar')), h(async (req, res) => {
+  const ok = await maquinaria.softDeleteEquipo(Number(req.params.id));
+  if (!ok) return res.status(404).json({ error: 'Equipo no encontrado' });
+  res.json({ ok: true });
+}));
+
+app.get('/api/maquinaria/combustible', h(auth.checkPermiso('maquinaria', 'puede_ver')), h(async (req, res) => {
+  res.json(await maquinaria.listCombustible(req.query.equipo_id ? Number(req.query.equipo_id) : null));
+}));
+
+app.post('/api/maquinaria/combustible', h(auth.checkPermiso('maquinaria', 'puede_crear')), h(async (req, res) => {
+  const { equipo_id, fecha, litros, costo } = req.body || {};
+  if (!equipo_id || !fecha || !(litros > 0) || !(costo >= 0)) {
+    return res.status(400).json({ error: 'Indica equipo, fecha, litros y costo válidos' });
+  }
+  const registro = await maquinaria.createCombustible({
+    equipo_id: Number(equipo_id), fecha, litros: Number(litros), costo: Number(costo), registrado_por: req.user.id,
+  });
+  res.status(201).json(registro);
+}));
+
+app.delete('/api/maquinaria/combustible/:id', h(auth.checkPermiso('maquinaria', 'puede_eliminar')), h(async (req, res) => {
+  const ok = await maquinaria.softDeleteCombustible(Number(req.params.id));
+  if (!ok) return res.status(404).json({ error: 'Registro no encontrado' });
+  res.json({ ok: true });
+}));
+
+app.get('/api/maquinaria/mantenimientos', h(auth.checkPermiso('maquinaria', 'puede_ver')), h(async (req, res) => {
+  res.json(await maquinaria.listMantenimientos(req.query.equipo_id ? Number(req.query.equipo_id) : null));
+}));
+
+app.post('/api/maquinaria/mantenimientos', h(auth.checkPermiso('maquinaria', 'puede_crear')), h(async (req, res) => {
+  const { equipo_id, fecha, tipo, descripcion, costo, proveedor } = req.body || {};
+  if (!equipo_id || !fecha || !['preventivo', 'correctivo'].includes(tipo) || !(costo >= 0)) {
+    return res.status(400).json({ error: "Indica equipo, fecha, tipo ('preventivo'/'correctivo') y costo válidos" });
+  }
+  const registro = await maquinaria.createMantenimiento({
+    equipo_id: Number(equipo_id), fecha, tipo, descripcion: descripcion?.trim(), costo: Number(costo),
+    proveedor: proveedor?.trim(), registrado_por: req.user.id,
+  });
+  res.status(201).json(registro);
+}));
+
+app.delete('/api/maquinaria/mantenimientos/:id', h(auth.checkPermiso('maquinaria', 'puede_eliminar')), h(async (req, res) => {
+  const ok = await maquinaria.softDeleteMantenimiento(Number(req.params.id));
+  if (!ok) return res.status(404).json({ error: 'Registro no encontrado' });
+  res.json({ ok: true });
+}));
+
+app.get('/api/maquinaria/horas', h(auth.checkPermiso('maquinaria', 'puede_ver')), h(async (req, res) => {
+  res.json(await maquinaria.listHoras(req.query.equipo_id ? Number(req.query.equipo_id) : null));
+}));
+
+// Cabo siempre captura sus propias horas (operador_id = quien está autenticado,
+// se ignora cualquier operador_id enviado); admin/desarrollador sí pueden
+// capturar a nombre de otro operador si lo indican explícitamente.
+app.post('/api/maquinaria/horas', h(auth.checkPermiso('maquinaria', 'puede_crear')), h(async (req, res) => {
+  const { equipo_id, operador_id, fecha, horas, obra_id } = req.body || {};
+  if (!equipo_id || !fecha || !(horas > 0)) {
+    return res.status(400).json({ error: 'Indica equipo, fecha y horas válidas' });
+  }
+  const esAdmin = req.user.puesto === 'admin' || req.user.puesto === 'desarrollador';
+  const operadorFinal = esAdmin && operador_id ? Number(operador_id) : req.user.id;
+  const registro = await maquinaria.createHoras({
+    equipo_id: Number(equipo_id), operador_id: operadorFinal, fecha, horas: Number(horas), obra_id,
+  });
+  res.status(201).json(registro);
+}));
+
+app.delete('/api/maquinaria/horas/:id', h(auth.checkPermiso('maquinaria', 'puede_eliminar')), h(async (req, res) => {
+  const ok = await maquinaria.softDeleteHoras(Number(req.params.id));
+  if (!ok) return res.status(404).json({ error: 'Registro no encontrado' });
+  res.json({ ok: true });
+}));
+
+app.get('/api/maquinaria/resumen', h(auth.checkPermiso('maquinaria', 'puede_ver')), h(async (req, res) => {
+  res.json(await maquinaria.getResumen());
+}));
+
+app.put('/api/maquinaria/presupuesto', h(auth.checkPermiso('maquinaria', 'puede_editar')), h(async (req, res) => {
+  const { monto_total } = req.body || {};
+  if (!(monto_total >= 0)) return res.status(400).json({ error: 'Indica un monto total válido' });
+  const presupuesto = await maquinaria.updatePresupuesto(Number(monto_total));
+  res.json(presupuesto);
 }));
 
 // ---------------------------------------------------------------------------

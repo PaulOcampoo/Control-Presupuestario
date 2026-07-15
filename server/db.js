@@ -655,10 +655,13 @@ const SCHEMA = `
     id SERIAL PRIMARY KEY,
     usuario_id INTEGER NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
     proyecto_id INTEGER REFERENCES proyectos(id) ON DELETE CASCADE,
+    -- Mantener en sync con SECCIONES_PERMISOS en server/auth.js. En Preview
+    -- este CHECK ya se amplió vía ALTER TABLE directo (no vuelve a correr
+    -- sobre una tabla existente); esta definición solo aplica a bases nuevas.
     seccion TEXT NOT NULL CHECK (seccion IN (
       'presupuestos','requisiciones','proveedores','ordenes_compra','avance',
       'destajo','finanzas','insumos','mapeo','usuarios','contrato','impuestos',
-      'nominas','sugerencias'
+      'nominas','sugerencias','programa','estimaciones','maquinaria'
     )),
     puede_ver BOOLEAN NOT NULL DEFAULT false,
     puede_crear BOOLEAN NOT NULL DEFAULT false,
@@ -720,6 +723,71 @@ const SCHEMA = `
     UNIQUE (estimacion_id, concepto_id)
   );
   CREATE INDEX IF NOT EXISTS idx_estimacion_conceptos_estimacion ON estimacion_conceptos(estimacion_id);
+
+  -- Módulo de Maquinaria (prompt-modulo-maquinaria) — DISEÑO DE PRIMER BORRADOR,
+  -- pendiente de revisión: la asignación cabo=captura de horas /
+  -- taller=combustible+mantenimiento es una propuesta inicial, no definitiva.
+  -- 'tipo' en equipos_maquinaria empieza solo con 'retroexcavadora' pero es
+  -- texto libre para poder agregar tipos de equipo después sin migración.
+  CREATE TABLE IF NOT EXISTS equipos_maquinaria (
+    id SERIAL PRIMARY KEY,
+    nombre TEXT NOT NULL,
+    tipo TEXT NOT NULL DEFAULT 'retroexcavadora',
+    identificador TEXT,
+    estado TEXT NOT NULL DEFAULT 'activo' CHECK (estado IN ('activo', 'mantenimiento', 'baja')),
+    obra_id INTEGER REFERENCES proyectos(id) ON DELETE SET NULL,
+    activo BOOLEAN NOT NULL DEFAULT true,
+    creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
+  CREATE INDEX IF NOT EXISTS idx_equipos_maquinaria_obra ON equipos_maquinaria(obra_id);
+
+  CREATE TABLE IF NOT EXISTS combustible_maquinaria (
+    id SERIAL PRIMARY KEY,
+    equipo_id INTEGER NOT NULL REFERENCES equipos_maquinaria(id) ON DELETE CASCADE,
+    fecha DATE NOT NULL,
+    litros DOUBLE PRECISION NOT NULL,
+    costo DOUBLE PRECISION NOT NULL,
+    registrado_por INTEGER NOT NULL REFERENCES usuarios(id),
+    activo BOOLEAN NOT NULL DEFAULT true,
+    creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
+  CREATE INDEX IF NOT EXISTS idx_combustible_maquinaria_equipo ON combustible_maquinaria(equipo_id);
+
+  CREATE TABLE IF NOT EXISTS mantenimientos_maquinaria (
+    id SERIAL PRIMARY KEY,
+    equipo_id INTEGER NOT NULL REFERENCES equipos_maquinaria(id) ON DELETE CASCADE,
+    fecha DATE NOT NULL,
+    tipo TEXT NOT NULL CHECK (tipo IN ('preventivo', 'correctivo')),
+    descripcion TEXT,
+    costo DOUBLE PRECISION NOT NULL,
+    proveedor TEXT,
+    registrado_por INTEGER NOT NULL REFERENCES usuarios(id),
+    activo BOOLEAN NOT NULL DEFAULT true,
+    creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
+  CREATE INDEX IF NOT EXISTS idx_mantenimientos_maquinaria_equipo ON mantenimientos_maquinaria(equipo_id);
+
+  CREATE TABLE IF NOT EXISTS reportes_horas_maquinaria (
+    id SERIAL PRIMARY KEY,
+    equipo_id INTEGER NOT NULL REFERENCES equipos_maquinaria(id) ON DELETE CASCADE,
+    operador_id INTEGER NOT NULL REFERENCES usuarios(id),
+    fecha DATE NOT NULL,
+    horas DOUBLE PRECISION NOT NULL,
+    obra_id INTEGER REFERENCES proyectos(id) ON DELETE SET NULL,
+    activo BOOLEAN NOT NULL DEFAULT true,
+    creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
+  CREATE INDEX IF NOT EXISTS idx_reportes_horas_maquinaria_equipo ON reportes_horas_maquinaria(equipo_id);
+
+  -- ASUNCIÓN sin confirmar con Paul (ver prompt-modulo-maquinaria.md): un solo
+  -- monto total sin periodo (no mensual/anual) — fila única forzada por el
+  -- CHECK (id = 1), patrón "singleton row".
+  CREATE TABLE IF NOT EXISTS presupuesto_maquinaria (
+    id INTEGER PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+    monto_total DOUBLE PRECISION NOT NULL DEFAULT 0,
+    actualizado_en TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
+  INSERT INTO presupuesto_maquinaria (id, monto_total) VALUES (1, 0) ON CONFLICT (id) DO NOTHING;
 `;
 
 async function initSchema() {

@@ -2232,17 +2232,12 @@ $('#fileInput').addEventListener('change', async (ev) => {
 
   const controller = new AbortController();
   let cancelled = false;
-  let slowShown = false;
-  let lastPct = null;
 
-  const renderUploadModal = ({ pct = lastPct, slow = slowShown } = {}) => {
-    lastPct = pct;
-    slowShown = slow;
+  const renderUploadModal = ({ slow = false } = {}) => {
     openModal(`
       <h3>Cargando presupuesto…</h3>
       <p class="muted">Subiendo "${esc(file.name)}" y generando una base de datos independiente para este presupuesto.</p>
       <div class="spinner"></div>
-      ${pct != null ? `<p class="muted upload-progress-pct">${pct}% subido</p>` : ''}
       ${slow ? `<div class="alert-box danger upload-slow-warning">⚠️ Esto está tardando más de lo normal (posiblemente tu conexión es lenta). Puedes seguir esperando o cancelar e intentar de nuevo.</div>` : ''}
       <div class="modal-actions">
         ${slow ? '<button class="btn" id="btnSeguirEsperando">Seguir esperando</button>' : ''}
@@ -2269,12 +2264,17 @@ $('#fileInput').addEventListener('change', async (ev) => {
   try {
     // Sube directo a Vercel Blob desde el navegador (bypassa el límite de
     // tamaño de body de la función serverless — ver Prompts_mod1.md Tarea 1).
+    // OJO: no pasar onUploadProgress aquí — activa una rama interna distinta
+    // en @vercel/blob (convierte el body a ReadableStream + fetch con
+    // duplex:'half') en vez de la ruta simple de fetch() ya probada en
+    // producción; en pruebas reales esa rama se quedó colgada en 0% sin
+    // completar nunca la subida. abortSignal sí es seguro — solo agrega
+    // `signal` al mismo fetch()/XHR que ya se usaba, no cambia el mecanismo.
     const blob = await VercelBlobClient.upload(file.name, file, {
       access: 'private',
       handleUploadUrl: '/api/projects/upload-token',
       headers: state.token ? { Authorization: `Bearer ${state.token}` } : {},
       abortSignal: controller.signal,
-      onUploadProgress: ({ percentage }) => renderUploadModal({ pct: Math.round(percentage) }),
     });
     const result = await api('/projects', {
       method: 'POST',

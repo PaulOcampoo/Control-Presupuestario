@@ -4009,15 +4009,20 @@ function openRegistrarPagoModal(orden) {
 // VISTA: Avance (semanal + físico-financiero)
 // =========================================================================
 async function renderAvance(view) {
-  const [avances, resumen] = await Promise.all([
+  // Mismo guard que renderInicio/renderPrograma — /resumen es admin/desarrollador
+  // solamente, y residente/cabo/logística sí tienen acceso a Avance.
+  const puedeVerResumen = state.allowedTabs.includes('resumen');
+  const [avances, resumen, misPermisosAvance] = await Promise.all([
     api(`/projects/${state.projectId}/avances`),
-    cached('resumen', () => api(`/projects/${state.projectId}/resumen`)),
+    puedeVerResumen ? cached('resumen', () => api(`/projects/${state.projectId}/resumen`)) : Promise.resolve(null),
+    api(`/projects/${state.projectId}/mis-permisos/avance`),
   ]);
+  const puedeEditar = !!misPermisosAvance.puede_crear;
   if (!avances.length) {
     view.innerHTML = `<div class="empty-state"><div class="big">📅</div>No fue posible generar la curva de avance: el presupuesto no contiene fechas de inicio y fin de obra.</div>`;
     return;
   }
-  const presupuestoTotal = resumen.presupuesto_total || 0;
+  const presupuestoTotal = resumen?.presupuesto_total || 0;
   view.innerHTML = `
     <h2 class="section-title">Avance semanal</h2>
     <p class="muted">Curva programada (calculada a partir del presupuesto y las fechas de obra) contra el avance real que captures cada semana.</p>
@@ -4044,7 +4049,7 @@ async function renderAvance(view) {
   wireExportButton('#btnExportAvance', `/projects/${state.projectId}/avances/export`);
   paintAvanceChart(avances);
   paintFisFinChart(avances);
-  paintAvanceTable(avances, presupuestoTotal);
+  paintAvanceTable(avances, presupuestoTotal, puedeEditar);
 }
 
 function paintAvanceChart(avances) {
@@ -4105,7 +4110,7 @@ function paintFisFinChart(avances) {
   });
 }
 
-function paintAvanceTable(avances, presupuestoTotal) {
+function paintAvanceTable(avances, presupuestoTotal, puedeEditar) {
   const tbody = $('#avanceTbody');
   tbody.innerHTML = avances.map((a, idx) => {
     const prevPct = idx > 0 ? (avances[idx - 1].avance_financiero_programado || 0) : 0;
@@ -4120,8 +4125,8 @@ function paintAvanceTable(avances, presupuestoTotal) {
       <td>${fmtDate(a.fecha_inicio)} – ${fmtDate(a.fecha_fin)}</td>
       ${puedeVerImportesAvance() ? `<td class="num">${fmtMoney(importePeriodo)}<br><span class="muted fs-07">(${fmtPct(pctPeriodo)} del total)</span></td>` : '<td class="num">—</td>'}
       <td class="num">${fmtPct(a.avance_financiero_programado)}</td>
-      <td class="num"><input type="number" min="0" max="100" step="0.1" data-field="avance_fisico_real" value="${a.avance_fisico_real ?? ''}" class="w-84-right" ${!puedeEditarAvance() ? 'disabled' : ''} /></td>
-      <td class="num">${puedeVerImportesAvance() ? `<input type="number" min="0" max="100" step="0.1" data-field="avance_financiero_real" value="${a.avance_financiero_real ?? ''}" class="w-84-right" ${!puedeEditarAvance() ? 'disabled' : ''} />` : '—'}</td>
+      <td class="num"><input type="number" min="0" max="100" step="0.1" data-field="avance_fisico_real" value="${a.avance_fisico_real ?? ''}" class="w-84-right" ${!puedeEditar ? 'disabled' : ''} /></td>
+      <td class="num">${puedeVerImportesAvance() ? `<input type="number" min="0" max="100" step="0.1" data-field="avance_financiero_real" value="${a.avance_financiero_real ?? ''}" class="w-84-right" ${!puedeEditar ? 'disabled' : ''} />` : '—'}</td>
       <td>
         <span class="badge ${autBadge}">${autLabel}</span>
         ${isAdmin() && estadoAut === 'pendiente_autorizacion' ? `
@@ -4131,10 +4136,10 @@ function paintAvanceTable(avances, presupuestoTotal) {
         </div>` : ''}
       </td>
       <td>
-        ${puedeEditarAvance() ? `<div class="row row-nowrap-gap6">
+        ${puedeEditar ? `<div class="row row-nowrap-gap6">
           <button class="btn small" data-detalle="${a.semana}" title="Capturar avance por concepto">Por concepto</button>
           <button class="btn small btn-primary" data-save="${a.semana}">Guardar</button>
-        </div>` : ''}
+        </div>` : `<button class="btn small" data-detalle="${a.semana}" title="Ver avance por concepto">Ver detalle</button>`}
       </td>
     </tr>
   `;
@@ -4144,7 +4149,7 @@ function paintAvanceTable(avances, presupuestoTotal) {
     btn.addEventListener('click', () => {
       const semana = Number(btn.dataset.detalle);
       const avance = avances.find((a) => a.semana === semana);
-      if (avance) openAvanceConceptosModal(avance, presupuestoTotal);
+      if (avance) openAvanceConceptosModal(avance, presupuestoTotal, puedeEditar);
     });
   });
 
@@ -4190,14 +4195,14 @@ function paintAvanceTable(avances, presupuestoTotal) {
 // Modal: captura de avance físico real por concepto del catálogo (descripción,
 // unidad y cantidad presupuestada como referencia, cantidad ejecutada en el
 // periodo como captura). El % de avance real de la semana se recalcula solo.
-async function openAvanceConceptosModal(avance, presupuestoTotal) {
+async function openAvanceConceptosModal(avance, presupuestoTotal, puedeEditar = true) {
   const semana = avance.semana;
   openModal(`
     <h3>Avance físico por concepto — Semana ${semana}</h3>
     <p class="muted">${fmtDate(avance.fecha_inicio)} – ${fmtDate(avance.fecha_fin)}<br>
-      Anota la cantidad realmente ejecutada de cada concepto del catálogo durante este periodo
-      (no acumulada — solo lo avanzado en esta semana). El % de avance real se calculará
-      automáticamente a partir de estas cantidades y se guardará en la tabla semanal.</p>
+      ${puedeEditar
+        ? 'Anota la cantidad realmente ejecutada de cada concepto del catálogo durante este periodo (no acumulada — solo lo avanzado en esta semana). El % de avance real se calculará automáticamente a partir de estas cantidades y se guardará en la tabla semanal.'
+        : 'Solo consulta — no tienes permiso para modificar el avance de esta obra.'}</p>
     <div id="avcList"><div class="spinner"></div></div>
     <div class="card hidden-initial" id="avcSummary">
       <div class="card-row"><span class="k">Importe ejecutado acumulado a la fecha</span><span class="v" id="avcImporte">—</span></div>
@@ -4205,7 +4210,7 @@ async function openAvanceConceptosModal(avance, presupuestoTotal) {
     </div>
     <div class="modal-actions">
       <button class="btn" id="btnCancelAvc">Cerrar</button>
-      <button class="btn btn-primary" id="btnSaveAvc">Guardar avance</button>
+      ${puedeEditar ? '<button class="btn btn-primary" id="btnSaveAvc">Guardar avance</button>' : ''}
     </div>
   `);
   $('#btnCancelAvc').addEventListener('click', closeModal);
@@ -4246,7 +4251,7 @@ async function openAvanceConceptosModal(avance, presupuestoTotal) {
           <label>Ejecutado este periodo</label>
           <input type="number" min="0" step="0.01" data-cantidad="${c.concepto_id}"
                  data-precio="${c.precio_unitario}" data-presup="${c.cantidad_presupuesto}" data-prev="${c.cantidad_acumulada_previa}"
-                 value="${c.cantidad_ejecutada_periodo ?? ''}" />
+                 value="${c.cantidad_ejecutada_periodo ?? ''}" ${puedeEditar ? '' : 'disabled'} />
         </div>
         <div class="muted acum-out" data-acum-out></div>
       </div>
@@ -4279,41 +4284,48 @@ async function openAvanceConceptosModal(avance, presupuestoTotal) {
   recalc();
   $$('[data-cantidad]').forEach((inp) => inp.addEventListener('input', recalc));
 
-  $('#btnSaveAvc').addEventListener('click', async () => {
-    const btn = $('#btnSaveAvc');
-    const payloadItems = $$('[data-cantidad]').map((inp) => ({
-      concepto_id: Number(inp.dataset.cantidad),
-      cantidad_ejecutada: inp.value === '' ? 0 : Math.max(0, Number(inp.value)),
-    }));
-    btn.disabled = true; btn.textContent = 'Guardando…';
-    try {
-      const result = await api(`/projects/${state.projectId}/avances/${semana}/conceptos`, { method: 'PUT', body: { items: payloadItems } });
-      closeModal();
-      invalidate('resumen');
-      const pct = result.avance_calculado_pct;
-      toast(pct != null ? `Avance de la semana ${semana} guardado: ${fmtPct(pct)} calculado` : `Avance por concepto de la semana ${semana} guardado`, 'success');
-      renderView();
-    } catch (err) {
-      toast(err.message, 'danger');
-      btn.disabled = false; btn.textContent = 'Guardar avance';
-    }
-  });
+  if (puedeEditar) {
+    $('#btnSaveAvc').addEventListener('click', async () => {
+      const btn = $('#btnSaveAvc');
+      const payloadItems = $$('[data-cantidad]').map((inp) => ({
+        concepto_id: Number(inp.dataset.cantidad),
+        cantidad_ejecutada: inp.value === '' ? 0 : Math.max(0, Number(inp.value)),
+      }));
+      btn.disabled = true; btn.textContent = 'Guardando…';
+      try {
+        const result = await api(`/projects/${state.projectId}/avances/${semana}/conceptos`, { method: 'PUT', body: { items: payloadItems } });
+        closeModal();
+        invalidate('resumen');
+        const pct = result.avance_calculado_pct;
+        toast(pct != null ? `Avance de la semana ${semana} guardado: ${fmtPct(pct)} calculado` : `Avance por concepto de la semana ${semana} guardado`, 'success');
+        renderView();
+      } catch (err) {
+        toast(err.message, 'danger');
+        btn.disabled = false; btn.textContent = 'Guardar avance';
+      }
+    });
+  }
 }
 
 // =========================================================================
 // VISTA: Programa de ejecución (Gantt simple)
 // =========================================================================
 async function renderPrograma(view) {
+  // /resumen expone datos financieros agregados de la obra — admin/desarrollador
+  // solamente (auth.allow() sin roles operativos, a propósito). Residente/cabo/
+  // compras/logística sí pueden ver Programa, así que no debe depender de esa
+  // llamada: mismo guard que ya usa renderInicio (ver más abajo).
+  const puedeVerResumen = state.allowedTabs.includes('resumen');
   const [programa, resumen] = await Promise.all([
     api(`/projects/${state.projectId}/programa`),
-    cached('resumen', () => api(`/projects/${state.projectId}/resumen`)),
+    puedeVerResumen ? cached('resumen', () => api(`/projects/${state.projectId}/resumen`)) : Promise.resolve(null),
   ]);
   if (!programa.length) {
     view.innerHTML = `<div class="empty-state"><div class="big">🗓️</div>No fue posible generar el programa de ejecución: el presupuesto no contiene fechas de inicio y fin de obra, o no tiene conceptos con cantidades.</div>`;
     return;
   }
-  const obraInicio = resumen.meta?.inicio_obra || null;
-  const obraFin = resumen.meta?.fin_obra || null;
+  const obraInicio = resumen?.meta?.inicio_obra || null;
+  const obraFin = resumen?.meta?.fin_obra || null;
   const start = new Date(`${programa.reduce((min, p) => (p.fecha_inicio < min ? p.fecha_inicio : min), programa[0].fecha_inicio)}T00:00:00`);
   const end = new Date(`${programa.reduce((max, p) => (p.fecha_fin > max ? p.fecha_fin : max), programa[0].fecha_fin)}T00:00:00`);
   const totalDays = Math.max(1, Math.round((end - start) / 86400000) + 1);
@@ -4548,15 +4560,23 @@ async function toggleDestajoSemanal(btn, destajistas) {
   try {
     const data = await api(`/projects/${state.projectId}/destajistas/${destId}/avance`);
     if (!data.semanas.length) {
+      // "Corregir inicio/fin de obra" necesita /resumen (admin/desarrollador
+      // solamente) — mismo guard que renderInicio/renderPrograma/renderAvance:
+      // se oculta en vez de tronar al usuario sin acceso.
+      const puedeVerResumen = state.allowedTabs.includes('resumen');
       body.innerHTML = `
         <div class="py10-px4">
           <p class="muted m0-0-8">El proyecto no tiene periodos de programa de obra generados (faltan las fechas de inicio/fin de obra).</p>
-          <button class="btn small btn-primary" id="btnFixFechasObra${destId}">Corregir inicio/fin de obra</button>
+          ${puedeVerResumen
+            ? `<button class="btn small btn-primary" id="btnFixFechasObra${destId}">Corregir inicio/fin de obra</button>`
+            : `<p class="muted fs-08">Pide a un administrador que corrija las fechas de inicio/fin de la obra.</p>`}
         </div>`;
-      $(`#btnFixFechasObra${destId}`, body).addEventListener('click', async () => {
-        const resumen = await cached('resumen', () => api(`/projects/${state.projectId}/resumen`));
-        openEditFechasObraModal(resumen.meta);
-      });
+      if (puedeVerResumen) {
+        $(`#btnFixFechasObra${destId}`, body).addEventListener('click', async () => {
+          const resumen = await cached('resumen', () => api(`/projects/${state.projectId}/resumen`));
+          openEditFechasObraModal(resumen.meta);
+        });
+      }
       return;
     }
     const dest = destajistas.find((d) => d.id === destId);
@@ -5424,7 +5444,7 @@ const PERMISOS_SECCION_LABELS = {
   presupuestos: 'Presupuestos', requisiciones: 'Requisiciones', proveedores: 'Proveedores',
   ordenes_compra: 'Órdenes de Compra', avance: 'Avance', destajo: 'Destajo', finanzas: 'Finanzas',
   insumos: 'Insumos', mapeo: 'Mapeo', usuarios: 'Usuarios', contrato: 'Contrato', impuestos: 'Impuestos',
-  nominas: 'Nóminas', sugerencias: 'Sugerencias',
+  nominas: 'Nóminas', sugerencias: 'Sugerencias', programa: 'Programa', estimaciones: 'Estimaciones',
 };
 const PERMISOS_SECCIONES = Object.keys(PERMISOS_SECCION_LABELS);
 const PERMISOS_ACCIONES = [
@@ -5434,17 +5454,35 @@ const PERMISOS_ACCIONES = [
   { key: 'puede_editar_precios', label: 'Editar precios' },
   { key: 'puede_eliminar', label: 'Eliminar' },
 ];
+// Secciones donde el backend realmente exige el permiso (auth.checkPermiso
+// aplicado en server/app.js) — hoy solo Nómina y Avance. Para el resto, la
+// casilla es informativa: el acceso real lo sigue decidiendo el rol
+// (auth.allow()), marcarla o no aquí todavía no cambia nada en el backend.
+// Actualizar esta lista cada vez que se le agregue checkPermiso a una
+// sección nueva (ver mismo patrón en server/auth.js SECCIONES_PERMISOS).
+const SECCIONES_CON_ENFORCEMENT = ['nominas', 'avance'];
+// Agrupa las secciones de permisos igual que SECTION_DEFS agrupa las pestañas
+// en la pantalla de inicio (Obra / Compras / Tesorería / Administración) —
+// mismo criterio de negocio, para que la matriz se lea en el mismo orden que
+// el resto de la app en vez de un orden alfabético/insertado sin relación.
+const PERMISOS_GRUPOS = [
+  { label: 'Obra',           secciones: ['presupuestos', 'programa', 'avance', 'destajo', 'estimaciones'] },
+  { label: 'Compras',        secciones: ['requisiciones', 'insumos', 'proveedores', 'ordenes_compra'] },
+  { label: 'Tesorería',      secciones: ['finanzas', 'impuestos'] },
+  { label: 'Administración', secciones: ['mapeo', 'contrato', 'nominas', 'usuarios'] },
+  { label: 'General',        secciones: ['sugerencias'] },
+];
 // Mirror de TAB_A_SECCION/defaultPermisosParaRol en server/auth.js — solo se
 // usa para PRE-MARCAR la matriz con lo que el rol ya puede hacer hoy (vía
 // ROLE_TABS/allow()) cuando el usuario todavía no tiene filas guardadas en
 // permisos_usuario para esa sección. Es puramente visual/de arranque: la
 // fuente de verdad real sigue siendo el middleware backend.
 const TAB_A_SECCION = {
-  resumen: 'presupuestos', programa: 'presupuestos', contrato: 'contrato',
+  resumen: 'presupuestos', programa: 'programa', contrato: 'contrato',
   impuestos: 'impuestos', insumos: 'insumos', requisiciones: 'requisiciones',
   ordenes: 'ordenes_compra', avance: 'avance', destajo: 'destajo',
   usuarios: 'usuarios', proveedores: 'proveedores', finanzas: 'finanzas',
-  mapeo: 'mapeo', nominas: 'nominas',
+  mapeo: 'mapeo', nominas: 'nominas', estimaciones: 'estimaciones',
 };
 function defaultPermisosParaRolFrontend(puesto) {
   const tabs = ROLE_TABS[puesto] || [];
@@ -5555,9 +5593,16 @@ async function renderUsuarios(view) {
 
     // Si ya hay una fila guardada para esta sección (en este proyecto o en la
     // regla general de proyecto_id NULL), esa manda — es una personalización
-    // ya hecha antes. Si no existe ninguna fila todavía, se pre-marca con lo
-    // que el rol ya puede hacer hoy por auth.allow() (ver defaultsDelRol),
-    // para que el admin solo tenga que desmarcar/marcar diferencias.
+    // ya hecha antes. Si NO existe ninguna fila todavía, el comportamiento
+    // depende de si la sección tiene enforcement real en el backend:
+    //   - Sin enforcement (checkPermiso no aplicado ahí): pre-marcar con lo
+    //     que el rol ya puede hacer hoy por auth.allow() (defaultsDelRol) es
+    //     seguro — es solo informativo, el acceso real lo sigue dando el rol.
+    //   - CON enforcement (nominas, avance): NO pre-marcar con el default.
+    //     Sin fila real, checkPermiso en el backend deniega con 403 sin
+    //     importar el rol — mostrar la casilla marcada ahí mentiría sobre lo
+    //     que el usuario puede hacer hoy (bug reportado: casillas marcadas
+    //     para algo que en la práctica el usuario no puede hacer).
     function permisosParaProyecto(proyectoId) {
       const filasEspecificas = Object.fromEntries(
         permisosActuales.filter((p) => p.proyecto_id === proyectoId).map((f) => [f.seccion, f])
@@ -5565,16 +5610,25 @@ async function renderUsuarios(view) {
       const filasGenerales = Object.fromEntries(
         permisosActuales.filter((p) => p.proyecto_id === null).map((f) => [f.seccion, f])
       );
-      return PERMISOS_SECCIONES.map((seccion) =>
-        filasEspecificas[seccion] || filasGenerales[seccion] || defaultsDelRol[seccion] || {
+      return PERMISOS_SECCIONES.map((seccion) => {
+        const real = filasEspecificas[seccion] || filasGenerales[seccion];
+        if (real) return { ...real, _sinFila: false };
+        if (SECCIONES_CON_ENFORCEMENT.includes(seccion)) {
+          return {
+            seccion, puede_ver: false, puede_crear: false, puede_editar: false,
+            puede_editar_precios: false, puede_eliminar: false, _sinFila: true,
+          };
+        }
+        return { ...(defaultsDelRol[seccion] || {
           seccion, puede_ver: false, puede_crear: false, puede_editar: false,
           puede_editar_precios: false, puede_eliminar: false,
-        }
-      );
+        }), _sinFila: true };
+      });
     }
 
     function pintarMatriz() {
       const filas = permisosParaProyecto(proyectoIdActivo);
+      const filasPorSeccion = Object.fromEntries(filas.map((f) => [f.seccion, f]));
       wrap.innerHTML = `
         ${tieneVariasObras ? `
         <div class="field">
@@ -5585,21 +5639,29 @@ async function renderUsuarios(view) {
           </select>
         </div>` : obras.length === 1 ? `<p class="muted fs-08">Obra: <strong>${esc(obras[0].nombre)}</strong></p>`
           : `<p class="muted fs-08">Este usuario no tiene obras asignadas todavía — los permisos aquí aplican como regla general en cuanto se le asigne una.</p>`}
-        <div class="card mt-12">
+        <div class="card mt-12 perm-matriz">
           <div class="table-scroll">
-            <table>
+            <table class="perm-matriz-table">
               <thead><tr>
                 <th>Sección</th>
                 ${PERMISOS_ACCIONES.map((a) => `<th>${esc(a.label)}</th>`).join('')}
               </tr></thead>
               <tbody>
-                ${filas.map((f) => `
-                  <tr data-seccion="${f.seccion}">
-                    <td>${esc(PERMISOS_SECCION_LABELS[f.seccion])}</td>
-                    ${PERMISOS_ACCIONES.map((a) => `
-                      <td><input type="checkbox" class="w-auto" data-accion="${a.key}" ${f[a.key] ? 'checked' : ''} /></td>
-                    `).join('')}
-                  </tr>
+                ${PERMISOS_GRUPOS.map((grupo) => `
+                  <tr class="perm-grupo-row"><td colspan="${PERMISOS_ACCIONES.length + 1}">${esc(grupo.label)}</td></tr>
+                  ${grupo.secciones.map((seccion) => {
+                    const f = filasPorSeccion[seccion];
+                    if (!f) return '';
+                    const sinEnforcement = !SECCIONES_CON_ENFORCEMENT.includes(seccion);
+                    return `
+                    <tr data-seccion="${f.seccion}">
+                      <td>${esc(PERMISOS_SECCION_LABELS[f.seccion])}${sinEnforcement ? '<span class="muted fs-07 perm-badge-info" title="El backend todavía no exige este permiso para esta sección — hoy el acceso real lo decide el rol del usuario, marcar/desmarcar aquí no tiene efecto todavía."> · informativo</span>' : ''}</td>
+                      ${PERMISOS_ACCIONES.map((a) => `
+                        <td><label class="perm-check${sinEnforcement ? ' perm-check-disabled' : ''}"><input type="checkbox" data-accion="${a.key}" ${f[a.key] ? 'checked' : ''} ${sinEnforcement ? 'disabled' : ''} /><span class="perm-check-track"><span class="perm-check-thumb"></span></span></label></td>
+                      `).join('')}
+                    </tr>
+                  `;
+                  }).join('')}
                 `).join('')}
               </tbody>
             </table>
@@ -5616,7 +5678,7 @@ async function renderUsuarios(view) {
       $('#btnGuardarPermisos').addEventListener('click', async () => {
         const btn = $('#btnGuardarPermisos');
         btn.disabled = true;
-        const permisos = $$('#permMatrizWrap tbody tr').map((tr) => {
+        const permisos = $$('#permMatrizWrap tbody tr[data-seccion]').map((tr) => {
           const seccion = tr.dataset.seccion;
           const fila = { seccion };
           PERMISOS_ACCIONES.forEach((a) => {

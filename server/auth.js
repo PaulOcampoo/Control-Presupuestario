@@ -49,20 +49,23 @@ function isValidPuesto(p) {
 const SECCIONES_PERMISOS = [
   'presupuestos', 'requisiciones', 'proveedores', 'ordenes_compra', 'avance',
   'destajo', 'finanzas', 'insumos', 'mapeo', 'usuarios', 'contrato', 'impuestos',
-  'nominas', 'sugerencias',
+  'nominas', 'sugerencias', 'programa', 'estimaciones',
 ];
 const ACCIONES_PERMISOS = ['puede_ver', 'puede_crear', 'puede_editar', 'puede_editar_precios', 'puede_eliminar'];
 
 // Traduce las pestañas de PERMISSIONS[puesto].tabs a secciones del sistema de
 // permisos granulares (algunas pestañas de la app no tienen sección propia
-// aquí — 'programa' se pliega en 'presupuestos', 'trabajadores' queda fuera
-// del alcance de este sistema por ahora).
+// aquí — 'trabajadores' queda fuera del alcance de este sistema por ahora).
+// 'programa' y 'estimaciones' tienen su propia sección en el catálogo pero
+// SIN enforcement real todavía (sus rutas siguen en auth.allow() legacy —
+// ver SECCIONES_CON_ENFORCEMENT en public/app.js): aparecen en el panel como
+// informativas hasta que se decida migrarlas a checkPermiso.
 const TAB_A_SECCION = {
-  resumen: 'presupuestos', programa: 'presupuestos', contrato: 'contrato',
+  resumen: 'presupuestos', programa: 'programa', contrato: 'contrato',
   impuestos: 'impuestos', insumos: 'insumos', requisiciones: 'requisiciones',
   ordenes: 'ordenes_compra', avance: 'avance', destajo: 'destajo',
   usuarios: 'usuarios', proveedores: 'proveedores', finanzas: 'finanzas',
-  mapeo: 'mapeo', nominas: 'nominas',
+  mapeo: 'mapeo', nominas: 'nominas', estimaciones: 'estimaciones',
 };
 
 // Set de permisos default al dar de alta un usuario: puede_ver=true en las

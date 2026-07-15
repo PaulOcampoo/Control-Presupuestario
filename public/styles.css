@@ -1885,4 +1885,85 @@ body.modal-open { overflow: hidden; }
   .notif-target-flash, .search-results-fancy {
     animation: none;
   }
+
+  .perm-check-track, .perm-check-thumb, .perm-matriz-table tbody tr td {
+    transition: none;
+  }
+}
+
+/* ── Permisos de Acceso: agrupación por sección + escritorio interactivo ──
+   Mobile-first: los grupos se ven como encabezados de sub-sección dentro de
+   la misma tabla; las casillas siguen siendo checkboxes nativos (mejor
+   affordance táctil en móvil). En escritorio (>= 861px, mismo breakpoint que
+   el sidebar fijo) las casillas se ven como toggle switches con hover, más
+   acorde a un panel de configuración que se usa con mouse/trackpad. ──────── */
+.perm-grupo-row td {
+  padding: 10px 14px 6px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--accent-silver);
+  border-bottom: 1px solid var(--border-color);
+  background: var(--bg-surface-2);
+}
+.perm-grupo-row:first-child td { padding-top: 10px; }
+.perm-badge-info { margin-left: 6px; cursor: help; }
+.perm-check { display: inline-flex; align-items: center; cursor: pointer; }
+.perm-check input[type="checkbox"] { width: 18px; height: 18px; }
+.perm-check-track, .perm-check-thumb { display: none; } /* skin de escritorio solamente */
+/* Secciones sin enforcement real (ver SECCIONES_CON_ENFORCEMENT) — la casilla
+   ya no se puede marcar/desmarcar, para no sugerir que tiene efecto cuando el
+   backend todavía no la exige (ver badge "· informativo" junto al nombre). */
+.perm-check-disabled, .perm-check-disabled input[type="checkbox"] { cursor: not-allowed; }
+.perm-check-disabled { opacity: 0.5; }
+
+@media (min-width: 861px) {
+  .perm-matriz-table tbody tr:not(.perm-grupo-row) td { transition: background 0.15s var(--ease-out); }
+  .perm-matriz-table tbody tr:not(.perm-grupo-row):hover td {
+    background: color-mix(in srgb, var(--accent-gold) 6%, transparent);
+  }
+  .perm-matriz-table th, .perm-matriz-table td { padding: 10px 14px; }
+
+  /* El <input> real se oculta visualmente pero sigue siendo el elemento
+     enfocable/clicable (label envolvente) — accesible por teclado igual que
+     un checkbox nativo, solo cambia la piel visual. */
+  .perm-check { position: relative; }
+  .perm-check input[type="checkbox"] {
+    position: absolute; opacity: 0; width: 18px; height: 18px; margin: 0; cursor: pointer;
+  }
+  .perm-check-track, .perm-check-thumb { display: block; }
+  .perm-check-track {
+    width: 34px; height: 20px; border-radius: 999px;
+    background: var(--bg-surface-2); border: 1px solid var(--border-color);
+    transition: background 0.15s var(--ease-out), border-color 0.15s var(--ease-out);
+  }
+  .perm-check-thumb {
+    width: 14px; height: 14px; border-radius: 50%; margin: 2px;
+    background: var(--accent-silver);
+    transition: transform 0.15s var(--ease-out), background 0.15s var(--ease-out);
+  }
+  .perm-check input[type="checkbox"]:checked + .perm-check-track {
+    background: color-mix(in srgb, var(--accent-gold) 55%, var(--bg-surface-2));
+    border-color: var(--accent-gold);
+  }
+  .perm-check input[type="checkbox"]:checked + .perm-check-track .perm-check-thumb {
+    transform: translateX(14px);
+    background: var(--accent-gold);
+  }
+  .perm-check input[type="checkbox"]:focus-visible + .perm-check-track {
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-gold) 45%, transparent);
+  }
+  .perm-check:hover .perm-check-track { border-color: var(--accent-silver); }
+
+  /* Deshabilitado: nunca dorado (aunque esté "checked"), sin hover, para no
+     sugerir que el toggle está activo/funcional — solo se conserva la
+     posición del thumb, que sigue reflejando el valor real guardado. */
+  .perm-check-disabled input[type="checkbox"]:checked + .perm-check-track {
+    background: var(--bg-surface-2); border-color: var(--border-color);
+  }
+  .perm-check-disabled input[type="checkbox"]:checked + .perm-check-track .perm-check-thumb {
+    background: var(--accent-silver);
+  }
+  .perm-check-disabled:hover .perm-check-track { border-color: var(--border-color); }
 }

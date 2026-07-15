@@ -8,19 +8,21 @@ const TOKEN_KEY = 'cp_token';
 const PUESTO_LABELS = {
   admin: 'Administrador', desarrollador: 'Desarrollador', residente: 'Residente', cabo: 'Cabo',
   compras: 'Compras', tesoreria: 'Tesorería', administracion: 'Administración', logistica: 'Logística',
+  taller: 'Taller',
 };
 
 // Mirror de PERMISSIONS en server/auth.js — para calcular allowedTabs en vista simulada.
 // Actualizar aquí si se agregan roles o pestañas en auth.js.
 const ROLE_TABS = {
-  admin:          ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'finanzas', 'mapeo', 'trabajadores', 'nominas'],
-  desarrollador:  ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'finanzas', 'mapeo', 'trabajadores', 'nominas'],
-  residente:      ['programa', 'avance', 'destajo', 'requisiciones', 'insumos', 'ordenes', 'nominas'],
-  cabo:           ['destajo', 'insumos', 'avance', 'requisiciones'],
+  admin:          ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'finanzas', 'mapeo', 'trabajadores', 'nominas', 'estimaciones', 'maquinaria'],
+  desarrollador:  ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'finanzas', 'mapeo', 'trabajadores', 'nominas', 'estimaciones', 'maquinaria'],
+  residente:      ['programa', 'avance', 'destajo', 'requisiciones', 'insumos', 'ordenes', 'nominas', 'estimaciones'],
+  cabo:           ['destajo', 'insumos', 'avance', 'requisiciones', 'maquinaria'],
   compras:        ['programa', 'requisiciones', 'insumos', 'ordenes', 'proveedores'],
   tesoreria:      ['resumen', 'finanzas', 'ordenes', 'contrato', 'impuestos', 'proveedores'],
   administracion: ['resumen', 'programa', 'destajo', 'ordenes', 'proveedores', 'contrato', 'impuestos', 'mapeo'],
   logistica:      ['programa', 'avance', 'requisiciones', 'insumos', 'ordenes'],
+  taller:         ['maquinaria'],
 };
 
 const state = {
@@ -715,18 +717,20 @@ const SECTION_DEFS = {
   compras:       { label: 'Compras',        icon: 'compras',        emoji: '🛒',   tabs: ['requisiciones', 'insumos', 'proveedores', 'ordenes'], proximamente: ['Subcontratos'] },
   tesoreria:     { label: 'Tesorería',      icon: 'tesoreria',      emoji: '💰',   tabs: ['finanzas', 'impuestos'],                             proximamente: [] },
   administracion:{ label: 'Administración', icon: 'administracion', emoji: '📂',  tabs: ['mapeo', 'contrato', 'trabajadores', 'nominas', 'usuarios'], proximamente: ['Almacenes'] },
-  maquinaria:    { label: 'Maquinaria',     icon: 'maquinaria',     emoji: '🚜',   tabs: [],                                                    proximamente: ['Maquinaria'] },
+  maquinaria:    { label: 'Maquinaria',     icon: 'maquinaria',     emoji: '🚜',   tabs: ['maquinaria'],                                        proximamente: [] },
 };
 
 const TAB_ICONS = {
   resumen: '📊', contrato: '📄', impuestos: '🧾', insumos: '📦', requisiciones: '🧾',
   proveedores: '🏭', ordenes: '🛒', programa: '🗓️', avance: '📈', destajo: '👷',
   finanzas: '💰', mapeo: '🔗', usuarios: '👤', trabajadores: '👷', nominas: '💵', estimaciones: '🧮',
+  maquinaria: '🚜',
 };
 const TAB_LABELS = {
   resumen: 'Resumen', contrato: 'Contrato', impuestos: 'Impuestos', insumos: 'Insumos', requisiciones: 'Requisiciones',
   proveedores: 'Proveedores', ordenes: 'Órdenes de Compra', programa: 'Programa', avance: 'Avance', destajo: 'Destajo',
   finanzas: 'Finanzas', mapeo: 'Mapeo', usuarios: 'Usuarios', trabajadores: 'Trabajadores', nominas: 'Nóminas', estimaciones: 'Estimaciones',
+  maquinaria: 'Maquinaria',
 };
 
 const VIEW_TO_SECTION = {};
@@ -2236,10 +2240,11 @@ function destroyCharts() {
 async function renderView() {
   destroyCharts();
   const view = $('#view');
-  if (state.view === 'usuarios' || state.view === 'proveedores') {
+  if (state.view === 'usuarios' || state.view === 'proveedores' || state.view === 'maquinaria') {
     try {
       if (state.view === 'usuarios') await renderUsuarios(view);
-      else await renderProveedores(view);
+      else if (state.view === 'proveedores') await renderProveedores(view);
+      else await renderMaquinaria(view);
     } catch (err) { view.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`; }
     syncFab();
     return;
@@ -5445,6 +5450,7 @@ const PERMISOS_SECCION_LABELS = {
   ordenes_compra: 'Órdenes de Compra', avance: 'Avance', destajo: 'Destajo', finanzas: 'Finanzas',
   insumos: 'Insumos', mapeo: 'Mapeo', usuarios: 'Usuarios', contrato: 'Contrato', impuestos: 'Impuestos',
   nominas: 'Nóminas', sugerencias: 'Sugerencias', programa: 'Programa', estimaciones: 'Estimaciones',
+  maquinaria: 'Maquinaria',
 };
 const PERMISOS_SECCIONES = Object.keys(PERMISOS_SECCION_LABELS);
 const PERMISOS_ACCIONES = [
@@ -5460,7 +5466,7 @@ const PERMISOS_ACCIONES = [
 // (auth.allow()), marcarla o no aquí todavía no cambia nada en el backend.
 // Actualizar esta lista cada vez que se le agregue checkPermiso a una
 // sección nueva (ver mismo patrón en server/auth.js SECCIONES_PERMISOS).
-const SECCIONES_CON_ENFORCEMENT = ['nominas', 'avance'];
+const SECCIONES_CON_ENFORCEMENT = ['nominas', 'avance', 'maquinaria'];
 // Agrupa las secciones de permisos igual que SECTION_DEFS agrupa las pestañas
 // en la pantalla de inicio (Obra / Compras / Tesorería / Administración) —
 // mismo criterio de negocio, para que la matriz se lea en el mismo orden que
@@ -5470,6 +5476,7 @@ const PERMISOS_GRUPOS = [
   { label: 'Compras',        secciones: ['requisiciones', 'insumos', 'proveedores', 'ordenes_compra'] },
   { label: 'Tesorería',      secciones: ['finanzas', 'impuestos'] },
   { label: 'Administración', secciones: ['mapeo', 'contrato', 'nominas', 'usuarios'] },
+  { label: 'Maquinaria',     secciones: ['maquinaria'] },
   { label: 'General',        secciones: ['sugerencias'] },
 ];
 // Mirror de TAB_A_SECCION/defaultPermisosParaRol en server/auth.js — solo se
@@ -5483,6 +5490,7 @@ const TAB_A_SECCION = {
   ordenes: 'ordenes_compra', avance: 'avance', destajo: 'destajo',
   usuarios: 'usuarios', proveedores: 'proveedores', finanzas: 'finanzas',
   mapeo: 'mapeo', nominas: 'nominas', estimaciones: 'estimaciones',
+  maquinaria: 'maquinaria',
 };
 function defaultPermisosParaRolFrontend(puesto) {
   const tabs = ROLE_TABS[puesto] || [];
@@ -5504,6 +5512,10 @@ function defaultPermisosParaRolFrontend(puesto) {
   if (puesto === 'cabo') {
     if (porSeccion.destajo) porSeccion.destajo.puede_editar = true;
     if (porSeccion.avance)  porSeccion.avance.puede_crear = true;
+    if (porSeccion.maquinaria) porSeccion.maquinaria.puede_crear = true;
+  }
+  if (puesto === 'taller' || puesto === 'admin' || puesto === 'desarrollador') {
+    if (porSeccion.maquinaria) { porSeccion.maquinaria.puede_crear = true; porSeccion.maquinaria.puede_editar = true; }
   }
   return porSeccion;
 }
@@ -6067,6 +6079,352 @@ function openProveedorModal(proveedor) {
         await api('/proveedores', { method: 'POST', body });
         toast('Proveedor creado', 'success');
       }
+      closeModal();
+      renderView();
+    } catch (err) {
+      toast(err.message, 'danger');
+      btn.disabled = false;
+    }
+  });
+}
+
+// =========================================================================
+// VISTA: Maquinaria propia (prompt-modulo-maquinaria) — catálogo global de
+// equipos (no por obra, igual que Proveedores), combustible/mantenimiento
+// (taller/admin/desarrollador) y horas de uso (cabo, hoy solo
+// retroexcavadoras). DISEÑO DE PRIMER BORRADOR, pendiente de revisión.
+// =========================================================================
+const MAQUINARIA_TIPOS = ['retroexcavadora'];
+let maquinariaEquiposCache = [];
+
+async function renderMaquinaria(view) {
+  const [equipos, resumen, misPermisos, proyectos] = await Promise.all([
+    api('/maquinaria/equipos'),
+    api('/maquinaria/resumen'),
+    api('/mis-permisos/maquinaria'),
+    api('/projects').catch(() => []),
+  ]);
+  maquinariaEquiposCache = equipos;
+  const puedeCrear = !!misPermisos.puede_crear;
+  const puedeEditar = !!misPermisos.puede_editar;
+  const puedeEliminar = !!misPermisos.puede_eliminar;
+  const esCabo = effectivePuesto() === 'cabo';
+
+  const pct = Math.min(100, resumen.pct_gastado);
+  view.innerHTML = `
+    <h2 class="section-title">Maquinaria</h2>
+    <p class="muted">Catálogo de equipos propios, combustible, mantenimiento y horas de uso — presupuesto único para toda la flota.</p>
+    <div class="card">
+      <div class="card-row"><span class="k">Presupuesto total</span><span class="v">${fmtMoney(resumen.monto_total)}</span></div>
+      <div class="card-row"><span class="k">Gastado (combustible + mantenimiento)</span><span class="v">${fmtMoney(resumen.gasto_total)}</span></div>
+      <div class="progress-bar mt-8 ${resumen.alerta ? 'over' : ''}"><span data-pct="${pct}"></span></div>
+      <div class="muted fs-08 mt-4">${fmtPct(resumen.pct_gastado)} del presupuesto${resumen.alerta ? ` — ⚠️ superó el ${resumen.umbral_alerta_pct}% de alerta` : ''}</div>
+      ${puedeEditar ? `<button class="btn small mt-8" id="btnEditarPresupuestoMaq">Editar presupuesto total</button>` : ''}
+    </div>
+
+    <div class="section-actions mt-12">
+      ${puedeCrear ? '<button class="btn btn-primary" id="btnNuevoEquipoMaq">+ Nuevo equipo</button>' : ''}
+      ${puedeCrear && !esCabo ? '<button class="btn" id="btnCombustibleMaq">+ Combustible</button>' : ''}
+      ${puedeCrear && !esCabo ? '<button class="btn" id="btnMantenimientoMaq">+ Mantenimiento</button>' : ''}
+      ${puedeCrear ? '<button class="btn" id="btnHorasMaq">+ Capturar horas</button>' : ''}
+    </div>
+    <div id="equiposMaqList"></div>
+  `;
+
+  $('#btnEditarPresupuestoMaq')?.addEventListener('click', () => openPresupuestoMaqModal(resumen.monto_total));
+  $('#btnNuevoEquipoMaq')?.addEventListener('click', () => openEquipoMaqModal(null, proyectos));
+  $('#btnCombustibleMaq')?.addEventListener('click', () => openCombustibleMaqModal(equipos));
+  $('#btnMantenimientoMaq')?.addEventListener('click', () => openMantenimientoMaqModal(equipos));
+  $('#btnHorasMaq')?.addEventListener('click', () => openHorasMaqModal(equipos, proyectos));
+  { const fill = $('.progress-bar > span[data-pct]', view); if (fill) fill.style.width = fill.dataset.pct + '%'; }
+
+  paintEquiposMaqList(equipos, proyectos, { puedeEditar, puedeEliminar });
+}
+
+function paintEquiposMaqList(equipos, proyectos, { puedeEditar, puedeEliminar }) {
+  const list = $('#equiposMaqList');
+  if (!equipos.length) {
+    list.innerHTML = '<div class="empty-state">No hay equipos registrados todavía.</div>';
+    return;
+  }
+  const ESTADO_BADGE = { activo: 'green', mantenimiento: 'yellow', baja: 'red' };
+  list.innerHTML = equipos.map((e) => `
+    <div class="card" data-equipo-card="${e.id}">
+      <div class="row between">
+        <div>
+          <strong>${esc(e.nombre)}</strong>
+          <div class="muted fs-08">${esc(e.tipo)}${e.identificador ? ` · ${esc(e.identificador)}` : ''}</div>
+          ${e.obra_nombre ? `<div class="muted fs-08">🏗️ ${esc(e.obra_nombre)}</div>` : '<div class="muted fs-08">Sin obra asignada</div>'}
+        </div>
+        <span class="badge ${ESTADO_BADGE[e.estado] || 'muted'}">${esc(e.estado)}</span>
+      </div>
+      ${(puedeEditar || puedeEliminar) ? `
+      <div class="row end mt8-gap8">
+        ${puedeEditar ? `<button class="btn small" data-edit-equipo-maq="${e.id}">Editar</button>` : ''}
+        ${puedeEliminar ? `<button class="btn small btn-danger" data-del-equipo-maq="${e.id}">Eliminar</button>` : ''}
+      </div>` : ''}
+      <button class="collapse-toggle mt-12" data-toggle-historial-maq="${e.id}">
+        <span>📋 Historial (combustible, mantenimiento, horas)</span>
+        <span class="chev">▾</span>
+      </button>
+      <div class="collapse-body" id="historialMaq-${e.id}"></div>
+    </div>
+  `).join('');
+
+  $$('[data-edit-equipo-maq]', list).forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const e = equipos.find((x) => x.id === Number(btn.dataset.editEquipoMaq));
+      if (e) openEquipoMaqModal(e, proyectos);
+    });
+  });
+  $$('[data-del-equipo-maq]', list).forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      if (!confirm('¿Eliminar este equipo? No se puede deshacer.')) return;
+      try {
+        await api(`/maquinaria/equipos/${btn.dataset.delEquipoMaq}`, { method: 'DELETE' });
+        toast('Equipo eliminado', 'success');
+        renderView();
+      } catch (err) { toast(err.message, 'danger'); }
+    });
+  });
+  $$('[data-toggle-historial-maq]', list).forEach((btn) => {
+    btn.addEventListener('click', () => toggleHistorialMaq(btn));
+  });
+}
+
+async function toggleHistorialMaq(btn) {
+  const equipoId = Number(btn.dataset.toggleHistorialMaq);
+  const body = document.getElementById(`historialMaq-${equipoId}`);
+  const isOpen = btn.classList.toggle('open');
+  body.classList.toggle('open', isOpen);
+  if (!isOpen || body.dataset.loaded) return;
+  body.dataset.loaded = '1';
+  body.innerHTML = '<div class="spinner"></div>';
+  try {
+    const [combustible, mantenimientos, horas] = await Promise.all([
+      api(`/maquinaria/combustible?equipo_id=${equipoId}`),
+      api(`/maquinaria/mantenimientos?equipo_id=${equipoId}`),
+      api(`/maquinaria/horas?equipo_id=${equipoId}`),
+    ]);
+    const filas = [
+      ...combustible.map((c) => ({ fecha: c.fecha, tipo: 'Combustible', detalle: `${fmtNum(c.litros, 1)} L`, monto: c.costo, quien: c.registrado_por_nombre })),
+      ...mantenimientos.map((m) => ({ fecha: m.fecha, tipo: `Mantenimiento (${m.tipo})`, detalle: m.descripcion || '—', monto: m.costo, quien: m.registrado_por_nombre })),
+      ...horas.map((h) => ({ fecha: h.fecha, tipo: 'Horas de uso', detalle: `${fmtNum(h.horas, 1)} h${h.obra_nombre ? ` · ${h.obra_nombre}` : ''}`, monto: null, quien: h.operador_nombre })),
+    ].sort((a, b) => (a.fecha < b.fecha ? 1 : -1));
+    if (!filas.length) {
+      body.innerHTML = '<p class="muted fs-08 py10-px4">Sin registros todavía.</p>';
+      return;
+    }
+    body.innerHTML = `
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Fecha</th><th>Tipo</th><th>Detalle</th><th class="num">Monto</th><th>Registró</th></tr></thead>
+          <tbody>
+            ${filas.map((f) => `
+              <tr>
+                <td>${fmtDate(f.fecha)}</td>
+                <td>${esc(f.tipo)}</td>
+                <td>${esc(f.detalle)}</td>
+                <td class="num">${f.monto != null ? fmtMoney(f.monto) : '—'}</td>
+                <td class="muted fs-08">${esc(f.quien || '—')}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+    `;
+  } catch (err) {
+    body.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+  }
+}
+
+function openEquipoMaqModal(equipo, proyectos) {
+  const isEdit = !!equipo;
+  openModal(`
+    <h3>${isEdit ? 'Editar equipo' : 'Nuevo equipo'}</h3>
+    <div class="field"><label>Nombre *</label><input id="eqNombre" value="${isEdit ? esc(equipo.nombre) : ''}" /></div>
+    <div class="field"><label>Tipo</label>
+      <select id="eqTipo">${MAQUINARIA_TIPOS.map((t) => `<option value="${t}" ${isEdit && equipo.tipo === t ? 'selected' : ''}>${esc(t)}</option>`).join('')}</select>
+    </div>
+    <div class="field"><label>Identificador / serie</label><input id="eqIdentificador" value="${isEdit ? esc(equipo.identificador || '') : ''}" /></div>
+    <div class="field"><label>Estado</label>
+      <select id="eqEstado">
+        ${['activo', 'mantenimiento', 'baja'].map((s) => `<option value="${s}" ${isEdit && equipo.estado === s ? 'selected' : ''}>${esc(s)}</option>`).join('')}
+      </select>
+    </div>
+    <div class="field"><label>Obra asignada</label>
+      <select id="eqObra">
+        <option value="">Sin asignar</option>
+        ${proyectos.map((p) => `<option value="${p.id}" ${isEdit && equipo.obra_id === p.id ? 'selected' : ''}>${esc(p.nombre)}</option>`).join('')}
+      </select>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" id="btnCancelEquipoMaq">Cerrar</button>
+      <button class="btn btn-primary" id="btnSaveEquipoMaq">${isEdit ? 'Guardar cambios' : 'Crear equipo'}</button>
+    </div>
+  `);
+  $('#eqNombre').focus();
+  $('#btnCancelEquipoMaq').addEventListener('click', closeModal);
+  $('#btnSaveEquipoMaq').addEventListener('click', async () => {
+    const nombre = $('#eqNombre').value.trim();
+    if (!nombre) { toast('Escribe el nombre del equipo', 'danger'); return; }
+    const btn = $('#btnSaveEquipoMaq');
+    btn.disabled = true;
+    const body = {
+      nombre, tipo: $('#eqTipo').value, identificador: $('#eqIdentificador').value.trim() || null,
+      estado: $('#eqEstado').value, obra_id: $('#eqObra').value ? Number($('#eqObra').value) : null,
+    };
+    try {
+      if (isEdit) await api(`/maquinaria/equipos/${equipo.id}`, { method: 'PUT', body });
+      else await api('/maquinaria/equipos', { method: 'POST', body });
+      toast(isEdit ? 'Equipo actualizado' : 'Equipo creado', 'success');
+      closeModal();
+      renderView();
+    } catch (err) {
+      toast(err.message, 'danger');
+      btn.disabled = false;
+    }
+  });
+}
+
+function openPresupuestoMaqModal(montoActual) {
+  openModal(`
+    <h3>Editar presupuesto total de maquinaria</h3>
+    <p class="muted fs-08">Monto único para toda la flota — no está dividido por periodo (asunción pendiente de confirmar).</p>
+    <div class="field"><label>Monto total *</label><input id="presMaqMonto" type="number" min="0" step="0.01" value="${montoActual}" /></div>
+    <div class="modal-actions">
+      <button class="btn" id="btnCancelPresMaq">Cerrar</button>
+      <button class="btn btn-primary" id="btnSavePresMaq">Guardar</button>
+    </div>
+  `);
+  $('#presMaqMonto').focus();
+  $('#btnCancelPresMaq').addEventListener('click', closeModal);
+  $('#btnSavePresMaq').addEventListener('click', async () => {
+    const monto = Number($('#presMaqMonto').value);
+    if (!(monto >= 0)) { toast('Indica un monto válido', 'danger'); return; }
+    const btn = $('#btnSavePresMaq');
+    btn.disabled = true;
+    try {
+      await api('/maquinaria/presupuesto', { method: 'PUT', body: { monto_total: monto } });
+      toast('Presupuesto actualizado', 'success');
+      closeModal();
+      renderView();
+    } catch (err) {
+      toast(err.message, 'danger');
+      btn.disabled = false;
+    }
+  });
+}
+
+function equipoSelectOptions(equipos, soloRetroexcavadoras) {
+  const filtrados = soloRetroexcavadoras ? equipos.filter((e) => e.tipo === 'retroexcavadora') : equipos;
+  return filtrados.map((e) => `<option value="${e.id}">${esc(e.nombre)}${e.identificador ? ` (${esc(e.identificador)})` : ''}</option>`).join('');
+}
+
+function openCombustibleMaqModal(equipos) {
+  openModal(`
+    <h3>Registrar combustible</h3>
+    <div class="field"><label>Equipo *</label><select id="cbEquipo">${equipoSelectOptions(equipos, false)}</select></div>
+    <div class="field"><label>Fecha *</label><input id="cbFecha" type="date" value="${new Date().toISOString().slice(0, 10)}" /></div>
+    <div class="field"><label>Litros *</label><input id="cbLitros" type="number" min="0" step="0.01" /></div>
+    <div class="field"><label>Costo *</label><input id="cbCosto" type="number" min="0" step="0.01" /></div>
+    <div class="modal-actions">
+      <button class="btn" id="btnCancelCb">Cerrar</button>
+      <button class="btn btn-primary" id="btnSaveCb">Guardar</button>
+    </div>
+  `);
+  $('#btnCancelCb').addEventListener('click', closeModal);
+  $('#btnSaveCb').addEventListener('click', async () => {
+    const body = {
+      equipo_id: Number($('#cbEquipo').value), fecha: $('#cbFecha').value,
+      litros: Number($('#cbLitros').value), costo: Number($('#cbCosto').value),
+    };
+    if (!body.equipo_id || !body.fecha || !(body.litros > 0) || !(body.costo >= 0)) {
+      toast('Completa equipo, fecha, litros y costo', 'danger'); return;
+    }
+    const btn = $('#btnSaveCb');
+    btn.disabled = true;
+    try {
+      await api('/maquinaria/combustible', { method: 'POST', body });
+      toast('Combustible registrado', 'success');
+      closeModal();
+      renderView();
+    } catch (err) {
+      toast(err.message, 'danger');
+      btn.disabled = false;
+    }
+  });
+}
+
+function openMantenimientoMaqModal(equipos) {
+  openModal(`
+    <h3>Registrar mantenimiento</h3>
+    <div class="field"><label>Equipo *</label><select id="mtEquipo">${equipoSelectOptions(equipos, false)}</select></div>
+    <div class="field"><label>Fecha *</label><input id="mtFecha" type="date" value="${new Date().toISOString().slice(0, 10)}" /></div>
+    <div class="field"><label>Tipo *</label>
+      <select id="mtTipo"><option value="preventivo">Preventivo</option><option value="correctivo">Correctivo</option></select>
+    </div>
+    <div class="field"><label>Descripción</label><input id="mtDescripcion" /></div>
+    <div class="field"><label>Costo *</label><input id="mtCosto" type="number" min="0" step="0.01" /></div>
+    <div class="field"><label>Proveedor</label><input id="mtProveedor" /></div>
+    <div class="modal-actions">
+      <button class="btn" id="btnCancelMt">Cerrar</button>
+      <button class="btn btn-primary" id="btnSaveMt">Guardar</button>
+    </div>
+  `);
+  $('#btnCancelMt').addEventListener('click', closeModal);
+  $('#btnSaveMt').addEventListener('click', async () => {
+    const body = {
+      equipo_id: Number($('#mtEquipo').value), fecha: $('#mtFecha').value, tipo: $('#mtTipo').value,
+      descripcion: $('#mtDescripcion').value.trim() || null, costo: Number($('#mtCosto').value),
+      proveedor: $('#mtProveedor').value.trim() || null,
+    };
+    if (!body.equipo_id || !body.fecha || !(body.costo >= 0)) {
+      toast('Completa equipo, fecha y costo', 'danger'); return;
+    }
+    const btn = $('#btnSaveMt');
+    btn.disabled = true;
+    try {
+      await api('/maquinaria/mantenimientos', { method: 'POST', body });
+      toast('Mantenimiento registrado', 'success');
+      closeModal();
+      renderView();
+    } catch (err) {
+      toast(err.message, 'danger');
+      btn.disabled = false;
+    }
+  });
+}
+
+function openHorasMaqModal(equipos, proyectos) {
+  openModal(`
+    <h3>Capturar horas de uso</h3>
+    <p class="muted fs-08">Por ahora solo retroexcavadoras — ver nota de diseño pendiente de revisión.</p>
+    <div class="field"><label>Equipo *</label><select id="hrEquipo">${equipoSelectOptions(equipos, true)}</select></div>
+    <div class="field"><label>Fecha *</label><input id="hrFecha" type="date" value="${new Date().toISOString().slice(0, 10)}" /></div>
+    <div class="field"><label>Horas *</label><input id="hrHoras" type="number" min="0" step="0.1" /></div>
+    <div class="field"><label>Obra / actividad</label>
+      <select id="hrObra"><option value="">Sin especificar</option>${proyectos.map((p) => `<option value="${p.id}">${esc(p.nombre)}</option>`).join('')}</select>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" id="btnCancelHr">Cerrar</button>
+      <button class="btn btn-primary" id="btnSaveHr">Guardar</button>
+    </div>
+  `);
+  $('#btnCancelHr').addEventListener('click', closeModal);
+  $('#btnSaveHr').addEventListener('click', async () => {
+    const body = {
+      equipo_id: Number($('#hrEquipo').value), fecha: $('#hrFecha').value,
+      horas: Number($('#hrHoras').value), obra_id: $('#hrObra').value ? Number($('#hrObra').value) : null,
+    };
+    if (!body.equipo_id || !body.fecha || !(body.horas > 0)) {
+      toast('Completa equipo, fecha y horas', 'danger'); return;
+    }
+    const btn = $('#btnSaveHr');
+    btn.disabled = true;
+    try {
+      await api('/maquinaria/horas', { method: 'POST', body });
+      toast('Horas registradas', 'success');
       closeModal();
       renderView();
     } catch (err) {

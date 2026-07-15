@@ -3252,13 +3252,40 @@ app.put('/api/projects/:id/avances/:semana', h(auth.allow('residente', 'cabo')),
   const pid = req.project.id;
   const semana = Number(req.params.semana);
   const { rows: existRows } = await db.pool.query(
-    'SELECT id, estado_autorizacion FROM avances_semanales WHERE project_id = $1 AND semana = $2',
+    'SELECT id, estado_autorizacion, avance_fisico_real, avance_financiero_real FROM avances_semanales WHERE project_id = $1 AND semana = $2',
     [pid, semana]
   );
   if (!existRows[0]) return res.status(404).json({ error: 'Semana no encontrada' });
 
   const clamp = (v) => (v == null || v === '' ? null : Math.max(0, Math.min(100, Number(v))));
   const { avance_fisico_real, avance_financiero_real } = req.body || {};
+  const nuevoFisico = clamp(avance_fisico_real);
+  const nuevoFinanciero = clamp(avance_financiero_real);
+
+  // Cierra el mismo gate de avance-requiere-entrega para este editor directo
+  // por % — sin granularidad de concepto, así que no puede validarse
+  // actividad por actividad. En vez de eso: si CUALQUIER concepto de la obra
+  // tiene insumos mapeados pendientes de entrega, se rechaza cualquier
+  // INTENTO DE AUMENTAR el % (bajar o dejar igual sigue permitido). Sin esto,
+  // el flujo detallado por concepto se podía saltar completo escribiendo el
+  // % agregado aquí directamente.
+  const { rows: conceptoRows } = await db.pool.query(
+    'SELECT id FROM conceptos WHERE project_id = $1 AND es_total = 0', [pid]
+  );
+  const pendientesProyecto = await insumosPendientesPorConcepto(pid, conceptoRows.map((c) => c.id));
+  if (pendientesProyecto.size > 0) {
+    const previoFisico = Number(existRows[0].avance_fisico_real) || 0;
+    const previoFinanciero = Number(existRows[0].avance_financiero_real) || 0;
+    const intentaAumentar = (nuevoFisico != null && nuevoFisico > previoFisico)
+      || (nuevoFinanciero != null && nuevoFinanciero > previoFinanciero);
+    if (intentaAumentar) {
+      auth.logDenied(req, `intento de aumentar % de avance directo con insumos pendientes de entrega (semana ${semana})`);
+      return res.status(409).json({
+        error: 'No se puede aumentar el avance: hay actividades con insumos pendientes de entrega en obra. Usa el detalle por concepto para ver cuáles y repórtalas ahí una vez que lleguen.',
+      });
+    }
+  }
+
   const { nuevoEstado, notificar } = calcularEstadoAutorizacion(existRows[0].estado_autorizacion, req.user.puesto === 'admin');
   const { rows } = await db.pool.query(`
     UPDATE avances_semanales
@@ -3267,7 +3294,7 @@ app.put('/api/projects/:id/avances/:semana', h(auth.allow('residente', 'cabo')),
         estado_autorizacion = $3
     WHERE project_id = $4 AND semana = $5
     RETURNING *
-  `, [clamp(avance_fisico_real), clamp(avance_financiero_real), nuevoEstado, pid, semana]);
+  `, [nuevoFisico, nuevoFinanciero, nuevoEstado, pid, semana]);
 
   if (notificar) {
     await notificarAdmins(pid, 'avance_pendiente', semana, `${req.user.nombre} reportó avance real de la semana ${semana} para autorización`);

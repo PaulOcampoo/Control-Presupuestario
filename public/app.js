@@ -1631,6 +1631,28 @@ function closeModal() {
 let blockOverlayDismiss = false;
 $('#modalOverlay').addEventListener('click', () => { if (!blockOverlayDismiss) closeModal(); });
 
+// Diálogo de confirmación con el mismo estilo visual del resto de la app
+// (reutiliza openModal/closeModal, mismas clases .modal-actions/.btn que
+// cualquier otro modal) — para casos donde el confirm() nativo del navegador
+// no da el look&feel deseado. El resto de la app sigue usando confirm()
+// nativo (ver "Eliminar sugerencia"/"Eliminar equipo", etc.) — no se tocó
+// nada de eso, este helper es de uso opcional para casos puntuales nuevos.
+function confirmDialog(mensaje, { titulo = 'Confirmar', textoAceptar = 'Aceptar', textoCancelar = 'Cancelar' } = {}) {
+  return new Promise((resolve) => {
+    blockOverlayDismiss = true; // debe elegir un botón, no cerrar tocando fuera
+    openModal(`
+      <h3>${esc(titulo)}</h3>
+      <p>${esc(mensaje)}</p>
+      <div class="modal-actions">
+        <button class="btn" id="btnConfirmDialogCancelar">${esc(textoCancelar)}</button>
+        <button class="btn btn-primary" id="btnConfirmDialogAceptar">${esc(textoAceptar)}</button>
+      </div>
+    `);
+    $('#btnConfirmDialogCancelar').addEventListener('click', () => { closeModal(); resolve(false); });
+    $('#btnConfirmDialogAceptar').addEventListener('click', () => { closeModal(); resolve(true); });
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Drawer (project switcher)
 // ---------------------------------------------------------------------------
@@ -5669,7 +5691,7 @@ async function renderUsuarios(view) {
                     <tr data-seccion="${f.seccion}">
                       <td>${esc(PERMISOS_SECCION_LABELS[f.seccion])}${sinEnforcement ? '<span class="muted fs-07 perm-badge-info" title="El backend todavía no exige este permiso para esta sección — hoy el acceso real lo decide el rol del usuario, marcar/desmarcar aquí no tiene efecto todavía."> · informativo</span>' : ''}</td>
                       ${PERMISOS_ACCIONES.map((a) => `
-                        <td><label class="perm-check${sinEnforcement ? ' perm-check-disabled' : ''}"><input type="checkbox" data-accion="${a.key}" ${f[a.key] ? 'checked' : ''} ${sinEnforcement ? 'disabled' : ''} /><span class="perm-check-track"><span class="perm-check-thumb"></span></span></label></td>
+                        <td><label class="perm-check${sinEnforcement ? ' perm-check-informativo' : ''}"><input type="checkbox" data-accion="${a.key}" data-sin-enforcement="${sinEnforcement}" ${f[a.key] ? 'checked' : ''} /><span class="perm-check-track"><span class="perm-check-thumb"></span></span></label></td>
                       `).join('')}
                     </tr>
                   `;
@@ -5686,6 +5708,34 @@ async function renderUsuarios(view) {
       $('#permObraSelect')?.addEventListener('change', (e) => {
         proyectoIdActivo = e.target.value ? Number(e.target.value) : null;
         pintarMatriz();
+      });
+      // Secciones sin enforcement real: siguen siendo editables (no disabled),
+      // pero antes de aplicar el marcado/desmarcado se confirma con el admin
+      // — evita que se piense que el cambio ya tiene efecto en el backend.
+      //
+      // Intento anterior (click + preventDefault + setTimeout) dependía del
+      // orden exacto entre "el navegador revierte .checked tras preventDefault"
+      // y "mi setTimeout corre" — Playwright lo pasaba 3/3, pero en Chrome real
+      // (probado en incógnito, sin caché de SW de por medio) el toggle nunca
+      // se aplicaba al aceptar. En vez de seguir peleando con ese timing
+      // (que es justo el tipo de cosa que puede variar entre un dialog
+      // automatizado por CDP y uno bloqueante real del navegador), se cambia
+      // de estrategia: NO se previene nada — se deja que el toggle nativo
+      // ocurra normal (dispara 'change' como cualquier checkbox), y solo si
+      // el usuario CANCELA se revierte manualmente en el mismo handler de
+      // 'change'. Cero dependencia de orden de tareas/microtareas: no hay
+      // ninguna reversión nativa con la que competir.
+      $$('#permMatrizWrap input[data-sin-enforcement="true"]').forEach((input) => {
+        input.addEventListener('change', async () => {
+          const valorAplicado = input.checked; // el toggle nativo ya ocurrió normalmente
+          const accionLabel = PERMISOS_ACCIONES.find((a) => a.key === input.dataset.accion)?.label || input.dataset.accion;
+          const seccionLabel = PERMISOS_SECCION_LABELS[input.closest('tr').dataset.seccion] || '';
+          const confirmado = await confirmDialog(
+            `"${accionLabel}" en ${seccionLabel} es un permiso informativo — el backend todavía no lo aplica automáticamente. ¿Deseas continuar?`,
+            { titulo: 'Permiso informativo' }
+          );
+          if (!confirmado) input.checked = !valorAplicado; // revertir al valor previo al click
+        });
       });
       $('#btnGuardarPermisos').addEventListener('click', async () => {
         const btn = $('#btnGuardarPermisos');

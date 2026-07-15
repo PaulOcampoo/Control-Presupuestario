@@ -26,14 +26,17 @@ const TOTP_ISSUER = 'Grupo Roforb — Control Presupuestal';
 // Puestos y qué pestañas puede ver cada uno. 'admin' tiene acceso total
 // (se resuelve aparte en allow(), no necesita listarse en cada pestaña).
 const PERMISSIONS = {
-  admin:          { label: 'Administrador', tabs: ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'finanzas', 'mapeo', 'trabajadores', 'nominas', 'estimaciones'] },
-  desarrollador:  { label: 'Desarrollador', tabs: ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'finanzas', 'mapeo', 'trabajadores', 'nominas', 'estimaciones'] },
+  admin:          { label: 'Administrador', tabs: ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'finanzas', 'mapeo', 'trabajadores', 'nominas', 'estimaciones', 'maquinaria'] },
+  desarrollador:  { label: 'Desarrollador', tabs: ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'finanzas', 'mapeo', 'trabajadores', 'nominas', 'estimaciones', 'maquinaria'] },
   residente:      { label: 'Residente',     tabs: ['programa', 'avance', 'destajo', 'requisiciones', 'insumos', 'ordenes', 'nominas', 'estimaciones'] },
-  cabo:           { label: 'Cabo',          tabs: ['destajo', 'insumos', 'avance', 'requisiciones'] },
+  cabo:           { label: 'Cabo',          tabs: ['destajo', 'insumos', 'avance', 'requisiciones', 'maquinaria'] },
   compras:        { label: 'Compras',       tabs: ['programa', 'requisiciones', 'insumos', 'ordenes', 'proveedores'] },
   tesoreria:      { label: 'Tesorería',     tabs: ['resumen', 'finanzas', 'ordenes', 'contrato', 'impuestos', 'proveedores'] },
   administracion: { label: 'Administración',tabs: ['resumen', 'programa', 'destajo', 'ordenes', 'proveedores', 'contrato', 'impuestos', 'mapeo'] },
   logistica:      { label: 'Logística',     tabs: ['programa', 'avance', 'requisiciones', 'insumos', 'ordenes'] },
+  // Rol nuevo (prompt-modulo-maquinaria) — diseño de primer borrador, pendiente
+  // de revisión: taller captura combustible/mantenimiento, cabo captura horas.
+  taller:         { label: 'Taller',        tabs: ['maquinaria'] },
 };
 const PUESTOS = Object.keys(PERMISSIONS);
 
@@ -44,12 +47,28 @@ function isValidPuesto(p) {
 // ---------------------------------------------------------------------------
 // Permisos granulares por usuario/obra/sección (tabla permisos_usuario).
 // Conviven con PERMISSIONS/allow() de arriba — no lo reemplazan. Alcance de
-// enforcement real (checkPermiso aplicado en endpoints): Nómina y Destajo.
+// enforcement real (checkPermiso aplicado en endpoints): Nómina, Avance y
+// Maquinaria (ver SECCIONES_CON_ENFORCEMENT en public/app.js, debe
+// mantenerse en sync con esta lista).
+//
+// GAP CONOCIDO, PENDIENTE DE REVISIÓN (módulo Maquinaria, ver
+// prompt-modulo-maquinaria.md y server/maquinaria.js): la sección
+// 'maquinaria' es UNA sola fila de permisos para equipos + combustible +
+// mantenimiento + horas + presupuesto. El diseño de primer borrador quiere
+// que cabo capture horas y taller capture combustible/mantenimiento, pero
+// como ambos roles reciben puede_crear=true en la MISMA sección (ver
+// defaultPermisosParaRol), cualquiera de los dos puede llamar por API
+// cualquiera de esos 4 endpoints de creación — el frontend solo oculta los
+// botones que no le corresponden a cada rol, no hay separación real a nivel
+// de checkPermiso. Confirmado en vivo: cabo pudo POST /api/maquinaria/
+// combustible aunque el botón esté oculto para su rol. Si se define que esta
+// separación debe ser real (no solo de UI), hace falta partir 'maquinaria'
+// en sub-secciones (ej. 'maquinaria_captura' vs 'maquinaria_combustible').
 // ---------------------------------------------------------------------------
 const SECCIONES_PERMISOS = [
   'presupuestos', 'requisiciones', 'proveedores', 'ordenes_compra', 'avance',
   'destajo', 'finanzas', 'insumos', 'mapeo', 'usuarios', 'contrato', 'impuestos',
-  'nominas', 'sugerencias', 'programa', 'estimaciones',
+  'nominas', 'sugerencias', 'programa', 'estimaciones', 'maquinaria',
 ];
 const ACCIONES_PERMISOS = ['puede_ver', 'puede_crear', 'puede_editar', 'puede_editar_precios', 'puede_eliminar'];
 
@@ -66,6 +85,7 @@ const TAB_A_SECCION = {
   ordenes: 'ordenes_compra', avance: 'avance', destajo: 'destajo',
   usuarios: 'usuarios', proveedores: 'proveedores', finanzas: 'finanzas',
   mapeo: 'mapeo', nominas: 'nominas', estimaciones: 'estimaciones',
+  maquinaria: 'maquinaria',
 };
 
 // Set de permisos default al dar de alta un usuario: puede_ver=true en las
@@ -92,6 +112,14 @@ function defaultPermisosParaRol(puesto) {
   if (puesto === 'cabo') {
     if (porSeccion.destajo) { porSeccion.destajo.puede_editar = true; }
     if (porSeccion.avance)  { porSeccion.avance.puede_crear = true; }
+    // Captura de horas de maquinaria (diseño de primer borrador, ver
+    // prompt-modulo-maquinaria.md) — necesita puede_crear desde el default
+    // para no bloquearse el mismo día que se activa el enforcement real.
+    if (porSeccion.maquinaria) { porSeccion.maquinaria.puede_crear = true; }
+  }
+  if (puesto === 'taller' || puesto === 'admin' || puesto === 'desarrollador') {
+    // Registro de combustible/mantenimiento (mismo diseño de primer borrador).
+    if (porSeccion.maquinaria) { porSeccion.maquinaria.puede_crear = true; porSeccion.maquinaria.puede_editar = true; }
   }
   return filas;
 }

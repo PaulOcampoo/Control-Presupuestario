@@ -99,9 +99,19 @@ button, a, select, label,
    el crossfade entre pantallas, sin importar qué tan bajo baje ocultarPantalla()
    el z-index de la pantalla saliente (ver app.js). 5 es suficiente para eso
    (esas 3 quedan en z-index:1 mientras salen) y se mantiene muy por debajo
-   de .overlay/.drawer/.modal (40/50/60) — #app nunca les gana el paso a los
-   overlays reales de la app, solo a las pantallas de nivel superior que ya
-   deberían estar ocultas en cualquier momento normal. */
+   de .overlay/.drawer/.modal — #app nunca les gana el paso a los overlays
+   reales de la app, solo a las pantallas de nivel superior que ya deberían
+   estar ocultas en cualquier momento normal.
+
+   IMPORTANTE (bug real encontrado y corregido — ver prompt-clientes-refresco-
+   reordenar-eliminar): #modal/#modalOverlay deben tener z-index MAYOR que
+   .gallery-screen (100) y .welcome-screen (150), no menor. Un modal abierto
+   mientras esas pantallas de nivel superior son la vista activa (ej. "Nuevo
+   cliente" desde "Selecciona un cliente") quedaba renderizado DETRÁS de
+   ellas — invisible y sin poder recibir clics reales, aunque técnicamente
+   existiera en el DOM con .show. Por eso el modal y su overlay ahora usan
+   170/160 (ver reglas .modal / #modalOverlay más abajo), y .toast subió a
+   180 para seguir apareciendo por encima de cualquier modal abierto. */
 #app { display: flex; flex-direction: column; min-height: 100dvh; position: relative; z-index: 5; }
 
 /* G10: crossfade corto entre las 4 pantallas de nivel superior, mutuamente
@@ -435,8 +445,11 @@ body.modal-open { overflow: hidden; }
   position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%) scale(0.96);
   width: min(94vw, 520px); max-height: 88dvh; overflow-y: auto;
   background: var(--bg-surface); border: 1px solid var(--border-color); border-radius: 16px;
-  padding: 18px; z-index: 60; opacity: 0; pointer-events: none; transition: opacity 0.15s var(--ease-out), transform 0.15s var(--ease-out);
+  padding: 18px; z-index: 170; opacity: 0; pointer-events: none; transition: opacity 0.15s var(--ease-out), transform 0.15s var(--ease-out);
 }
+/* #modalOverlay comparte .overlay (40, igual que #drawerOverlay) pero necesita
+   quedar por encima de .gallery-screen/.welcome-screen — ver nota en #app. */
+#modalOverlay { z-index: 160; }
 .modal.show { opacity: 1; pointer-events: auto; transform: translate(-50%, -50%) scale(1); }
 .modal h3 { margin-top: 0; }
 .modal-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 16px; }
@@ -462,7 +475,7 @@ body.modal-open { overflow: hidden; }
 .toast {
   position: fixed; left: 50%; bottom: calc(24px + var(--safe-bottom)); transform: translateX(-50%);
   background: var(--bg-surface-2); border: 1px solid var(--border-color); color: var(--text-primary);
-  padding: 12px 18px; border-radius: 12px; font-size: 0.86rem; z-index: 80; max-width: 90vw;
+  padding: 12px 18px; border-radius: 12px; font-size: 0.86rem; z-index: 180; max-width: 90vw;
   opacity: 0; pointer-events: none;
   transition: opacity 0.25s var(--ease-out); box-shadow: 0 8px 30px rgba(0,0,0,0.4);
   cursor: pointer;
@@ -695,6 +708,7 @@ body.modal-open { overflow: hidden; }
    sin depender de un breakpoint fijo ni del número de clientes. */
 .cliente-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 12px; margin-top: 14px; }
 .cliente-card {
+  position: relative;
   background: color-mix(in srgb, var(--accent-gold) 14%, var(--bg-surface-2));
   border: 1px solid var(--accent-gold); border-radius: var(--radius);
   padding: 20px 12px; text-align: center; cursor: pointer;
@@ -705,6 +719,31 @@ body.modal-open { overflow: hidden; }
 .cliente-card .cliente-icon { font-size: 1.8rem; }
 .cliente-card .cliente-nombre { font-weight: 700; font-size: 0.98rem; text-transform: uppercase; }
 .cliente-card .cliente-count { color: var(--text-secondary); font-size: 0.76rem; }
+/* Menú de 3 puntos (solo admin/desarrollador) — esquina superior derecha,
+   fuera del flujo flex de la tarjeta para no desalinear icono/nombre/count. */
+.cliente-menu-btn {
+  position: absolute; top: 6px; right: 6px; width: 26px; height: 26px;
+  border: none; border-radius: 50%; background: transparent; color: var(--text-secondary);
+  font-size: 1.1rem; line-height: 1; cursor: pointer;
+}
+.cliente-menu-btn:hover { background: color-mix(in srgb, var(--text-primary) 10%, transparent); }
+.cliente-menu-dropdown {
+  position: absolute; top: 34px; right: 6px; z-index: 10;
+  background: var(--bg-surface); border: 1px solid var(--border-color); border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.35); overflow: hidden; min-width: 160px;
+  text-align: left;
+}
+.cliente-menu-item {
+  display: block; width: 100%; padding: 10px 14px; border: none; background: none;
+  color: var(--text-primary); font-size: 0.85rem; text-align: left; cursor: pointer;
+}
+.cliente-menu-item:hover { background: var(--bg-surface-2); }
+.cliente-menu-item-danger { color: var(--red); }
+/* .sortable-ghost/.sortable-drag son las clases que SortableJS aplica
+   automáticamente al elemento fantasma/arrastrado — estilo propio en vez del
+   default del navegador, consistente con el resto de la app. */
+.cliente-card.sortable-ghost { opacity: 0.4; }
+.cliente-card.sortable-drag { box-shadow: 0 12px 30px rgba(0,0,0,0.4); cursor: grabbing; }
 /* No hereda el fondo/borde dorado de .cliente-card base — sigue siendo un
    caso especial (solo admin, obras sin cliente asignado), no una tarjeta
    de cliente real ni el botón "+ Nuevo cliente". */

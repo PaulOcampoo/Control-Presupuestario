@@ -5669,7 +5669,7 @@ async function renderUsuarios(view) {
                     <tr data-seccion="${f.seccion}">
                       <td>${esc(PERMISOS_SECCION_LABELS[f.seccion])}${sinEnforcement ? '<span class="muted fs-07 perm-badge-info" title="El backend todavía no exige este permiso para esta sección — hoy el acceso real lo decide el rol del usuario, marcar/desmarcar aquí no tiene efecto todavía."> · informativo</span>' : ''}</td>
                       ${PERMISOS_ACCIONES.map((a) => `
-                        <td><label class="perm-check${sinEnforcement ? ' perm-check-disabled' : ''}"><input type="checkbox" data-accion="${a.key}" ${f[a.key] ? 'checked' : ''} ${sinEnforcement ? 'disabled' : ''} /><span class="perm-check-track"><span class="perm-check-thumb"></span></span></label></td>
+                        <td><label class="perm-check${sinEnforcement ? ' perm-check-informativo' : ''}"><input type="checkbox" data-accion="${a.key}" data-sin-enforcement="${sinEnforcement}" ${f[a.key] ? 'checked' : ''} /><span class="perm-check-track"><span class="perm-check-thumb"></span></span></label></td>
                       `).join('')}
                     </tr>
                   `;
@@ -5686,6 +5686,38 @@ async function renderUsuarios(view) {
       $('#permObraSelect')?.addEventListener('change', (e) => {
         proyectoIdActivo = e.target.value ? Number(e.target.value) : null;
         pintarMatriz();
+      });
+      // Secciones sin enforcement real: siguen siendo editables (no disabled),
+      // pero antes de aplicar el marcado/desmarcado se confirma con el admin
+      // — evita que se piense que el cambio ya tiene efecto en el backend.
+      //
+      // OJO con el checkbox nativo: el navegador ya aplica el toggle de
+      // .checked ANTES de disparar 'click' (no después) — o sea que al
+      // entrar aquí input.checked YA es el valor nuevo que el usuario quiso.
+      // Si llamamos preventDefault(), el navegador revierte .checked al
+      // valor de ANTES del click, pero esa reversión ocurre recién cuando
+      // este handler termina de ejecutarse (no de forma síncrona al llamar
+      // preventDefault) — por eso asignar input.checked aquí adentro, antes
+      // de que el handler retorne, no sirve de nada: el navegador la
+      // sobreescribe justo después. Hay que diferir la asignación con
+      // setTimeout para que corra en un tick posterior, ya con la reversión
+      // nativa ya aplicada. Disparamos 'change' a mano porque esa asignación
+      // por código no dispara eventos reales del DOM.
+      $$('#permMatrizWrap input[data-sin-enforcement="true"]').forEach((input) => {
+        input.addEventListener('click', (e) => {
+          const nuevoValor = input.checked; // valor que el usuario quiso poner (toggle nativo ya aplicado)
+          e.preventDefault();
+          const accionLabel = PERMISOS_ACCIONES.find((a) => a.key === input.dataset.accion)?.label || input.dataset.accion;
+          const seccionLabel = PERMISOS_SECCION_LABELS[input.closest('tr').dataset.seccion] || '';
+          const confirmado = confirm(
+            `"${accionLabel}" en ${seccionLabel} es un permiso informativo — el backend todavía no lo aplica automáticamente. ¿Deseas continuar?`
+          );
+          if (!confirmado) return;
+          setTimeout(() => {
+            input.checked = nuevoValor;
+            input.dispatchEvent(new Event('change', { bubbles: true }));
+          }, 0);
+        });
       });
       $('#btnGuardarPermisos').addEventListener('click', async () => {
         const btn = $('#btnGuardarPermisos');

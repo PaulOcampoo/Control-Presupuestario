@@ -1676,6 +1676,7 @@ body.modal-open { overflow: hidden; }
 
 /* renderDestajo / renderDestajistaCard / toggleDestajoSemanal / paintDestajoSemanaTable (.fs-08, .mt-12 ya existen, ver arriba) */
 .mb-4 { margin-bottom: 4px; }
+.mb-8 { margin-bottom: 8px; }
 .fs-1rem { font-size: 1rem; }
 .dest-card-stats { gap: 14px; margin: 6px 0; flex-wrap: wrap; font-size: 0.84rem; }
 .py10-px4 { padding: 10px 4px; }

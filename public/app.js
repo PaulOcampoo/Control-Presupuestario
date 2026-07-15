@@ -5454,6 +5454,13 @@ const PERMISOS_ACCIONES = [
   { key: 'puede_editar_precios', label: 'Editar precios' },
   { key: 'puede_eliminar', label: 'Eliminar' },
 ];
+// Secciones donde el backend realmente exige el permiso (auth.checkPermiso
+// aplicado en server/app.js) — hoy solo Nómina y Avance. Para el resto, la
+// casilla es informativa: el acceso real lo sigue decidiendo el rol
+// (auth.allow()), marcarla o no aquí todavía no cambia nada en el backend.
+// Actualizar esta lista cada vez que se le agregue checkPermiso a una
+// sección nueva (ver mismo patrón en server/auth.js SECCIONES_PERMISOS).
+const SECCIONES_CON_ENFORCEMENT = ['nominas', 'avance'];
 // Mirror de TAB_A_SECCION/defaultPermisosParaRol en server/auth.js — solo se
 // usa para PRE-MARCAR la matriz con lo que el rol ya puede hacer hoy (vía
 // ROLE_TABS/allow()) cuando el usuario todavía no tiene filas guardadas en
@@ -5575,9 +5582,16 @@ async function renderUsuarios(view) {
 
     // Si ya hay una fila guardada para esta sección (en este proyecto o en la
     // regla general de proyecto_id NULL), esa manda — es una personalización
-    // ya hecha antes. Si no existe ninguna fila todavía, se pre-marca con lo
-    // que el rol ya puede hacer hoy por auth.allow() (ver defaultsDelRol),
-    // para que el admin solo tenga que desmarcar/marcar diferencias.
+    // ya hecha antes. Si NO existe ninguna fila todavía, el comportamiento
+    // depende de si la sección tiene enforcement real en el backend:
+    //   - Sin enforcement (checkPermiso no aplicado ahí): pre-marcar con lo
+    //     que el rol ya puede hacer hoy por auth.allow() (defaultsDelRol) es
+    //     seguro — es solo informativo, el acceso real lo sigue dando el rol.
+    //   - CON enforcement (nominas, avance): NO pre-marcar con el default.
+    //     Sin fila real, checkPermiso en el backend deniega con 403 sin
+    //     importar el rol — mostrar la casilla marcada ahí mentiría sobre lo
+    //     que el usuario puede hacer hoy (bug reportado: casillas marcadas
+    //     para algo que en la práctica el usuario no puede hacer).
     function permisosParaProyecto(proyectoId) {
       const filasEspecificas = Object.fromEntries(
         permisosActuales.filter((p) => p.proyecto_id === proyectoId).map((f) => [f.seccion, f])
@@ -5585,12 +5599,20 @@ async function renderUsuarios(view) {
       const filasGenerales = Object.fromEntries(
         permisosActuales.filter((p) => p.proyecto_id === null).map((f) => [f.seccion, f])
       );
-      return PERMISOS_SECCIONES.map((seccion) =>
-        filasEspecificas[seccion] || filasGenerales[seccion] || defaultsDelRol[seccion] || {
+      return PERMISOS_SECCIONES.map((seccion) => {
+        const real = filasEspecificas[seccion] || filasGenerales[seccion];
+        if (real) return { ...real, _sinFila: false };
+        if (SECCIONES_CON_ENFORCEMENT.includes(seccion)) {
+          return {
+            seccion, puede_ver: false, puede_crear: false, puede_editar: false,
+            puede_editar_precios: false, puede_eliminar: false, _sinFila: true,
+          };
+        }
+        return { ...(defaultsDelRol[seccion] || {
           seccion, puede_ver: false, puede_crear: false, puede_editar: false,
           puede_editar_precios: false, puede_eliminar: false,
-        }
-      );
+        }), _sinFila: true };
+      });
     }
 
     function pintarMatriz() {

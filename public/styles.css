@@ -1912,6 +1912,11 @@ body.modal-open { overflow: hidden; }
 .perm-check { display: inline-flex; align-items: center; cursor: pointer; }
 .perm-check input[type="checkbox"] { width: 18px; height: 18px; }
 .perm-check-track, .perm-check-thumb { display: none; } /* skin de escritorio solamente */
+/* Secciones sin enforcement real (ver SECCIONES_CON_ENFORCEMENT) — la casilla
+   ya no se puede marcar/desmarcar, para no sugerir que tiene efecto cuando el
+   backend todavía no la exige (ver badge "· informativo" junto al nombre). */
+.perm-check-disabled, .perm-check-disabled input[type="checkbox"] { cursor: not-allowed; }
+.perm-check-disabled { opacity: 0.5; }
 
 @media (min-width: 861px) {
   .perm-matriz-table tbody tr:not(.perm-grupo-row) td { transition: background 0.15s var(--ease-out); }
@@ -1950,4 +1955,15 @@ body.modal-open { overflow: hidden; }
     box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-gold) 45%, transparent);
   }
   .perm-check:hover .perm-check-track { border-color: var(--accent-silver); }
+
+  /* Deshabilitado: nunca dorado (aunque esté "checked"), sin hover, para no
+     sugerir que el toggle está activo/funcional — solo se conserva la
+     posición del thumb, que sigue reflejando el valor real guardado. */
+  .perm-check-disabled input[type="checkbox"]:checked + .perm-check-track {
+    background: var(--bg-surface-2); border-color: var(--border-color);
+  }
+  .perm-check-disabled input[type="checkbox"]:checked + .perm-check-track .perm-check-thumb {
+    background: var(--accent-silver);
+  }
+  .perm-check-disabled:hover .perm-check-track { border-color: var(--border-color); }
 }

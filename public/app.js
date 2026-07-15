@@ -5444,7 +5444,7 @@ const PERMISOS_SECCION_LABELS = {
   presupuestos: 'Presupuestos', requisiciones: 'Requisiciones', proveedores: 'Proveedores',
   ordenes_compra: 'Órdenes de Compra', avance: 'Avance', destajo: 'Destajo', finanzas: 'Finanzas',
   insumos: 'Insumos', mapeo: 'Mapeo', usuarios: 'Usuarios', contrato: 'Contrato', impuestos: 'Impuestos',
-  nominas: 'Nóminas', sugerencias: 'Sugerencias',
+  nominas: 'Nóminas', sugerencias: 'Sugerencias', programa: 'Programa', estimaciones: 'Estimaciones',
 };
 const PERMISOS_SECCIONES = Object.keys(PERMISOS_SECCION_LABELS);
 const PERMISOS_ACCIONES = [
@@ -5466,7 +5466,7 @@ const SECCIONES_CON_ENFORCEMENT = ['nominas', 'avance'];
 // mismo criterio de negocio, para que la matriz se lea en el mismo orden que
 // el resto de la app en vez de un orden alfabético/insertado sin relación.
 const PERMISOS_GRUPOS = [
-  { label: 'Obra',           secciones: ['presupuestos', 'avance', 'destajo'] },
+  { label: 'Obra',           secciones: ['presupuestos', 'programa', 'avance', 'destajo', 'estimaciones'] },
   { label: 'Compras',        secciones: ['requisiciones', 'insumos', 'proveedores', 'ordenes_compra'] },
   { label: 'Tesorería',      secciones: ['finanzas', 'impuestos'] },
   { label: 'Administración', secciones: ['mapeo', 'contrato', 'nominas', 'usuarios'] },
@@ -5478,11 +5478,11 @@ const PERMISOS_GRUPOS = [
 // permisos_usuario para esa sección. Es puramente visual/de arranque: la
 // fuente de verdad real sigue siendo el middleware backend.
 const TAB_A_SECCION = {
-  resumen: 'presupuestos', programa: 'presupuestos', contrato: 'contrato',
+  resumen: 'presupuestos', programa: 'programa', contrato: 'contrato',
   impuestos: 'impuestos', insumos: 'insumos', requisiciones: 'requisiciones',
   ordenes: 'ordenes_compra', avance: 'avance', destajo: 'destajo',
   usuarios: 'usuarios', proveedores: 'proveedores', finanzas: 'finanzas',
-  mapeo: 'mapeo', nominas: 'nominas',
+  mapeo: 'mapeo', nominas: 'nominas', estimaciones: 'estimaciones',
 };
 function defaultPermisosParaRolFrontend(puesto) {
   const tabs = ROLE_TABS[puesto] || [];
@@ -5657,7 +5657,7 @@ async function renderUsuarios(view) {
                     <tr data-seccion="${f.seccion}">
                       <td>${esc(PERMISOS_SECCION_LABELS[f.seccion])}${sinEnforcement ? '<span class="muted fs-07 perm-badge-info" title="El backend todavía no exige este permiso para esta sección — hoy el acceso real lo decide el rol del usuario, marcar/desmarcar aquí no tiene efecto todavía."> · informativo</span>' : ''}</td>
                       ${PERMISOS_ACCIONES.map((a) => `
-                        <td><label class="perm-check"><input type="checkbox" data-accion="${a.key}" ${f[a.key] ? 'checked' : ''} /><span class="perm-check-track"><span class="perm-check-thumb"></span></span></label></td>
+                        <td><label class="perm-check${sinEnforcement ? ' perm-check-disabled' : ''}"><input type="checkbox" data-accion="${a.key}" ${f[a.key] ? 'checked' : ''} ${sinEnforcement ? 'disabled' : ''} /><span class="perm-check-track"><span class="perm-check-thumb"></span></span></label></td>
                       `).join('')}
                     </tr>
                   `;

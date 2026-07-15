@@ -6148,11 +6148,12 @@ const MAQUINARIA_TIPOS = ['retroexcavadora'];
 let maquinariaEquiposCache = [];
 
 async function renderMaquinaria(view) {
-  const [equipos, resumen, misPermisos, proyectos] = await Promise.all([
+  const [equipos, resumen, misPermisos, proyectos, reporteClientes] = await Promise.all([
     api('/maquinaria/equipos'),
     api('/maquinaria/resumen'),
     api('/mis-permisos/maquinaria'),
     api('/projects').catch(() => []),
+    api('/maquinaria/reporte-clientes').catch(() => null),
   ]);
   maquinariaEquiposCache = equipos;
   const puedeCrear = !!misPermisos.puede_crear;
@@ -6172,6 +6173,8 @@ async function renderMaquinaria(view) {
       ${puedeEditar ? `<button class="btn small mt-8" id="btnEditarPresupuestoMaq">Editar presupuesto total</button>` : ''}
     </div>
 
+    ${reporteClientes ? renderReporteClientesMaqHtml(reporteClientes) : ''}
+
     <div class="section-actions mt-12">
       ${puedeCrear ? '<button class="btn btn-primary" id="btnNuevoEquipoMaq">+ Nuevo equipo</button>' : ''}
       ${puedeCrear && !esCabo ? '<button class="btn" id="btnCombustibleMaq">+ Combustible</button>' : ''}
@@ -6181,7 +6184,7 @@ async function renderMaquinaria(view) {
     <div id="equiposMaqList"></div>
   `;
 
-  $('#btnEditarPresupuestoMaq')?.addEventListener('click', () => openPresupuestoMaqModal(resumen.monto_total));
+  $('#btnEditarPresupuestoMaq')?.addEventListener('click', () => openPresupuestoMaqModal(resumen.monto_total, reporteClientes));
   $('#btnNuevoEquipoMaq')?.addEventListener('click', () => openEquipoMaqModal(null, proyectos));
   $('#btnCombustibleMaq')?.addEventListener('click', () => openCombustibleMaqModal(equipos));
   $('#btnMantenimientoMaq')?.addEventListener('click', () => openMantenimientoMaqModal(equipos));
@@ -6189,6 +6192,48 @@ async function renderMaquinaria(view) {
   { const fill = $('.progress-bar > span[data-pct]', view); if (fill) fill.style.width = fill.dataset.pct + '%'; }
 
   paintEquiposMaqList(equipos, proyectos, { puedeEditar, puedeEliminar });
+}
+
+// Reporte por cliente (Fase 2, prompt-maquinaria-presupuesto-automatico):
+// presupuesto sugerido (SUM de insumos EQUIPO Y HERRAMIENTA, con respaldo en
+// meta.subtotal_herramienta_equipo cuando insumos da 0) vs. gasto real. El
+// asterisco + tooltip marca cuándo el monto de un cliente incluye al menos
+// una obra resuelta por el respaldo — es dinero real que ve el cliente, debe
+// quedar trazable de dónde salió cada número.
+function renderReporteClientesMaqHtml(reporte) {
+  const filas = reporte.por_cliente.map((c) => `
+    <tr>
+      <td>${esc(c.cliente)}${c.fuente_mixta ? '<span class="muted fs-07" title="Al menos una obra de este cliente no tiene insumos de categoría \'Equipo y herramienta\' capturados — se usó el subtotal confirmado del contrato en su lugar."> *</span>' : ''}</td>
+      <td class="num">${fmtMoney(c.presupuesto_sugerido)}</td>
+      <td class="num">${fmtMoney(c.gasto_total)}</td>
+    </tr>
+  `).join('');
+  const sinObra = reporte.sin_obra_asignada;
+  const sinObraRow = sinObra.gasto_total > 0 ? `
+    <tr>
+      <td class="muted">Equipos sin obra asignada</td>
+      <td class="num muted">—</td>
+      <td class="num">${fmtMoney(sinObra.gasto_total)}</td>
+    </tr>
+  ` : '';
+  return `
+    <h3 class="section-title mt-12">Presupuesto sugerido por cliente</h3>
+    <p class="muted fs-08">Calculado automáticamente desde los insumos de "Equipo y herramienta" de cada obra${reporte.fuente_mixta ? ' (los marcados con * usan el subtotal del contrato confirmado como respaldo)' : ''} — no reemplaza el presupuesto manual, solo lo sugiere.</p>
+    <div class="card">
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Cliente</th><th class="num">Presupuesto sugerido</th><th class="num">Gasto real</th></tr></thead>
+          <tbody>
+            ${filas}
+            ${sinObraRow}
+          </tbody>
+          <tfoot>
+            <tr><td><strong>Total global</strong></td><td class="num"><strong>${fmtMoney(reporte.total_sugerido)}</strong></td><td class="num"><strong>${fmtMoney(reporte.por_cliente.reduce((s, c) => s + c.gasto_total, 0) + sinObra.gasto_total)}</strong></td></tr>
+          </tfoot>
+        </table>
+      </div>
+    </div>
+  `;
 }
 
 function paintEquiposMaqList(equipos, proyectos, { puedeEditar, puedeEliminar }) {
@@ -6337,10 +6382,18 @@ function openEquipoMaqModal(equipo, proyectos) {
   });
 }
 
-function openPresupuestoMaqModal(montoActual) {
+function openPresupuestoMaqModal(montoActual, sugerido) {
+  const tieneSugerido = sugerido && sugerido.total_sugerido > 0;
   openModal(`
     <h3>Editar presupuesto total de maquinaria</h3>
     <p class="muted fs-08">Monto único para toda la flota — no está dividido por periodo (asunción pendiente de confirmar).</p>
+    ${tieneSugerido ? `
+      <div class="muted fs-08 mb-8">
+        Sugerido automáticamente: <strong>${fmtMoney(sugerido.total_sugerido)}</strong>${sugerido.fuente_mixta ? `<span title="Al menos una obra no tiene insumos de categoría &quot;Equipo y herramienta&quot; capturados — se usó el subtotal confirmado del contrato como respaldo."> *</span>` : ''}
+        — basado en insumos de "Equipo y herramienta" de todas las obras.
+        <button type="button" class="btn small" id="btnUsarSugeridoMaq">Usar sugerido</button>
+      </div>
+    ` : ''}
     <div class="field"><label>Monto total *</label><input id="presMaqMonto" type="number" min="0" step="0.01" value="${montoActual}" /></div>
     <div class="modal-actions">
       <button class="btn" id="btnCancelPresMaq">Cerrar</button>
@@ -6348,6 +6401,7 @@ function openPresupuestoMaqModal(montoActual) {
     </div>
   `);
   $('#presMaqMonto').focus();
+  $('#btnUsarSugeridoMaq')?.addEventListener('click', () => { $('#presMaqMonto').value = sugerido.total_sugerido; });
   $('#btnCancelPresMaq').addEventListener('click', closeModal);
   $('#btnSavePresMaq').addEventListener('click', async () => {
     const monto = Number($('#presMaqMonto').value);

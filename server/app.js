@@ -1086,6 +1086,17 @@ app.put('/api/maquinaria/presupuesto', h(auth.checkPermiso('maquinaria', 'puede_
   res.json(presupuesto);
 }));
 
+// Presupuesto sugerido (Fase 2, prompt-maquinaria-presupuesto-automatico) —
+// solo lectura, para prellenar el campo de edición manual. No toca
+// presupuesto_maquinaria por sí solo.
+app.get('/api/maquinaria/presupuesto-sugerido', h(auth.checkPermiso('maquinaria', 'puede_ver')), h(async (req, res) => {
+  res.json(await maquinaria.getPresupuestoSugerido());
+}));
+
+app.get('/api/maquinaria/reporte-clientes', h(auth.checkPermiso('maquinaria', 'puede_ver')), h(async (req, res) => {
+  res.json(await maquinaria.getReportePorCliente());
+}));
+
 // ---------------------------------------------------------------------------
 // Clientes (agrupador de proyectos). No hay tabla usuario_clientes: el acceso
 // se deriva de si el usuario tiene acceso a >=1 proyecto de ese cliente vía

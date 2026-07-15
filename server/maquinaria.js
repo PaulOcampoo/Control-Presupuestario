@@ -175,10 +175,146 @@ async function updatePresupuesto(montoTotal) {
   return rows[0];
 }
 
+// Presupuesto SUGERIDO de maquinaria (prompt-maquinaria-presupuesto-automatico,
+// Fase 2) — no reemplaza el monto manual de presupuesto_maquinaria, solo lo
+// prellena. Confirmado con Paul (Fase 1):
+//   - Fuente primaria: SUM(insumos.importe_presupuesto) WHERE categoria =
+//     'EQUIPO Y HERRAMIENTA', por obra.
+//   - Respaldo: si esa suma da 0 (o la obra no tiene filas de esa
+//     categoría), usar meta.subtotal_herramienta_equipo si existe para esa
+//     obra — es un valor ya confirmado alguna vez vía el flujo de extracción
+//     de contrato, independiente de si el PDF sigue en la tabla `contratos`.
+// Cada obra queda marcada con su `fuente` ('insumos'|'meta'|'ninguno') para
+// que el frontend pueda indicar cuándo un monto vino del respaldo — es
+// dinero real que ve el cliente, debe quedar trazable de dónde salió.
+async function getPresupuestoSugerido() {
+  const { rows } = await db.pool.query(`
+    SELECT p.id AS project_id, p.nombre AS obra, p.cliente_id, c.nombre AS cliente,
+      COALESCE((
+        SELECT SUM(i.importe_presupuesto) FROM insumos i
+        WHERE i.project_id = p.id AND i.categoria = 'EQUIPO Y HERRAMIENTA'
+      ), 0) AS suma_insumos,
+      (SELECT valor FROM meta m WHERE m.project_id = p.id AND m.clave = 'subtotal_herramienta_equipo') AS meta_valor
+    FROM proyectos p
+    LEFT JOIN clientes c ON c.id = p.cliente_id
+    ORDER BY c.nombre NULLS LAST, p.nombre
+  `);
+
+  const obras = rows.map((r) => {
+    const sumaInsumos = Number(r.suma_insumos) || 0;
+    let monto = sumaInsumos;
+    let fuente = 'insumos';
+    if (sumaInsumos <= 0) {
+      if (r.meta_valor != null && Number(r.meta_valor) > 0) {
+        monto = Number(r.meta_valor);
+        fuente = 'meta';
+      } else {
+        monto = 0;
+        fuente = 'ninguno';
+      }
+    }
+    return {
+      project_id: r.project_id, obra: r.obra,
+      cliente_id: r.cliente_id, cliente: r.cliente || 'Sin cliente asignado',
+      monto, fuente,
+    };
+  });
+
+  const porClienteMap = new Map();
+  for (const o of obras) {
+    const key = o.cliente_id ?? 'sin_cliente';
+    if (!porClienteMap.has(key)) {
+      porClienteMap.set(key, { cliente_id: o.cliente_id, cliente: o.cliente, monto: 0, fuente_mixta: false, obras: [] });
+    }
+    const entry = porClienteMap.get(key);
+    entry.monto += o.monto;
+    entry.obras.push(o);
+    if (o.fuente === 'meta') entry.fuente_mixta = true;
+  }
+
+  const porCliente = [...porClienteMap.values()].sort((a, b) => a.cliente.localeCompare(b.cliente));
+  const totalSugerido = porCliente.reduce((s, c) => s + c.monto, 0);
+  const fuenteMixtaGlobal = porCliente.some((c) => c.fuente_mixta);
+  return { total_sugerido: totalSugerido, fuente_mixta: fuenteMixtaGlobal, por_cliente: porCliente };
+}
+
+// Reporte de Maquinaria por cliente (Fase 2): presupuesto sugerido (arriba)
+// vs. gasto real (combustible + mantenimiento) de los equipos actualmente
+// asignados a obras de ese cliente. Limitación conocida: el gasto se
+// atribuye según la obra ACTUAL del equipo (equipos_maquinaria.obra_id) —
+// si un equipo cambió de obra después de que se le cargó combustible, ese
+// gasto histórico queda con la obra/cliente de HOY, no la de cuando se
+// generó. Es la única relación equipo↔obra↔cliente que existe hoy.
+async function getReportePorCliente() {
+  const sugerido = await getPresupuestoSugerido();
+  const sugeridoPorCliente = new Map(sugerido.por_cliente.map((c) => [c.cliente_id, c]));
+
+  const { rows: clientes } = await db.pool.query('SELECT id, nombre FROM clientes ORDER BY nombre');
+  const porCliente = [];
+  for (const cliente of clientes) {
+    const { rows: gastoRows } = await db.pool.query(`
+      SELECT
+        COALESCE((
+          SELECT SUM(cm.costo) FROM combustible_maquinaria cm
+          JOIN equipos_maquinaria e ON e.id = cm.equipo_id
+          JOIN proyectos p ON p.id = e.obra_id
+          WHERE p.cliente_id = $1 AND cm.activo = true
+        ), 0) AS gasto_combustible,
+        COALESCE((
+          SELECT SUM(mm.costo) FROM mantenimientos_maquinaria mm
+          JOIN equipos_maquinaria e ON e.id = mm.equipo_id
+          JOIN proyectos p ON p.id = e.obra_id
+          WHERE p.cliente_id = $1 AND mm.activo = true
+        ), 0) AS gasto_mantenimiento
+    `, [cliente.id]);
+    const sug = sugeridoPorCliente.get(cliente.id);
+    const gastoCombustible = Number(gastoRows[0].gasto_combustible);
+    const gastoMantenimiento = Number(gastoRows[0].gasto_mantenimiento);
+    porCliente.push({
+      cliente_id: cliente.id,
+      cliente: cliente.nombre,
+      presupuesto_sugerido: sug?.monto || 0,
+      fuente_mixta: sug?.fuente_mixta || false,
+      gasto_combustible: gastoCombustible,
+      gasto_mantenimiento: gastoMantenimiento,
+      gasto_total: gastoCombustible + gastoMantenimiento,
+    });
+  }
+
+  // Gasto de equipos sin obra asignada — no atribuible a ningún cliente.
+  const { rows: sinObraRows } = await db.pool.query(`
+    SELECT
+      COALESCE((
+        SELECT SUM(cm.costo) FROM combustible_maquinaria cm
+        JOIN equipos_maquinaria e ON e.id = cm.equipo_id
+        WHERE e.obra_id IS NULL AND cm.activo = true
+      ), 0) AS gasto_combustible,
+      COALESCE((
+        SELECT SUM(mm.costo) FROM mantenimientos_maquinaria mm
+        JOIN equipos_maquinaria e ON e.id = mm.equipo_id
+        WHERE e.obra_id IS NULL AND mm.activo = true
+      ), 0) AS gasto_mantenimiento
+  `);
+  const sinObraCombustible = Number(sinObraRows[0].gasto_combustible);
+  const sinObraMantenimiento = Number(sinObraRows[0].gasto_mantenimiento);
+
+  return {
+    total_sugerido: sugerido.total_sugerido,
+    fuente_mixta: sugerido.fuente_mixta,
+    por_cliente: porCliente,
+    sin_obra_asignada: {
+      gasto_combustible: sinObraCombustible,
+      gasto_mantenimiento: sinObraMantenimiento,
+      gasto_total: sinObraCombustible + sinObraMantenimiento,
+    },
+  };
+}
+
 module.exports = {
   listEquipos, createEquipo, updateEquipo, softDeleteEquipo,
   listCombustible, createCombustible, softDeleteCombustible,
   listMantenimientos, createMantenimiento, softDeleteMantenimiento,
   listHoras, createHoras, softDeleteHoras,
   getResumen, updatePresupuesto,
+  getPresupuestoSugerido, getReportePorCliente,
 };

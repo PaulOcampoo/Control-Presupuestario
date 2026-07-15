@@ -1890,6 +1890,11 @@ function renderClientGallery() {
       <span class="cliente-icon">🏢</span>
       <span class="cliente-nombre">${esc(c.nombre)}</span>
       <span class="cliente-count">${c.num_proyectos} presupuesto${c.num_proyectos !== 1 ? 's' : ''}</span>
+      ${isAdmin() ? `
+        <button class="cliente-menu-btn" data-cliente-menu-btn="${c.id}" title="Opciones">⋮</button>
+        <div class="cliente-menu-dropdown hidden-initial" data-cliente-menu-dropdown="${c.id}">
+          <button class="cliente-menu-item cliente-menu-item-danger" data-cliente-eliminar="${c.id}" data-cliente-eliminar-nombre="${esc(c.nombre)}">🗑️ Eliminar cliente</button>
+        </div>` : ''}
     </div>
   `).join('');
   if (isAdmin() && huerfanos.length) {
@@ -1911,11 +1916,79 @@ function renderClientGallery() {
   }
   grid.innerHTML = html || `<div class="empty-state"><div class="big">🏢</div>Aún no hay clientes registrados.</div>`;
   $$('.cliente-card', grid).forEach((el) => {
-    el.addEventListener('click', () => {
+    el.addEventListener('click', (ev) => {
+      if (ev.target.closest('[data-cliente-menu-btn]') || ev.target.closest('[data-cliente-menu-dropdown]')) return;
       if (el.dataset.cliente === '__nuevo__') { openNuevoClienteModal(); return; }
       selectCliente(el.dataset.cliente === 'sin-cliente' ? 'sin-cliente' : Number(el.dataset.cliente));
     });
   });
+  $$('[data-cliente-menu-btn]', grid).forEach((btn) => {
+    btn.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      const dropdown = grid.querySelector(`[data-cliente-menu-dropdown="${btn.dataset.clienteMenuBtn}"]`);
+      const wasOpen = !dropdown.classList.contains('hidden-initial');
+      closeAllClienteMenus();
+      if (!wasOpen) dropdown.classList.remove('hidden-initial');
+    });
+  });
+  $$('[data-cliente-eliminar]', grid).forEach((btn) => {
+    btn.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      closeAllClienteMenus();
+      eliminarCliente(Number(btn.dataset.clienteEliminar), btn.dataset.clienteEliminarNombre);
+    });
+  });
+  initClienteSortable(grid);
+}
+
+function closeAllClienteMenus() {
+  $$('.cliente-menu-dropdown', document).forEach((d) => d.classList.add('hidden-initial'));
+}
+document.addEventListener('click', closeAllClienteMenus);
+
+// SortableJS se inicializa una sola vez sobre #clienteGrid (el contenedor
+// persiste entre renders; solo su innerHTML se reemplaza) — evita apilar
+// listeners duplicados en cada llamada a renderClientGallery().
+function initClienteSortable(grid) {
+  if (grid._clienteSortable) return;
+  grid._clienteSortable = new Sortable(grid, {
+    animation: 150,
+    delay: 300, // long-press en touch antes de iniciar el arrastre
+    delayOnTouchOnly: true,
+    touchStartThreshold: 5,
+    filter: '.cliente-card-new, .cliente-card-orphan, [data-cliente-menu-btn], .cliente-menu-dropdown',
+    preventOnFilter: false,
+    // "+ Nuevo cliente" y "Sin cliente asignado" nunca cambian de posición:
+    // se rechaza cualquier intercambio contra esas dos tarjetas especiales,
+    // el resto se puede reordenar libremente alrededor de ellas.
+    onMove: (evt) => !evt.related.classList.contains('cliente-card-new') && !evt.related.classList.contains('cliente-card-orphan'),
+    onEnd: async () => {
+      const orden = $$('.cliente-card:not(.cliente-card-new):not(.cliente-card-orphan)', grid)
+        .map((el) => Number(el.dataset.cliente));
+      try {
+        await api('/clientes/orden', { method: 'PUT', body: { orden } });
+      } catch (err) {
+        toast(err.message, 'danger');
+      }
+    },
+  });
+}
+
+async function eliminarCliente(id, nombre) {
+  const ok = await confirmDialog(
+    `Esta acción no se puede deshacer. Se eliminará permanentemente el cliente "${nombre}". ` +
+    `Si tiene obras o presupuestos asociados, no se podrá eliminar hasta que los reasignes o elimines primero.`,
+    { titulo: 'Eliminar cliente', textoAceptar: 'Eliminar', textoCancelar: 'Cancelar' }
+  );
+  if (!ok) return;
+  try {
+    await api(`/clientes/${id}`, { method: 'DELETE' });
+    state.clientes = state.clientes.filter((c) => c.id !== id);
+    renderClientGallery();
+    toast('Cliente eliminado', 'success');
+  } catch (err) {
+    toast(err.message, 'danger');
+  }
 }
 
 function renderGalleryGreeting() {

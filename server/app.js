@@ -1153,15 +1153,21 @@ app.get('/api/maquinaria/reporte-clientes', h(auth.checkPermiso('maquinaria', 'p
 // se deriva de si el usuario tiene acceso a >=1 proyecto de ese cliente vía
 // usuario_proyectos (admin ve todos, igual que en GET /api/projects).
 // ---------------------------------------------------------------------------
+// Orden personalizado: LEFT JOIN a orden_clientes_usuario del usuario actual.
+// Clientes sin fila de orden guardada (nunca reordenados, o creados después
+// del último guardado) quedan con posicion NULL y se van al final por nombre
+// — así un cliente nuevo siempre aparece (al final) sin romper el orden ya
+// guardado de los demás.
 app.get('/api/clientes', h(auth.allow('residente', 'cabo', 'compras', 'tesoreria', 'administracion', 'logistica')), h(async (req, res) => {
   if (req.user.puesto === 'admin') {
     const { rows } = await db.pool.query(`
       SELECT c.id, c.nombre, COUNT(p.id)::int AS num_proyectos
       FROM clientes c
       LEFT JOIN proyectos p ON p.cliente_id = c.id
-      GROUP BY c.id, c.nombre
-      ORDER BY c.nombre
-    `);
+      LEFT JOIN orden_clientes_usuario ocu ON ocu.cliente_id = c.id AND ocu.usuario_id = $1
+      GROUP BY c.id, c.nombre, ocu.posicion
+      ORDER BY ocu.posicion NULLS LAST, c.nombre
+    `, [req.user.id]);
     return res.json(rows);
   }
   const { rows } = await db.pool.query(`
@@ -1169,8 +1175,9 @@ app.get('/api/clientes', h(auth.allow('residente', 'cabo', 'compras', 'tesoreria
     FROM clientes c
     JOIN proyectos p ON p.cliente_id = c.id
     JOIN usuario_proyectos up ON up.project_id = p.id AND up.usuario_id = $1
-    GROUP BY c.id, c.nombre
-    ORDER BY c.nombre
+    LEFT JOIN orden_clientes_usuario ocu ON ocu.cliente_id = c.id AND ocu.usuario_id = $1
+    GROUP BY c.id, c.nombre, ocu.posicion
+    ORDER BY ocu.posicion NULLS LAST, c.nombre
   `, [req.user.id]);
   res.json(rows);
 }));
@@ -1182,6 +1189,47 @@ app.post('/api/clientes', h(auth.allow()), h(async (req, res) => {
     'INSERT INTO clientes (nombre) VALUES ($1) RETURNING *', [nombre.trim()]
   );
   res.status(201).json({ ...rows[0], num_proyectos: 0 });
+}));
+
+// Guarda el orden completo de tarjetas de cliente para el usuario actual —
+// se reescribe entera (no upsert incremental) porque el frontend siempre
+// manda el arreglo completo tras soltar el drag and drop.
+app.put('/api/clientes/orden', h(auth.allow('residente', 'cabo', 'compras', 'tesoreria', 'administracion', 'logistica')), h(async (req, res) => {
+  const { orden } = req.body || {};
+  if (!Array.isArray(orden) || !orden.length) {
+    return res.status(400).json({ error: 'Se requiere un arreglo "orden" con los IDs de cliente' });
+  }
+  await db.withTransaction(async (client) => {
+    await client.query('DELETE FROM orden_clientes_usuario WHERE usuario_id = $1', [req.user.id]);
+    for (let i = 0; i < orden.length; i++) {
+      await client.query(
+        'INSERT INTO orden_clientes_usuario (usuario_id, cliente_id, posicion) VALUES ($1, $2, $3)',
+        [req.user.id, Number(orden[i]), i]
+      );
+    }
+  });
+  res.json({ ok: true });
+}));
+
+// Eliminar cliente: solo admin/desarrollador (auth.allow() sin roles extra).
+// Bloquea el borrado si el cliente tiene >=1 obra asociada — regla del
+// proyecto de no destruir datos financieros; el usuario debe reasignar o
+// eliminar esas obras primero. Sin soft-delete: un cliente sin obras no
+// tiene ningún dato real que perder, así que el DELETE físico es seguro.
+app.delete('/api/clientes/:id', h(auth.allow()), h(async (req, res) => {
+  const id = Number(req.params.id);
+  const { rows: obras } = await db.pool.query(
+    'SELECT id, nombre FROM proyectos WHERE cliente_id = $1 ORDER BY nombre', [id]
+  );
+  if (obras.length) {
+    return res.status(409).json({
+      error: `No se puede eliminar: este cliente tiene ${obras.length} obra${obras.length === 1 ? '' : 's'} asociada${obras.length === 1 ? '' : 's'} (${obras.map((o) => o.nombre).join(', ')}). Reasigna o elimina esas obras primero.`,
+      obras,
+    });
+  }
+  const { rowCount } = await db.pool.query('DELETE FROM clientes WHERE id = $1', [id]);
+  if (!rowCount) return res.status(404).json({ error: 'Cliente no encontrado' });
+  res.json({ ok: true });
 }));
 
 // ---------------------------------------------------------------------------

@@ -299,6 +299,19 @@ const SCHEMA = `
   );
   ALTER TABLE proyectos ADD COLUMN IF NOT EXISTS cliente_id INTEGER REFERENCES clientes(id);
 
+  -- Orden personalizado de tarjetas de cliente en "Selecciona un cliente",
+  -- por usuario (no afecta lo que ven otros usuarios). Se reescribe entera
+  -- en cada guardado (DELETE + INSERT dentro de una transacción) en vez de
+  -- hacer upserts fila por fila — más simple dado que el orden siempre se
+  -- guarda completo desde el frontend tras un drag and drop.
+  CREATE TABLE IF NOT EXISTS orden_clientes_usuario (
+    id SERIAL PRIMARY KEY,
+    usuario_id INTEGER NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+    cliente_id INTEGER NOT NULL REFERENCES clientes(id) ON DELETE CASCADE,
+    posicion INTEGER NOT NULL,
+    UNIQUE (usuario_id, cliente_id)
+  );
+
   -- Notificaciones in-app — infraestructura base para las alertas de fases
   -- futuras (impuestos, vencimiento de contrato, requisición/OC publicada).
   -- 'tipo' es texto libre (no ENUM) para que esas fases agreguen tipos nuevos

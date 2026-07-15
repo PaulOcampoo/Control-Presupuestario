@@ -21,6 +21,7 @@ const { sendXlsxExport, buildExportFilename } = require('./exportHelper');
 const { extraerDatosContrato, CAMPOS_CONTRATO } = require('./extraccionContrato');
 const { crearNotificacion, notificarAdmins } = require('./notificaciones');
 const { buildEstimacionPdf } = require('./estimacionesPdf');
+const { buildNominaReporteSemanalPdf } = require('./nominaReporteSemanalPdf');
 const { calcularDiasRestantes, determinarUmbral, construirMensaje } = require('./alertasContrato');
 const maquinaria = require('./maquinaria');
 
@@ -3898,6 +3899,32 @@ const TIPOS_PAGO = ['jornal', 'destajo', 'mixto'];
 const PERIODICIDADES = ['semanal', 'quincenal', 'mensual'];
 const TIPOS_DOC = ['ine_frente', 'ine_reverso', 'curp_doc', 'comprobante_domicilio', 'otro'];
 
+// Vista global — solo admin/desarrollador: todos los trabajadores de todas
+// las obras, con la obra y el/los residente(s) a cargo de cada una (mismo
+// patrón que GET /api/nominas). Un residente por obra es lo normal, pero
+// usuario_proyectos no impide asignar más de uno a la misma obra — cuando
+// pasa, se listan todos separados por coma en vez de elegir uno arbitrario
+// (decisión confirmada con Paul).
+app.get('/api/trabajadores', h(auth.allow()), h(async (req, res) => {
+  const { activo } = req.query;
+  let sql = `
+    SELECT t.*, d.nombre AS destajista_nombre,
+           p.nombre AS obra_nombre, c.nombre AS cliente_nombre,
+           (SELECT string_agg(u.nombre, ', ' ORDER BY u.nombre)
+            FROM usuario_proyectos up JOIN usuarios u ON u.id = up.usuario_id
+            WHERE up.project_id = t.project_id AND u.puesto = 'residente') AS residentes_a_cargo
+    FROM trabajadores t
+    LEFT JOIN destajistas d ON d.id = t.destajista_id
+    JOIN proyectos p ON p.id = t.project_id
+    LEFT JOIN clientes c ON c.id = p.cliente_id
+    WHERE 1=1`;
+  if (activo === '1') sql += ' AND t.activo = true';
+  else if (activo === '0') sql += ' AND t.activo = false';
+  sql += ' ORDER BY COALESCE(c.nombre, \'\'), p.nombre, t.orden, t.nombre';
+  const { rows } = await db.pool.query(sql);
+  res.json(rows);
+}));
+
 app.get('/api/projects/:id/trabajadores', h(auth.allow()), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
   const { activo } = req.query;
   let sql = `SELECT t.*, d.nombre AS destajista_nombre
@@ -4392,25 +4419,163 @@ const ESTADOS_NOMINA = ['borrador', 'revision', 'aprobada', 'rechazada'];
 
 // Vista global — solo admin/desarrollador: todas las nóminas de todas las
 // obras y todos los residentes (a diferencia de GET /projects/:id/nominas,
-// que un residente solo ve las propias de su obra). Agrupada/ordenada por
-// residente y luego por obra.
+// que un residente solo ve las propias de su obra). Incluye cliente y
+// residente(s) a cargo de la obra (no necesariamente el mismo usuario que
+// creó esta nómina en particular — ver nota en GET /api/trabajadores sobre
+// más de un residente por obra) para poder agrupar Cliente → Obra →
+// Residente(s) → Trabajadores en el frontend.
 app.get('/api/nominas', h(auth.allow()), h(async (_req, res) => {
   const { rows } = await db.pool.query(`
     SELECT n.*,
            p.nombre AS obra_nombre,
+           cl.nombre AS cliente_nombre,
            c.nombre AS creado_por_nombre,
            u.nombre AS aprobada_por_nombre,
+           (SELECT string_agg(ru.nombre, ', ' ORDER BY ru.nombre)
+            FROM usuario_proyectos up JOIN usuarios ru ON ru.id = up.usuario_id
+            WHERE up.project_id = n.project_id AND ru.puesto = 'residente') AS residentes_a_cargo,
            COUNT(ni.id)::int AS num_trabajadores,
            COALESCE(SUM(ni.monto_total), 0) AS total_nomina
     FROM nominas n
     JOIN proyectos p ON p.id = n.project_id
+    LEFT JOIN clientes cl ON cl.id = p.cliente_id
     LEFT JOIN usuarios c ON c.id = n.creado_por
     LEFT JOIN usuarios u ON u.id = n.aprobada_por
     LEFT JOIN nomina_items ni ON ni.nomina_id = n.id
-    GROUP BY n.id, p.nombre, c.nombre, u.nombre
-    ORDER BY COALESCE(c.nombre, ''), p.nombre, n.fecha_inicio DESC`
+    GROUP BY n.id, p.nombre, cl.nombre, c.nombre, u.nombre
+    ORDER BY COALESCE(cl.nombre, ''), p.nombre, n.fecha_inicio DESC`
   );
   res.json(rows);
+}));
+
+// Helper compartido por la vista en-app y ambos formatos de descarga (Excel/
+// PDF) — un solo lugar que arma el reporte, para no duplicar la consulta.
+// "Obra activa" = fin_obra nulo o >= HOY (mismo criterio ya usado para la
+// alerta de contrato vencido, evaluado contra la fecha actual sin importar
+// qué semana histórica se esté consultando — una sola definición de
+// "activa" en toda la app, decisión confirmada con Paul).
+async function construirReporteNominaSemanal(clienteId, fecha) {
+  const { rows: clienteRows } = await db.pool.query('SELECT * FROM clientes WHERE id = $1', [clienteId]);
+  if (!clienteRows[0]) return null;
+
+  const { rows: obras } = await db.pool.query(`
+    SELECT p.id, p.nombre,
+           (SELECT valor FROM meta WHERE project_id = p.id AND clave = 'fin_obra') AS fin_obra
+    FROM proyectos p
+    WHERE p.cliente_id = $1
+    ORDER BY p.nombre`,
+    [clienteId]
+  );
+  const hoy = new Date().toISOString().slice(0, 10);
+  const obrasActivas = obras.filter((o) => !o.fin_obra || o.fin_obra >= hoy);
+
+  const reporteObras = [];
+  for (const obra of obrasActivas) {
+    const { rows: residRows } = await db.pool.query(
+      `SELECT u.nombre FROM usuario_proyectos up JOIN usuarios u ON u.id = up.usuario_id
+       WHERE up.project_id = $1 AND u.puesto = 'residente' ORDER BY u.nombre`,
+      [obra.id]
+    );
+    const { rows: nominaRows } = await db.pool.query(
+      `SELECT * FROM nominas WHERE project_id = $1 AND fecha_inicio <= $2 AND fecha_fin >= $2 ORDER BY fecha_inicio DESC`,
+      [obra.id, fecha]
+    );
+    const nominasConDetalle = [];
+    for (const nom of nominaRows) {
+      const { rows: items } = await db.pool.query(
+        `SELECT ni.*, t.nombre AS trabajador_nombre, t.puesto AS trabajador_puesto
+         FROM nomina_items ni JOIN trabajadores t ON t.id = ni.trabajador_id
+         WHERE ni.nomina_id = $1 ORDER BY t.nombre`,
+        [nom.id]
+      );
+      nominasConDetalle.push({ ...nom, items });
+    }
+    const totalObra = nominasConDetalle.reduce(
+      (s, n) => s + n.items.reduce((s2, i) => s2 + Number(i.monto_total), 0), 0
+    );
+    reporteObras.push({
+      obra_id: obra.id,
+      obra_nombre: obra.nombre,
+      residentes_a_cargo: residRows.map((r) => r.nombre).join(', '),
+      nominas: nominasConDetalle,
+      total_obra: totalObra,
+    });
+  }
+  const totalCliente = reporteObras.reduce((s, o) => s + o.total_obra, 0);
+  return { cliente: clienteRows[0], fecha, obras: reporteObras, total_cliente: totalCliente };
+}
+
+// Reporte de nómina semanal por cliente — filtrable por fecha (cualquier día
+// dentro de la semana deseada; se buscan las nóminas de cada obra activa
+// cuyo periodo [fecha_inicio, fecha_fin] contiene esa fecha, ya que cada obra
+// puede tener su propio calendario de periodos). Solo lectura — no toca la
+// lógica de captura/cálculo de nómina existente.
+app.get('/api/clientes/:id/nominas-reporte-semanal', h(auth.allow()), h(async (req, res) => {
+  const clienteId = Number(req.params.id);
+  const { fecha } = req.query;
+  if (!fecha) return res.status(400).json({ error: 'Indica la fecha de la semana a consultar' });
+  const reporte = await construirReporteNominaSemanal(clienteId, fecha);
+  if (!reporte) return res.status(404).json({ error: 'Cliente no encontrado' });
+  res.json(reporte);
+}));
+
+app.get('/api/clientes/:id/nominas-reporte-semanal/export', h(auth.allow()), h(async (req, res) => {
+  const clienteId = Number(req.params.id);
+  const { fecha } = req.query;
+  if (!fecha) return res.status(400).json({ error: 'Indica la fecha de la semana a consultar' });
+  const reporte = await construirReporteNominaSemanal(clienteId, fecha);
+  if (!reporte) return res.status(404).json({ error: 'Cliente no encontrado' });
+
+  const rows = [];
+  for (const obra of reporte.obras) {
+    for (const nom of obra.nominas) {
+      for (const it of nom.items) {
+        rows.push({
+          obra: obra.obra_nombre,
+          residentes: obra.residentes_a_cargo,
+          periodo: `${nom.fecha_inicio} al ${nom.fecha_fin}`,
+          trabajador: it.trabajador_nombre,
+          puesto: it.trabajador_puesto || '',
+          dias_trabajados: it.dias_trabajados,
+          monto_jornal: it.monto_jornal,
+          monto_destajo: it.monto_destajo,
+          monto_total: it.monto_total,
+        });
+      }
+    }
+  }
+  await sendXlsxExport(res, {
+    filename: buildExportFilename(`NominaSemanal_${reporte.cliente.nombre}_${fecha}`),
+    sheets: [{
+      sheetName: 'Reporte semanal',
+      columns: [
+        { header: 'Obra', key: 'obra', width: 26 },
+        { header: 'Residente(s) a cargo', key: 'residentes', width: 24 },
+        { header: 'Periodo', key: 'periodo', width: 22 },
+        { header: 'Trabajador', key: 'trabajador', width: 26 },
+        { header: 'Puesto', key: 'puesto', width: 18 },
+        { header: 'Días trabajados', key: 'dias_trabajados', width: 14, format: 'int' },
+        { header: 'Monto jornal', key: 'monto_jornal', width: 16, format: 'money' },
+        { header: 'Monto destajo', key: 'monto_destajo', width: 16, format: 'money' },
+        { header: 'Total', key: 'monto_total', width: 16, format: 'money' },
+      ],
+      rows,
+    }],
+  });
+}));
+
+app.get('/api/clientes/:id/nominas-reporte-semanal/export-pdf', h(auth.allow()), h(async (req, res) => {
+  const clienteId = Number(req.params.id);
+  const { fecha } = req.query;
+  if (!fecha) return res.status(400).json({ error: 'Indica la fecha de la semana a consultar' });
+  const reporte = await construirReporteNominaSemanal(clienteId, fecha);
+  if (!reporte) return res.status(404).json({ error: 'Cliente no encontrado' });
+
+  const pdfBuffer = await buildNominaReporteSemanalPdf(reporte);
+  const filename = buildExportFilename(`NominaSemanal_${reporte.cliente.nombre}_${fecha}`).replace(/\.xlsx$/, '.pdf');
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+  res.send(pdfBuffer);
 }));
 
 app.get('/api/projects/:id/nominas', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('nominas', 'puede_ver')), h(async (req, res) => {

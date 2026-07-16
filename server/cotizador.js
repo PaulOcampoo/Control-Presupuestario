@@ -109,53 +109,55 @@ async function scrapeSodimac(browser, query) {
 
 const SCRAPERS = { home_depot: scrapeHomeDepot, sodimac: scrapeSodimac };
 
-async function scrapeTienda(browser, tienda, query) {
+// Un navegador NUEVO y AISLADO por tienda, no uno compartido reusado para
+// ambas — confirmado en Preview real (function serverless, Vercel) que
+// reusar un solo browser para 2 páginas SPA pesadas seguidas (aunque sea en
+// secuencia, no en paralelo) deja al binario ligero de @sparticuz/chromium
+// inestable: la tienda que corre SEGUNDA falla con "Target page, context or
+// browser has been closed" — reproducido con ambos órdenes (Home Depot
+// primero y Sodimac primero), o sea que no es cuestión de qué sitio es más
+// pesado, sino de que el proceso de Chromium no aguanta una segunda carga
+// completa de SPA reusando la misma instancia en este entorno.
+async function scrapeTienda(tienda, query) {
+  const browser = await launchBrowser();
   try {
     const resultados = await SCRAPERS[tienda](browser, query);
     return { tienda, resultados, error: null };
   } catch (err) {
     return { tienda, resultados: [], error: err.message };
+  } finally {
+    await browser.close();
   }
 }
 
 async function scrapeEnVivo(query) {
-  const browser = await launchBrowser();
-  try {
-    // Secuencial, no en paralelo: correr 2 páginas de Chromium a la vez
-    // dentro de la función serverless (1536MB) hacía que el binario ligero
-    // de @sparticuz/chromium se cerrara a medio scraping de Home Depot
-    // (su SPA es más pesada que la de Sodimac) — confirmado en Preview real,
-    // reproducible 2/2 veces. Secuencial cabe cómodo en maxDuration (90s).
-    const porTienda = [
-      await scrapeTienda(browser, 'home_depot', query),
-      await scrapeTienda(browser, 'sodimac', query),
-    ];
-    const ahora = new Date();
-    const filas = [];
-    for (const { tienda, resultados } of porTienda) {
-      for (const r of resultados) {
-        filas.push({ query_busqueda: query, tienda, nombre_producto: r.nombre_producto, precio: r.precio, url_producto: r.url_producto, fecha_consulta: ahora });
-      }
+  const porTienda = [
+    await scrapeTienda('home_depot', query),
+    await scrapeTienda('sodimac', query),
+  ];
+  const ahora = new Date();
+  const filas = [];
+  for (const { tienda, resultados } of porTienda) {
+    for (const r of resultados) {
+      filas.push({ query_busqueda: query, tienda, nombre_producto: r.nombre_producto, precio: r.precio, url_producto: r.url_producto, fecha_consulta: ahora });
     }
-    await db.withTransaction(async (client) => {
-      await client.query('DELETE FROM cotizador_precios WHERE query_busqueda = $1', [query]);
-      for (const f of filas) {
-        await client.query(
-          `INSERT INTO cotizador_precios (query_busqueda, tienda, nombre_producto, precio, url_producto, fecha_consulta)
-           VALUES ($1,$2,$3,$4,$5,$6)`,
-          [f.query_busqueda, f.tienda, f.nombre_producto, f.precio, f.url_producto, f.fecha_consulta]
-        );
-      }
-    });
-    return {
-      query,
-      fecha_consulta: ahora,
-      errores: porTienda.filter((r) => r.error).map((r) => ({ tienda: r.tienda, error: r.error })),
-      resultados: filas,
-    };
-  } finally {
-    await browser.close();
   }
+  await db.withTransaction(async (client) => {
+    await client.query('DELETE FROM cotizador_precios WHERE query_busqueda = $1', [query]);
+    for (const f of filas) {
+      await client.query(
+        `INSERT INTO cotizador_precios (query_busqueda, tienda, nombre_producto, precio, url_producto, fecha_consulta)
+         VALUES ($1,$2,$3,$4,$5,$6)`,
+        [f.query_busqueda, f.tienda, f.nombre_producto, f.precio, f.url_producto, f.fecha_consulta]
+      );
+    }
+  });
+  return {
+    query,
+    fecha_consulta: ahora,
+    errores: porTienda.filter((r) => r.error).map((r) => ({ tienda: r.tienda, error: r.error })),
+    resultados: filas,
+  };
 }
 
 async function buscarPrecios(query, { forzar = false } = {}) {

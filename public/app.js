@@ -5891,6 +5891,7 @@ async function renderUsuarios(view) {
       const filas = permisosParaProyecto(proyectoIdActivo);
       const filasPorSeccion = Object.fromEntries(filas.map((f) => [f.seccion, f]));
       wrap.innerHTML = `
+        <div class="alert-box info">🔵 Los toggles en azul son permisos informativos: el backend todavía no los exige, así que marcarlos o desmarcarlos aquí no tiene efecto real todavía.</div>
         ${tieneVariasObras ? `
         <div class="field">
           <label>Obra</label>

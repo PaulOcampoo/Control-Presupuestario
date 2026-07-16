@@ -539,6 +539,9 @@ app.post('/api/usuarios/totp-reminder-dismissed', h(async (req, res) => {
 // Autogestión: el usuario puede cambiar su nombre, usuario y contraseña.
 // Si cambia la contraseña, se invalidan todas las sesiones anteriores y se
 // emite un token nuevo para la sesión actual.
+const MI_CUENTA_RATE_LIMIT_USUARIO = 5; // fallos de passwordActual en 10 min, por usuario
+const MI_CUENTA_RATE_LIMIT_IP = 20; // fallos de passwordActual en 10 min, por IP
+
 app.put('/api/auth/mi-cuenta', h(async (req, res) => {
   const { nombre, usuario, passwordActual, passwordNueva } = req.body || {};
 
@@ -560,6 +563,30 @@ app.put('/api/auth/mi-cuenta', h(async (req, res) => {
     }
   }
 
+  const ip = ((req.headers['x-forwarded-for'] || '') + '').split(',')[0].trim() || req.socket?.remoteAddress || 'unknown';
+  if (passwordActual) {
+    // Rate limiting serverless-safe (mismo mecanismo que login/TOTP): cuenta
+    // en Postgres, solo fallos de passwordActual, por usuario y por IP.
+    const { rows: userLimitRows } = await db.pool.query(
+      `SELECT COUNT(*)::int AS n FROM api_rate_limits
+       WHERE usuario_id = $1 AND endpoint = 'mi_cuenta_password'
+         AND creado_en > NOW() - INTERVAL '10 minutes'`,
+      [req.user.id]
+    );
+    if (userLimitRows[0].n >= MI_CUENTA_RATE_LIMIT_USUARIO) {
+      return res.status(429).json({ error: 'Demasiados intentos fallidos. Espera 10 minutos e intenta de nuevo.' });
+    }
+    const { rows: ipLimitRows } = await db.pool.query(
+      `SELECT COUNT(*)::int AS n FROM api_rate_limits
+       WHERE ip = $1 AND endpoint = 'mi_cuenta_password'
+         AND creado_en > NOW() - INTERVAL '10 minutes'`,
+      [ip]
+    );
+    if (ipLimitRows[0].n >= MI_CUENTA_RATE_LIMIT_IP) {
+      return res.status(429).json({ error: 'Demasiados intentos desde esta red. Espera 10 minutos e intenta de nuevo.' });
+    }
+  }
+
   const { rows: userRows } = await db.pool.query(
     'SELECT * FROM usuarios WHERE id = $1 AND activo = true', [req.user.id]
   );
@@ -567,6 +594,10 @@ app.put('/api/auth/mi-cuenta', h(async (req, res) => {
   const userDb = userRows[0];
 
   if (passwordActual && !(await auth.verifyPassword(passwordActual, userDb.password_hash))) {
+    await db.pool.query(
+      `INSERT INTO api_rate_limits (usuario_id, endpoint, ip) VALUES ($1, 'mi_cuenta_password', $2)`,
+      [req.user.id, ip]
+    );
     return res.status(400).json({ error: 'La contraseña actual es incorrecta' });
   }
   if (passwordNueva && passwordNueva === passwordActual) {
@@ -3556,7 +3587,7 @@ app.put('/api/projects/:id/avances/:semana/conceptos', h(auth.allow('residente',
 // ---------------------------------------------------------------------------
 // Resumen / dashboard
 // ---------------------------------------------------------------------------
-app.get('/api/projects/:id/resumen', h(auth.allow()), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+app.get('/api/projects/:id/resumen', h(auth.allow('tesoreria', 'administracion')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
   const pid = req.project.id;
   const [{ rows: metaRows }, { rows: contratoRows }] = await Promise.all([
     db.pool.query('SELECT clave, valor FROM meta WHERE project_id = $1', [pid]),

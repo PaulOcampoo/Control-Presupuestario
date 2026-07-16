@@ -555,6 +555,10 @@ const SCHEMA = `
     creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW()
   );
   CREATE INDEX IF NOT EXISTS idx_api_rate_limits_usuario ON api_rate_limits(usuario_id, endpoint, creado_en);
+  -- Columna ip: permite además un límite por IP (ej. PUT /api/auth/mi-cuenta),
+  -- igual que login_attempts, sin duplicar la tabla.
+  ALTER TABLE api_rate_limits ADD COLUMN IF NOT EXISTS ip TEXT;
+  CREATE INDEX IF NOT EXISTS idx_api_rate_limits_ip ON api_rate_limits(ip, endpoint, creado_en);
 
   -- PDF original del contrato — almacenado en Vercel Blob (privado). Relación
   -- 1:1 con proyectos (UNIQUE project_id). El blob_url lo genera contrato-preview

@@ -375,7 +375,10 @@ async function ensureBootstrapAdmin() {
   const { rows } = await db.pool.query('SELECT COUNT(*) AS n FROM usuarios');
   if (Number(rows[0].n) > 0) return;
   const usuario = process.env.ADMIN_USER || 'admin';
-  const password = process.env.ADMIN_PASSWORD || 'admin123';
+  const password = process.env.ADMIN_PASSWORD;
+  if (!password) {
+    throw new Error('ADMIN_PASSWORD no está configurada en las variables de entorno — no se puede crear el administrador inicial sin ella.');
+  }
   const hash = await hashPassword(password);
   await db.pool.query(
     'INSERT INTO usuarios (nombre, usuario, password_hash, puesto) VALUES ($1,$2,$3,$4)',

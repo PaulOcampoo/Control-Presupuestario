@@ -20,15 +20,20 @@ const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36
 // require() sobre él desde este módulo CommonJS (ERR_REQUIRE_ESM,
 // confirmado en logs reales de Vercel), por eso el import() dinámico.
 async function launchBrowser() {
+  const t0 = Date.now();
+  let browser;
   if (process.env.VERCEL) {
     const { default: chromiumBinary } = await import('@sparticuz/chromium');
-    return chromium.launch({
+    browser = await chromium.launch({
       args: chromiumBinary.args,
       executablePath: await chromiumBinary.executablePath(),
       headless: true,
     });
+  } else {
+    browser = await chromium.launch({ headless: true });
   }
-  return chromium.launch({ headless: true });
+  console.log(`[cotizador] launchBrowser: ${Date.now() - t0}ms`);
+  return browser;
 }
 
 // Home Depot MX no muestra el punto decimal en el precio principal de la
@@ -119,11 +124,14 @@ const SCRAPERS = { home_depot: scrapeHomeDepot, sodimac: scrapeSodimac };
 // pesado, sino de que el proceso de Chromium no aguanta una segunda carga
 // completa de SPA reusando la misma instancia en este entorno.
 async function scrapeTienda(tienda, query) {
+  const tInicio = Date.now();
   const browser = await launchBrowser();
   try {
     const resultados = await SCRAPERS[tienda](browser, query);
+    console.log(`[cotizador] ${tienda} OK: ${Date.now() - tInicio}ms total, ${resultados.length} resultados`);
     return { tienda, resultados, error: null };
   } catch (err) {
+    console.log(`[cotizador] ${tienda} ERROR tras ${Date.now() - tInicio}ms: ${err.message}`);
     return { tienda, resultados: [], error: err.message };
   } finally {
     await browser.close();
@@ -131,10 +139,12 @@ async function scrapeTienda(tienda, query) {
 }
 
 async function scrapeEnVivo(query) {
+  const tInicio = Date.now();
   const porTienda = [
     await scrapeTienda('home_depot', query),
     await scrapeTienda('sodimac', query),
   ];
+  console.log(`[cotizador] scrapeEnVivo total: ${Date.now() - tInicio}ms para query="${query}"`);
   const ahora = new Date();
   const filas = [];
   for (const { tienda, resultados } of porTienda) {

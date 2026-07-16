@@ -3989,13 +3989,17 @@ const TIPOS_PAGO = ['jornal', 'destajo', 'mixto'];
 const PERIODICIDADES = ['semanal', 'quincenal', 'mensual'];
 const TIPOS_DOC = ['ine_frente', 'ine_reverso', 'curp_doc', 'comprobante_domicilio', 'otro'];
 
-// Vista global — solo admin/desarrollador: todos los trabajadores de todas
-// las obras, con la obra y el/los residente(s) a cargo de cada una (mismo
-// patrón que GET /api/nominas). Un residente por obra es lo normal, pero
-// usuario_proyectos no impide asignar más de uno a la misma obra — cuando
-// pasa, se listan todos separados por coma en vez de elegir uno arbitrario
-// (decisión confirmada con Paul).
-app.get('/api/trabajadores', h(auth.allow()), h(async (req, res) => {
+// Vista global: todos los trabajadores de todas las obras, con la obra y
+// el/los residente(s) a cargo de cada una (mismo patrón que GET /api/nominas).
+// Un residente por obra es lo normal, pero usuario_proyectos no impide
+// asignar más de uno a la misma obra — cuando pasa, se listan todos
+// separados por coma en vez de elegir uno arbitrario (decisión confirmada
+// con Paul). checkPermiso('trabajadores_global', 'puede_ver') reemplaza el
+// auth.allow() anterior (admin/desarrollador-only) — prompts-cotizador-
+// permisos.md Prompt 2: ahora es posible otorgar este permiso global a otros
+// roles vía la matriz de permisos, sin perder el bypass de admin/desarrollador
+// (checkPermiso ya lo incluye internamente).
+app.get('/api/trabajadores', h(auth.checkPermiso('trabajadores_global', 'puede_ver')), h(async (req, res) => {
   const { activo } = req.query;
   let sql = `
     SELECT t.*, d.nombre AS destajista_nombre,
@@ -4507,14 +4511,17 @@ app.put('/api/projects/:id/asistencia', h(auth.allow('residente')), h(requirePro
 // ===========================================================================
 const ESTADOS_NOMINA = ['borrador', 'revision', 'aprobada', 'rechazada'];
 
-// Vista global — solo admin/desarrollador: todas las nóminas de todas las
-// obras y todos los residentes (a diferencia de GET /projects/:id/nominas,
-// que un residente solo ve las propias de su obra). Incluye cliente y
-// residente(s) a cargo de la obra (no necesariamente el mismo usuario que
-// creó esta nómina en particular — ver nota en GET /api/trabajadores sobre
-// más de un residente por obra) para poder agrupar Cliente → Obra →
-// Residente(s) → Trabajadores en el frontend.
-app.get('/api/nominas', h(auth.allow()), h(async (_req, res) => {
+// Vista global: todas las nóminas de todas las obras y todos los residentes
+// (a diferencia de GET /projects/:id/nominas, que un residente solo ve las
+// propias de su obra). Incluye cliente y residente(s) a cargo de la obra
+// (no necesariamente el mismo usuario que creó esta nómina en particular —
+// ver nota en GET /api/trabajadores sobre más de un residente por obra) para
+// poder agrupar Cliente → Obra → Residente(s) → Trabajadores en el frontend.
+// checkPermiso('nominas_global', 'puede_ver') reemplaza el auth.allow()
+// anterior (admin/desarrollador-only) — prompts-cotizador-permisos.md
+// Prompt 2. Sección DISTINTA de 'nominas' (que gatea el acceso por-obra):
+// ver comentario en server/auth.js SECCIONES_PERMISOS.
+app.get('/api/nominas', h(auth.checkPermiso('nominas_global', 'puede_ver')), h(async (_req, res) => {
   const { rows } = await db.pool.query(`
     SELECT n.*,
            p.nombre AS obra_nombre,

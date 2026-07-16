@@ -5688,7 +5688,15 @@ const PERMISOS_SECCION_LABELS = {
   insumos: 'Insumos', mapeo: 'Mapeo', usuarios: 'Usuarios', contrato: 'Contrato', impuestos: 'Impuestos',
   nominas: 'Nóminas', sugerencias: 'Sugerencias', programa: 'Programa', estimaciones: 'Estimaciones',
   maquinaria: 'Maquinaria',
+  trabajadores_global: 'Trabajadores (Todas las Obras)', nominas_global: 'Nóminas (Todas las Obras)',
 };
+// Secciones que NUNCA son por-obra — no existe (ni tiene sentido) una versión
+// "para la obra X" de una vista que ya de por sí es cross-obra/cross-cliente.
+// Se guardan y se leen SIEMPRE con proyecto_id NULL, sin importar qué obra
+// esté seleccionada en el dropdown de la matriz (ver permisosParaProyecto y
+// el handler de #btnGuardarPermisos más abajo). Mismo criterio que
+// server/auth.js SECCIONES_PERMISOS.
+const SECCIONES_SIEMPRE_GLOBAL = ['trabajadores_global', 'nominas_global'];
 const PERMISOS_SECCIONES = Object.keys(PERMISOS_SECCION_LABELS);
 const PERMISOS_ACCIONES = [
   { key: 'puede_ver', label: 'Ver' },
@@ -5703,7 +5711,7 @@ const PERMISOS_ACCIONES = [
 // (auth.allow()), marcarla o no aquí todavía no cambia nada en el backend.
 // Actualizar esta lista cada vez que se le agregue checkPermiso a una
 // sección nueva (ver mismo patrón en server/auth.js SECCIONES_PERMISOS).
-const SECCIONES_CON_ENFORCEMENT = ['nominas', 'avance', 'maquinaria'];
+const SECCIONES_CON_ENFORCEMENT = ['nominas', 'avance', 'maquinaria', 'trabajadores_global', 'nominas_global'];
 // Agrupa las secciones de permisos igual que SECTION_DEFS agrupa las pestañas
 // en la pantalla de inicio (Obra / Compras / Tesorería / Administración) —
 // mismo criterio de negocio, para que la matriz se lea en el mismo orden que
@@ -5712,7 +5720,7 @@ const PERMISOS_GRUPOS = [
   { label: 'Obra',           secciones: ['presupuestos', 'programa', 'avance', 'destajo', 'estimaciones'] },
   { label: 'Compras',        secciones: ['requisiciones', 'insumos', 'proveedores', 'ordenes_compra'] },
   { label: 'Tesorería',      secciones: ['finanzas', 'impuestos'] },
-  { label: 'Administración', secciones: ['mapeo', 'contrato', 'nominas', 'usuarios'] },
+  { label: 'Administración', secciones: ['mapeo', 'contrato', 'nominas', 'usuarios', 'trabajadores_global', 'nominas_global'] },
   { label: 'Maquinaria',     secciones: ['maquinaria'] },
   { label: 'General',        secciones: ['sugerencias'] },
 ];
@@ -5860,7 +5868,11 @@ async function renderUsuarios(view) {
         permisosActuales.filter((p) => p.proyecto_id === null).map((f) => [f.seccion, f])
       );
       return PERMISOS_SECCIONES.map((seccion) => {
-        const real = filasEspecificas[seccion] || filasGenerales[seccion];
+        // Secciones siempre-globales: ignoran proyectoId por completo, solo
+        // existe la fila general (proyecto_id NULL) — ver SECCIONES_SIEMPRE_GLOBAL.
+        const real = SECCIONES_SIEMPRE_GLOBAL.includes(seccion)
+          ? filasGenerales[seccion]
+          : (filasEspecificas[seccion] || filasGenerales[seccion]);
         if (real) return { ...real, _sinFila: false };
         if (SECCIONES_CON_ENFORCEMENT.includes(seccion)) {
           return {
@@ -5955,7 +5967,7 @@ async function renderUsuarios(view) {
       $('#btnGuardarPermisos').addEventListener('click', async () => {
         const btn = $('#btnGuardarPermisos');
         btn.disabled = true;
-        const permisos = $$('#permMatrizWrap tbody tr[data-seccion]').map((tr) => {
+        const todasLasFilas = $$('#permMatrizWrap tbody tr[data-seccion]').map((tr) => {
           const seccion = tr.dataset.seccion;
           const fila = { seccion };
           PERMISOS_ACCIONES.forEach((a) => {
@@ -5963,11 +5975,28 @@ async function renderUsuarios(view) {
           });
           return fila;
         });
+        // Las secciones siempre-globales (Trabajadores/Nóminas todas las
+        // obras) se guardan SIEMPRE con proyecto_id null, sin importar qué
+        // obra esté seleccionada en el dropdown — no existe versión "por
+        // obra" de una vista cross-obra. El resto sigue el comportamiento
+        // de siempre (proyectoIdActivo). Dos PUT separados porque el
+        // endpoint aplica un solo proyecto_id a todo el arreglo que recibe.
+        const permisosPorObra = todasLasFilas.filter((f) => !SECCIONES_SIEMPRE_GLOBAL.includes(f.seccion));
+        const permisosGlobales = todasLasFilas.filter((f) => SECCIONES_SIEMPRE_GLOBAL.includes(f.seccion));
         try {
-          const actualizados = await api(`/permisos/${usuarioId}`, {
-            method: 'PUT',
-            body: { proyecto_id: proyectoIdActivo, permisos },
-          });
+          let actualizados;
+          if (permisosPorObra.length) {
+            actualizados = await api(`/permisos/${usuarioId}`, {
+              method: 'PUT',
+              body: { proyecto_id: proyectoIdActivo, permisos: permisosPorObra },
+            });
+          }
+          if (permisosGlobales.length) {
+            actualizados = await api(`/permisos/${usuarioId}`, {
+              method: 'PUT',
+              body: { proyecto_id: null, permisos: permisosGlobales },
+            });
+          }
           permisosActuales.length = 0;
           permisosActuales.push(...actualizados);
           toast('Permisos guardados', 'success');

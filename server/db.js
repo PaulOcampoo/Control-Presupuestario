@@ -674,7 +674,8 @@ const SCHEMA = `
     seccion TEXT NOT NULL CHECK (seccion IN (
       'presupuestos','requisiciones','proveedores','ordenes_compra','avance',
       'destajo','finanzas','insumos','mapeo','usuarios','contrato','impuestos',
-      'nominas','sugerencias','programa','estimaciones','maquinaria'
+      'nominas','sugerencias','programa','estimaciones','maquinaria',
+      'trabajadores_global','nominas_global'
     )),
     puede_ver BOOLEAN NOT NULL DEFAULT false,
     puede_crear BOOLEAN NOT NULL DEFAULT false,
@@ -684,6 +685,17 @@ const SCHEMA = `
     UNIQUE (usuario_id, proyecto_id, seccion)
   );
   CREATE INDEX IF NOT EXISTS idx_permisos_usuario_usuario ON permisos_usuario(usuario_id);
+  -- Amplía el CHECK de 'seccion' en bases ya existentes (Preview/producción)
+  -- para las 2 secciones nuevas de prompts-cotizador-permisos.md Prompt 2 —
+  -- el CREATE TABLE de arriba no vuelve a correr sobre una tabla existente,
+  -- así que el CHECK original se queda corto sin este ALTER explícito.
+  ALTER TABLE permisos_usuario DROP CONSTRAINT IF EXISTS permisos_usuario_seccion_check;
+  ALTER TABLE permisos_usuario ADD CONSTRAINT permisos_usuario_seccion_check CHECK (seccion IN (
+    'presupuestos','requisiciones','proveedores','ordenes_compra','avance',
+    'destajo','finanzas','insumos','mapeo','usuarios','contrato','impuestos',
+    'nominas','sugerencias','programa','estimaciones','maquinaria',
+    'trabajadores_global','nominas_global'
+  ));
 
   -- Contador de folios por obra + tipo de documento. INSERT...ON CONFLICT DO
   -- UPDATE...RETURNING es atómico a nivel de fila en Postgres (no necesita

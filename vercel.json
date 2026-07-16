@@ -5,7 +5,8 @@
   ],
   "functions": {
     "api/index.js": {
-      "maxDuration": 60
+      "maxDuration": 90,
+      "memory": 1536
     }
   },
   "headers": [
@@ -87,6 +88,7 @@
   ],
   "crons": [
     { "path": "/api/cron/recordatorio-impuestos", "schedule": "0 15 17 * *" },
-    { "path": "/api/cron/alertas-vencimiento", "schedule": "0 15 * * *" }
+    { "path": "/api/cron/alertas-vencimiento", "schedule": "0 15 * * *" },
+    { "path": "/api/cron/cotizador-refresh", "schedule": "0 8 * * *" }
   ]
 }

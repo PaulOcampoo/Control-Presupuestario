@@ -24,6 +24,7 @@ const { buildEstimacionPdf } = require('./estimacionesPdf');
 const { buildNominaReporteSemanalPdf } = require('./nominaReporteSemanalPdf');
 const { calcularDiasRestantes, determinarUmbral, construirMensaje } = require('./alertasContrato');
 const maquinaria = require('./maquinaria');
+const cotizador = require('./cotizador');
 
 const app = express();
 
@@ -1146,6 +1147,47 @@ app.get('/api/maquinaria/presupuesto-sugerido', h(auth.checkPermiso('maquinaria'
 
 app.get('/api/maquinaria/reporte-clientes', h(auth.checkPermiso('maquinaria', 'puede_ver')), h(async (req, res) => {
   res.json(await maquinaria.getReportePorCliente());
+}));
+
+// ---------------------------------------------------------------------------
+// Cotizador de materiales (Home Depot / Sodimac) — solo compras/admin/
+// desarrollador (auth.allow('compras')). Materiales Valdez quedó fuera del
+// comparador: su sitio no publica precios en línea (ver server/cotizador.js).
+// ---------------------------------------------------------------------------
+app.get('/api/cotizador/buscar', h(auth.allow('compras')), h(async (req, res) => {
+  const { q } = req.query;
+  if (!q || !q.trim()) return res.status(400).json({ error: 'Indica un término de búsqueda (?q=)' });
+  try {
+    const resultado = await cotizador.buscarPrecios(q);
+    res.json(resultado);
+  } catch (err) {
+    res.status(502).json({ error: `No se pudo consultar precios: ${err.message}` });
+  }
+}));
+
+app.post('/api/cotizador/actualizar', h(auth.allow('compras')), h(async (req, res) => {
+  const { q } = req.body || {};
+  if (!q || !q.trim()) return res.status(400).json({ error: 'Indica un término de búsqueda' });
+  try {
+    const resultado = await cotizador.buscarPrecios(q, { forzar: true });
+    res.json(resultado);
+  } catch (err) {
+    res.status(502).json({ error: `No se pudo actualizar precios: ${err.message}` });
+  }
+}));
+
+app.get('/api/cron/cotizador-refresh', requireCronSecret, h(async (req, res) => {
+  const queries = await cotizador.queriesRecientes();
+  const resultados = [];
+  for (const q of queries) {
+    try {
+      await cotizador.scrapeEnVivo(q);
+      resultados.push({ query: q, ok: true });
+    } catch (err) {
+      resultados.push({ query: q, ok: false, error: err.message });
+    }
+  }
+  res.json({ queriesRefrescadas: resultados.length, resultados });
 }));
 
 // ---------------------------------------------------------------------------

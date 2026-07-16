@@ -1,7 +1,6 @@
 'use strict';
 
 const { chromium } = require('playwright-core');
-const chromiumBinary = require('@sparticuz/chromium');
 const db = require('./db');
 
 // Materiales Valdez quedó fuera del comparador: su sitio (materialesvaldez.mx)
@@ -17,8 +16,12 @@ const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36
 // límite de tamaño de la función — se usa el binario ligero de
 // @sparticuz/chromium. En local (dev/npm run dev) se usa el Chromium normal
 // que Playwright ya trae instalado.
+// @sparticuz/chromium se publica como ES Module puro — no se puede usar
+// require() sobre él desde este módulo CommonJS (ERR_REQUIRE_ESM,
+// confirmado en logs reales de Vercel), por eso el import() dinámico.
 async function launchBrowser() {
   if (process.env.VERCEL) {
+    const { default: chromiumBinary } = await import('@sparticuz/chromium');
     return chromium.launch({
       args: chromiumBinary.args,
       executablePath: await chromiumBinary.executablePath(),

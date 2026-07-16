@@ -69,6 +69,16 @@ const SECCIONES_PERMISOS = [
   'presupuestos', 'requisiciones', 'proveedores', 'ordenes_compra', 'avance',
   'destajo', 'finanzas', 'insumos', 'mapeo', 'usuarios', 'contrato', 'impuestos',
   'nominas', 'sugerencias', 'programa', 'estimaciones', 'maquinaria',
+  // Secciones NUEVAS (prompts-cotizador-permisos.md, Prompt 2) — DISTINTAS de
+  // 'nominas' a propósito: 'nominas' ya gatea el acceso por-obra (una obra a
+  // la vez, ver checkPermiso en /api/projects/:id/nominas/...); estas dos
+  // gatean las vistas GLOBALES cross-obra/cross-cliente (GET /api/trabajadores,
+  // GET /api/nominas sin :id) — un privilegio bastante más amplio que no debe
+  // quedar implícito solo por tener acceso a nómina de la propia obra.
+  // SIEMPRE se guardan con proyecto_id NULL (no existe versión "por obra" de
+  // una vista que ya de por sí es cross-obra) — ver SECCIONES_SIEMPRE_GLOBAL
+  // en public/app.js.
+  'trabajadores_global', 'nominas_global',
 ];
 const ACCIONES_PERMISOS = ['puede_ver', 'puede_crear', 'puede_editar', 'puede_editar_precios', 'puede_eliminar'];
 

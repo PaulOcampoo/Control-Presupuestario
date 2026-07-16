@@ -801,6 +801,22 @@ const SCHEMA = `
     actualizado_en TIMESTAMPTZ NOT NULL DEFAULT NOW()
   );
   INSERT INTO presupuesto_maquinaria (id, monto_total) VALUES (1, 0) ON CONFLICT (id) DO NOTHING;
+
+  -- Cache de precios del Cotizador de materiales (Home Depot / Sodimac —
+  -- Materiales Valdez quedó fuera: su sitio no publica precios en línea,
+  -- ver prompts-cotizador-permisos.md). Cada fila es un resultado de
+  -- scraping para una query+tienda; el cache se considera válido 24h
+  -- (ver server/cotizador.js) antes de re-scrapear.
+  CREATE TABLE IF NOT EXISTS cotizador_precios (
+    id SERIAL PRIMARY KEY,
+    query_busqueda TEXT NOT NULL,
+    tienda TEXT NOT NULL CHECK (tienda IN ('home_depot', 'sodimac')),
+    nombre_producto TEXT NOT NULL,
+    precio DOUBLE PRECISION,
+    url_producto TEXT,
+    fecha_consulta TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
+  CREATE INDEX IF NOT EXISTS idx_cotizador_precios_query_tienda ON cotizador_precios(query_busqueda, tienda);
 `;
 
 async function initSchema() {

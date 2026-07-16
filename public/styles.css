@@ -1445,6 +1445,10 @@ body.modal-open { overflow: hidden; }
 .border-verde { border-color: var(--green); }
 .border-rojo { border-color: var(--red); }
 .saldo-pendiente { font-weight: 600; }
+/* Fila de mejor precio en el Cotizador de materiales */
+.cotizador-mejor-precio { background: color-mix(in srgb, var(--green) 12%, transparent); }
+.cotizador-mejor-precio td { font-weight: 600; color: var(--green); }
+.cotizador-mejor-precio td:first-child, .cotizador-mejor-precio td:nth-child(2) { color: var(--text-primary); font-weight: 400; }
 
 .brecha-value { font-size: 1.4rem; font-weight: 700; }
 

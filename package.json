@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.110.0",
+    "@sparticuz/chromium": "^149.0.0",
     "@vercel/blob": "^2.5.0",
     "bcryptjs": "^2.4.3",
     "chart.js": "^4.5.1",
@@ -28,6 +29,7 @@
     "pdf-parse": "^1.1.1",
     "pdfkit": "^0.19.1",
     "pg": "^8.22.0",
+    "playwright-core": "^1.61.1",
     "qrcode": "^1.5.4",
     "sortablejs": "^1.15.7"
   },

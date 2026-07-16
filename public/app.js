@@ -14,11 +14,11 @@ const PUESTO_LABELS = {
 // Mirror de PERMISSIONS en server/auth.js — para calcular allowedTabs en vista simulada.
 // Actualizar aquí si se agregan roles o pestañas en auth.js.
 const ROLE_TABS = {
-  admin:          ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'finanzas', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', 'maquinaria'],
-  desarrollador:  ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'finanzas', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', 'maquinaria'],
+  admin:          ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'finanzas', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', 'maquinaria', 'cotizador'],
+  desarrollador:  ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'finanzas', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', 'maquinaria', 'cotizador'],
   residente:      ['programa', 'avance', 'destajo', 'requisiciones', 'insumos', 'ordenes', 'nominas', 'estimaciones'],
   cabo:           ['destajo', 'insumos', 'avance', 'requisiciones', 'maquinaria'],
-  compras:        ['programa', 'requisiciones', 'insumos', 'ordenes', 'proveedores'],
+  compras:        ['programa', 'requisiciones', 'insumos', 'ordenes', 'proveedores', 'cotizador'],
   tesoreria:      ['resumen', 'finanzas', 'ordenes', 'contrato', 'impuestos', 'proveedores'],
   administracion: ['resumen', 'programa', 'destajo', 'ordenes', 'proveedores', 'contrato', 'impuestos', 'mapeo'],
   logistica:      ['programa', 'avance', 'requisiciones', 'insumos', 'ordenes'],
@@ -728,7 +728,7 @@ const TAB_POR_TIPO_NOTIF = {
 // ---------------------------------------------------------------------------
 const SECTION_DEFS = {
   obra:          { label: 'Obra',           icon: 'obra',           emoji: '🏗️',  tabs: ['programa', 'avance', 'destajo', 'estimaciones'],     proximamente: [] },
-  compras:       { label: 'Compras',        icon: 'compras',        emoji: '🛒',   tabs: ['requisiciones', 'insumos', 'proveedores', 'ordenes'], proximamente: ['Subcontratos'] },
+  compras:       { label: 'Compras',        icon: 'compras',        emoji: '🛒',   tabs: ['requisiciones', 'insumos', 'proveedores', 'ordenes', 'cotizador'], proximamente: ['Subcontratos'] },
   tesoreria:     { label: 'Tesorería',      icon: 'tesoreria',      emoji: '💰',   tabs: ['finanzas', 'impuestos'],                             proximamente: [] },
   administracion:{ label: 'Administración', icon: 'administracion', emoji: '📂',  tabs: ['mapeo', 'contrato', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'usuarios'], proximamente: ['Almacenes'] },
   maquinaria:    { label: 'Maquinaria',     icon: 'maquinaria',     emoji: '🚜',   tabs: ['maquinaria'],                                        proximamente: [] },
@@ -738,13 +738,14 @@ const TAB_ICONS = {
   resumen: '📊', contrato: '📄', impuestos: '🧾', insumos: '📦', requisiciones: '🧾',
   proveedores: '🏭', ordenes: '🛒', programa: '🗓️', avance: '📈', destajo: '👷',
   finanzas: '💰', mapeo: '🔗', usuarios: '👤', trabajadores: '👷', nominas: '💵', estimaciones: '🧮',
-  maquinaria: '🚜', nominas_global: '💵', trabajadores_global: '👷',
+  maquinaria: '🚜', nominas_global: '💵', trabajadores_global: '👷', cotizador: '🔍',
 };
 const TAB_LABELS = {
   resumen: 'Resumen', contrato: 'Contrato', impuestos: 'Impuestos', insumos: 'Insumos', requisiciones: 'Requisiciones',
   proveedores: 'Proveedores', ordenes: 'Órdenes de Compra', programa: 'Programa', avance: 'Avance', destajo: 'Destajo',
   finanzas: 'Finanzas', mapeo: 'Mapeo', usuarios: 'Usuarios', trabajadores: 'Trabajadores', nominas: 'Nóminas', estimaciones: 'Estimaciones',
   maquinaria: 'Maquinaria', nominas_global: 'Nómina (todas las obras)', trabajadores_global: 'Trabajadores (todas las obras)',
+  cotizador: 'Cotizador',
 };
 
 const VIEW_TO_SECTION = {};
@@ -2400,12 +2401,13 @@ function destroyCharts() {
 async function renderView() {
   destroyCharts();
   const view = $('#view');
-  if (state.view === 'usuarios' || state.view === 'proveedores' || state.view === 'maquinaria' || state.view === 'nominas_global' || state.view === 'trabajadores_global') {
+  if (state.view === 'usuarios' || state.view === 'proveedores' || state.view === 'maquinaria' || state.view === 'nominas_global' || state.view === 'trabajadores_global' || state.view === 'cotizador') {
     try {
       if (state.view === 'usuarios') await renderUsuarios(view);
       else if (state.view === 'proveedores') await renderProveedores(view);
       else if (state.view === 'nominas_global') await renderNominasGlobal(view);
       else if (state.view === 'trabajadores_global') await renderTrabajadoresGlobal(view);
+      else if (state.view === 'cotizador') await renderCotizador(view);
       else await renderMaquinaria(view);
     } catch (err) { view.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`; }
     syncFab();
@@ -6349,6 +6351,94 @@ function openProveedorModal(proveedor) {
       btn.disabled = false;
     }
   });
+}
+
+// =========================================================================
+// VISTA: Cotizador de materiales (prompts-cotizador-permisos, Prompt 1) —
+// compara precios de Home Depot y Sodimac para un material. Vista global
+// (no por obra), solo compras/admin/desarrollador. Materiales Valdez quedó
+// fuera del comparador: su sitio no publica precios en línea (ver
+// server/cotizador.js).
+// =========================================================================
+async function renderCotizador(view) {
+  let ultimaBusqueda = null;
+
+  view.innerHTML = `
+    <h2 class="section-title">Cotizador de materiales</h2>
+    <p class="muted">Compara precios entre Home Depot y Sodimac para un material. Los resultados se guardan en caché por 24 horas.</p>
+    <div class="row gap-8 mt-8">
+      <div class="field flex-1">
+        <label>Buscar material</label>
+        <input id="cotizadorInput" type="text" placeholder="Ej. tornillo, cemento, taladro…" />
+      </div>
+    </div>
+    <div class="row mt-8">
+      <button class="btn btn-primary" id="btnCotizadorBuscar">Buscar</button>
+    </div>
+    <div id="cotizadorResultados" class="mt-12"></div>
+  `;
+
+  const TIENDA_LABELS = { home_depot: 'Home Depot', sodimac: 'Sodimac' };
+  const fmtFechaHora = (s) => {
+    const d = new Date(s);
+    return Number.isNaN(d.getTime()) ? '—' : d.toLocaleString('es-MX', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  };
+
+  function pintarResultados() {
+    const cont = $('#cotizadorResultados');
+    if (!ultimaBusqueda) { cont.innerHTML = ''; return; }
+    const { query, resultados, errores, fecha_consulta, desdeCache } = ultimaBusqueda;
+    const erroresHtml = errores.length
+      ? `<div class="alert-box warn mt-8">⚠️ No se pudo consultar: ${errores.map((e) => `${esc(TIENDA_LABELS[e.tienda] || e.tienda)} (${esc(e.error)})`).join(', ')}</div>`
+      : '';
+    if (!resultados.length) {
+      cont.innerHTML = `${erroresHtml}<div class="empty-state">Sin resultados para "${esc(query)}".</div>`;
+      return;
+    }
+    const precios = resultados.map((r) => Number(r.precio)).filter((p) => Number.isFinite(p));
+    const minPrecio = precios.length ? Math.min(...precios) : null;
+    cont.innerHTML = `
+      <div class="row gap-8 items-center mt-8">
+        <span class="muted">Última consulta: ${fmtFechaHora(fecha_consulta)} ${desdeCache ? '(desde caché)' : '(en vivo)'}</span>
+        <button class="btn small" id="btnCotizadorActualizar">🔄 Actualizar precio</button>
+      </div>
+      ${erroresHtml}
+      <div class="table-scroll mt-8">
+        <table>
+          <thead><tr><th>Tienda</th><th>Producto</th><th>Precio</th><th></th></tr></thead>
+          <tbody>
+            ${resultados.map((r) => `
+              <tr class="${minPrecio != null && Number(r.precio) === minPrecio ? 'cotizador-mejor-precio' : ''}">
+                <td>${esc(TIENDA_LABELS[r.tienda] || r.tienda)}</td>
+                <td>${esc(r.nombre_producto)}</td>
+                <td>${r.precio != null ? fmtMoney(r.precio) : '—'}</td>
+                <td>${r.url_producto ? `<a href="${esc(r.url_producto)}" target="_blank" rel="noopener noreferrer" class="btn small">Ver</a>` : ''}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+    `;
+    $('#btnCotizadorActualizar').addEventListener('click', () => buscar(query, true));
+  }
+
+  async function buscar(query, forzar = false) {
+    if (!query || !query.trim()) { toast('Escribe un término de búsqueda', 'danger'); return; }
+    const cont = $('#cotizadorResultados');
+    cont.innerHTML = '<div class="spinner"></div><p class="muted">Consultando precios en vivo, puede tardar unos segundos…</p>';
+    try {
+      const resultado = forzar
+        ? await api('/cotizador/actualizar', { method: 'POST', body: { q: query } })
+        : await api(`/cotizador/buscar?q=${encodeURIComponent(query)}`);
+      ultimaBusqueda = resultado;
+      pintarResultados();
+    } catch (err) {
+      cont.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+    }
+  }
+
+  $('#btnCotizadorBuscar').addEventListener('click', () => buscar($('#cotizadorInput').value));
+  $('#cotizadorInput').addEventListener('keydown', (ev) => { if (ev.key === 'Enter') buscar($('#cotizadorInput').value); });
 }
 
 // =========================================================================

@@ -6426,14 +6426,25 @@ async function renderCotizador(view) {
     if (!query || !query.trim()) { toast('Escribe un término de búsqueda', 'danger'); return; }
     const cont = $('#cotizadorResultados');
     cont.innerHTML = '<div class="spinner"></div><p class="muted">Consultando precios en vivo, puede tardar unos segundos…</p>';
+    // La función serverless tiene maxDuration:90s (vercel.json) — si por
+    // algún motivo la plataforma la mata sin responder, el fetch se quedaría
+    // esperando indefinidamente sin este timeout explícito (bug real
+    // diagnosticado en prompt-diagnostico-cotizador-colgado.md).
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 95000);
     try {
       const resultado = forzar
-        ? await api('/cotizador/actualizar', { method: 'POST', body: { q: query } })
-        : await api(`/cotizador/buscar?q=${encodeURIComponent(query)}`);
+        ? await api('/cotizador/actualizar', { method: 'POST', body: { q: query }, signal: controller.signal })
+        : await api(`/cotizador/buscar?q=${encodeURIComponent(query)}`, { signal: controller.signal });
       ultimaBusqueda = resultado;
       pintarResultados();
     } catch (err) {
-      cont.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+      const msg = err.name === 'AbortError'
+        ? 'La búsqueda tardó demasiado y se canceló. Intenta de nuevo.'
+        : err.message;
+      cont.innerHTML = `<div class="alert-box danger">⚠️ ${esc(msg)}</div>`;
+    } finally {
+      clearTimeout(timeoutId);
     }
   }
 

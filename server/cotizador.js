@@ -10,6 +10,22 @@ const db = require('./db');
 const CACHE_HORAS = 24;
 const TIMEOUT_NAV_MS = 20000;
 const MAX_RESULTADOS_POR_TIENDA = 8;
+
+// Diagnóstico real (prompt-diagnostico-cotizador-colgado.md, logs de Vercel):
+// Home Depot MX consistentemente tarda 30-40s por sí solo (goto +
+// waitForSelector, cada uno con tope de TIMEOUT_NAV_MS, encadenados) —  es
+// la carga/hidratación real de su SPA, no un selector roto (los 8
+// resultados sí llegan cada vez). Sodimac en cambio tarda 8-10s. Como el
+// scraping es secuencial (browser aislado por tienda, ver scrapeTienda),
+// el tiempo total = suma de ambas, dejando poco margen frente al
+// maxDuration:90 configurado en vercel.json — de ahí el 504 intermitente.
+// Este presupuesto evita que la función SIEMPRE llegue al límite duro de
+// la plataforma: si ya no queda tiempo razonable para intentar la
+// siguiente tienda, se omite y se reporta como error explícito en vez de
+// arriesgar un timeout sin respuesta.
+const PRESUPUESTO_TOTAL_MS = 90000; // debe coincidir con functions."api/index.js".maxDuration en vercel.json
+const MARGEN_RESPUESTA_MS = 15000; // reservado para guardar en DB y armar la respuesta
+const TIEMPO_MINIMO_TIENDA_MS = 15000; // por debajo de esto no vale la pena intentar otra tienda
 const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36';
 
 // En Vercel (serverless) el Chromium normal de Playwright no cabe en el
@@ -140,10 +156,17 @@ async function scrapeTienda(tienda, query) {
 
 async function scrapeEnVivo(query) {
   const tInicio = Date.now();
-  const porTienda = [
-    await scrapeTienda('home_depot', query),
-    await scrapeTienda('sodimac', query),
-  ];
+  const porTienda = [];
+  for (const tienda of Object.keys(SCRAPERS)) {
+    const transcurrido = Date.now() - tInicio;
+    const restante = PRESUPUESTO_TOTAL_MS - MARGEN_RESPUESTA_MS - transcurrido;
+    if (restante < TIEMPO_MINIMO_TIENDA_MS) {
+      console.log(`[cotizador] ${tienda} OMITIDA: quedan ${restante}ms de presupuesto tras ${transcurrido}ms`);
+      porTienda.push({ tienda, resultados: [], error: 'Omitida: no quedaba tiempo suficiente en esta consulta (intenta de nuevo)' });
+      continue;
+    }
+    porTienda.push(await scrapeTienda(tienda, query));
+  }
   console.log(`[cotizador] scrapeEnVivo total: ${Date.now() - tInicio}ms para query="${query}"`);
   const ahora = new Date();
   const filas = [];

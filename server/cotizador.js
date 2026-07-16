@@ -121,10 +121,15 @@ async function scrapeTienda(browser, tienda, query) {
 async function scrapeEnVivo(query) {
   const browser = await launchBrowser();
   try {
-    const porTienda = await Promise.all([
-      scrapeTienda(browser, 'home_depot', query),
-      scrapeTienda(browser, 'sodimac', query),
-    ]);
+    // Secuencial, no en paralelo: correr 2 páginas de Chromium a la vez
+    // dentro de la función serverless (1536MB) hacía que el binario ligero
+    // de @sparticuz/chromium se cerrara a medio scraping de Home Depot
+    // (su SPA es más pesada que la de Sodimac) — confirmado en Preview real,
+    // reproducible 2/2 veces. Secuencial cabe cómodo en maxDuration (90s).
+    const porTienda = [
+      await scrapeTienda(browser, 'home_depot', query),
+      await scrapeTienda(browser, 'sodimac', query),
+    ];
     const ahora = new Date();
     const filas = [];
     for (const { tienda, resultados } of porTienda) {

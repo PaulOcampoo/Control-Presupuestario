@@ -891,7 +891,7 @@ body.modal-open { overflow: hidden; }
   --sidebar-w: 264px;
   --sidebar-icon-w: 76px;
   --mobile-nav-h: 56px;
-  --mobile-nav-gap: 14px;
+  --mobile-nav-gap: 8px;
   /* Separación real entre la isla y el borde inferior: el margen de diseño
      (--mobile-nav-gap) O el safe-area del home indicator, el que sea mayor
      — NUNCA la suma de ambos. En Safari normal el safe-area suele ser 0

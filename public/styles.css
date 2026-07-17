@@ -492,7 +492,7 @@ body.modal-open { overflow: hidden; }
 [data-theme="light"] .toast.success { color: #14532d; }
 /* En móvil el toast debe quedar por encima de la barra de navegación inferior */
 @media (max-width: 860px) {
-  .toast { bottom: calc(var(--mobile-nav-h) + var(--mobile-nav-gap) + env(safe-area-inset-bottom, 0px) + 20px); }
+  .toast { bottom: calc(var(--mobile-nav-h) + var(--mobile-nav-clear) + 20px); }
 }
 
 .spinner {
@@ -892,6 +892,15 @@ body.modal-open { overflow: hidden; }
   --sidebar-icon-w: 76px;
   --mobile-nav-h: 56px;
   --mobile-nav-gap: 14px;
+  /* Separación real entre la isla y el borde inferior: el margen de diseño
+     (--mobile-nav-gap) O el safe-area del home indicator, el que sea mayor
+     — NUNCA la suma de ambos. En Safari normal el safe-area suele ser 0
+     (el propio chrome del navegador ya ocupa esa franja), así que gana el
+     margen de diseño. En PWA instalada (standalone) no hay chrome de
+     navegador y el safe-area real del home indicator (~34px en iPhones con
+     notch) ya es de sobra para "flotar" — sumarle encima el margen de
+     diseño dejaba un hueco vacío grande debajo de la isla. */
+  --mobile-nav-clear: max(var(--mobile-nav-gap), var(--safe-bottom));
 }
 
 /* ── Layout base ──────────────────────────────────────────────────────── */
@@ -1118,7 +1127,7 @@ body.modal-open { overflow: hidden; }
 .mobile-nav {
   display: none; /* activada en @media (max-width: 860px) */
   position: fixed;
-  bottom: calc(var(--mobile-nav-gap) + var(--safe-bottom));
+  bottom: var(--mobile-nav-clear);
   left: var(--mobile-nav-gap); right: var(--mobile-nav-gap);
   height: var(--mobile-nav-h);
   border-radius: 999px;
@@ -1163,7 +1172,7 @@ body.modal-open { overflow: hidden; }
 .quick-action-menu.show { opacity: 1; }
 .quick-action-backdrop { position: absolute; inset: 0; background: rgba(0,0,0,0.5); }
 .quick-action-sheet {
-  position: absolute; bottom: calc(var(--mobile-nav-h) + var(--mobile-nav-gap) + var(--safe-bottom)); left: 0; right: 0;
+  position: absolute; bottom: calc(var(--mobile-nav-h) + var(--mobile-nav-clear)); left: 0; right: 0;
   background: var(--bg-surface); border: 1px solid var(--border-color);
   border-radius: var(--radius) var(--radius) 0 0; border-bottom: none;
   padding: 16px;
@@ -1250,7 +1259,7 @@ body.modal-open { overflow: hidden; }
   #app {
     height: 100%;          /* cadena html → body → viewport, sin dvh */
     min-height: unset;
-    padding-bottom: calc(var(--mobile-nav-h) + var(--mobile-nav-gap) + env(safe-area-inset-bottom, 0px));
+    padding-bottom: calc(var(--mobile-nav-h) + var(--mobile-nav-clear));
   }
   .main-area {
     flex: 1;
@@ -1304,7 +1313,7 @@ body.modal-open { overflow: hidden; }
   position: fixed;
   left: 50%;
   transform: translateX(-50%);
-  bottom: calc(var(--mobile-nav-h) + var(--mobile-nav-gap) + var(--safe-bottom) + 16px);
+  bottom: calc(var(--mobile-nav-h) + var(--mobile-nav-clear) + 16px);
   background: var(--bg-surface-2);
   border: 1px solid var(--border-color);
   color: var(--text-primary);

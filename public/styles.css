@@ -492,7 +492,7 @@ body.modal-open { overflow: hidden; }
 [data-theme="light"] .toast.success { color: #14532d; }
 /* En móvil el toast debe quedar por encima de la barra de navegación inferior */
 @media (max-width: 860px) {
-  .toast { bottom: calc(var(--mobile-nav-h) + env(safe-area-inset-bottom, 0px) + 20px); }
+  .toast { bottom: calc(var(--mobile-nav-h) + var(--mobile-nav-gap) + env(safe-area-inset-bottom, 0px) + 20px); }
 }
 
 .spinner {
@@ -891,6 +891,7 @@ body.modal-open { overflow: hidden; }
   --sidebar-w: 264px;
   --sidebar-icon-w: 76px;
   --mobile-nav-h: 56px;
+  --mobile-nav-gap: 14px;
 }
 
 /* ── Layout base ──────────────────────────────────────────────────────── */
@@ -928,6 +929,7 @@ body.modal-open { overflow: hidden; }
 .sidebar-brand {
   display: flex; align-items: center; gap: 10px; overflow: hidden; min-width: 0;
   background: transparent; border: none; padding: 4px; margin: -4px;
+  -webkit-appearance: none; appearance: none;
   font: inherit; color: inherit; text-align: left; cursor: pointer; transition: opacity 0.15s;
 }
 .sidebar-brand:hover { opacity: 0.75; }
@@ -1104,17 +1106,33 @@ body.modal-open { overflow: hidden; }
   border-color: var(--accent-gold); font-weight: 600;
 }
 
-/* ── Barra de navegación móvil ────────────────────────────────────────── */
+/* ── Barra de navegación móvil — isla "liquid glass" ─────────────────────
+   Flotante y separada de los bordes (--mobile-nav-gap), vidrio esmerilado
+   vía backdrop-filter sobre un fondo semitransparente derivado de
+   --bg-surface (mismo token que ya distingue light/dark, no es un color
+   nuevo). will-change promueve el elemento a su propia capa de composición
+   para que el blur no dispare recálculo de layout en cada frame de scroll
+   del contenido detrás — backdrop-filter en position:fixed es el caso
+   clásico de jank si queda en el hilo principal. Fallback sin blur para
+   navegadores sin soporte (fondo más opaco, sigue siendo legible). */
 .mobile-nav {
   display: none; /* activada en @media (max-width: 860px) */
-  position: fixed; bottom: 0; left: 0; right: 0;
-  height: calc(var(--mobile-nav-h) + env(safe-area-inset-bottom, 0px));
-  padding-bottom: env(safe-area-inset-bottom, 0px);
-  background: var(--bg-surface); border-top: 1px solid var(--border-color);
+  position: fixed;
+  bottom: calc(var(--mobile-nav-gap) + var(--safe-bottom));
+  left: var(--mobile-nav-gap); right: var(--mobile-nav-gap);
+  height: var(--mobile-nav-h);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg-surface) 70%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent-silver) 30%, transparent);
+  backdrop-filter: blur(20px) saturate(160%);
+  -webkit-backdrop-filter: blur(20px) saturate(160%);
+  will-change: backdrop-filter;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.28);
   z-index: 40; align-items: center; justify-content: space-around;
-  /* Extiende el fondo hacia la zona del home indicator (safe-area-inset-bottom).
-     En dispositivos sin home indicator env()=0px → sin efecto visual ni de layout. */
-  box-shadow: 0 env(safe-area-inset-bottom, 0px) 0 0 var(--bg-surface);
+  padding: 0 6px;
+}
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .mobile-nav { background: color-mix(in srgb, var(--bg-surface) 96%, transparent); }
 }
 .mobile-nav-item {
   flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
@@ -1127,12 +1145,12 @@ body.modal-open { overflow: hidden; }
 .mobile-notif-wrap .mobile-nav-item { flex: none; width: 100%; }
 .mobile-notif-wrap .notif-badge { top: 10px; right: 6px; }
 .mobile-nav-fab {
-  flex-shrink: 0; width: 50px; height: 50px; border-radius: 50%; border: none;
+  flex-shrink: 0; width: 42px; height: 42px; border-radius: 50%; border: none;
   background: var(--accent-gold); color: #04212f;
   display: flex; align-items: center; justify-content: center;
-  font-size: 1.6rem; font-weight: 700; line-height: 1;
-  box-shadow: 0 -4px 16px color-mix(in srgb, var(--accent-gold) 35%, transparent);
-  cursor: pointer; margin: 0 4px;
+  font-size: 1.4rem; font-weight: 700; line-height: 1;
+  box-shadow: 0 2px 10px color-mix(in srgb, var(--accent-gold) 45%, transparent);
+  cursor: pointer; margin: 0 2px;
   transition: transform 0.15s;
 }
 .mobile-nav-fab:active { transform: scale(0.92); }
@@ -1145,7 +1163,7 @@ body.modal-open { overflow: hidden; }
 .quick-action-menu.show { opacity: 1; }
 .quick-action-backdrop { position: absolute; inset: 0; background: rgba(0,0,0,0.5); }
 .quick-action-sheet {
-  position: absolute; bottom: calc(var(--mobile-nav-h) + var(--safe-bottom)); left: 0; right: 0;
+  position: absolute; bottom: calc(var(--mobile-nav-h) + var(--mobile-nav-gap) + var(--safe-bottom)); left: 0; right: 0;
   background: var(--bg-surface); border: 1px solid var(--border-color);
   border-radius: var(--radius) var(--radius) 0 0; border-bottom: none;
   padding: 16px;
@@ -1232,7 +1250,7 @@ body.modal-open { overflow: hidden; }
   #app {
     height: 100%;          /* cadena html → body → viewport, sin dvh */
     min-height: unset;
-    padding-bottom: calc(var(--mobile-nav-h) + env(safe-area-inset-bottom, 0px));
+    padding-bottom: calc(var(--mobile-nav-h) + var(--mobile-nav-gap) + env(safe-area-inset-bottom, 0px));
   }
   .main-area {
     flex: 1;
@@ -1286,7 +1304,7 @@ body.modal-open { overflow: hidden; }
   position: fixed;
   left: 50%;
   transform: translateX(-50%);
-  bottom: calc(var(--mobile-nav-h) + var(--safe-bottom) + 16px);
+  bottom: calc(var(--mobile-nav-h) + var(--mobile-nav-gap) + var(--safe-bottom) + 16px);
   background: var(--bg-surface-2);
   border: 1px solid var(--border-color);
   color: var(--text-primary);

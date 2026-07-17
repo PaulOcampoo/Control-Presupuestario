@@ -25,6 +25,8 @@ const { buildNominaReporteSemanalPdf } = require('./nominaReporteSemanalPdf');
 const { calcularDiasRestantes, determinarUmbral, construirMensaje } = require('./alertasContrato');
 const maquinaria = require('./maquinaria');
 const cotizador = require('./cotizador');
+const { metaToObject, presupuestoTotalDe, getFinanzasResumenData } = require('./finanzas');
+const estadoResultados = require('./estadoResultados');
 
 const app = express();
 
@@ -113,12 +115,6 @@ async function requireProject(req, res, next) {
   if (!proj) return res.status(404).json({ error: 'Proyecto no encontrado' });
   req.project = proj;
   next();
-}
-
-function metaToObject(rows) {
-  const o = {};
-  for (const r of rows) o[r.clave] = r.valor;
-  return o;
 }
 
 // Emite la sesión completa (access token + refresh cookie) una vez pasado el
@@ -3055,108 +3051,6 @@ app.delete('/api/projects/:id/gastos/:gastoId', h(auth.allow()), h(requireProjec
   res.json({ ok: true });
 }));
 
-// ---------------------------------------------------------------------------
-// Resumen financiero: Avance Valorizado (% ejecutado × presupuesto, idéntico
-// al que ya usa el Resumen) vs Erogado Real (Compras + Gastos Generales) —
-// dos fuentes de verdad separadas, nunca fusionadas ni promediadas.
-// ---------------------------------------------------------------------------
-async function getFinanzasResumenData(pid) {
-  const presupuestoTotal = await presupuestoTotalDe(pid);
-
-  const { rows: ultimoRows } = await db.pool.query(`
-    SELECT avance_financiero_real FROM avances_semanales
-    WHERE project_id = $1 AND avance_financiero_real IS NOT NULL
-    ORDER BY semana DESC LIMIT 1
-  `, [pid]);
-  const pctValorizado = ultimoRows[0] ? Number(ultimoRows[0].avance_financiero_real) : 0;
-  const montoValorizado = Number((presupuestoTotal * (pctValorizado / 100)).toFixed(2));
-
-  const { rows: comprasPagadoRows } = await db.pool.query(`
-    SELECT COALESCE(SUM(p.monto), 0) AS total
-    FROM pagos p
-    JOIN ordenes_compra oc ON oc.id = p.orden_compra_id
-    WHERE oc.project_id = $1 AND oc.estado != 'cancelada'
-  `, [pid]);
-  const comprasPagado = Number(comprasPagadoRows[0].total);
-
-  // Comprometido: solo órdenes ya aceptadas por el proveedor (confirmada en
-  // adelante) — 'enviada' aún no cuenta como compromiso real de dinero.
-  const { rows: comprasComprometidoRows } = await db.pool.query(`
-    SELECT oc.id,
-           COALESCE(SUM(oci.importe), 0) AS importe_total,
-           COALESCE((SELECT SUM(p.monto) FROM pagos p WHERE p.orden_compra_id = oc.id), 0) AS pagado
-    FROM ordenes_compra oc
-    LEFT JOIN orden_compra_items oci ON oci.orden_compra_id = oc.id
-    WHERE oc.project_id = $1 AND oc.estado IN ('confirmada', 'recibida_parcial', 'recibida_completa')
-    GROUP BY oc.id
-  `, [pid]);
-  const comprasComprometido = comprasComprometidoRows.reduce(
-    (s, oc) => s + Math.max(0, Number(oc.importe_total) - Number(oc.pagado)), 0
-  );
-
-  const { rows: gastosPagadoRows } = await db.pool.query(
-    "SELECT COALESCE(SUM(monto), 0) AS total FROM gastos_generales WHERE project_id = $1 AND estado = 'pagado'", [pid]
-  );
-  const gastosPagado = Number(gastosPagadoRows[0].total);
-
-  const { rows: gastosPendienteRows } = await db.pool.query(
-    "SELECT COALESCE(SUM(monto), 0) AS total FROM gastos_generales WHERE project_id = $1 AND estado = 'pendiente'", [pid]
-  );
-  const gastosPendiente = Number(gastosPendienteRows[0].total);
-
-  // Destajo: costo de mano de obra realmente ejecutado (cantidad_ejecutada,
-  // acumulada semana a semana en avance_destajo, × precio_destajo — el mismo
-  // cálculo que ya usa la pestaña Destajo como "total_ganado"). No hay
-  // distinción pagado/pendiente para destajo en el esquema actual, así que
-  // se trata como pagado (mano de obra ya ejecutada = costo real incurrido).
-  const { rows: destajoRows } = await db.pool.query(`
-    SELECT COALESCE(SUM(ad.cantidad_ejecutada * di.precio_destajo), 0) AS total
-    FROM destajo_items di
-    JOIN avance_destajo ad ON ad.destajo_item_id = di.id
-    WHERE di.project_id = $1
-  `, [pid]);
-  const destajoGanado = Number(destajoRows[0].total);
-
-  // pagos.monto y orden_compra_items.precio_unitario se capturan con IVA
-  // incluido (monto real pagado/cotizado), mientras que montoValorizado sale
-  // de presupuestoTotal, que es sin IVA. Para que "Erogado Real" sea
-  // comparable con "Avance Valorizado" se ajustan aquí SOLO estos dos montos
-  // de compras a una base sin IVA (÷1.16) — nunca se toca lo guardado en
-  // pagos ni orden_compra_items, que siguen representando el monto real con
-  // IVA. gastos_generales queda fuera de este ajuste (fuera de alcance).
-  const IVA_RATE = 0.16;
-  const comprasPagadoSinIva = Number((comprasPagado / (1 + IVA_RATE)).toFixed(2));
-  const comprasComprometidoSinIva = Number((comprasComprometido / (1 + IVA_RATE)).toFixed(2));
-
-  const totalPagado = Number((comprasPagadoSinIva + gastosPagado + destajoGanado).toFixed(2));
-  const totalComprometidoNoPagado = Number((comprasComprometidoSinIva + gastosPendiente).toFixed(2));
-  const brechaMonto = Number((montoValorizado - totalPagado).toFixed(2));
-
-  return {
-    avance_valorizado: {
-      pct: pctValorizado,
-      monto: montoValorizado,
-    },
-    erogado_real: {
-      compras_pagado: comprasPagadoSinIva,
-      compras_pagado_con_iva: Number(comprasPagado.toFixed(2)),
-      compras_comprometido: comprasComprometidoSinIva,
-      compras_comprometido_con_iva: Number(comprasComprometido.toFixed(2)),
-      gastos_generales_pagado: Number(gastosPagado.toFixed(2)),
-      gastos_generales_pendiente: Number(gastosPendiente.toFixed(2)),
-      destajo_ejecutado: Number(destajoGanado.toFixed(2)),
-      total_pagado: totalPagado,
-      total_comprometido_no_pagado: totalComprometidoNoPagado,
-      iva_ajuste_pct: IVA_RATE * 100,
-    },
-    brecha: {
-      monto: brechaMonto,
-      descripcion: 'positivo = se ha avanzado más obra de la que se ha pagado; negativo = se ha pagado más de lo que refleja el avance reportado',
-    },
-    presupuesto_total: presupuestoTotal,
-  };
-}
-
 app.get('/api/projects/:id/finanzas/resumen', h(auth.allow('tesoreria')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
   res.json(await getFinanzasResumenData(req.project.id));
 }));
@@ -3215,6 +3109,78 @@ app.get('/api/projects/:id/finanzas/export', h(auth.allow('tesoreria')), h(requi
       },
     ],
   });
+}));
+
+// ---------------------------------------------------------------------------
+// Estado de Resultados (Tesorería) — prompt-estado-resultados-tesoreria.
+// Facturación/Cobranza ligada a la obra (project_id) + Egresos reutilizando
+// Erogado Real de Finanzas (server/finanzas.js) = Margen Bruto. Acceso solo
+// tesoreria/admin/desarrollador (auth.allow('tesoreria'), mismo patrón que el
+// resto de esta sección — admin/desarrollador siempre pasan por bypass).
+// ---------------------------------------------------------------------------
+app.get('/api/projects/:id/facturas', h(auth.allow('tesoreria')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  res.json(await estadoResultados.listFacturas(req.project.id));
+}));
+
+app.post('/api/projects/:id/facturas', h(auth.allow('tesoreria')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  const { folio, concepto, fecha_emision, monto_subtotal, iva, monto_total } = req.body || {};
+  const subtotalNum = Number(monto_subtotal);
+  const ivaNum = Number(iva ?? 0);
+  const totalNum = Number(monto_total);
+  if (!concepto?.trim()) return res.status(400).json({ error: 'El concepto es requerido' });
+  if (!Number.isFinite(subtotalNum) || subtotalNum <= 0) return res.status(400).json({ error: 'El subtotal debe ser mayor a 0' });
+  if (!Number.isFinite(totalNum) || totalNum <= 0) return res.status(400).json({ error: 'El monto total debe ser mayor a 0' });
+  if (Math.abs((subtotalNum + ivaNum) - totalNum) > 0.01) {
+    return res.status(400).json({ error: 'monto_subtotal + iva debe ser igual a monto_total' });
+  }
+  const factura = await estadoResultados.createFactura({
+    project_id: req.project.id, folio: folio?.trim(), concepto: concepto.trim(), fecha_emision,
+    monto_subtotal: subtotalNum, iva: ivaNum, monto_total: totalNum, creado_por: req.user.id,
+  });
+  res.status(201).json(factura);
+}));
+
+app.put('/api/projects/:id/facturas/:facturaId', h(auth.allow('tesoreria')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  const { folio, concepto, fecha_emision, monto_subtotal, iva, monto_total } = req.body || {};
+  const subtotalNum = monto_subtotal != null ? Number(monto_subtotal) : null;
+  const ivaNum = iva != null ? Number(iva) : null;
+  const totalNum = monto_total != null ? Number(monto_total) : null;
+  const factura = await estadoResultados.updateFactura(Number(req.params.facturaId), {
+    folio, concepto, fecha_emision, monto_subtotal: subtotalNum, iva: ivaNum, monto_total: totalNum,
+  });
+  if (!factura) return res.status(404).json({ error: 'Factura no encontrada' });
+  res.json(factura);
+}));
+
+app.delete('/api/projects/:id/facturas/:facturaId', h(auth.allow('tesoreria')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  const factura = await estadoResultados.cancelarFactura(Number(req.params.facturaId));
+  if (!factura) return res.status(404).json({ error: 'Factura no encontrada' });
+  res.json(factura);
+}));
+
+app.get('/api/projects/:id/facturas/:facturaId/cobros', h(auth.allow('tesoreria')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  res.json(await estadoResultados.listCobros(Number(req.params.facturaId)));
+}));
+
+app.post('/api/projects/:id/facturas/:facturaId/cobros', h(auth.allow('tesoreria')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  const { fecha_cobro, monto_cobrado, forma_pago } = req.body || {};
+  const montoNum = Number(monto_cobrado);
+  if (!Number.isFinite(montoNum) || montoNum <= 0) return res.status(400).json({ error: 'El monto cobrado debe ser mayor a 0' });
+  const resultado = await estadoResultados.registrarCobro({
+    factura_id: Number(req.params.facturaId), fecha_cobro, monto_cobrado: montoNum,
+    forma_pago: forma_pago?.trim(), creado_por: req.user.id,
+  });
+  res.status(201).json(resultado);
+}));
+
+app.get('/api/projects/:id/estado-resultados', h(auth.allow('tesoreria')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  const { desde, hasta } = req.query;
+  res.json(await estadoResultados.getEstadoResultadosPorObra(req.project.id, { desde, hasta }));
+}));
+
+app.get('/api/estado-resultados/consolidado', h(auth.allow('tesoreria')), h(async (req, res) => {
+  const { desde, hasta } = req.query;
+  res.json(await estadoResultados.getEstadoResultadosConsolidado(req.user, { desde, hasta }));
 }));
 
 // ---------------------------------------------------------------------------
@@ -3436,17 +3402,6 @@ app.put('/api/projects/:id/avances/:semana/autorizacion', h(auth.allow()), h(req
   if (!rows[0]) return res.status(404).json({ error: 'Semana no encontrada' });
   res.json(rows[0]);
 }));
-
-async function presupuestoTotalDe(projectId) {
-  const { rows: metaRows } = await db.pool.query('SELECT clave, valor FROM meta WHERE project_id = $1', [projectId]);
-  const meta = metaToObject(metaRows);
-  if (meta.total_sin_iva) return Number(meta.total_sin_iva);
-  const { rows } = await db.pool.query(
-    "SELECT importe FROM conceptos WHERE project_id = $1 AND es_total = 1 AND grupo IS NULL ORDER BY orden DESC LIMIT 1",
-    [projectId]
-  );
-  return rows[0] ? rows[0].importe : 0;
-}
 
 app.get('/api/projects/:id/avances/:semana/conceptos', h(auth.allow('residente', 'cabo', 'logistica')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('avance', 'puede_ver')), h(async (req, res) => {
   const pid = req.project.id;

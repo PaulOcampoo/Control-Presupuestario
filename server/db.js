@@ -833,6 +833,44 @@ const SCHEMA = `
     fecha_consulta TIMESTAMPTZ NOT NULL DEFAULT NOW()
   );
   CREATE INDEX IF NOT EXISTS idx_cotizador_precios_query_tienda ON cotizador_precios(query_busqueda, tienda);
+
+  -- Estado de Resultados (Tesorería) — Ingresos (facturas/cobros) para
+  -- comparar contra Egresos ya calculados en Finanzas (getFinanzasResumenData).
+  -- Vínculo con el contrato: solo project_id — la tabla contratos es 1:1 con
+  -- project_id (UNIQUE) y no guarda montos (esos viven en meta como filas
+  -- sueltas por clave), así que un contrato_id FK sería redundante.
+  -- estatus 'cancelada' es el soft-delete (mismo patrón que ordenes_compra/
+  -- requisiciones: filtrar con estatus != 'cancelada', nunca DELETE físico).
+  CREATE TABLE IF NOT EXISTS facturas (
+    id SERIAL PRIMARY KEY,
+    project_id INTEGER NOT NULL REFERENCES proyectos(id) ON DELETE CASCADE,
+    folio TEXT,
+    concepto TEXT NOT NULL,
+    fecha_emision DATE NOT NULL DEFAULT CURRENT_DATE,
+    monto_subtotal DOUBLE PRECISION NOT NULL,
+    iva DOUBLE PRECISION NOT NULL DEFAULT 0,
+    monto_total DOUBLE PRECISION NOT NULL,
+    estatus TEXT NOT NULL DEFAULT 'pendiente'
+      CHECK (estatus IN ('pendiente', 'cobrada_parcial', 'cobrada_total', 'cancelada')),
+    creado_por INTEGER REFERENCES usuarios(id),
+    creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
+  CREATE INDEX IF NOT EXISTS idx_facturas_project ON facturas(project_id);
+
+  -- Abonos sobre una factura — historial completo, nunca se sobreescribe ni
+  -- se borra una fila para "corregir" un cobro (si se captura mal, se
+  -- registra un cobro compensatorio; el estatus de la factura se recalcula
+  -- siempre a partir de la suma de esta tabla).
+  CREATE TABLE IF NOT EXISTS cobros (
+    id SERIAL PRIMARY KEY,
+    factura_id INTEGER NOT NULL REFERENCES facturas(id) ON DELETE CASCADE,
+    fecha_cobro DATE NOT NULL DEFAULT CURRENT_DATE,
+    monto_cobrado DOUBLE PRECISION NOT NULL,
+    forma_pago TEXT,
+    creado_por INTEGER REFERENCES usuarios(id),
+    creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
+  CREATE INDEX IF NOT EXISTS idx_cobros_factura ON cobros(factura_id);
 `;
 
 async function initSchema() {

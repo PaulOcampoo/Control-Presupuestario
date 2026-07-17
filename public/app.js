@@ -74,6 +74,7 @@ const ICON_SVG = {
   avance:        '<polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/>',
   destajo:       '<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>',
   finanzas:      '<line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>',
+  estadoResultados: '<line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/><path d="M2 20h20"/>',
   mapeo:         '<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>',
   usuarios:      '<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
   lock:          '<rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>',
@@ -729,7 +730,7 @@ const TAB_POR_TIPO_NOTIF = {
 const SECTION_DEFS = {
   obra:          { label: 'Obra',           icon: 'obra',           emoji: '🏗️',  tabs: ['programa', 'avance', 'destajo', 'estimaciones'],     proximamente: [] },
   compras:       { label: 'Compras',        icon: 'compras',        emoji: '🛒',   tabs: ['requisiciones', 'insumos', 'proveedores', 'ordenes', 'cotizador'], proximamente: ['Subcontratos'] },
-  tesoreria:     { label: 'Tesorería',      icon: 'tesoreria',      emoji: '💰',   tabs: ['finanzas', 'impuestos'],                             proximamente: [] },
+  tesoreria:     { label: 'Tesorería',      icon: 'tesoreria',      emoji: '💰',   tabs: ['finanzas', 'estadoResultados', 'estadoResultadosGlobal', 'impuestos'], proximamente: [] },
   administracion:{ label: 'Administración', icon: 'administracion', emoji: '📂',  tabs: ['mapeo', 'contrato', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'usuarios'], proximamente: ['Almacenes'] },
   maquinaria:    { label: 'Maquinaria',     icon: 'maquinaria',     emoji: '🚜',   tabs: ['maquinaria'],                                        proximamente: [] },
 };
@@ -739,13 +740,14 @@ const TAB_ICONS = {
   proveedores: '🏭', ordenes: '🛒', programa: '🗓️', avance: '📈', destajo: '👷',
   finanzas: '💰', mapeo: '🔗', usuarios: '👤', trabajadores: '👷', nominas: '💵', estimaciones: '🧮',
   maquinaria: '🚜', nominas_global: '💵', trabajadores_global: '👷', cotizador: '🔍',
+  estadoResultados: '📈', estadoResultadosGlobal: '📈',
 };
 const TAB_LABELS = {
   resumen: 'Resumen', contrato: 'Contrato', impuestos: 'Impuestos', insumos: 'Insumos', requisiciones: 'Requisiciones',
   proveedores: 'Proveedores', ordenes: 'Órdenes de Compra', programa: 'Programa', avance: 'Avance', destajo: 'Destajo',
   finanzas: 'Finanzas', mapeo: 'Mapeo', usuarios: 'Usuarios', trabajadores: 'Trabajadores', nominas: 'Nóminas', estimaciones: 'Estimaciones',
   maquinaria: 'Maquinaria', nominas_global: 'Nómina (todas las obras)', trabajadores_global: 'Trabajadores (todas las obras)',
-  cotizador: 'Cotizador',
+  cotizador: 'Cotizador', estadoResultados: 'Estado de Resultados', estadoResultadosGlobal: 'Estado de Resultados (todas las obras)',
 };
 
 const VIEW_TO_SECTION = {};
@@ -2401,13 +2403,14 @@ function destroyCharts() {
 async function renderView() {
   destroyCharts();
   const view = $('#view');
-  if (state.view === 'usuarios' || state.view === 'proveedores' || state.view === 'maquinaria' || state.view === 'nominas_global' || state.view === 'trabajadores_global' || state.view === 'cotizador') {
+  if (state.view === 'usuarios' || state.view === 'proveedores' || state.view === 'maquinaria' || state.view === 'nominas_global' || state.view === 'trabajadores_global' || state.view === 'cotizador' || state.view === 'estadoResultadosGlobal') {
     try {
       if (state.view === 'usuarios') await renderUsuarios(view);
       else if (state.view === 'proveedores') await renderProveedores(view);
       else if (state.view === 'nominas_global') await renderNominasGlobal(view);
       else if (state.view === 'trabajadores_global') await renderTrabajadoresGlobal(view);
       else if (state.view === 'cotizador') await renderCotizador(view);
+      else if (state.view === 'estadoResultadosGlobal') await renderEstadoResultadosGlobal(view);
       else await renderMaquinaria(view);
     } catch (err) { view.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`; }
     syncFab();
@@ -2454,6 +2457,7 @@ async function renderView() {
       case 'programa': await renderPrograma(view); break;
       case 'destajo': await renderDestajo(view); break;
       case 'finanzas': await renderFinanzas(view); break;
+      case 'estadoResultados': await renderEstadoResultados(view); break;
       case 'mapeo': await renderMapeo(view); break;
       case 'trabajadores': await renderTrabajadores(view); break;
       case 'nominas': await renderNominas(view); break;
@@ -5685,6 +5689,7 @@ async function renderSugerencias(view) {
 const PERMISOS_SECCION_LABELS = {
   presupuestos: 'Presupuestos', requisiciones: 'Requisiciones', proveedores: 'Proveedores',
   ordenes_compra: 'Órdenes de Compra', avance: 'Avance', destajo: 'Destajo', finanzas: 'Finanzas',
+  estado_resultados: 'Estado de Resultados',
   insumos: 'Insumos', mapeo: 'Mapeo', usuarios: 'Usuarios', contrato: 'Contrato', impuestos: 'Impuestos',
   nominas: 'Nóminas', sugerencias: 'Sugerencias', programa: 'Programa', estimaciones: 'Estimaciones',
   maquinaria: 'Maquinaria',
@@ -5719,7 +5724,7 @@ const SECCIONES_CON_ENFORCEMENT = ['nominas', 'avance', 'maquinaria', 'trabajado
 const PERMISOS_GRUPOS = [
   { label: 'Obra',           secciones: ['presupuestos', 'programa', 'avance', 'destajo', 'estimaciones'] },
   { label: 'Compras',        secciones: ['requisiciones', 'insumos', 'proveedores', 'ordenes_compra'] },
-  { label: 'Tesorería',      secciones: ['finanzas', 'impuestos'] },
+  { label: 'Tesorería',      secciones: ['finanzas', 'estado_resultados', 'impuestos'] },
   { label: 'Administración', secciones: ['mapeo', 'contrato', 'nominas', 'usuarios', 'trabajadores_global', 'nominas_global'] },
   { label: 'Maquinaria',     secciones: ['maquinaria'] },
   { label: 'General',        secciones: ['sugerencias'] },
@@ -5734,6 +5739,7 @@ const TAB_A_SECCION = {
   impuestos: 'impuestos', insumos: 'insumos', requisiciones: 'requisiciones',
   ordenes: 'ordenes_compra', avance: 'avance', destajo: 'destajo',
   usuarios: 'usuarios', proveedores: 'proveedores', finanzas: 'finanzas',
+  estadoResultados: 'estado_resultados',
   mapeo: 'mapeo', nominas: 'nominas', estimaciones: 'estimaciones',
   maquinaria: 'maquinaria',
 };
@@ -7079,6 +7085,271 @@ function openGastoModal(gasto) {
   });
 }
 
+// =========================================================================
+// VISTA: Estado de Resultados (Tesorería) — prompt-estado-resultados-tesoreria.
+// Ingresos facturados (devengado, NO cobrado) vs Egresos (Erogado Real
+// completo de Finanzas, reutilizado vía GET .../estado-resultados) = Margen
+// Bruto. La cobranza real (cobros) se muestra aparte como métrica de flujo
+// de caja, sin afectar el margen — misma decisión que ya se tomó con Paul.
+// Dos vistas separadas, mismo patrón que Nóminas/Nóminas (todas las obras):
+// 'estadoResultados' (por obra, requiere obra seleccionada) y
+// 'estadoResultadosGlobal' (consolidado, siempre disponible).
+// =========================================================================
+const FACTURA_ESTATUS_LABELS = {
+  pendiente: 'Pendiente', cobrada_parcial: 'Cobrada parcial', cobrada_total: 'Cobrada total', cancelada: 'Cancelada',
+};
+const FACTURA_ESTATUS_BADGE = {
+  pendiente: 'yellow', cobrada_parcial: 'yellow', cobrada_total: 'green', cancelada: 'muted',
+};
+
+function erDesgloseEgresosHtml(egresos) {
+  const d = egresos.desglose;
+  return `
+    <h4 class="finanzas-desglose-h4">Desglose de Egresos</h4>
+    <div class="card-row"><span class="k">Compras — pagado</span><span class="v">${fmtMoney(d.compras_pagado)}</span></div>
+    <div class="card-row"><span class="k">Compras — comprometido</span><span class="v">${fmtMoney(d.compras_comprometido)}</span></div>
+    <div class="card-row"><span class="k">Gastos generales — pagado</span><span class="v">${fmtMoney(d.gastos_generales_pagado)}</span></div>
+    <div class="card-row"><span class="k">Gastos generales — pendiente</span><span class="v">${fmtMoney(d.gastos_generales_pendiente)}</span></div>
+    <div class="card-row"><span class="k">Destajo — ejecutado</span><span class="v">${fmtMoney(d.destajo_ejecutado)}</span></div>
+    <div class="card-row"><span class="k">Total pagado</span><span class="v text-verde">${fmtMoney(egresos.pagado)}</span></div>
+    <div class="card-row"><span class="k">Total comprometido (no pagado)</span><span class="v text-amarillo">${fmtMoney(egresos.comprometido_no_pagado)}</span></div>
+  `;
+}
+
+async function renderEstadoResultados(view) {
+  const puedeGestionar = isAdmin() || state.user?.puesto === 'tesoreria';
+  const [resumen, facturas] = await Promise.all([
+    api(`/projects/${state.projectId}/estado-resultados`),
+    api(`/projects/${state.projectId}/facturas`),
+  ]);
+  const margenPositivo = resumen.margen_bruto >= 0;
+
+  view.innerHTML = `
+    <h2 class="section-title">Estado de Resultados</h2>
+    <p class="muted">Ingresos facturados (devengado) contra Egresos (Erogado Real de Finanzas) = Margen Bruto. La cobranza real se muestra aparte, sin afectar el margen.</p>
+    <div class="section-actions">
+      <button class="btn" id="btnVerConsolidadoER">Ver consolidado (todas las obras)</button>
+    </div>
+
+    <div class="kpi-grid finanzas-kpi-grid">
+      <div class="kpi accent"><div class="label">Ingresos facturados (sin IVA)</div><div class="value">${fmtMoney(resumen.ingresos.facturado_sin_iva)}</div></div>
+      <div class="kpi"><div class="label">Egresos</div><div class="value">${fmtMoney(resumen.egresos.total)}</div></div>
+      <div class="kpi ${margenPositivo ? 'green' : 'yellow'}"><div class="label">Margen Bruto</div><div class="value">${fmtMoney(resumen.margen_bruto)}</div><div class="muted">${fmtPct(resumen.margen_pct)}</div></div>
+    </div>
+
+    <div class="card">
+      <div class="card-row"><span class="k">Ingresos facturados (con IVA)</span><span class="v">${fmtMoney(resumen.ingresos.facturado_con_iva)}</span></div>
+      <div class="card-row"><span class="k">IVA facturado</span><span class="v">${fmtMoney(resumen.ingresos.facturado_iva)}</span></div>
+      <div class="card-row"><span class="k">Cobrado a la fecha</span><span class="v">${fmtMoney(resumen.ingresos.cobrado_total)}</span></div>
+      <div class="card-row"><span class="k">Número de facturas</span><span class="v">${resumen.ingresos.num_facturas}</span></div>
+    </div>
+
+    <div class="card border-verde">${erDesgloseEgresosHtml(resumen.egresos)}</div>
+
+    <h3 class="section-title">Facturas</h3>
+    ${puedeGestionar ? `
+    <div class="section-actions">
+      <button class="btn btn-primary" id="btnNuevaFactura">+ Nueva factura</button>
+    </div>` : ''}
+    <div id="facturasList"></div>
+  `;
+
+  $('#btnVerConsolidadoER').addEventListener('click', () => switchToView('estadoResultadosGlobal'));
+  $('#btnNuevaFactura')?.addEventListener('click', () => openFacturaModal(null));
+
+  paintFacturasList(facturas, puedeGestionar);
+}
+
+function paintFacturasList(facturas, puedeGestionar) {
+  const list = $('#facturasList');
+  if (!facturas.length) {
+    list.innerHTML = '<div class="empty-state">No hay facturas registradas para esta obra.</div>';
+    return;
+  }
+  list.innerHTML = facturas.map((f) => `
+    <div class="card">
+      <div class="row between">
+        <div>
+          <strong>${esc(f.folio || 'Sin folio')}</strong> — ${esc(f.concepto)}
+          <div class="muted fs-08">${fmtDate(f.fecha_emision)}</div>
+        </div>
+        <div class="text-right">
+          <div class="fw-700">${fmtMoney(f.monto_total)}</div>
+          <span class="badge ${FACTURA_ESTATUS_BADGE[f.estatus] || 'muted'}">${esc(FACTURA_ESTATUS_LABELS[f.estatus] || f.estatus)}</span>
+        </div>
+      </div>
+      <div class="card-row"><span class="k">Subtotal / IVA</span><span class="v muted">${fmtMoney(f.monto_subtotal)} + ${fmtMoney(f.iva)}</span></div>
+      <div class="card-row"><span class="k">Cobrado</span><span class="v">${fmtMoney(f.monto_cobrado)} / ${fmtMoney(f.monto_total)}</span></div>
+      ${puedeGestionar && f.estatus !== 'cancelada' ? `
+      <div class="row end mt8-gap8">
+        <button class="btn small" data-registrar-cobro="${f.id}">Registrar cobro</button>
+        ${Number(f.monto_cobrado) <= 0 ? `<button class="btn small" data-edit-factura="${f.id}">Editar</button><button class="btn small btn-danger" data-cancel-factura="${f.id}">Cancelar</button>` : ''}
+      </div>` : ''}
+    </div>
+  `).join('');
+
+  $$('[data-registrar-cobro]', list).forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const f = facturas.find((x) => x.id === Number(btn.dataset.registrarCobro));
+      if (f) openCobroModal(f);
+    });
+  });
+  $$('[data-edit-factura]', list).forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const f = facturas.find((x) => x.id === Number(btn.dataset.editFactura));
+      if (f) openFacturaModal(f);
+    });
+  });
+  $$('[data-cancel-factura]', list).forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      if (!confirm('¿Cancelar esta factura? Quedará marcada como cancelada — no se elimina, se conserva para auditoría.')) return;
+      try {
+        await api(`/projects/${state.projectId}/facturas/${Number(btn.dataset.cancelFactura)}`, { method: 'DELETE' });
+        toast('Factura cancelada', 'success');
+        renderView();
+      } catch (err) { toast(err.message, 'danger'); }
+    });
+  });
+}
+
+function openFacturaModal(factura) {
+  const isEdit = !!factura;
+  openModal(`
+    <h3>${isEdit ? 'Editar factura' : 'Nueva factura'}</h3>
+    <div class="field"><label>Folio</label><input id="fFolio" placeholder="Ej. F-1024" value="${isEdit ? esc(factura.folio || '') : ''}" /></div>
+    <div class="field"><label>Concepto *</label><input id="fConcepto" placeholder="Ej. Estimación 3 - Obra civil" value="${isEdit ? esc(factura.concepto) : ''}" /></div>
+    <div class="field"><label>Fecha de emisión</label><input id="fFecha" type="date" value="${isEdit ? esc(String(factura.fecha_emision).slice(0, 10)) : new Date().toISOString().slice(0, 10)}" /></div>
+    <div class="field"><label>Subtotal (sin IVA) *</label><input id="fSubtotal" type="number" min="0" step="any" value="${isEdit ? factura.monto_subtotal : ''}" /></div>
+    <div class="field"><label>IVA</label><input id="fIva" type="number" min="0" step="any" value="${isEdit ? factura.iva : ''}" /></div>
+    <div class="field"><label>Total (con IVA) *</label><input id="fTotal" type="number" min="0" step="any" value="${isEdit ? factura.monto_total : ''}" /></div>
+    <p class="muted fs-08">Subtotal + IVA debe ser igual al Total (se calcula automático al llenar Subtotal/IVA).</p>
+    <div class="modal-actions">
+      <button class="btn" id="btnCancelFactura">Cerrar</button>
+      <button class="btn btn-primary" id="btnSaveFactura">${isEdit ? 'Guardar cambios' : 'Registrar factura'}</button>
+    </div>
+  `);
+  $('#btnCancelFactura').addEventListener('click', closeModal);
+
+  const recalcTotal = () => {
+    const sub = Number($('#fSubtotal').value) || 0;
+    const iva = Number($('#fIva').value) || 0;
+    if (sub || iva) $('#fTotal').value = (sub + iva).toFixed(2);
+  };
+  $('#fSubtotal').addEventListener('input', recalcTotal);
+  $('#fIva').addEventListener('input', recalcTotal);
+
+  $('#btnSaveFactura').addEventListener('click', async () => {
+    const concepto = $('#fConcepto').value.trim();
+    const subtotal = Number($('#fSubtotal').value);
+    const iva = Number($('#fIva').value) || 0;
+    const total = Number($('#fTotal').value);
+    if (!concepto) { toast('Escribe el concepto de la factura', 'danger'); return; }
+    if (!subtotal || subtotal <= 0) { toast('Indica un subtotal mayor a 0', 'danger'); return; }
+    if (!total || total <= 0) { toast('Indica un total mayor a 0', 'danger'); return; }
+    if (Math.abs((subtotal + iva) - total) > 0.01) { toast('Subtotal + IVA debe ser igual al Total', 'danger'); return; }
+    const btn = $('#btnSaveFactura');
+    btn.disabled = true;
+    const body = {
+      folio: $('#fFolio').value.trim() || null, concepto, fecha_emision: $('#fFecha').value || null,
+      monto_subtotal: subtotal, iva, monto_total: total,
+    };
+    try {
+      if (isEdit) {
+        await api(`/projects/${state.projectId}/facturas/${factura.id}`, { method: 'PUT', body });
+        toast('Factura actualizada', 'success');
+      } else {
+        await api(`/projects/${state.projectId}/facturas`, { method: 'POST', body });
+        toast('Factura registrada', 'success');
+      }
+      closeModal();
+      renderView();
+    } catch (err) {
+      toast(err.message, 'danger');
+      btn.disabled = false;
+    }
+  });
+}
+
+function openCobroModal(factura) {
+  const pendiente = Math.max(0, Number(factura.monto_total) - Number(factura.monto_cobrado));
+  openModal(`
+    <h3>Registrar cobro — ${esc(factura.folio || factura.concepto)}</h3>
+    <p class="muted">Cobrado a la fecha: ${fmtMoney(factura.monto_cobrado)} de ${fmtMoney(factura.monto_total)} (pendiente: ${fmtMoney(pendiente)})</p>
+    <div class="field"><label>Fecha de cobro</label><input id="cFecha" type="date" value="${new Date().toISOString().slice(0, 10)}" /></div>
+    <div class="field"><label>Monto cobrado *</label><input id="cMonto" type="number" min="0" step="any" value="${pendiente > 0 ? pendiente.toFixed(2) : ''}" /></div>
+    <div class="field"><label>Forma de pago</label><input id="cFormaPago" placeholder="Ej. Transferencia" /></div>
+    <div class="modal-actions">
+      <button class="btn" id="btnCancelCobro">Cerrar</button>
+      <button class="btn btn-primary" id="btnSaveCobro">Registrar cobro</button>
+    </div>
+  `);
+  $('#btnCancelCobro').addEventListener('click', closeModal);
+  $('#btnSaveCobro').addEventListener('click', async () => {
+    const monto = Number($('#cMonto').value);
+    if (!monto || monto <= 0) { toast('Indica un monto mayor a 0', 'danger'); return; }
+    const btn = $('#btnSaveCobro');
+    btn.disabled = true;
+    try {
+      await api(`/projects/${state.projectId}/facturas/${factura.id}/cobros`, {
+        method: 'POST',
+        body: { fecha_cobro: $('#cFecha').value || null, monto_cobrado: monto, forma_pago: $('#cFormaPago').value.trim() || null },
+      });
+      toast('Cobro registrado', 'success');
+      closeModal();
+      renderView();
+    } catch (err) {
+      toast(err.message, 'danger');
+      btn.disabled = false;
+    }
+  });
+}
+
+async function renderEstadoResultadosGlobal(view) {
+  const data = await api('/estado-resultados/consolidado');
+  const t = data.totales;
+  const margenPositivo = t.margen_bruto >= 0;
+
+  view.innerHTML = `
+    <h2 class="section-title">Estado de Resultados — Consolidado</h2>
+    <p class="muted">Ingresos facturados vs Egresos de todas las obras a las que tienes acceso.</p>
+
+    <div class="kpi-grid finanzas-kpi-grid">
+      <div class="kpi accent"><div class="label">Ingresos facturados (sin IVA)</div><div class="value">${fmtMoney(t.ingresos_sin_iva)}</div></div>
+      <div class="kpi"><div class="label">Egresos</div><div class="value">${fmtMoney(t.egresos_total)}</div></div>
+      <div class="kpi ${margenPositivo ? 'green' : 'yellow'}"><div class="label">Margen Bruto</div><div class="value">${fmtMoney(t.margen_bruto)}</div><div class="muted">${fmtPct(t.margen_pct)}</div></div>
+    </div>
+    <div class="card">
+      <div class="card-row"><span class="k">Ingresos facturados (con IVA)</span><span class="v">${fmtMoney(t.ingresos_con_iva)}</span></div>
+      <div class="card-row"><span class="k">Cobrado a la fecha</span><span class="v">${fmtMoney(t.cobrado_total)}</span></div>
+    </div>
+
+    <h3 class="section-title">Por obra</h3>
+    <div class="card">
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Obra</th><th class="num">Ingresos</th><th class="num">Egresos</th><th class="num">Margen</th><th class="num">%</th></tr></thead>
+          <tbody>
+            ${data.obras.map((o) => `
+              <tr class="row-click" data-pid="${o.project_id}">
+                <td>${esc(o.nombre)}</td>
+                <td class="num">${fmtMoney(o.ingresos.facturado_sin_iva)}</td>
+                <td class="num">${fmtMoney(o.egresos.total)}</td>
+                <td class="num ${o.margen_bruto >= 0 ? 'text-verde' : 'text-rojo'}">${fmtMoney(o.margen_bruto)}</td>
+                <td class="num">${fmtPct(o.margen_pct)}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+      ${data.obras.length === 0 ? '<div class="empty-state">Sin obras con acceso.</div>' : ''}
+    </div>
+  `;
+
+  $$('.row-click', view).forEach((row) => {
+    row.addEventListener('click', () => selectProject(Number(row.dataset.pid), 'estadoResultados'));
+  });
+}
+
 // ---------------------------------------------------------------------------
 // FAB: contextual quick-action depending on the active view
 // ---------------------------------------------------------------------------
@@ -7100,7 +7371,7 @@ fab.addEventListener('click', () => {
   }
 });
 function syncFab() {
-  const noFabViews = ['usuarios', 'proveedores', 'ordenes', 'finanzas', 'mapeo', 'avance'];
+  const noFabViews = ['usuarios', 'proveedores', 'ordenes', 'finanzas', 'estadoResultados', 'estadoResultadosGlobal', 'mapeo', 'avance'];
   const hasAction = ['requisiciones', 'insumos', 'destajo'].includes(state.view);
   fab.style.display = !noFabViews.includes(state.view) && state.projectId && (hasAction || isAdmin()) ? 'flex' : 'none';
   if (state.view === 'requisiciones' || state.view === 'insumos') fab.textContent = '🧾';

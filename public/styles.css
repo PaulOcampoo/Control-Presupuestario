@@ -927,10 +927,11 @@ body.modal-open { overflow: hidden; }
 }
 .sidebar-brand {
   display: flex; align-items: center; gap: 10px; overflow: hidden; min-width: 0;
-  background: transparent; border: none; padding: 4px; margin: -4px; border-radius: 8px;
-  font: inherit; text-align: left; cursor: pointer; transition: background 0.15s;
+  background: transparent; border: none; padding: 4px; margin: -4px;
+  font: inherit; color: inherit; text-align: left; cursor: pointer; transition: opacity 0.15s;
 }
-.sidebar-brand:hover, .sidebar-brand:focus-visible { background: var(--bg-surface-2); }
+.sidebar-brand:hover { opacity: 0.75; }
+.sidebar-brand:focus-visible { outline: 2px solid var(--accent-gold); outline-offset: 2px; border-radius: 6px; }
 .sidebar-brand-logo { height: 28px; width: auto; flex-shrink: 0; }
 .sidebar-brand-name {
   font-size: 0.93rem; font-weight: 700;

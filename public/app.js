@@ -1858,7 +1858,7 @@ function selectProject(id, targetView) {
   state.projectId = id;
   state.cache[id] = state.cache[id] || {};
   const p = state.projects.find((x) => x.id === id);
-  $('#projectName').textContent = p ? p.nombre : '';
+  $('#projectName').textContent = p ? `Trabajando en: ${p.nombre}` : '';
   const sn = $('#sidebarProjectName'); if (sn) sn.textContent = p ? p.nombre : 'Sin presupuesto';
   state.view = targetView || (state.allowedTabs.length <= 1 ? (state.allowedTabs[0] || 'inicio') : 'inicio');
   state.section = VIEW_TO_SECTION[state.view] || null;
@@ -7442,6 +7442,7 @@ applySidebarCollapse();
 
 $('#btnSidebarProject').addEventListener('click', openDrawer);
 $('#sbarVolverClientes').addEventListener('click', () => goToClientGallery());
+$('#btnSidebarBrand').addEventListener('click', () => goToClientGallery());
 $('#sidebarOverlay').addEventListener('click', closeSidebar);
 // Selector de vista simulada (el select se renderiza dinámicamente en sidebarNav)
 $('#sidebarNav').addEventListener('change', (e) => {

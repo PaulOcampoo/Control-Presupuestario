@@ -138,8 +138,7 @@ button, a, select, label,
   border-bottom: 1px solid var(--border-color);
   position: sticky; top: 0; z-index: 20;
 }
-.topbar-title { display: flex; flex-direction: column; line-height: 1.2; flex: 1; min-width: 0; }
-.topbar-title strong { font-size: 1.05rem; }
+.topbar-title { display: flex; flex-direction: column; justify-content: center; line-height: 1.2; flex: 1; min-width: 0; }
 .topbar-title span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 .icon-btn {
@@ -148,6 +147,9 @@ button, a, select, label,
   display: flex; align-items: center; justify-content: center; cursor: pointer;
 }
 .icon-btn:active { transform: scale(0.96); }
+.icon-btn-accent {
+  background: var(--accent-gold); color: #04212f; border-color: var(--accent-gold); font-weight: 700;
+}
 
 /* Campana de notificaciones (topbar) */
 .notif-wrap { position: relative; }
@@ -923,7 +925,12 @@ body.modal-open { overflow: hidden; }
   padding: calc(14px + var(--safe-top)) 10px 10px;
   flex-shrink: 0;
 }
-.sidebar-brand { display: flex; align-items: center; gap: 10px; overflow: hidden; min-width: 0; }
+.sidebar-brand {
+  display: flex; align-items: center; gap: 10px; overflow: hidden; min-width: 0;
+  background: transparent; border: none; padding: 4px; margin: -4px; border-radius: 8px;
+  font: inherit; text-align: left; cursor: pointer; transition: background 0.15s;
+}
+.sidebar-brand:hover, .sidebar-brand:focus-visible { background: var(--bg-surface-2); }
 .sidebar-brand-logo { height: 28px; width: auto; flex-shrink: 0; }
 .sidebar-brand-name {
   font-size: 0.93rem; font-weight: 700;
@@ -1179,9 +1186,6 @@ body.modal-open { overflow: hidden; }
   /* El area principal ocupa el espacio restante */
   .main-area { flex: 1; min-height: 100dvh; }
 
-  /* Topbar: ocultar botones que viven en el sidebar */
-  #btnThemeToggle, #btnLogout { display: none !important; }
-
   /* FAB: en desktop no hay bottom nav — cada vista expone sus propias acciones */
   .fab { display: none; }
 
@@ -1256,7 +1260,6 @@ body.modal-open { overflow: hidden; }
      controles de acción para no duplicar lo que ya vive en la barra inferior */
   .topbar .icon-btn:not(#btnMenu),
   .topbar .notif-wrap { display: none !important; }
-  .topbar .topbar-brand { display: none !important; }
   /* Título de proyecto: pill interactiva con chevron — indica que es tappable */
   .topbar-title {
     cursor: pointer; user-select: none;

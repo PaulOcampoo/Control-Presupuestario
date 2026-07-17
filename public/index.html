@@ -77,10 +77,10 @@
     <!-- ── SIDEBAR (navegación principal desktop) ─────────────────────── -->
     <aside id="sidebar" class="sidebar" aria-label="Navegación principal">
       <div class="sidebar-header">
-        <div class="sidebar-brand">
+        <button id="btnSidebarBrand" class="sidebar-brand" aria-label="Ir a galería de clientes" title="Volver a la galería de clientes">
           <img src="/assets/logo-roforb-icon.png" alt="" class="sidebar-brand-logo" />
           <strong class="sidebar-brand-name">Grupo Roforb</strong>
-        </div>
+        </button>
       </div>
 
       <div class="sidebar-volver-wrap">
@@ -140,16 +140,12 @@
       <header class="topbar">
         <button id="btnMenu" class="icon-btn" aria-label="Menú">☰</button>
         <div class="topbar-title">
-          <div class="topbar-brand">
-            <img src="/assets/logo-roforb-icon.png" alt="" class="topbar-logo" />
-            <strong>Grupo Roforb</strong>
-          </div>
           <span id="projectName" class="muted">Selecciona un presupuesto</span>
         </div>
+        <button id="btnThemeToggle" class="icon-btn" aria-label="Cambiar tema" title="Cambiar tema claro/oscuro"></button>
         <button id="btnSync" class="icon-btn" aria-label="Sincronizar" title="Sincronizar datos">↺</button>
-        <button id="btnUpload" class="icon-btn" aria-label="Cargar presupuesto" title="Cargar presupuesto">＋</button>
         <div class="notif-wrap">
-          <button id="btnNotif" class="icon-btn" aria-label="Notificaciones" title="Notificaciones">🔔</button>
+          <button id="btnNotif" class="icon-btn" aria-label="Notificaciones" title="Notificaciones"></button>
           <span id="notifBadge" class="notif-badge hidden-initial">0</span>
           <div id="notifDropdown" class="notif-dropdown">
             <div class="notif-dropdown-header">
@@ -159,8 +155,8 @@
             <div id="notifList" class="notif-list"></div>
           </div>
         </div>
-        <button id="btnThemeToggle" class="icon-btn" aria-label="Cambiar tema" title="Cambiar tema claro/oscuro">🌙</button>
-        <button id="btnLogout" class="icon-btn" aria-label="Cerrar sesión" title="Cerrar sesión">🚪</button>
+        <button id="btnUpload" class="icon-btn icon-btn-accent" aria-label="Cargar presupuesto" title="Cargar presupuesto">＋</button>
+        <button id="btnLogout" class="icon-btn" aria-label="Cerrar sesión" title="Cerrar sesión"></button>
       </header>
 
       <div id="installBanner" class="install-banner hidden-initial">

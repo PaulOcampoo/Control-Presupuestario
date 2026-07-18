@@ -92,6 +92,60 @@
   --accent-silver: #6D5A8C;
 }
 
+/* Paleta Verde ("Tema JADE", prompt-fix-chart-y-2-paletas-nuevas.md) — mismo
+   patrón tonal y misma lógica de especificidad que Morada arriba. Verde
+   fresco/jade, no estridente (emerald-400/600 de Tailwind como referencia
+   de tono, no un verde saturado tipo semáforo). */
+[data-palette="verde"] {
+  --bg-primary: #051512;
+  --bg-surface: #0A211C;
+  --bg-surface-2: #123830;
+  --border-color: #1D4F44;
+  --text-primary: #E8F5F0;
+  --text-secondary: #8FB5A8;
+  --accent-gold: #34D399;
+  --accent-gold-hover: #6EE7B7;
+  --accent-silver: #6B9C8A;
+}
+[data-palette="verde"][data-theme="light"] {
+  --bg-primary: #EFF7F3;
+  --bg-surface: #F8FCFA;
+  --bg-surface-2: #E4F0EA;
+  --border-color: #CFE4D9;
+  --text-primary: #16332A;
+  --text-secondary: #4F7566;
+  --accent-gold: #059669;
+  --accent-gold-hover: #047857;
+  --accent-silver: #5C8A79;
+}
+
+/* Paleta Naranja ("Tema TERRA", prompt-fix-chart-y-2-paletas-nuevas.md) —
+   mismo patrón, tono naranja cálido/tierra. Contraste de texto cuidado en
+   ambos modos (texto café oscuro sobre crema en light, no naranja sobre
+   naranja). */
+[data-palette="naranja"] {
+  --bg-primary: #180D03;
+  --bg-surface: #241407;
+  --bg-surface-2: #3A200D;
+  --border-color: #55321A;
+  --text-primary: #FBF0E4;
+  --text-secondary: #C4A488;
+  --accent-gold: #F97316;
+  --accent-gold-hover: #FB923C;
+  --accent-silver: #B08968;
+}
+[data-palette="naranja"][data-theme="light"] {
+  --bg-primary: #FBF1E7;
+  --bg-surface: #FFF9F2;
+  --bg-surface-2: #F5E6D3;
+  --border-color: #E8CFAE;
+  --text-primary: #3D2410;
+  --text-secondary: #8A6644;
+  --accent-gold: #C2410C;
+  --accent-gold-hover: #9A3412;
+  --accent-silver: #A17A54;
+}
+
 * { box-sizing: border-box; }
 html, body { height: 100%; }
 body {
@@ -1321,6 +1375,12 @@ body.modal-open { overflow: hidden; }
 .palette-swatch-morada span:nth-child(1) { background: #030014; }
 .palette-swatch-morada span:nth-child(2) { background: #A855F7; }
 .palette-swatch-morada span:nth-child(3) { background: #C084FC; }
+.palette-swatch-verde span:nth-child(1) { background: #051512; }
+.palette-swatch-verde span:nth-child(2) { background: #34D399; }
+.palette-swatch-verde span:nth-child(3) { background: #6EE7B7; }
+.palette-swatch-naranja span:nth-child(1) { background: #180D03; }
+.palette-swatch-naranja span:nth-child(2) { background: #F97316; }
+.palette-swatch-naranja span:nth-child(3) { background: #FB923C; }
 
 /* ── Barra de navegación móvil — isla "liquid glass" ─────────────────────
    Flotante y separada de los bordes (--mobile-nav-gap), vidrio esmerilado

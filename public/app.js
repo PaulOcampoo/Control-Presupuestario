@@ -122,13 +122,66 @@ function getEffectiveTheme() {
   return t;
 }
 
+// FIX (prompt-fix-chart-y-2-paletas-nuevas.md): antes devolvía hex fijos
+// (en realidad los valores resueltos de --text-secondary/--border-color de
+// la paleta Dorada, copiados a mano) — se veían bien en Dorada por
+// coincidencia, pero no seguían ni el tema ni la paleta activos. Ahora lee
+// las custom properties reales en vivo, así que cualquier paleta nueva
+// (incluida Morada) queda cubierta automáticamente sin tocar esta función
+// de nuevo. cc.surface/cc.primary son para el borderColor de los donuts —
+// deben coincidir con el fondo REAL detrás del canvas (tarjeta .card vs.
+// fondo de página), ver applyChartTheme().
 function chartColors() {
-  const light = getEffectiveTheme() === 'light';
+  const cs = getComputedStyle(document.documentElement);
+  const v = (name) => cs.getPropertyValue(name).trim();
   return {
-    text: light ? '#334155' : '#e2e8f0',
-    grid: light ? '#e2e8f0' : '#334155',
-    tick: light ? '#475569' : '#94a3b8',
+    text: v('--text-primary'),
+    tick: v('--text-secondary'),
+    grid: v('--border-color'),
+    surface: v('--bg-surface'),
+    primary: v('--bg-primary'),
   };
+}
+
+// Re-pinta colores de TODOS los charts activos al cambiar tema/paleta en
+// caliente (sin recargar) — chartColors() solo se leía una vez al crear
+// cada Chart.js, así que sin esto los charts ya montados se quedaban con
+// los colores del render inicial. update('none') evita repetir la
+// animación de entrada solo por el cambio de color.
+function applyChartTheme(chart, cc) {
+  if (!chart || !chart.options) return;
+  const scales = chart.options.scales;
+  if (scales) {
+    ['x', 'y'].forEach((axis) => {
+      const scale = scales[axis];
+      if (!scale) return;
+      if (scale.ticks) scale.ticks.color = cc.tick;
+      if (scale.grid && scale.grid.display !== false) scale.grid.color = cc.grid;
+    });
+  }
+  const legendLabels = chart.options.plugins?.legend?.labels;
+  if (legendLabels) legendLabels.color = cc.text;
+  const ds = chart.data.datasets[0];
+  // Donut: el borderColor de cada segmento debe fundirse con el fondo real
+  // detrás del canvas (tag puesto al crear el chart, ver _cpBorderSurface).
+  if (chart._cpBorderSurface && ds) {
+    ds.borderColor = cc[chart._cpBorderSurface];
+  }
+  // Donut: el/los segmento(s) "vacíos" (ej. "Resto por ejecutar") se pintan
+  // con cc.grid al crear el chart — sin esto quedaban pegados al cc.grid de
+  // la paleta que estaba activa en ese momento (bug real encontrado al
+  // probar el hot-swap: cambiar de paleta recoloreaba todo MENOS este
+  // segmento). _cpGridBgIndexes son los índices de backgroundColor a
+  // re-derivar de cc.grid en cada refresh.
+  if (chart._cpGridBgIndexes && ds && Array.isArray(ds.backgroundColor)) {
+    chart._cpGridBgIndexes.forEach((i) => { ds.backgroundColor[i] = cc.grid; });
+  }
+  chart.update('none');
+}
+
+function refreshAllChartsTheme() {
+  const cc = chartColors();
+  Object.values(state.charts).forEach((chart) => applyChartTheme(chart, cc));
 }
 
 // Chart.js recrea la instancia en cada repintado de vista (el <canvas> se
@@ -176,6 +229,7 @@ function applyTheme(pref) {
   const gli = $('#galleryThemeIconLight'); if (gli) gli.innerHTML = icon('sun', 14);
   const gdi = $('#galleryThemeIconDark');  if (gdi) gdi.innerHTML = icon('moon', 14);
   const gsi = $('#galleryThemeIconSystem');if (gsi) gsi.innerHTML = icon('monitor', 14);
+  refreshAllChartsTheme();
 }
 
 function setTheme(pref) {
@@ -190,23 +244,29 @@ function toggleTheme() {
 }
 
 // ---------------------------------------------------------------------------
-// Paleta de colores (prompt-selector-paleta-colores.md) — Dorada (default,
-// valores sin tocar) o Morada. Mismo mecanismo que el tema: atributo en
+// Paleta de colores (prompt-selector-paleta-colores.md) — 4 opciones: Dorada
+// ("Tema GRUPO ROFORB", valores sin tocar desde que se agregó el selector),
+// Morada ("Tema NYRA", default actual — ver getPalette()), Verde ("Tema
+// JADE") y Naranja ("Tema TERRA"). Mismo mecanismo que el tema: atributo en
 // <html> (data-palette, aplicado antes del primer paint en theme-init.js) +
 // localStorage, aplicando DENTRO del modo claro/oscuro ya elegido arriba —
-// ver [data-palette="morada"] / [data-palette="morada"][data-theme="light"]
-// en styles.css.
+// ver los bloques [data-palette="..."] en styles.css.
 // ---------------------------------------------------------------------------
 const PALETTE_KEY = 'cp_palette';
 
+// Default para usuarios sin preferencia guardada (prompt-fix-chart-y-2-
+// paletas-nuevas.md): pasa de 'dorada' a 'morada' ("Tema NYRA"). Usuarios
+// que YA tienen algo guardado en localStorage (dorada o morada) no se ven
+// afectados — este fallback solo aplica cuando la key ni existe.
 function getPalette() {
-  return localStorage.getItem(PALETTE_KEY) || 'dorada';
+  return localStorage.getItem(PALETTE_KEY) || 'morada';
 }
 
 function applyPalette(pref) {
   document.documentElement.setAttribute('data-palette', pref);
   $$('.palette-opt').forEach((el) => el.classList.toggle('active', el.dataset.paletteSet === pref));
   updateThemeColorMeta();
+  refreshAllChartsTheme();
 }
 
 function setPalette(pref) {
@@ -1294,11 +1354,19 @@ function openMobileAjustes() {
     <div class="palette-selector">
       <button class="palette-opt ${pal==='dorada'?'active':''}" data-palette-set="dorada">
         <span class="palette-swatch palette-swatch-dorada"><span></span><span></span><span></span></span>
-        Dorada
+        Tema GRUPO ROFORB
       </button>
       <button class="palette-opt ${pal==='morada'?'active':''}" data-palette-set="morada">
         <span class="palette-swatch palette-swatch-morada"><span></span><span></span><span></span></span>
-        Morada
+        Tema NYRA
+      </button>
+      <button class="palette-opt ${pal==='verde'?'active':''}" data-palette-set="verde">
+        <span class="palette-swatch palette-swatch-verde"><span></span><span></span><span></span></span>
+        Tema JADE
+      </button>
+      <button class="palette-opt ${pal==='naranja'?'active':''}" data-palette-set="naranja">
+        <span class="palette-swatch palette-swatch-naranja"><span></span><span></span><span></span></span>
+        Tema TERRA
       </button>
     </div>
     ${!isStandalone() ? `<button class="btn full ajustes-btn-mb" id="btnInstallModal">📲 Instalar app</button>` : ''}
@@ -2229,7 +2297,10 @@ async function renderGlobalChart() {
       datasets: [{
         data: [data.importe_ejecutado, data.importe_por_ejecutar],
         backgroundColor: ['#22c55e', cc.grid],
-        borderColor: getEffectiveTheme() === 'light' ? '#f1f5f9' : '#1e293b',
+        // Este donut vive directo sobre el fondo de página (.global-chart-section
+        // no tiene su propio background), no dentro de una .card — el borde de
+        // cada segmento debe fundirse con --bg-primary, no con --bg-surface.
+        borderColor: cc.primary,
         borderWidth: 3,
       }],
     },
@@ -2243,6 +2314,8 @@ async function renderGlobalChart() {
       },
     },
   });
+  state.charts.globalPie._cpBorderSurface = 'primary';
+  state.charts.globalPie._cpGridBgIndexes = [1]; // 'Por ejecutar' (índice 1 en backgroundColor)
 }
 
 async function selectCliente(id) {
@@ -2733,8 +2806,13 @@ async function renderInicio(view) {
             Math.max(0, resumen.importe_programado - resumen.importe_ejecutado),
             Math.max(0, resumen.presupuesto_total - Math.max(resumen.importe_programado, resumen.importe_ejecutado)),
           ],
-          backgroundColor: ['#22c55e', '#eab308', '#334155'],
-          borderColor: '#1e293b',
+          // 3er segmento ("Resto por ejecutar"): antes '#334155' fijo — ahora
+          // cc.grid (--border-color), se funde como "vacío" en cualquier paleta.
+          backgroundColor: ['#22c55e', '#eab308', cc.grid],
+          // Este donut sí vive dentro de una .card — el borde de cada segmento
+          // debe fundirse con --bg-surface (fondo real de la tarjeta), no un
+          // hex fijo que solo coincidía con Dorada dark por casualidad.
+          borderColor: cc.surface,
           borderWidth: 2,
         }],
       },
@@ -2747,6 +2825,8 @@ async function renderInicio(view) {
         },
       },
     });
+    state.charts.resumenDona._cpBorderSurface = 'surface';
+    state.charts.resumenDona._cpGridBgIndexes = [2]; // 'Resto por ejecutar' (índice 2 en backgroundColor)
     $('#btnEditFechasObra').addEventListener('click', () => openEditFechasObraModal(m));
     $('#btnActualizarFinObra')?.addEventListener('click', () => openQuickFinObraModal(m));
   }
@@ -4983,6 +5063,12 @@ function paintDestajoSemanaChart(destId, semanas) {
   const ctx = canvas.getContext('2d');
   const key = `destajo_${destId}`;
   if (state.charts[key]) state.charts[key].destroy();
+  // FIX (prompt-fix-chart-y-2-paletas-nuevas.md): tick/grid antes hardcodeados
+  // a los valores de Dorada dark ('#94a3b8'/'#334155') sin pasar por
+  // chartColors() — este era el único de los 5 charts que ni siquiera lo
+  // llamaba. borderColor del line ('#22c55e') es semántico (verde = avance),
+  // no cambia entre paletas, igual que en el resto de la app.
+  const cc = chartColors();
   state.charts[key] = new Chart(ctx, {
     type: 'line',
     data: {
@@ -4997,8 +5083,8 @@ function paintDestajoSemanaChart(destId, semanas) {
       responsive: true, maintainAspectRatio: false,
       animation: animationForChart(key),
       scales: {
-        x: { ticks: { color: '#94a3b8', maxRotation: 0, autoSkip: true, font: { size: 10 } }, grid: { color: '#334155' } },
-        y: { min: 0, max: 100, ticks: { color: '#94a3b8', callback: (v) => `${v}%` }, grid: { color: '#334155' } },
+        x: { ticks: { color: cc.tick, maxRotation: 0, autoSkip: true, font: { size: 10 } }, grid: { color: cc.grid } },
+        y: { min: 0, max: 100, ticks: { color: cc.tick, callback: (v) => `${v}%` }, grid: { color: cc.grid } },
       },
       plugins: { legend: { display: false } },
     },

@@ -8973,23 +8973,71 @@ function setMostrarFolioEstimacion(v) {
   localStorage.setItem(MOSTRAR_FOLIO_ESTIMACION_KEY, v ? '1' : '0');
 }
 
+// Búsqueda/orden/filtro (Fase 2, prompt-fix-nombre-emojis-filtros-estimaciones.md)
+// — 100% en frontend sobre los datos ya cargados: /estimaciones no pagina y
+// el volumen por obra es bajo (folio consecutivo, decenas como mucho), así
+// que no se justifica un endpoint nuevo. estimacionesRaw guarda el último
+// fetch; cambiar filtro/orden solo repinta, nunca vuelve a pedir al server.
+let estimacionesRaw = [];
+let estimacionesFilter = { q: '', estados: new Set(), orden: 'fecha_desc' };
+const ESTIMACION_ORDEN_OPCIONES = [
+  { value: 'fecha_desc', label: 'Fecha de creación (más reciente primero)' },
+  { value: 'fecha_asc', label: 'Fecha de creación (más antigua primero)' },
+  { value: 'nombre_asc', label: 'Nombre (A-Z)' },
+  { value: 'nombre_desc', label: 'Nombre (Z-A)' },
+  { value: 'monto_desc', label: 'Monto (mayor a menor)' },
+  { value: 'monto_asc', label: 'Monto (menor a mayor)' },
+];
+
 async function renderEstimaciones(view) {
   if (!puedeVerEstimaciones()) {
     view.innerHTML = `<div class="alert-box danger">⚠️ No tienes permiso para ver esta sección.</div>`;
     return;
   }
+  estimacionesFilter = { q: '', estados: new Set(), orden: 'fecha_desc' };
   view.innerHTML = `
     <h2 class="section-title">Estimaciones</h2>
     <div class="section-actions mt-12">
       ${puedeCapturarEstimacion() ? `<button class="btn btn-primary" id="btnNuevaEstimacion">+ Nueva estimación</button>` : ''}
       <label class="muted fs-08"><input type="checkbox" id="chkMostrarFolioEstimacion" class="w-auto" ${getMostrarFolioEstimacion() ? 'checked' : ''}> Mostrar folio (#N) junto al nombre</label>
     </div>
+    <div class="sticky-filters">
+      <div class="search-bar">
+        <input type="search" id="estimacionSearch" placeholder="Buscar por nombre o folio…" />
+      </div>
+      <div class="chip-row" id="estimacionEstadoChips">
+        ${Object.entries(ESTIMACION_ESTADO_LABELS).map(([key, label]) => `<button class="chip" data-estado-filter="${key}">${esc(label)}</button>`).join('')}
+      </div>
+      <div class="field mt-8">
+        <label class="fs-08 muted">Ordenar por</label>
+        <select id="estimacionOrden">
+          ${ESTIMACION_ORDEN_OPCIONES.map((o) => `<option value="${o.value}">${esc(o.label)}</option>`).join('')}
+        </select>
+      </div>
+    </div>
     <div id="estimacionesList"><div class="empty-state">Cargando…</div></div>
   `;
   $('#btnNuevaEstimacion')?.addEventListener('click', () => openEstimacionModal(loadEstimaciones));
   $('#chkMostrarFolioEstimacion').addEventListener('change', (e) => {
     setMostrarFolioEstimacion(e.target.checked);
-    loadEstimaciones();
+    paintEstimacionesList();
+  });
+  $('#estimacionSearch').addEventListener('input', debounce((e) => {
+    estimacionesFilter.q = e.target.value.trim().toLowerCase();
+    paintEstimacionesList();
+  }, 220));
+  $$('#estimacionEstadoChips .chip').forEach((chip) => {
+    chip.addEventListener('click', () => {
+      const estado = chip.dataset.estadoFilter;
+      if (estimacionesFilter.estados.has(estado)) estimacionesFilter.estados.delete(estado);
+      else estimacionesFilter.estados.add(estado);
+      chip.classList.toggle('active');
+      paintEstimacionesList();
+    });
+  });
+  $('#estimacionOrden').addEventListener('change', (e) => {
+    estimacionesFilter.orden = e.target.value;
+    paintEstimacionesList();
   });
   await loadEstimaciones();
 }
@@ -8998,10 +9046,50 @@ async function loadEstimaciones() {
   const el = $('#estimacionesList');
   if (!el) return;
   try {
-    const estimaciones = await api(`/projects/${state.projectId}/estimaciones`);
-    if (!estimaciones.length) { el.innerHTML = '<div class="empty-state">No hay estimaciones registradas.</div>'; return; }
-    const mostrarFolio = getMostrarFolioEstimacion();
-    el.innerHTML = estimaciones.map((e) => `
+    estimacionesRaw = await api(`/projects/${state.projectId}/estimaciones`);
+    paintEstimacionesList();
+  } catch (err) {
+    el.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+  }
+}
+
+// Nombre "efectivo" para búsqueda/orden alfabético: el real si existe, si no
+// el mismo fallback que ya se muestra en la tarjeta ("Estimación #N") — así
+// buscar/ordenar por nombre también encuentra/ordena las que no tienen uno.
+function nombreEfectivoEstimacion(e) { return e.nombre || `Estimación #${e.folio}`; }
+
+function paintEstimacionesList() {
+  const el = $('#estimacionesList');
+  if (!el) return;
+  if (!estimacionesRaw.length) { el.innerHTML = '<div class="empty-state">No hay estimaciones registradas.</div>'; return; }
+
+  let estimaciones = estimacionesRaw;
+  if (estimacionesFilter.q) {
+    const q = estimacionesFilter.q;
+    estimaciones = estimaciones.filter((e) =>
+      nombreEfectivoEstimacion(e).toLowerCase().includes(q) || String(e.folio).includes(q)
+    );
+  }
+  if (estimacionesFilter.estados.size) {
+    estimaciones = estimaciones.filter((e) => estimacionesFilter.estados.has(e.estado));
+  }
+  const collator = new Intl.Collator('es', { sensitivity: 'base' });
+  estimaciones = estimaciones.slice().sort((a, b) => {
+    switch (estimacionesFilter.orden) {
+      case 'fecha_asc': return new Date(a.fecha_captura) - new Date(b.fecha_captura);
+      case 'nombre_asc': return collator.compare(nombreEfectivoEstimacion(a), nombreEfectivoEstimacion(b));
+      case 'nombre_desc': return collator.compare(nombreEfectivoEstimacion(b), nombreEfectivoEstimacion(a));
+      case 'monto_asc': return (a.total_periodo || 0) - (b.total_periodo || 0);
+      case 'monto_desc': return (b.total_periodo || 0) - (a.total_periodo || 0);
+      case 'fecha_desc':
+      default: return new Date(b.fecha_captura) - new Date(a.fecha_captura);
+    }
+  });
+
+  if (!estimaciones.length) { el.innerHTML = '<div class="empty-state">No se encontraron estimaciones con esos filtros.</div>'; return; }
+
+  const mostrarFolio = getMostrarFolioEstimacion();
+  el.innerHTML = estimaciones.map((e) => `
       <div class="card">
         <div class="row between nomina-row-6">
           <div>
@@ -9027,54 +9115,51 @@ async function loadEstimaciones() {
       </div>
     `).join('');
 
-    $$('[data-ver-estimacion]', el).forEach((btn) => {
-      btn.addEventListener('click', () => openVerEstimacionModal(Number(btn.dataset.verEstimacion)));
+  $$('[data-ver-estimacion]', el).forEach((btn) => {
+    btn.addEventListener('click', () => openVerEstimacionModal(Number(btn.dataset.verEstimacion)));
+  });
+  $$('[data-renombrar-estimacion]', el).forEach((btn) => {
+    btn.addEventListener('click', () => openRenombrarEstimacionModal(Number(btn.dataset.renombrarEstimacion), btn.dataset.nombreActual, loadEstimaciones));
+  });
+  $$('[data-calcular-estimacion]', el).forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      btn.disabled = true;
+      try {
+        await api(`/projects/${state.projectId}/estimaciones/${btn.dataset.calcularEstimacion}/calcular`, { method: 'POST' });
+        toast('Estimación calculada — se jaló el avance registrado en el periodo', 'success');
+        await loadEstimaciones();
+      } catch (err) { toast(err.message, 'danger'); btn.disabled = false; }
     });
-    $$('[data-renombrar-estimacion]', el).forEach((btn) => {
-      btn.addEventListener('click', () => openRenombrarEstimacionModal(Number(btn.dataset.renombrarEstimacion), btn.dataset.nombreActual, loadEstimaciones));
+  });
+  $$('[data-enviar-estimacion]', el).forEach((btn) => {
+    btn.addEventListener('click', () => openCambioEstadoEstimacionModal(Number(btn.dataset.enviarEstimacion), 'enviada', false, loadEstimaciones));
+  });
+  $$('[data-aprobar-estimacion]', el).forEach((btn) => {
+    btn.addEventListener('click', () => openCambioEstadoEstimacionModal(Number(btn.dataset.aprobarEstimacion), 'aprobada', false, loadEstimaciones));
+  });
+  $$('[data-rechazar-estimacion]', el).forEach((btn) => {
+    btn.addEventListener('click', () => openCambioEstadoEstimacionModal(Number(btn.dataset.rechazarEstimacion), 'rechazada', true, loadEstimaciones));
+  });
+  $$('[data-eliminar-estimacion]', el).forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      if (!confirm('¿Eliminar esta estimación en borrador?')) return;
+      btn.disabled = true;
+      try {
+        await api(`/projects/${state.projectId}/estimaciones/${btn.dataset.eliminarEstimacion}`, { method: 'DELETE' });
+        toast('Estimación eliminada', 'success');
+        await loadEstimaciones();
+      } catch (err) { toast(err.message, 'danger'); btn.disabled = false; }
     });
-    $$('[data-calcular-estimacion]', el).forEach((btn) => {
-      btn.addEventListener('click', async () => {
-        btn.disabled = true;
-        try {
-          await api(`/projects/${state.projectId}/estimaciones/${btn.dataset.calcularEstimacion}/calcular`, { method: 'POST' });
-          toast('Estimación calculada — se jaló el avance registrado en el periodo', 'success');
-          await loadEstimaciones();
-        } catch (err) { toast(err.message, 'danger'); btn.disabled = false; }
-      });
+  });
+  $$('[data-descargar-estimacion]', el).forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      btn.disabled = true;
+      try {
+        await apiDownload(`/projects/${state.projectId}/estimaciones/${btn.dataset.descargarEstimacion}/pdf`, `Estimacion_${btn.dataset.folio}.pdf`);
+      } catch (err) { toast(err.message, 'danger'); }
+      btn.disabled = false;
     });
-    $$('[data-enviar-estimacion]', el).forEach((btn) => {
-      btn.addEventListener('click', () => openCambioEstadoEstimacionModal(Number(btn.dataset.enviarEstimacion), 'enviada', false, loadEstimaciones));
-    });
-    $$('[data-aprobar-estimacion]', el).forEach((btn) => {
-      btn.addEventListener('click', () => openCambioEstadoEstimacionModal(Number(btn.dataset.aprobarEstimacion), 'aprobada', false, loadEstimaciones));
-    });
-    $$('[data-rechazar-estimacion]', el).forEach((btn) => {
-      btn.addEventListener('click', () => openCambioEstadoEstimacionModal(Number(btn.dataset.rechazarEstimacion), 'rechazada', true, loadEstimaciones));
-    });
-    $$('[data-eliminar-estimacion]', el).forEach((btn) => {
-      btn.addEventListener('click', async () => {
-        if (!confirm('¿Eliminar esta estimación en borrador?')) return;
-        btn.disabled = true;
-        try {
-          await api(`/projects/${state.projectId}/estimaciones/${btn.dataset.eliminarEstimacion}`, { method: 'DELETE' });
-          toast('Estimación eliminada', 'success');
-          await loadEstimaciones();
-        } catch (err) { toast(err.message, 'danger'); btn.disabled = false; }
-      });
-    });
-    $$('[data-descargar-estimacion]', el).forEach((btn) => {
-      btn.addEventListener('click', async () => {
-        btn.disabled = true;
-        try {
-          await apiDownload(`/projects/${state.projectId}/estimaciones/${btn.dataset.descargarEstimacion}/pdf`, `Estimacion_${btn.dataset.folio}.pdf`);
-        } catch (err) { toast(err.message, 'danger'); }
-        btn.disabled = false;
-      });
-    });
-  } catch (err) {
-    el.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
-  }
+  });
 }
 
 async function openEstimacionModal(onSave) {

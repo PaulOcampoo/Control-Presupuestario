@@ -1638,6 +1638,7 @@ function openModal(html) {
 }
 function closeModal() {
   $('#modal').classList.remove('show');
+  $('#modal').classList.remove('modal-wide'); // ver openVerEstimacionModal — no debe pegarse a otros modales
   $('#modalOverlay').classList.remove('show');
   $('#modal').innerHTML = '';
   document.body.classList.remove('modal-open');
@@ -8985,7 +8986,8 @@ async function loadEstimaciones() {
       <div class="card">
         <div class="row between nomina-row-6">
           <div>
-            <strong>Estimación #${e.folio}</strong>
+            <strong>${e.nombre ? esc(e.nombre) + ' · Estimación #' + e.folio : 'Estimación #' + e.folio}</strong>
+            <button class="icon-btn-inline" data-renombrar-estimacion="${e.id}" data-nombre-actual="${esc(e.nombre || '')}" title="Renombrar" aria-label="Renombrar">✎</button>
             <div class="muted fs-08">${esc(e.periodo_inicio)} al ${esc(e.periodo_fin)} · $${Number(e.total_periodo || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })}</div>
           </div>
           <div class="row nomina-row-6-center">
@@ -9008,6 +9010,9 @@ async function loadEstimaciones() {
 
     $$('[data-ver-estimacion]', el).forEach((btn) => {
       btn.addEventListener('click', () => openVerEstimacionModal(Number(btn.dataset.verEstimacion)));
+    });
+    $$('[data-renombrar-estimacion]', el).forEach((btn) => {
+      btn.addEventListener('click', () => openRenombrarEstimacionModal(Number(btn.dataset.renombrarEstimacion), btn.dataset.nombreActual, loadEstimaciones));
     });
     $$('[data-calcular-estimacion]', el).forEach((btn) => {
       btn.addEventListener('click', async () => {
@@ -9115,18 +9120,59 @@ async function openEstimacionModal(onSave) {
   });
 }
 
+// Renombrar (Prompt 4, prompts-cotizador-sidebar-permisos-estimaciones.md)
+// — modal chico y separado del detalle, mismo patrón que otros "renombrar"
+// de la app (confirm-dialog simple, sin abrir el detalle completo).
+function openRenombrarEstimacionModal(estimacionId, nombreActual, onDone) {
+  openModal(`
+    <h3>Renombrar estimación</h3>
+    <div class="field"><label>Nombre</label><input id="renombrarEstimacionInput" value="${esc(nombreActual || '')}" placeholder="Ej. Cimentación etapa 1" maxlength="120" /></div>
+    <p class="muted fs-08">Déjalo vacío para volver a mostrar solo el folio.</p>
+    <div class="modal-actions">
+      <button class="btn" id="btnCancelarRenombrarEstimacion">Cancelar</button>
+      <button class="btn btn-primary" id="btnGuardarRenombrarEstimacion">Guardar</button>
+    </div>
+  `);
+  $('#renombrarEstimacionInput').focus();
+  $('#btnCancelarRenombrarEstimacion').addEventListener('click', closeModal);
+  $('#btnGuardarRenombrarEstimacion').addEventListener('click', async () => {
+    const btn = $('#btnGuardarRenombrarEstimacion');
+    btn.disabled = true;
+    try {
+      await api(`/projects/${state.projectId}/estimaciones/${estimacionId}/nombre`, {
+        method: 'PUT',
+        body: { nombre: $('#renombrarEstimacionInput').value.trim() },
+      });
+      toast('Nombre actualizado', 'success');
+      closeModal();
+      if (onDone) await onDone();
+    } catch (err) { toast(err.message, 'danger'); btn.disabled = false; }
+  });
+}
+
+// Modal en pantalla ancha en desktop (Prompt 4) — .modal-wide se limpia en
+// closeModal() para no dejarlo pegado a otros modales que reusan el mismo
+// #modal compartido.
 async function openVerEstimacionModal(estimacionId) {
+  $('#modal').classList.add('modal-wide');
   openModal(`<h3>Detalle de estimación</h3><div id="verEstimacionBody"><div class="empty-state">Cargando…</div></div><div class="modal-actions"><button class="btn" id="btnCerrarVerEstimacion">Cerrar</button></div>`);
   $('#btnCerrarVerEstimacion').addEventListener('click', closeModal);
+  await pintarVerEstimacion(estimacionId);
+}
+
+async function pintarVerEstimacion(estimacionId) {
+  const money = (n) => `$${Number(n || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })}`;
   try {
     const data = await api(`/projects/${state.projectId}/estimaciones/${estimacionId}`);
     const items = data.items || [];
     const el = $('#verEstimacionBody');
     if (!el) return;
     if (!items.length) { el.innerHTML = '<div class="empty-state">Sin conceptos calculados. Usa el botón Calcular primero.</div>'; return; }
-    const money = (n) => `$${Number(n || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })}`;
+    // Amortización solo editable mientras el desglose de pago no está fijo
+    // (mismo candado que "Calcular" en el backend — ver PUT .../amortizacion).
+    const puedeEditarAmortizacion = ['borrador', 'rechazada'].includes(data.estado) && puedeCapturarEstimacion();
     el.innerHTML = `
-      <div class="muted nomina-detalle-fecha">Folio #${data.folio} · ${esc(data.periodo_inicio)} al ${esc(data.periodo_fin)}</div>
+      <div class="muted nomina-detalle-fecha">Folio #${data.folio}${data.nombre ? ' · ' + esc(data.nombre) : ''} · ${esc(data.periodo_inicio)} al ${esc(data.periodo_fin)}</div>
       <div class="nomina-table-wrap">
       <table class="nomina-table">
         <thead><tr>
@@ -9157,7 +9203,55 @@ async function openVerEstimacionModal(estimacionId) {
         </tr></tfoot>
       </table>
       </div>
+
+      <h4 class="mt-16">Desglose de pago</h4>
+      <div class="table-scroll">
+        <table class="nomina-table estimacion-desglose-table">
+          <tbody>
+            <tr>
+              <td class="nomina-td">Estimación (periodo)</td>
+              <td class="nomina-td-right">${money(data.total_periodo)}</td>
+            </tr>
+            <tr>
+              <td class="nomina-td">Amortización de anticipo</td>
+              <td class="nomina-td-right">
+                ${puedeEditarAmortizacion
+                  ? `<input type="number" min="0" step="0.01" id="estAmortizacionInput" value="${Number(data.amortizacion_anticipo || 0)}" class="estimacion-amortizacion-input" />`
+                  : `-${money(data.amortizacion_anticipo)}`}
+              </td>
+            </tr>
+            <tr>
+              <td class="nomina-td">2% Fondo de garantía</td>
+              <td class="nomina-td-right">-${money(data.fondo_garantia_monto)}</td>
+            </tr>
+            <tr>
+              <td class="nomina-td">Más IVA 16%</td>
+              <td class="nomina-td-right">+${money(data.iva_monto)}</td>
+            </tr>
+            <tr class="estimacion-total-a-pagar-row">
+              <td class="nomina-td">Total a pagar</td>
+              <td class="nomina-td-right">${money(data.total_a_pagar)}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      ${puedeEditarAmortizacion ? `<div class="row end mt-8"><button class="btn small btn-primary" id="btnGuardarAmortizacion">Guardar amortización</button></div>` : ''}
     `;
+    $('#btnGuardarAmortizacion')?.addEventListener('click', async () => {
+      const btn = $('#btnGuardarAmortizacion');
+      const input = $('#estAmortizacionInput');
+      const monto = Number(input.value);
+      if (!Number.isFinite(monto) || monto < 0) { toast('Monto de amortización inválido', 'danger'); return; }
+      btn.disabled = true;
+      try {
+        await api(`/projects/${state.projectId}/estimaciones/${estimacionId}/amortizacion`, {
+          method: 'PUT',
+          body: { amortizacion_anticipo: monto },
+        });
+        toast('Amortización actualizada', 'success');
+        await pintarVerEstimacion(estimacionId);
+      } catch (err) { toast(err.message, 'danger'); btn.disabled = false; }
+    });
   } catch (err) {
     const el = $('#verEstimacionBody');
     if (el) el.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;

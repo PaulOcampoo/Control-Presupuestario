@@ -150,6 +150,15 @@ button, a, select, label,
 .icon-btn-accent {
   background: var(--accent-gold); color: #04212f; border-color: var(--accent-gold); font-weight: 700;
 }
+/* Botón de ícono chico, en línea con texto (ej. lápiz de renombrar junto a
+   un título) — a diferencia de .icon-btn (40px, pensado para topbar/headers)
+   este es solo texto/ícono sin caja, para no competir visualmente con el
+   título que acompaña. */
+.icon-btn-inline {
+  background: none; border: none; color: var(--text-secondary); cursor: pointer;
+  font-size: 0.85rem; padding: 2px 4px; margin-left: 4px; border-radius: 6px; vertical-align: middle;
+}
+.icon-btn-inline:hover { color: var(--text-primary); background: color-mix(in srgb, var(--text-primary) 10%, transparent); }
 
 /* Campana de notificaciones (topbar) */
 .notif-wrap { position: relative; }
@@ -455,6 +464,14 @@ body.modal-open { overflow: hidden; }
 .modal.show { opacity: 1; pointer-events: auto; transform: translate(-50%, -50%) scale(1); }
 .modal h3 { margin-top: 0; }
 .modal-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 16px; }
+
+/* Modal ancho (Prompt 4, prompts-cotizador-sidebar-permisos-estimaciones.md)
+   — opt-in vía .modal-wide (ver openVerEstimacionModal/closeModal en app.js).
+   Solo en desktop: en mobile el detalle de Estimaciones debe verse igual que
+   antes (94vw ya es lo más ancho que tiene sentido en una pantalla chica). */
+@media (min-width: 861px) {
+  .modal.modal-wide { width: min(90vw, 920px); }
+}
 
 .alert-box {
   border-radius: 10px; padding: 10px 12px; font-size: 0.84rem; margin: 8px 0;
@@ -1531,6 +1548,26 @@ body.modal-open { overflow: hidden; }
 .nomina-tfoot-label { padding: 6px 8px; font-weight: 600; border-top: 2px solid var(--border-color); }
 .nomina-tfoot-total { padding: 6px 8px; font-weight: 600; text-align: right; border-top: 2px solid var(--border-color); }
 .nomina-warn-row { color: var(--color-warning, #f59e0b); }
+
+/* Desglose de pago de Estimaciones (Prompt 4, prompts-cotizador-sidebar-
+   permisos-estimaciones.md) — el renglón de Total a pagar es el resultado
+   final del cálculo, resaltado en dorado para que sea inequívoco (mismo
+   token --accent-gold que el resto de la app, no un color nuevo). */
+/* .nomina-table trae min-width: 420px pensado para su tabla de 6 columnas
+   (conceptos) — la de desglose es de solo 2, así que ese mínimo la manda a
+   scroll horizontal innecesario en móvil (encontrado en verificación real
+   a 390px de viewport). Se anula aquí sin tocar la tabla de conceptos. */
+.estimacion-desglose-table { max-width: 420px; min-width: 0; width: 100%; }
+.estimacion-total-a-pagar-row td {
+  background: color-mix(in srgb, var(--accent-gold) 22%, transparent);
+  font-weight: 700; color: var(--text-primary);
+  border-top: 2px solid var(--accent-gold);
+}
+.estimacion-amortizacion-input {
+  width: 130px; text-align: right; padding: 4px 8px;
+  background: var(--bg-primary); border: 1px solid var(--border-color);
+  border-radius: 6px; color: var(--text-primary); font: inherit;
+}
 
 /* Fix aislado (fuera de secuencia del barrido): openTrabajadorModal — el grid de
    2 columnas dependía de un style="" inline sin clase de respaldo, bloqueado por

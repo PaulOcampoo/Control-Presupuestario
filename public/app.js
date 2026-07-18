@@ -6401,7 +6401,11 @@ async function renderCotizador(view) {
 
   view.innerHTML = `
     <h2 class="section-title">Cotizador de materiales</h2>
-    <p class="muted">Compara precios entre Home Depot y Sodimac para un material. Los resultados se guardan en caché por 24 horas.</p>
+    <p class="muted">Compara precios entre Home Depot, Sodimac y Amazon para un material. Los resultados se guardan en caché por 24 horas.</p>
+    <div class="row gap-8 items-center mt-4">
+      <span class="muted fs-08" id="cotizadorUbicacionLabel">Ubicación para Amazon: —</span>
+      <button class="btn small" id="btnCotizadorUbicacion">📍 Configurar ubicación</button>
+    </div>
     <div class="row gap-8 mt-8">
       <div class="field flex-1">
         <label>Buscar material</label>
@@ -6414,11 +6418,56 @@ async function renderCotizador(view) {
     <div id="cotizadorResultados" class="mt-12"></div>
   `;
 
-  const TIENDA_LABELS = { home_depot: 'Home Depot', sodimac: 'Sodimac' };
+  const TIENDA_LABELS = { home_depot: 'Home Depot', sodimac: 'Sodimac', amazon: 'Amazon' };
   const fmtFechaHora = (s) => {
     const d = new Date(s);
     return Number.isNaN(d.getTime()) ? '—' : d.toLocaleString('es-MX', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
   };
+
+  // Ubicación fija (Fase 1, prompt-cotizador-mas-tiendas.md) — solo Amazon
+  // de las tiendas del comparador soporta fijar zona de envío vía UI (ver
+  // diagnóstico en server/cotizador.js); Home Depot/Sodimac la ignoran.
+  async function refrescarUbicacionLabel() {
+    const label = $('#cotizadorUbicacionLabel');
+    try {
+      const cfg = await api('/cotizador/config');
+      label.textContent = cfg.codigo_postal
+        ? `Ubicación para Amazon: ${cfg.ciudad ? cfg.ciudad + ' · ' : ''}CP ${cfg.codigo_postal}`
+        : 'Ubicación para Amazon: no configurada (usa geo-IP por defecto)';
+    } catch (err) {
+      label.textContent = 'Ubicación para Amazon: —';
+    }
+  }
+  refrescarUbicacionLabel();
+
+  $('#btnCotizadorUbicacion').addEventListener('click', async () => {
+    let actual = { ciudad: '', codigo_postal: '' };
+    try { actual = await api('/cotizador/config'); } catch (err) { /* formulario abre vacío si falla */ }
+    openModal(`
+      <h3>Configurar ubicación</h3>
+      <p class="muted fs-08">Se usa al cotizar en Amazon para que el precio y la disponibilidad reflejen esta zona. Home Depot y Sodimac no la usan.</p>
+      <div class="field"><label>Ciudad</label><input id="cotizadorCiudad" value="${esc(actual.ciudad || '')}" placeholder="Ej. Cuernavaca" /></div>
+      <div class="field"><label>Código postal</label><input id="cotizadorCP" value="${esc(actual.codigo_postal || '')}" placeholder="Ej. 62050" maxlength="5" /></div>
+      <div class="modal-actions">
+        <button class="btn" id="btnCotizadorUbicacionCancelar">Cancelar</button>
+        <button class="btn btn-primary" id="btnCotizadorUbicacionGuardar">Guardar</button>
+      </div>
+    `);
+    $('#btnCotizadorUbicacionCancelar').addEventListener('click', closeModal);
+    $('#btnCotizadorUbicacionGuardar').addEventListener('click', async () => {
+      const ciudad = $('#cotizadorCiudad').value.trim();
+      const codigo_postal = $('#cotizadorCP').value.trim();
+      if (codigo_postal && !/^\d{4,5}$/.test(codigo_postal)) { toast('Código postal inválido', 'danger'); return; }
+      try {
+        await api('/cotizador/config', { method: 'PUT', body: { ciudad, codigo_postal } });
+        closeModal();
+        toast('Ubicación guardada', 'success');
+        refrescarUbicacionLabel();
+      } catch (err) {
+        toast(err.message, 'danger');
+      }
+    });
+  });
 
   function pintarResultados() {
     const cont = $('#cotizadorResultados');

@@ -826,13 +826,34 @@ const SCHEMA = `
   CREATE TABLE IF NOT EXISTS cotizador_precios (
     id SERIAL PRIMARY KEY,
     query_busqueda TEXT NOT NULL,
-    tienda TEXT NOT NULL CHECK (tienda IN ('home_depot', 'sodimac')),
+    tienda TEXT NOT NULL CHECK (tienda IN ('home_depot', 'sodimac', 'amazon')),
     nombre_producto TEXT NOT NULL,
     precio DOUBLE PRECISION,
     url_producto TEXT,
     fecha_consulta TIMESTAMPTZ NOT NULL DEFAULT NOW()
   );
   CREATE INDEX IF NOT EXISTS idx_cotizador_precios_query_tienda ON cotizador_precios(query_busqueda, tienda);
+  -- Amplía el CHECK de 'tienda' en bases ya existentes (Preview/producción)
+  -- para 'amazon' (prompt-cotizador-mas-tiendas.md) — el CREATE TABLE de
+  -- arriba no vuelve a correr sobre una tabla existente, así que el CHECK
+  -- original se queda corto sin este ALTER explícito. Mercado Libre y
+  -- Construrama quedaron fuera del comparador: bloqueo consistente de
+  -- bot-detection real (Incapsula en Construrama, verificación de seguridad
+  -- en ML) confirmado en diagnóstico de Fase 0 — no hay CAPTCHA resoluble
+  -- que automatizar, es un firewall de tráfico automatizado.
+  ALTER TABLE cotizador_precios DROP CONSTRAINT IF EXISTS cotizador_precios_tienda_check;
+  ALTER TABLE cotizador_precios ADD CONSTRAINT cotizador_precios_tienda_check CHECK (tienda IN ('home_depot', 'sodimac', 'amazon'));
+
+  -- Ubicación fija para cotizar en Amazon (única tienda del comparador que
+  -- soporta fijar zona de envío vía UI) — una sola fila activa para toda la
+  -- app, no por usuario (prompt-cotizador-mas-tiendas.md, Fase 1).
+  CREATE TABLE IF NOT EXISTS cotizador_config (
+    id INTEGER PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+    ciudad TEXT,
+    codigo_postal TEXT,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_by INTEGER REFERENCES usuarios(id)
+  );
 
   -- Estado de Resultados (Tesorería) — Ingresos (facturas/cobros) para
   -- comparar contra Egresos ya calculados en Finanzas (getFinanzasResumenData).

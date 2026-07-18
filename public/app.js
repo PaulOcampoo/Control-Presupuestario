@@ -6510,7 +6510,33 @@ async function renderCotizador(view) {
   async function buscar(query, forzar = false) {
     if (!query || !query.trim()) { toast('Escribe un término de búsqueda', 'danger'); return; }
     const cont = $('#cotizadorResultados');
-    cont.innerHTML = '<div class="spinner"></div><p class="muted">Consultando precios en vivo, puede tardar unos segundos…</p>';
+    // Animación de carga (prompt-animacion-carga-cotizador.md): el backend
+    // responde todo junto al final (sin streaming por tienda), así que no
+    // hay señal real de "esta tienda ya terminó" — en vez de simular
+    // checkmarks falsos (engañoso si el timing no coincide), se usa un
+    // "escaneo" ambiguo que recorre las 3 tiendas en loop + mensaje
+    // rotativo + shimmer sobre la forma de la tabla que está por aparecer.
+    // 100% CSS (@keyframes cotizadorScan/cotizadorMsgFade/cotizadorShimmer
+    // en styles.css), sin JS timers que limpiar.
+    cont.innerHTML = `
+      <div class="cotizador-loading">
+        <div class="cotizador-loading-tiendas">
+          <span class="cotizador-loading-tienda" style="--i:0">Home Depot</span>
+          <span class="cotizador-loading-tienda" style="--i:1">Sodimac</span>
+          <span class="cotizador-loading-tienda" style="--i:2">Amazon</span>
+        </div>
+        <div class="cotizador-loading-msg">
+          <span>Comparando precios en 3 tiendas…</span>
+          <span>Puede tardar unos segundos…</span>
+          <span>Casi listo…</span>
+        </div>
+        <div class="cotizador-skeleton">
+          <div class="cotizador-skeleton-row"></div>
+          <div class="cotizador-skeleton-row"></div>
+          <div class="cotizador-skeleton-row"></div>
+        </div>
+      </div>
+    `;
     // La función serverless tiene maxDuration:90s (vercel.json) — si por
     // algún motivo la plataforma la mata sin responder, el fetch se quedaría
     // esperando indefinidamente sin este timeout explícito (bug real

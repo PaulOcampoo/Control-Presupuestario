@@ -1177,10 +1177,22 @@ app.get('/api/maquinaria/reporte-clientes', h(auth.checkPermiso('maquinaria', 'p
 }));
 
 // ---------------------------------------------------------------------------
-// Cotizador de materiales (Home Depot / Sodimac) — solo compras/admin/
-// desarrollador (auth.allow('compras')). Materiales Valdez quedó fuera del
-// comparador: su sitio no publica precios en línea (ver server/cotizador.js).
+// Cotizador de materiales (Home Depot / Sodimac / Amazon) — solo compras/
+// admin/desarrollador (auth.allow('compras')). Materiales Valdez quedó fuera
+// del comparador: su sitio no publica precios en línea. Mercado Libre y
+// Construrama también quedaron fuera: bloqueo consistente de bot-detection
+// real confirmado en diagnóstico de Fase 0 (ver server/cotizador.js).
 // ---------------------------------------------------------------------------
+app.get('/api/cotizador/config', h(auth.allow('compras')), h(async (req, res) => {
+  res.json(await cotizador.getConfig());
+}));
+
+app.put('/api/cotizador/config', h(auth.allow('compras')), h(async (req, res) => {
+  const { ciudad, codigo_postal } = req.body || {};
+  const resultado = await cotizador.setConfig({ ciudad, codigo_postal, usuario_id: req.user.id });
+  res.json(resultado);
+}));
+
 app.get('/api/cotizador/buscar', h(auth.allow('compras')), h(async (req, res) => {
   const { q } = req.query;
   if (!q || !q.trim()) return res.status(400).json({ error: 'Indica un término de búsqueda (?q=)' });

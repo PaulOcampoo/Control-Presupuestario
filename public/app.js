@@ -46,6 +46,7 @@ const state = {
   notifNoLeidas: 0,
   notifTimer: null,
   needsTotpReminder: false, // 2FA opcional: banner en Inicio pendiente de mostrarse esta sesión
+  usuariosSubView: null, // 'permisos' cuando se entra desde el acceso directo del drawer de galería; se consume una vez en renderView()
 };
 
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -156,6 +157,12 @@ function applyTheme(pref) {
   const li = $('#themeIconLight'); if (li) li.innerHTML = icon('sun', 14);
   const di = $('#themeIconDark');  if (di) di.innerHTML = icon('moon', 14);
   const si = $('#themeIconSystem');if (si) si.innerHTML = icon('monitor', 14);
+  // Mismos íconos en el drawer de ajustes de la galería de clientes (prompt 2,
+  // prompts-cotizador-sidebar-permisos-estimaciones.md) — reusa esta misma
+  // función en vez de duplicar la lógica de tema.
+  const gli = $('#galleryThemeIconLight'); if (gli) gli.innerHTML = icon('sun', 14);
+  const gdi = $('#galleryThemeIconDark');  if (gdi) gdi.innerHTML = icon('moon', 14);
+  const gsi = $('#galleryThemeIconSystem');if (gsi) gsi.innerHTML = icon('monitor', 14);
 }
 
 function setTheme(pref) {
@@ -893,7 +900,67 @@ function closeSidebar() {
   $('#sidebarOverlay').classList.remove('show');
 }
 
+// Drawer de ajustes de la galería de clientes (prompt 2,
+// prompts-cotizador-sidebar-permisos-estimaciones.md) — el #sidebar real
+// vive dentro de #app, que queda display:none en la galería, así que no es
+// alcanzable desde ahí. Este drawer es un componente propio y más simple
+// (solo tema/cuenta/sesión, nada que dependa de una obra seleccionada),
+// pero reutiliza las funciones existentes de tema en vez de reimplementarlas.
+function openGalleryDrawer() {
+  $('#galleryDrawer').classList.add('show');
+  $('#galleryDrawerOverlay').classList.add('show');
+  applyTheme(getTheme());
+}
+
+function closeGalleryDrawer() {
+  $('#galleryDrawer').classList.remove('show');
+  $('#galleryDrawerOverlay').classList.remove('show');
+}
+
+// Accesos globales de administración del drawer de galería (Usuarios,
+// Trabajadores/Nóminas todas las obras, Permisos) — visibilidad calculada
+// con el mismo criterio (state.allowedTabs / isAdmin()) que ya protege esas
+// vistas dentro de #app, para que un link nunca aparezca si el usuario no
+// tendría acceso real al hacer click. Llamado desde renderSidebar(), el
+// único choke point de re-render cada vez que allowedTabs puede cambiar
+// (login, simulación de rol, logout).
+function updateGalleryDrawerGlobalLinks() {
+  const puedeVer = (tab) => !!state.user && state.allowedTabs.includes(tab);
+  const links = [
+    ['btnGalleryGoUsuarios', puedeVer('usuarios')],
+    ['btnGalleryGoTrabajadoresGlobal', puedeVer('trabajadores_global')],
+    ['btnGalleryGoNominasGlobal', puedeVer('nominas_global')],
+    // "Permisos" es la subvista "Permisos de Acceso" dentro de Usuarios
+    // (ver renderUsuarios/renderSubNav) — mismo gate ahí: isAdmin().
+    ['btnGalleryGoPermisos', puedeVer('usuarios') && isAdmin()],
+  ];
+  let anyVisible = false;
+  links.forEach(([id, visible]) => {
+    const btn = $('#' + id);
+    if (btn) btn.classList.toggle('hidden-initial', !visible);
+    if (visible) anyVisible = true;
+  });
+  const divider = $('#galleryDrawerAdminDivider');
+  const label = $('#galleryDrawerAdminLabel');
+  if (divider) divider.classList.toggle('hidden-initial', !anyVisible);
+  if (label) label.classList.toggle('hidden-initial', !anyVisible);
+}
+
+// Navega a una vista global de administración (sin obra seleccionada) desde
+// el drawer de la galería — mismo patrón que selectCliente() para entrar a
+// #app sin projectId, seguido de switchToView() para llegar directo a la
+// vista pedida en vez de quedarse en 'inicio'.
+function goToGlobalAdminView(viewId) {
+  closeGalleryDrawer();
+  state.clienteId = null;
+  state.projectId = null;
+  showApp();
+  $('#projectName').textContent = '';
+  switchToView(viewId);
+}
+
 function renderSidebar() {
+  updateGalleryDrawerGlobalLinks();
   const nav = $('#sidebarNav');
   if (!nav) return;
 
@@ -2140,6 +2207,16 @@ $('#btnGalleryLogout').addEventListener('click', logout);
 $('#btnNuevoClienteDrawer').addEventListener('click', () => { closeDrawer(); openNuevoClienteModal(); });
 $('#btnCargarContratoDrawer').addEventListener('click', () => { closeDrawer(); promptUploadContrato(); });
 
+$('#btnGalleryMenu').addEventListener('click', openGalleryDrawer);
+$('#btnGalleryDrawerClose').addEventListener('click', closeGalleryDrawer);
+$('#galleryDrawerOverlay').addEventListener('click', closeGalleryDrawer);
+$('#btnMiCuentaGalleryDrawer').addEventListener('click', () => { closeGalleryDrawer(); openMiCuentaModal(false); });
+$('#btnLogoutGalleryDrawer').addEventListener('click', () => { closeGalleryDrawer(); logout(); });
+$('#btnGalleryGoUsuarios').addEventListener('click', () => goToGlobalAdminView('usuarios'));
+$('#btnGalleryGoTrabajadoresGlobal').addEventListener('click', () => goToGlobalAdminView('trabajadores_global'));
+$('#btnGalleryGoNominasGlobal').addEventListener('click', () => goToGlobalAdminView('nominas_global'));
+$('#btnGalleryGoPermisos').addEventListener('click', () => { state.usuariosSubView = 'permisos'; goToGlobalAdminView('usuarios'); });
+
 function openNuevoClienteModal() {
   openModal(`
     <h3>Nuevo cliente</h3>
@@ -2405,7 +2482,7 @@ async function renderView() {
   const view = $('#view');
   if (state.view === 'usuarios' || state.view === 'proveedores' || state.view === 'maquinaria' || state.view === 'nominas_global' || state.view === 'trabajadores_global' || state.view === 'cotizador' || state.view === 'estadoResultadosGlobal') {
     try {
-      if (state.view === 'usuarios') await renderUsuarios(view);
+      if (state.view === 'usuarios') { await renderUsuarios(view, state.usuariosSubView); state.usuariosSubView = null; }
       else if (state.view === 'proveedores') await renderProveedores(view);
       else if (state.view === 'nominas_global') await renderNominasGlobal(view);
       else if (state.view === 'trabajadores_global') await renderTrabajadoresGlobal(view);
@@ -5771,7 +5848,7 @@ function defaultPermisosParaRolFrontend(puesto) {
   return porSeccion;
 }
 
-async function renderUsuarios(view) {
+async function renderUsuarios(view, initialSubView) {
   if (!puedeGestionarUsuarios()) {
     view.innerHTML = `<div class="alert-box danger">⚠️ No tienes permiso para ver esta sección.</div>`;
     return;
@@ -6017,7 +6094,8 @@ async function renderUsuarios(view) {
     pintarMatriz();
   }
 
-  await showCuentas();
+  if (initialSubView === 'permisos' && isAdmin()) await showPermisos();
+  else await showCuentas();
 }
 
 function paintUsuariosList(usuarios) {

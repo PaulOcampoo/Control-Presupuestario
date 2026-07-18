@@ -130,6 +130,11 @@ button, a, select, label,
 }
 
 .muted { color: var(--text-secondary); font-size: 0.8em; }
+/* Folio "#N" junto al nombre de una estimación renombrada — visible solo si
+   el usuario no lo apagó (ver getMostrarFolioEstimacion en app.js). Peso
+   normal explícito porque vive dentro de un <strong>, que si no quedaría
+   en negrita a pesar del color tenue. */
+.estimacion-folio-tenue { color: var(--text-secondary); font-weight: 400; font-size: 0.82em; }
 
 .topbar {
   display: flex; align-items: center; gap: 10px;
@@ -150,6 +155,15 @@ button, a, select, label,
 .icon-btn-accent {
   background: var(--accent-gold); color: #04212f; border-color: var(--accent-gold); font-weight: 700;
 }
+/* Botón de ícono chico, en línea con texto (ej. lápiz de renombrar junto a
+   un título) — a diferencia de .icon-btn (40px, pensado para topbar/headers)
+   este es solo texto/ícono sin caja, para no competir visualmente con el
+   título que acompaña. */
+.icon-btn-inline {
+  background: none; border: none; color: var(--text-secondary); cursor: pointer;
+  font-size: 0.85rem; padding: 2px 4px; margin-left: 4px; border-radius: 6px; vertical-align: middle;
+}
+.icon-btn-inline:hover { color: var(--text-primary); background: color-mix(in srgb, var(--text-primary) 10%, transparent); }
 
 /* Campana de notificaciones (topbar) */
 .notif-wrap { position: relative; }
@@ -456,6 +470,14 @@ body.modal-open { overflow: hidden; }
 .modal h3 { margin-top: 0; }
 .modal-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 16px; }
 
+/* Modal ancho (Prompt 4, prompts-cotizador-sidebar-permisos-estimaciones.md)
+   — opt-in vía .modal-wide (ver openVerEstimacionModal/closeModal en app.js).
+   Solo en desktop: en mobile el detalle de Estimaciones debe verse igual que
+   antes (94vw ya es lo más ancho que tiene sentido en una pantalla chica). */
+@media (min-width: 861px) {
+  .modal.modal-wide { width: min(90vw, 920px); }
+}
+
 .alert-box {
   border-radius: 10px; padding: 10px 12px; font-size: 0.84rem; margin: 8px 0;
   border: 1px solid; display: flex; gap: 8px; align-items: flex-start;
@@ -702,6 +724,12 @@ body.modal-open { overflow: hidden; }
   display: flex; justify-content: space-between; align-items: center;
   margin-bottom: 20px; /* aire respecto a "Bienvenido/a" — antes quedaban apilados */
 }
+/* #btnGalleryMenu y .topbar-brand agrupados: con justify-content:space-between
+   y 3 hijos directos, "GRUPO ROFORB" (el hijo del medio) quedaba centrado en
+   vez de pegado a la izquierda como antes de que existiera el botón ☰. Al
+   agruparlos, .gallery-hero-top vuelve a tener 2 hijos (grupo izquierdo +
+   "Salir"), restaurando la alineación original de la marca. */
+.gallery-hero-left { display: flex; align-items: center; gap: 12px; }
 /* prompt_agrandar_logo_header_v3 (refinamiento — v2 quedó muy tosco/pesado):
    techo del clamp bajado de 5rem a 3.6rem para que "GRUPO ROFORB" siga
    siendo claramente el elemento dominante frente a "Bienvenido/a" (tope
@@ -729,11 +757,18 @@ body.modal-open { overflow: hidden; }
    estructura donde "Salir" sale del flujo (position:absolute, ancla fija en
    la esquina superior derecha del banner) y el bloque logo+"GRUPO ROFORB"
    pasa a ocupar el ancho completo centrado, con margin-top para no
-   solaparse con "Salir". Con "Salir" fuera del flujo, .gallery-hero-top
-   solo tiene un hijo en flujo normal (.topbar-brand), así que no hace falta
-   flex-wrap ni tocar su justify-content. */
+   solaparse con "Salir". #btnGalleryMenu (☰) sigue el mismo tratamiento que
+   "Salir" pero en la esquina opuesta (izquierda) — con ambos fuera del
+   flujo, .gallery-hero-top solo tiene un hijo en flujo normal
+   (.topbar-brand), así que no hace falta flex-wrap ni tocar su
+   justify-content. */
 @media (max-width: 480px) {
   .gallery-hero-top { position: relative; }
+  /* display:contents aplana el wrapper para que #btnGalleryMenu y
+     .topbar-brand se comporten como hijos directos de .gallery-hero-top,
+     igual que antes de agruparlos — necesario para que el position:absolute
+     de #btnGalleryMenu de abajo funcione igual que el de "Salir". */
+  .gallery-hero-left { display: contents; }
   .gallery-hero-top .topbar-brand {
     width: 100%;
     justify-content: center;
@@ -743,6 +778,11 @@ body.modal-open { overflow: hidden; }
     position: absolute;
     top: 0;
     right: 0;
+  }
+  .gallery-hero-top #btnGalleryMenu {
+    position: absolute;
+    top: 0;
+    left: 0;
   }
 }
 .gallery-greeting h2 {
@@ -984,6 +1024,41 @@ body.modal-open { overflow: hidden; }
   opacity: 0; pointer-events: none; transition: opacity 0.2s;
 }
 .sidebar-overlay.show { opacity: 1; pointer-events: auto; display: block; }
+
+/* ── Drawer de ajustes de la galería de clientes ─────────────────────────
+   Mismo tratamiento visual que #sidebar (mismo ancho, mismo slide-in desde
+   la izquierda), pero es un componente propio y más simple: #sidebar vive
+   dentro de #app (display:none en la galería) y depende de una obra
+   seleccionada, así que no se puede reutilizar tal cual aquí (prompt 2,
+   prompts-cotizador-sidebar-permisos-estimaciones.md). */
+.gallery-drawer {
+  position: fixed; top: 0; left: 0; bottom: 0;
+  width: var(--sidebar-w);
+  max-width: 85vw;
+  background: var(--bg-surface);
+  border-right: 1px solid var(--border-color);
+  padding: calc(14px + var(--safe-top)) 16px 16px;
+  z-index: 150;
+  overflow-y: auto;
+  transform: translateX(-105%);
+  transition: transform 0.3s var(--ease-in-out);
+}
+.gallery-drawer.show { transform: translateX(0); }
+.gallery-drawer-header {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 16px;
+}
+/* Overlay propio (no reutiliza .sidebar-overlay): esa clase tiene
+   `display: none !important` en desktop porque ahí #sidebar es un riel
+   siempre visible sin necesidad de overlay — la galería no tiene ese riel
+   permanente, así que su overlay sí debe funcionar en cualquier ancho. */
+.gallery-drawer-overlay {
+  display: none;
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.5); z-index: 149;
+  opacity: 0; pointer-events: none; transition: opacity 0.2s;
+}
+.gallery-drawer-overlay.show { opacity: 1; pointer-events: auto; display: block; }
 
 .sidebar-header {
   display: flex; align-items: center; justify-content: space-between; gap: 8px;
@@ -1587,6 +1662,26 @@ body.modal-open { overflow: hidden; }
 .nomina-tfoot-total { padding: 6px 8px; font-weight: 600; text-align: right; border-top: 2px solid var(--border-color); }
 .nomina-warn-row { color: var(--color-warning, #f59e0b); }
 
+/* Desglose de pago de Estimaciones (Prompt 4, prompts-cotizador-sidebar-
+   permisos-estimaciones.md) — el renglón de Total a pagar es el resultado
+   final del cálculo, resaltado en dorado para que sea inequívoco (mismo
+   token --accent-gold que el resto de la app, no un color nuevo). */
+/* .nomina-table trae min-width: 420px pensado para su tabla de 6 columnas
+   (conceptos) — la de desglose es de solo 2, así que ese mínimo la manda a
+   scroll horizontal innecesario en móvil (encontrado en verificación real
+   a 390px de viewport). Se anula aquí sin tocar la tabla de conceptos. */
+.estimacion-desglose-table { max-width: 420px; min-width: 0; width: 100%; }
+.estimacion-total-a-pagar-row td {
+  background: color-mix(in srgb, var(--accent-gold) 22%, transparent);
+  font-weight: 700; color: var(--text-primary);
+  border-top: 2px solid var(--accent-gold);
+}
+.estimacion-amortizacion-input {
+  width: 130px; text-align: right; padding: 4px 8px;
+  background: var(--bg-primary); border: 1px solid var(--border-color);
+  border-radius: 6px; color: var(--text-primary); font: inherit;
+}
+
 /* Fix aislado (fuera de secuencia del barrido): openTrabajadorModal — el grid de
    2 columnas dependía de un style="" inline sin clase de respaldo, bloqueado por
    CSP desde antes de hoy (confirmado byte-idéntico contra 5f0ba86). */
@@ -1968,6 +2063,18 @@ body.modal-open { overflow: hidden; }
   .theme-opt.active:hover {
     background: var(--accent-gold); color: #04212f;
     border-color: var(--accent-gold); font-weight: 600;
+  }
+
+  /* Opciones del drawer de galería (Usuarios/Trabajadores/Nóminas/Permisos/
+     Mi cuenta/Cerrar sesión) — mismo patrón de feedback que .sbar-item del
+     sidebar real (fondo + color de texto al pasar el cursor), adaptado a que
+     estos botones ya parten de background:var(--bg-surface-2) en reposo (a
+     diferencia de .sbar-item, que parte de transparente): el paso análogo
+     es una segunda tonalidad + borde dorado, no el mismo valor de fondo
+     (que sería invisible por ya ser el color base). */
+  #galleryDrawer .btn:hover {
+    background: color-mix(in srgb, var(--bg-surface-2) 100%, var(--accent-gold) 12%);
+    border-color: var(--accent-gold);
   }
 
   .proyecto-resumen-card:hover {

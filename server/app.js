@@ -4931,7 +4931,7 @@ app.get('/api/projects/:id/estimaciones', h(auth.allow('residente')), h(requireP
 }));
 
 app.post('/api/projects/:id/estimaciones', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
-  const { periodo_inicio, periodo_fin } = req.body || {};
+  const { periodo_inicio, periodo_fin, nombre } = req.body || {};
   if (!periodo_inicio || !periodo_fin) return res.status(400).json({ error: 'periodo_inicio y periodo_fin son requeridos' });
   if (periodo_fin < periodo_inicio) return res.status(400).json({ error: 'periodo_fin debe ser igual o posterior a periodo_inicio' });
 
@@ -4948,9 +4948,9 @@ app.post('/api/projects/:id/estimaciones', h(auth.allow('residente')), h(require
     );
     const folio = folioRows[0].ultimo_folio;
     const { rows } = await client.query(
-      `INSERT INTO estimaciones (project_id, folio, periodo_inicio, periodo_fin, residente_id)
-       VALUES ($1,$2,$3,$4,$5) RETURNING *`,
-      [req.project.id, folio, periodo_inicio, periodo_fin, req.user.id]
+      `INSERT INTO estimaciones (project_id, folio, periodo_inicio, periodo_fin, residente_id, nombre)
+       VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
+      [req.project.id, folio, periodo_inicio, periodo_fin, req.user.id, nombre?.trim() || null]
     );
     return rows[0];
   });

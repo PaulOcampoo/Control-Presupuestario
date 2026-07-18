@@ -9069,6 +9069,7 @@ async function openEstimacionModal(onSave) {
   openModal(`
     <h3>Nueva estimación</h3>
     <p class="muted fs-088">Los montos se jalan automáticamente del avance ya registrado en el periodo — no se capturan aquí. Si algo no cuadra, corrígelo en Avance y vuelve a calcular.</p>
+    <div class="field"><label>Nombre (opcional)</label><input id="eNombre" placeholder="Ej. Cimentación etapa 1" maxlength="120" /></div>
     <div class="estimacion-periodo-grid">
       <div class="field"><label>Periodo inicio *</label><input id="ePeriodoInicio" type="date" value="${esc(defaults.periodo_inicio || '')}" /></div>
       <div class="field"><label>Periodo fin *</label><input id="ePeriodoFin" type="date" value="${esc(defaults.periodo_fin || '')}" /></div>
@@ -9079,6 +9080,7 @@ async function openEstimacionModal(onSave) {
       <button class="btn btn-primary" id="btnSaveEstimacion">Crear estimación</button>
     </div>
   `);
+  const nombreEl = $('#eNombre');
   const inicioEl = $('#ePeriodoInicio');
   const finEl = $('#ePeriodoFin');
   const errorEl = $('#ePeriodoError');
@@ -9111,7 +9113,7 @@ async function openEstimacionModal(onSave) {
     try {
       await api(`/projects/${state.projectId}/estimaciones`, {
         method: 'POST',
-        body: { periodo_inicio, periodo_fin },
+        body: { periodo_inicio, periodo_fin, nombre: nombreEl.value.trim() || null },
       });
       toast('Estimación creada', 'success');
       closeModal();

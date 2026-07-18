@@ -16,7 +16,7 @@ const PUESTO_LABELS = {
 const ROLE_TABS = {
   admin:          ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'finanzas', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', 'maquinaria', 'cotizador'],
   desarrollador:  ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'finanzas', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', 'maquinaria', 'cotizador'],
-  residente:      ['programa', 'avance', 'destajo', 'requisiciones', 'insumos', 'ordenes', 'nominas', 'estimaciones'],
+  residente:      ['programa', 'avance', 'destajo', 'requisiciones', 'insumos', 'ordenes', 'nominas', 'trabajadores', 'estimaciones'],
   cabo:           ['destajo', 'insumos', 'avance', 'requisiciones', 'maquinaria'],
   compras:        ['programa', 'requisiciones', 'insumos', 'ordenes', 'proveedores', 'cotizador'],
   tesoreria:      ['resumen', 'finanzas', 'ordenes', 'contrato', 'impuestos', 'proveedores'],
@@ -5692,7 +5692,7 @@ const PERMISOS_SECCION_LABELS = {
   estado_resultados: 'Estado de Resultados',
   insumos: 'Insumos', mapeo: 'Mapeo', usuarios: 'Usuarios', contrato: 'Contrato', impuestos: 'Impuestos',
   nominas: 'Nóminas', sugerencias: 'Sugerencias', programa: 'Programa', estimaciones: 'Estimaciones',
-  maquinaria: 'Maquinaria',
+  maquinaria: 'Maquinaria', trabajadores: 'Trabajadores',
   trabajadores_global: 'Trabajadores (Todas las Obras)', nominas_global: 'Nóminas (Todas las Obras)',
 };
 // Secciones que NUNCA son por-obra — no existe (ni tiene sentido) una versión
@@ -5716,7 +5716,7 @@ const PERMISOS_ACCIONES = [
 // (auth.allow()), marcarla o no aquí todavía no cambia nada en el backend.
 // Actualizar esta lista cada vez que se le agregue checkPermiso a una
 // sección nueva (ver mismo patrón en server/auth.js SECCIONES_PERMISOS).
-const SECCIONES_CON_ENFORCEMENT = ['nominas', 'avance', 'maquinaria', 'trabajadores_global', 'nominas_global'];
+const SECCIONES_CON_ENFORCEMENT = ['nominas', 'avance', 'maquinaria', 'trabajadores_global', 'nominas_global', 'trabajadores'];
 // Agrupa las secciones de permisos igual que SECTION_DEFS agrupa las pestañas
 // en la pantalla de inicio (Obra / Compras / Tesorería / Administración) —
 // mismo criterio de negocio, para que la matriz se lea en el mismo orden que
@@ -5725,7 +5725,7 @@ const PERMISOS_GRUPOS = [
   { label: 'Obra',           secciones: ['presupuestos', 'programa', 'avance', 'destajo', 'estimaciones'] },
   { label: 'Compras',        secciones: ['requisiciones', 'insumos', 'proveedores', 'ordenes_compra'] },
   { label: 'Tesorería',      secciones: ['finanzas', 'estado_resultados', 'impuestos'] },
-  { label: 'Administración', secciones: ['mapeo', 'contrato', 'nominas', 'usuarios', 'trabajadores_global', 'nominas_global'] },
+  { label: 'Administración', secciones: ['mapeo', 'contrato', 'nominas', 'usuarios', 'trabajadores', 'trabajadores_global', 'nominas_global'] },
   { label: 'Maquinaria',     secciones: ['maquinaria'] },
   { label: 'General',        secciones: ['sugerencias'] },
 ];
@@ -5741,7 +5741,7 @@ const TAB_A_SECCION = {
   usuarios: 'usuarios', proveedores: 'proveedores', finanzas: 'finanzas',
   estadoResultados: 'estado_resultados',
   mapeo: 'mapeo', nominas: 'nominas', estimaciones: 'estimaciones',
-  maquinaria: 'maquinaria',
+  maquinaria: 'maquinaria', trabajadores: 'trabajadores',
 };
 function defaultPermisosParaRolFrontend(puesto) {
   const tabs = ROLE_TABS[puesto] || [];
@@ -7582,10 +7582,20 @@ async function renderTrabajadoresGlobal(view) {
 }
 
 async function renderTrabajadores(view) {
-  if (!isAdmin()) {
+  // Antes hardcodeado a isAdmin() — ahora usa el permiso granular por-obra
+  // (prompts-cotizador-sidebar-permisos-estimaciones.md, Prompt 3), mismo
+  // patrón que renderAvance()/misPermisosAvance. admin/desarrollador siguen
+  // viendo todo (el endpoint de mis-permisos les devuelve todo en true).
+  const misPermisos = await api(`/projects/${state.projectId}/mis-permisos/trabajadores`);
+  if (!misPermisos.puede_ver) {
     view.innerHTML = `<div class="alert-box danger">⚠️ No tienes permiso para ver esta sección.</div>`;
     return;
   }
+  // "Nuevo trabajador" es la única acción que un no-admin puede ganar vía el
+  // permiso granular (puede_crear) — editar/documentos/contratos/EPP/baja/
+  // eliminar se quedan admin-only (puedeGestionarTrabajadores()) porque sus
+  // endpoints siguen sin checkPermiso real, mismo alcance parcial que 'nominas'.
+  const puedeCrear = isAdmin() || !!misPermisos.puede_crear;
   let mostrarInactivos = false;
   async function repaint() {
     const trabajadores = await api(`/projects/${state.projectId}/trabajadores${mostrarInactivos ? '' : '?activo=1'}`);
@@ -7598,7 +7608,7 @@ async function renderTrabajadores(view) {
     <h2 class="section-title">Trabajadores</h2>
     <p class="muted">Expediente de personal asignado a esta obra.</p>
     <div class="section-actions section-actions-wrap">
-      ${puedeGestionarTrabajadores() ? `<button class="btn btn-primary" id="btnNuevoTrabajador">+ Nuevo trabajador</button>` : ''}
+      ${puedeCrear ? `<button class="btn btn-primary" id="btnNuevoTrabajador">+ Nuevo trabajador</button>` : ''}
       ${puedeGestionarTrabajadores() ? `<button class="btn" id="btnCatalogoEpp">Catálogo EPP</button>` : ''}
       <label class="checkbox-label-inline">
         <input type="checkbox" id="chkVerInactivos" class="w-auto"> Ver inactivos

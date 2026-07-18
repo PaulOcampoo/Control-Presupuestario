@@ -679,7 +679,7 @@ const SCHEMA = `
       'presupuestos','requisiciones','proveedores','ordenes_compra','avance',
       'destajo','finanzas','insumos','mapeo','usuarios','contrato','impuestos',
       'nominas','sugerencias','programa','estimaciones','maquinaria',
-      'trabajadores_global','nominas_global'
+      'trabajadores_global','nominas_global','trabajadores'
     )),
     puede_ver BOOLEAN NOT NULL DEFAULT false,
     puede_crear BOOLEAN NOT NULL DEFAULT false,
@@ -690,15 +690,18 @@ const SCHEMA = `
   );
   CREATE INDEX IF NOT EXISTS idx_permisos_usuario_usuario ON permisos_usuario(usuario_id);
   -- Amplía el CHECK de 'seccion' en bases ya existentes (Preview/producción)
-  -- para las 2 secciones nuevas de prompts-cotizador-permisos.md Prompt 2 —
-  -- el CREATE TABLE de arriba no vuelve a correr sobre una tabla existente,
-  -- así que el CHECK original se queda corto sin este ALTER explícito.
+  -- — el CREATE TABLE de arriba no vuelve a correr sobre una tabla
+  -- existente, así que el CHECK original se queda corto sin este ALTER
+  -- explícito. 'trabajadores' agregado en prompts-cotizador-sidebar-
+  -- permisos-estimaciones.md Prompt 3 (permiso por-obra, distinto de
+  -- trabajadores_global) — confirmado con prueba real que sin este ALTER
+  -- INSERT INTO permisos_usuario con seccion='trabajadores' viola el CHECK.
   ALTER TABLE permisos_usuario DROP CONSTRAINT IF EXISTS permisos_usuario_seccion_check;
   ALTER TABLE permisos_usuario ADD CONSTRAINT permisos_usuario_seccion_check CHECK (seccion IN (
     'presupuestos','requisiciones','proveedores','ordenes_compra','avance',
     'destajo','finanzas','insumos','mapeo','usuarios','contrato','impuestos',
     'nominas','sugerencias','programa','estimaciones','maquinaria',
-    'trabajadores_global','nominas_global'
+    'trabajadores_global','nominas_global','trabajadores'
   ));
 
   -- Contador de folios por obra + tipo de documento. INSERT...ON CONFLICT DO

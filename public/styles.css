@@ -1968,6 +1968,18 @@ body.modal-open { overflow: hidden; }
     border-color: var(--accent-gold); font-weight: 600;
   }
 
+  /* Opciones del drawer de galería (Usuarios/Trabajadores/Nóminas/Permisos/
+     Mi cuenta/Cerrar sesión) — mismo patrón de feedback que .sbar-item del
+     sidebar real (fondo + color de texto al pasar el cursor), adaptado a que
+     estos botones ya parten de background:var(--bg-surface-2) en reposo (a
+     diferencia de .sbar-item, que parte de transparente): el paso análogo
+     es una segunda tonalidad + borde dorado, no el mismo valor de fondo
+     (que sería invisible por ya ser el color base). */
+  #galleryDrawer .btn:hover {
+    background: color-mix(in srgb, var(--bg-surface-2) 100%, var(--accent-gold) 12%);
+    border-color: var(--accent-gold);
+  }
+
   .proyecto-resumen-card:hover {
     border-color: var(--accent-gold);
     box-shadow: 0 0 14px color-mix(in srgb, var(--accent-gold) 22%, transparent);

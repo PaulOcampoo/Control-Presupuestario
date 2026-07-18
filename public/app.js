@@ -8999,7 +8999,13 @@ async function renderEstimaciones(view) {
     <h2 class="section-title">Estimaciones</h2>
     <div class="section-actions mt-12">
       ${puedeCapturarEstimacion() ? `<button class="btn btn-primary" id="btnNuevaEstimacion">+ Nueva estimación</button>` : ''}
-      <label class="muted fs-08"><input type="checkbox" id="chkMostrarFolioEstimacion" class="w-auto" ${getMostrarFolioEstimacion() ? 'checked' : ''}> Mostrar folio (#N) junto al nombre</label>
+      <div class="row">
+        <label class="perm-check">
+          <input type="checkbox" id="chkMostrarFolioEstimacion" ${getMostrarFolioEstimacion() ? 'checked' : ''} />
+          <span class="perm-check-track"><span class="perm-check-thumb"></span></span>
+        </label>
+        <span class="muted fs-08">Mostrar folio (#N) junto al nombre</span>
+      </div>
     </div>
     <div class="sticky-filters">
       <div class="search-bar">

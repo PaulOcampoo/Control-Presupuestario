@@ -76,6 +76,22 @@
         <button class="theme-opt" data-theme-set="dark"><span id="galleryThemeIconDark"></span>Oscuro</button>
         <button class="theme-opt" data-theme-set="system"><span id="galleryThemeIconSystem"></span>Sistema</button>
       </div>
+      <!-- Paleta de colores (prompt-selector-paleta-colores.md) — mismo
+           mecanismo que el tema (atributo en <html>, persistido en
+           localStorage), aplicando dentro del modo claro/oscuro elegido
+           arriba. Wiring global de [data-palette-set] al fondo de app.js
+           (mismo patrón que [data-theme-set]). -->
+      <label class="ajustes-tema-label">Apariencia</label>
+      <div class="palette-selector">
+        <button class="palette-opt" data-palette-set="dorada">
+          <span class="palette-swatch palette-swatch-dorada"><span></span><span></span><span></span></span>
+          Dorada
+        </button>
+        <button class="palette-opt" data-palette-set="morada">
+          <span class="palette-swatch palette-swatch-morada"><span></span><span></span><span></span></span>
+          Morada
+        </button>
+      </div>
       <!-- Accesos globales de administración — mismas vistas del sidebar real
            (#app), solo un punto de entrada adicional para no obligar a elegir
            una obra primero. Ocultos por defecto (hidden-initial); visibilidad
@@ -160,6 +176,17 @@
         <button class="theme-opt" data-theme-set="light"><span id="themeIconLight"></span>Claro</button>
         <button class="theme-opt" data-theme-set="dark"><span id="themeIconDark"></span>Oscuro</button>
         <button class="theme-opt" data-theme-set="system"><span id="themeIconSystem"></span>Sistema</button>
+      </div>
+      <label class="ajustes-tema-label">Apariencia</label>
+      <div class="palette-selector">
+        <button class="palette-opt" data-palette-set="dorada">
+          <span class="palette-swatch palette-swatch-dorada"><span></span><span></span><span></span></span>
+          Dorada
+        </button>
+        <button class="palette-opt" data-palette-set="morada">
+          <span class="palette-swatch palette-swatch-morada"><span></span><span></span><span></span></span>
+          Morada
+        </button>
       </div>
       <button id="btnInstallAppPopover" class="btn full">📲 Instalar app</button>
       <button id="btnMiCuentaPopover" class="btn full">Mi cuenta</button>

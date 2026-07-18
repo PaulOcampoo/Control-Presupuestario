@@ -57,6 +57,41 @@
   --accent-silver: #71798A;
 }
 
+/* Paleta Morada (prompt-selector-paleta-colores.md) — inspirada en la
+   landing MARGEN (React, proyecto independiente; solo se tomó de ahí la
+   referencia de color, cero código compartido). Mismos tokens que la
+   paleta Dorada de arriba, mismo patrón tonal (bg-primary → bg-surface →
+   bg-surface-2 → border-color subiendo en luminosidad; accent-gold-hover
+   más claro que accent-gold en dark, más oscuro en light — igual relación
+   que ya tenía Dorada) — así ningún selector de estilos existente necesita
+   tocarse: basta con que [data-palette="morada"] gane la cascada.
+   Especificidad: [data-palette="morada"] (0,1,0) cae DESPUÉS de
+   [data-theme="light"] en el archivo, así que para data-theme=dark gana
+   este bloque; para data-theme=light hace falta el combinado de abajo,
+   con mayor especificidad (0,2,0), que sí gana sobre ambos anteriores. */
+[data-palette="morada"] {
+  --bg-primary: #030014;
+  --bg-surface: #0D0620;
+  --bg-surface-2: #1B0F35;
+  --border-color: #2E1F4D;
+  --text-primary: #EDE9F7;
+  --text-secondary: #A99BC4;
+  --accent-gold: #A855F7;
+  --accent-gold-hover: #C084FC;
+  --accent-silver: #8B7BA8;
+}
+[data-palette="morada"][data-theme="light"] {
+  --bg-primary: #F3EFFA;
+  --bg-surface: #FAF8FE;
+  --bg-surface-2: #EDE7F6;
+  --border-color: #DAD0EC;
+  --text-primary: #241B3D;
+  --text-secondary: #6B5F8A;
+  --accent-gold: #8B5CF6;
+  --accent-gold-hover: #7C3AED;
+  --accent-silver: #6D5A8C;
+}
+
 * { box-sizing: border-box; }
 html, body { height: 100%; }
 body {
@@ -69,7 +104,14 @@ body {
      (overflow-x:hidden eleva implícitamente overflow-y a auto, creando un
      doble scroll cuando hay elementos fixed con overflow-y:auto propios) */
   overflow-x: clip;
+  /* Cambio de modo/paleta (prompt-selector-paleta-colores.md): mismo timing
+     (0.15s) que ya usan decenas de componentes individuales (botones,
+     inputs, .theme-opt, etc.) al recolorearse — sin esto, esas superficies
+     grandes cambiaban de golpe mientras los componentes chicos sí
+     transicionaban, una mezcla inconsistente. */
+  transition: background 0.15s, color 0.15s;
 }
+#app, .main-area { transition: background 0.15s, color 0.15s; }
 
 /* Los controles de formulario NO heredan el font-family de body por default
    del navegador (usan la fuente del sistema/UI) — hay que forzarlo. Cubre
@@ -1013,7 +1055,12 @@ body.modal-open { overflow: hidden; }
   overflow: hidden;
   /* Mobile: hidden off-screen by default */
   transform: translateX(-105%);
-  transition: transform 0.3s var(--ease-in-out), width 0.3s var(--ease-in-out);
+  /* background/border-color en 0.15s (cambio de modo/paleta, mismo timing
+     que el resto de la app) fusionado en la MISMA declaración que ya movía
+     transform/width — un transition: posterior pisaría por completo al
+     anterior en vez de sumarse. */
+  transition: transform 0.3s var(--ease-in-out), width 0.3s var(--ease-in-out),
+    background 0.15s, border-color 0.15s;
 }
 #sidebar.mobile-open { transform: translateX(0); }
 
@@ -1244,6 +1291,36 @@ body.modal-open { overflow: hidden; }
   background: var(--accent-gold); color: #04212f;
   border-color: var(--accent-gold); font-weight: 600;
 }
+
+/* Selector de paleta (prompt-selector-paleta-colores.md) — mismo patrón que
+   .theme-selector/.theme-opt de arriba, pero sin llenar el fondo del botón
+   activo (cada opción ya lleva su propia identidad de color en el swatch;
+   pintar el fondo completo del botón competiría con esa muestra), solo un
+   borde + halo con var(--accent-gold) — que ya vale dorado o violeta según
+   la paleta ACTUALMENTE aplicada, no la que representa el botón. */
+.palette-selector { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+.palette-opt {
+  flex: 1; min-width: 108px; display: flex; flex-direction: column; align-items: center; gap: 6px;
+  padding: 10px 8px; border-radius: 10px; border: 1px solid var(--border-color);
+  background: var(--bg-surface-2); color: var(--text-secondary);
+  font-size: 0.78rem; cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s, box-shadow 0.15s;
+}
+.palette-opt.active {
+  border-color: var(--accent-gold); color: var(--text-primary); font-weight: 600;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-gold) 30%, transparent);
+}
+.palette-swatch { display: flex; gap: 3px; }
+.palette-swatch span { width: 16px; height: 16px; border-radius: 4px; display: block; }
+/* Colores fijos a propósito (no var(--...)): cada swatch debe mostrar SU
+   paleta sin importar cuál esté activa ahora mismo — son valores de
+   referencia, no deben cambiar con el tema. */
+.palette-swatch-dorada span:nth-child(1) { background: #0B1220; }
+.palette-swatch-dorada span:nth-child(2) { background: #C9A24B; }
+.palette-swatch-dorada span:nth-child(3) { background: #DEBB6C; }
+.palette-swatch-morada span:nth-child(1) { background: #030014; }
+.palette-swatch-morada span:nth-child(2) { background: #A855F7; }
+.palette-swatch-morada span:nth-child(3) { background: #C084FC; }
 
 /* ── Barra de navegación móvil — isla "liquid glass" ─────────────────────
    Flotante y separada de los bordes (--mobile-nav-gap), vidrio esmerilado

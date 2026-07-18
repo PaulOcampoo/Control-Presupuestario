@@ -144,13 +144,26 @@ function animationForChart(key) {
   return undefined; // undefined = Chart.js usa su animación default
 }
 
+// meta[name=theme-color] (color de la barra de estado del navegador/PWA) —
+// depende de AMBOS: paleta y modo efectivo, así que vive fuera de
+// applyTheme/applyPalette y ambas la llaman al final.
+const PALETTE_META_COLORS = {
+  dorada: { light: '#EAEEF5', dark: '#0B1220' },
+  morada: { light: '#F3EFFA', dark: '#030014' },
+};
+function updateThemeColorMeta() {
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (!meta) return;
+  const colors = PALETTE_META_COLORS[getPalette()] || PALETTE_META_COLORS.dorada;
+  meta.setAttribute('content', colors[getEffectiveTheme()]);
+}
+
 function applyTheme(pref) {
   const effective = pref === 'system' ? (_mqDark.matches ? 'dark' : 'light') : pref;
   document.documentElement.setAttribute('data-theme', effective);
   const btn = $('#btnThemeToggle');
   if (btn) btn.innerHTML = effective === 'light' ? icon('moon', 16) : icon('sun', 16);
-  const meta = document.querySelector('meta[name="theme-color"]');
-  if (meta) meta.setAttribute('content', effective === 'light' ? '#EAEEF5' : '#0B1220');
+  updateThemeColorMeta();
   // Actualizar botones activos en el popover
   $$('.theme-opt').forEach((el) => el.classList.toggle('active', el.dataset.themeSet === pref));
   // Actualizar íconos en el popover
@@ -176,11 +189,44 @@ function toggleTheme() {
   setTheme(next);
 }
 
+// ---------------------------------------------------------------------------
+// Paleta de colores (prompt-selector-paleta-colores.md) — Dorada (default,
+// valores sin tocar) o Morada. Mismo mecanismo que el tema: atributo en
+// <html> (data-palette, aplicado antes del primer paint en theme-init.js) +
+// localStorage, aplicando DENTRO del modo claro/oscuro ya elegido arriba —
+// ver [data-palette="morada"] / [data-palette="morada"][data-theme="light"]
+// en styles.css.
+// ---------------------------------------------------------------------------
+const PALETTE_KEY = 'cp_palette';
+
+function getPalette() {
+  return localStorage.getItem(PALETTE_KEY) || 'dorada';
+}
+
+function applyPalette(pref) {
+  document.documentElement.setAttribute('data-palette', pref);
+  $$('.palette-opt').forEach((el) => el.classList.toggle('active', el.dataset.paletteSet === pref));
+  updateThemeColorMeta();
+}
+
+function setPalette(pref) {
+  localStorage.setItem(PALETTE_KEY, pref);
+  applyPalette(pref);
+}
+
 // Actualizar en vivo cuando el SO cambia y el usuario eligió 'system'
 _mqDark.addEventListener('change', () => { if (getTheme() === 'system') applyTheme('system'); });
 
 applyTheme(getTheme());
+applyPalette(getPalette());
 $('#btnThemeToggle').addEventListener('click', toggleTheme);
+// Wiring global de los selectores de paleta ya presentes en el DOM al cargar
+// (drawer de galería + popover de escritorio) — mismo patrón que
+// [data-theme-set] más abajo. El de openMobileAjustes() se wirea aparte,
+// donde se inyecta su HTML (no existe en el DOM hasta que se abre).
+$$('[data-palette-set]').forEach((btn) => {
+  btn.addEventListener('click', () => setPalette(btn.dataset.paletteSet));
+});
 $('#btnNotif').innerHTML = icon('bell', 18);
 $('#btnLogout').innerHTML = icon('log-out', 18);
 
@@ -1228,6 +1274,7 @@ function closeQuickActionMenu() {
 // ---------------------------------------------------------------------------
 function openMobileAjustes() {
   const pref = getTheme();
+  const pal = getPalette();
   openModal(`
     <div class="modal-header-row">
       <h3 class="modal-title">Ajustes</h3>
@@ -1242,6 +1289,17 @@ function openMobileAjustes() {
       <button class="theme-opt ${pref==='light'?'active':''}" data-theme-set="light">${icon('sun',14)} Claro</button>
       <button class="theme-opt ${pref==='dark'?'active':''}" data-theme-set="dark">${icon('moon',14)} Oscuro</button>
       <button class="theme-opt ${pref==='system'?'active':''}" data-theme-set="system">${icon('monitor',14)} Sistema</button>
+    </div>
+    <label class="ajustes-tema-label">Apariencia</label>
+    <div class="palette-selector">
+      <button class="palette-opt ${pal==='dorada'?'active':''}" data-palette-set="dorada">
+        <span class="palette-swatch palette-swatch-dorada"><span></span><span></span><span></span></span>
+        Dorada
+      </button>
+      <button class="palette-opt ${pal==='morada'?'active':''}" data-palette-set="morada">
+        <span class="palette-swatch palette-swatch-morada"><span></span><span></span><span></span></span>
+        Morada
+      </button>
     </div>
     ${!isStandalone() ? `<button class="btn full ajustes-btn-mb" id="btnInstallModal">📲 Instalar app</button>` : ''}
     <button class="btn full ajustes-btn-mb" id="btnMiCuentaModal">Mi cuenta</button>
@@ -1262,6 +1320,9 @@ function openMobileAjustes() {
       setTheme(btn.dataset.themeSet);
       $$('.theme-opt', $('#modal')).forEach((b) => b.classList.toggle('active', b.dataset.themeSet === btn.dataset.themeSet));
     });
+  });
+  $$('.palette-opt', $('#modal')).forEach((btn) => {
+    btn.addEventListener('click', () => setPalette(btn.dataset.paletteSet));
   });
   $('#btnInstallModal')?.addEventListener('click', () => { closeModal(); installApp(); });
   $('#btnMiCuentaModal').addEventListener('click', () => { closeModal(); openMiCuentaModal(false); });

@@ -28,7 +28,14 @@ const TOTP_ISSUER = 'Grupo Roforb — Control Presupuestal';
 const PERMISSIONS = {
   admin:          { label: 'Administrador', tabs: ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'finanzas', 'estadoResultados', 'estadoResultadosGlobal', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', 'maquinaria', 'cotizador'] },
   desarrollador:  { label: 'Desarrollador', tabs: ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'finanzas', 'estadoResultados', 'estadoResultadosGlobal', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', 'maquinaria', 'cotizador'] },
-  residente:      { label: 'Residente',     tabs: ['programa', 'avance', 'destajo', 'requisiciones', 'insumos', 'ordenes', 'nominas', 'estimaciones'] },
+  // 'trabajadores' agregado aquí (prompts-cotizador-sidebar-permisos-
+  // estimaciones.md, Prompt 3) para que el residente reciba la pestaña al
+  // hacer login — el acceso REAL a los datos de cada obra lo sigue
+  // decidiendo checkPermiso('trabajadores', ...) vía permisos_usuario (sin
+  // fila = 403, igual que 'nominas' hoy): agregar la pestaña no otorga el
+  // permiso por sí sola, un admin debe concederlo explícitamente en la
+  // matriz por cada obra.
+  residente:      { label: 'Residente',     tabs: ['programa', 'avance', 'destajo', 'requisiciones', 'insumos', 'ordenes', 'nominas', 'trabajadores', 'estimaciones'] },
   cabo:           { label: 'Cabo',          tabs: ['destajo', 'insumos', 'avance', 'requisiciones', 'maquinaria'] },
   compras:        { label: 'Compras',       tabs: ['programa', 'requisiciones', 'insumos', 'ordenes', 'proveedores', 'cotizador'] },
   tesoreria:      { label: 'Tesorería',     tabs: ['resumen', 'finanzas', 'estadoResultados', 'estadoResultadosGlobal', 'ordenes', 'contrato', 'impuestos', 'proveedores'] },
@@ -79,16 +86,24 @@ const SECCIONES_PERMISOS = [
   // una vista que ya de por sí es cross-obra) — ver SECCIONES_SIEMPRE_GLOBAL
   // en public/app.js.
   'trabajadores_global', 'nominas_global',
+  // 'trabajadores' por-obra (prompts-cotizador-sidebar-permisos-estimaciones.md,
+  // Prompt 3) — distinta de 'trabajadores_global' igual que 'nominas' lo es de
+  // 'nominas_global': gatea SOLO la lista/alta de trabajadores DE UNA obra
+  // específica (ver checkPermiso en GET/POST /api/projects/:id/trabajadores),
+  // no la vista global cross-obra. El resto de las acciones sobre un
+  // trabajador (editar, documentos, contratos, EPP, baja, eliminar) se quedan
+  // admin-only por ahora (auth.allow() sin argumentos) — mismo alcance parcial
+  // que 'nominas' ya tiene hoy (solo ver/crear con checkPermiso real).
+  'trabajadores',
 ];
 const ACCIONES_PERMISOS = ['puede_ver', 'puede_crear', 'puede_editar', 'puede_editar_precios', 'puede_eliminar'];
 
 // Traduce las pestañas de PERMISSIONS[puesto].tabs a secciones del sistema de
-// permisos granulares (algunas pestañas de la app no tienen sección propia
-// aquí — 'trabajadores' queda fuera del alcance de este sistema por ahora).
-// 'programa' y 'estimaciones' tienen su propia sección en el catálogo pero
-// SIN enforcement real todavía (sus rutas siguen en auth.allow() legacy —
-// ver SECCIONES_CON_ENFORCEMENT en public/app.js): aparecen en el panel como
-// informativas hasta que se decida migrarlas a checkPermiso.
+// permisos granulares. 'programa' y 'estimaciones' tienen su propia sección
+// en el catálogo pero SIN enforcement real todavía (sus rutas siguen en
+// auth.allow() legacy — ver SECCIONES_CON_ENFORCEMENT en public/app.js):
+// aparecen en el panel como informativas hasta que se decida migrarlas a
+// checkPermiso.
 const TAB_A_SECCION = {
   resumen: 'presupuestos', programa: 'programa', contrato: 'contrato',
   impuestos: 'impuestos', insumos: 'insumos', requisiciones: 'requisiciones',
@@ -96,7 +111,7 @@ const TAB_A_SECCION = {
   usuarios: 'usuarios', proveedores: 'proveedores', finanzas: 'finanzas',
   estadoResultados: 'estado_resultados',
   mapeo: 'mapeo', nominas: 'nominas', estimaciones: 'estimaciones',
-  maquinaria: 'maquinaria',
+  maquinaria: 'maquinaria', trabajadores: 'trabajadores',
 };
 
 // Set de permisos default al dar de alta un usuario: puede_ver=true en las

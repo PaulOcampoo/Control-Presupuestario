@@ -4017,7 +4017,12 @@ app.get('/api/trabajadores', h(auth.checkPermiso('trabajadores_global', 'puede_v
   res.json(rows);
 }));
 
-app.get('/api/projects/:id/trabajadores', h(auth.allow()), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+// Ver/crear (prompts-cotizador-sidebar-permisos-estimaciones.md, Prompt 3):
+// checkPermiso('trabajadores', ...) real, mismo alcance que 'nominas' hoy
+// (solo lista+alta) — el resto de las acciones (editar, documentos,
+// contratos, EPP, baja, eliminar) se quedan admin-only (auth.allow() sin
+// argumentos, sin cambios) hasta que se decida ampliar la granularidad.
+app.get('/api/projects/:id/trabajadores', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('trabajadores', 'puede_ver')), h(async (req, res) => {
   const { activo } = req.query;
   let sql = `SELECT t.*, d.nombre AS destajista_nombre
              FROM trabajadores t
@@ -4031,7 +4036,7 @@ app.get('/api/projects/:id/trabajadores', h(auth.allow()), h(requireProject), h(
   res.json(rows);
 }));
 
-app.post('/api/projects/:id/trabajadores', h(auth.allow()), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+app.post('/api/projects/:id/trabajadores', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('trabajadores', 'puede_crear')), h(async (req, res) => {
   const { nombre, puesto, tipo_pago, tarifa_jornal, periodicidad, curp, rfc, nss,
           telefono, direccion, contacto_emergencia, contacto_emergencia_nombre,
           contacto_emergencia_telefono, fecha_ingreso, destajista_id } = req.body || {};

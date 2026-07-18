@@ -674,9 +674,11 @@ body.modal-open { overflow: hidden; }
    estructura donde "Salir" sale del flujo (position:absolute, ancla fija en
    la esquina superior derecha del banner) y el bloque logo+"GRUPO ROFORB"
    pasa a ocupar el ancho completo centrado, con margin-top para no
-   solaparse con "Salir". Con "Salir" fuera del flujo, .gallery-hero-top
-   solo tiene un hijo en flujo normal (.topbar-brand), así que no hace falta
-   flex-wrap ni tocar su justify-content. */
+   solaparse con "Salir". #btnGalleryMenu (☰) sigue el mismo tratamiento que
+   "Salir" pero en la esquina opuesta (izquierda) — con ambos fuera del
+   flujo, .gallery-hero-top solo tiene un hijo en flujo normal
+   (.topbar-brand), así que no hace falta flex-wrap ni tocar su
+   justify-content. */
 @media (max-width: 480px) {
   .gallery-hero-top { position: relative; }
   .gallery-hero-top .topbar-brand {
@@ -688,6 +690,11 @@ body.modal-open { overflow: hidden; }
     position: absolute;
     top: 0;
     right: 0;
+  }
+  .gallery-hero-top #btnGalleryMenu {
+    position: absolute;
+    top: 0;
+    left: 0;
   }
 }
 .gallery-greeting h2 {
@@ -929,6 +936,41 @@ body.modal-open { overflow: hidden; }
   opacity: 0; pointer-events: none; transition: opacity 0.2s;
 }
 .sidebar-overlay.show { opacity: 1; pointer-events: auto; display: block; }
+
+/* ── Drawer de ajustes de la galería de clientes ─────────────────────────
+   Mismo tratamiento visual que #sidebar (mismo ancho, mismo slide-in desde
+   la izquierda), pero es un componente propio y más simple: #sidebar vive
+   dentro de #app (display:none en la galería) y depende de una obra
+   seleccionada, así que no se puede reutilizar tal cual aquí (prompt 2,
+   prompts-cotizador-sidebar-permisos-estimaciones.md). */
+.gallery-drawer {
+  position: fixed; top: 0; left: 0; bottom: 0;
+  width: var(--sidebar-w);
+  max-width: 85vw;
+  background: var(--bg-surface);
+  border-right: 1px solid var(--border-color);
+  padding: calc(14px + var(--safe-top)) 16px 16px;
+  z-index: 150;
+  overflow-y: auto;
+  transform: translateX(-105%);
+  transition: transform 0.3s var(--ease-in-out);
+}
+.gallery-drawer.show { transform: translateX(0); }
+.gallery-drawer-header {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 16px;
+}
+/* Overlay propio (no reutiliza .sidebar-overlay): esa clase tiene
+   `display: none !important` en desktop porque ahí #sidebar es un riel
+   siempre visible sin necesidad de overlay — la galería no tiene ese riel
+   permanente, así que su overlay sí debe funcionar en cualquier ancho. */
+.gallery-drawer-overlay {
+  display: none;
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.5); z-index: 149;
+  opacity: 0; pointer-events: none; transition: opacity 0.2s;
+}
+.gallery-drawer-overlay.show { opacity: 1; pointer-events: auto; display: block; }
 
 .sidebar-header {
   display: flex; align-items: center; justify-content: space-between; gap: 8px;

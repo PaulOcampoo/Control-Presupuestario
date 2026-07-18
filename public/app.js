@@ -156,6 +156,12 @@ function applyTheme(pref) {
   const li = $('#themeIconLight'); if (li) li.innerHTML = icon('sun', 14);
   const di = $('#themeIconDark');  if (di) di.innerHTML = icon('moon', 14);
   const si = $('#themeIconSystem');if (si) si.innerHTML = icon('monitor', 14);
+  // Mismos íconos en el drawer de ajustes de la galería de clientes (prompt 2,
+  // prompts-cotizador-sidebar-permisos-estimaciones.md) — reusa esta misma
+  // función en vez de duplicar la lógica de tema.
+  const gli = $('#galleryThemeIconLight'); if (gli) gli.innerHTML = icon('sun', 14);
+  const gdi = $('#galleryThemeIconDark');  if (gdi) gdi.innerHTML = icon('moon', 14);
+  const gsi = $('#galleryThemeIconSystem');if (gsi) gsi.innerHTML = icon('monitor', 14);
 }
 
 function setTheme(pref) {
@@ -891,6 +897,23 @@ function openSidebar() {
 function closeSidebar() {
   $('#sidebar').classList.remove('mobile-open');
   $('#sidebarOverlay').classList.remove('show');
+}
+
+// Drawer de ajustes de la galería de clientes (prompt 2,
+// prompts-cotizador-sidebar-permisos-estimaciones.md) — el #sidebar real
+// vive dentro de #app, que queda display:none en la galería, así que no es
+// alcanzable desde ahí. Este drawer es un componente propio y más simple
+// (solo tema/cuenta/sesión, nada que dependa de una obra seleccionada),
+// pero reutiliza las funciones existentes de tema en vez de reimplementarlas.
+function openGalleryDrawer() {
+  $('#galleryDrawer').classList.add('show');
+  $('#galleryDrawerOverlay').classList.add('show');
+  applyTheme(getTheme());
+}
+
+function closeGalleryDrawer() {
+  $('#galleryDrawer').classList.remove('show');
+  $('#galleryDrawerOverlay').classList.remove('show');
 }
 
 function renderSidebar() {
@@ -2139,6 +2162,12 @@ async function selectCliente(id) {
 $('#btnGalleryLogout').addEventListener('click', logout);
 $('#btnNuevoClienteDrawer').addEventListener('click', () => { closeDrawer(); openNuevoClienteModal(); });
 $('#btnCargarContratoDrawer').addEventListener('click', () => { closeDrawer(); promptUploadContrato(); });
+
+$('#btnGalleryMenu').addEventListener('click', openGalleryDrawer);
+$('#btnGalleryDrawerClose').addEventListener('click', closeGalleryDrawer);
+$('#galleryDrawerOverlay').addEventListener('click', closeGalleryDrawer);
+$('#btnMiCuentaGalleryDrawer').addEventListener('click', () => { closeGalleryDrawer(); openMiCuentaModal(false); });
+$('#btnLogoutGalleryDrawer').addEventListener('click', () => { closeGalleryDrawer(); logout(); });
 
 function openNuevoClienteModal() {
   openModal(`

@@ -1177,10 +1177,22 @@ app.get('/api/maquinaria/reporte-clientes', h(auth.checkPermiso('maquinaria', 'p
 }));
 
 // ---------------------------------------------------------------------------
-// Cotizador de materiales (Home Depot / Sodimac) — solo compras/admin/
-// desarrollador (auth.allow('compras')). Materiales Valdez quedó fuera del
-// comparador: su sitio no publica precios en línea (ver server/cotizador.js).
+// Cotizador de materiales (Home Depot / Sodimac / Amazon) — solo compras/
+// admin/desarrollador (auth.allow('compras')). Materiales Valdez quedó fuera
+// del comparador: su sitio no publica precios en línea. Mercado Libre y
+// Construrama también quedaron fuera: bloqueo consistente de bot-detection
+// real confirmado en diagnóstico de Fase 0 (ver server/cotizador.js).
 // ---------------------------------------------------------------------------
+app.get('/api/cotizador/config', h(auth.allow('compras')), h(async (req, res) => {
+  res.json(await cotizador.getConfig());
+}));
+
+app.put('/api/cotizador/config', h(auth.allow('compras')), h(async (req, res) => {
+  const { ciudad, codigo_postal } = req.body || {};
+  const resultado = await cotizador.setConfig({ ciudad, codigo_postal, usuario_id: req.user.id });
+  res.json(resultado);
+}));
+
 app.get('/api/cotizador/buscar', h(auth.allow('compras')), h(async (req, res) => {
   const { q } = req.query;
   if (!q || !q.trim()) return res.status(400).json({ error: 'Indica un término de búsqueda (?q=)' });
@@ -4896,6 +4908,13 @@ app.get('/api/projects/:id/nominas/:nomId/export', h(auth.allow()), h(requirePro
 // físico crudo), para que el PDF firmado siempre reconcilie con lo ya
 // entregado al cliente en documentos previos (decisión explícita).
 const ESTADOS_ESTIMACION = ['borrador', 'enviada', 'aprobada', 'rechazada'];
+// Desglose de pago (Prompt 4, prompts-cotizador-sidebar-permisos-
+// estimaciones.md) — 2% de fondo de garantía e IVA 16%, ambos sobre el
+// monto BRUTO del periodo (confirmado con Paul: mismo criterio que ya usan
+// Contrato e Facturas en esta app — IVA sobre el subtotal, no sobre un neto
+// ya descontado). Ver cálculo en POST .../calcular.
+const FONDO_GARANTIA_PCT = 0.02;
+const IVA_ESTIMACION_PCT = 0.16;
 
 // Vista global — solo admin/desarrollador: todas las estimaciones "enviada"
 // de todas las obras, para revisar y aprobar/rechazar. Mismo patrón que
@@ -4929,7 +4948,7 @@ app.get('/api/projects/:id/estimaciones', h(auth.allow('residente')), h(requireP
 }));
 
 app.post('/api/projects/:id/estimaciones', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
-  const { periodo_inicio, periodo_fin } = req.body || {};
+  const { periodo_inicio, periodo_fin, nombre } = req.body || {};
   if (!periodo_inicio || !periodo_fin) return res.status(400).json({ error: 'periodo_inicio y periodo_fin son requeridos' });
   if (periodo_fin < periodo_inicio) return res.status(400).json({ error: 'periodo_fin debe ser igual o posterior a periodo_inicio' });
 
@@ -4946,9 +4965,9 @@ app.post('/api/projects/:id/estimaciones', h(auth.allow('residente')), h(require
     );
     const folio = folioRows[0].ultimo_folio;
     const { rows } = await client.query(
-      `INSERT INTO estimaciones (project_id, folio, periodo_inicio, periodo_fin, residente_id)
-       VALUES ($1,$2,$3,$4,$5) RETURNING *`,
-      [req.project.id, folio, periodo_inicio, periodo_fin, req.user.id]
+      `INSERT INTO estimaciones (project_id, folio, periodo_inicio, periodo_fin, residente_id, nombre)
+       VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
+      [req.project.id, folio, periodo_inicio, periodo_fin, req.user.id, nombre?.trim() || null]
     );
     return rows[0];
   });
@@ -5089,7 +5108,21 @@ app.post('/api/projects/:id/estimaciones/:estId/calcular', h(auth.allow('residen
     }
     const totalPeriodo = items.reduce((s, it) => s + it.importePeriodo, 0);
     const totalAcumulado = items.reduce((s, it) => s + it.importeAcumulado, 0);
-    await client.query('UPDATE estimaciones SET total_periodo = $1, total_acumulado = $2 WHERE id = $3', [totalPeriodo, totalAcumulado, estId]);
+    // Desglose de pago (Prompt 4, prompts-cotizador-sidebar-permisos-
+    // estimaciones.md): 2% Fondo de Garantía e IVA 16% se calculan sobre el
+    // total del PERIODO (no el acumulado — el acumulado ya se cobró,
+    // parcialmente, en estimaciones anteriores) y sobre el monto BRUTO de la
+    // estimación (mismo patrón que Contrato: importe_contratado + iva_monto
+    // = total_contratado, y Facturas: monto_subtotal + iva = monto_total).
+    // amortizacion_anticipo se preserva del valor ya capturado (si lo hay) —
+    // recalcular el avance no debe borrar una amortización ya guardada.
+    const fondoGarantiaMonto = totalPeriodo * FONDO_GARANTIA_PCT;
+    const ivaMonto = totalPeriodo * IVA_ESTIMACION_PCT;
+    const totalAPagar = totalPeriodo - Number(est.amortizacion_anticipo || 0) - fondoGarantiaMonto + ivaMonto;
+    await client.query(
+      `UPDATE estimaciones SET total_periodo = $1, total_acumulado = $2, fondo_garantia_monto = $3, iva_monto = $4, total_a_pagar = $5 WHERE id = $6`,
+      [totalPeriodo, totalAcumulado, fondoGarantiaMonto, ivaMonto, totalAPagar, estId]
+    );
   });
 
   const { rows: itemsOut } = await db.pool.query(`
@@ -5173,6 +5206,50 @@ app.put('/api/projects/:id/estimaciones/:estId/estado', h(auth.allow('residente'
   if (estado === 'rechazada' && est.residente_id) {
     await crearNotificacion(est.residente_id, req.project.id, 'estimacion_rechazada', estId, `Tu Estimación #${est.folio} fue rechazada: ${comentario_rechazo.trim()}`);
   }
+  res.json(rows[0]);
+}));
+
+// Renombrar (Prompt 4) — no toca datos financieros, editable en cualquier
+// estado (incluida 'aprobada': es solo una etiqueta). nombre vacío/null
+// vuelve a la UI a mostrar "Estimación #folio" como antes.
+app.put('/api/projects/:id/estimaciones/:estId/nombre', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  const estId = Number(req.params.estId);
+  const { nombre } = req.body || {};
+  const { rows: estRows } = await db.pool.query('SELECT residente_id FROM estimaciones WHERE id = $1 AND project_id = $2 AND activo = true', [estId, req.project.id]);
+  if (!estRows[0]) return res.status(404).json({ error: 'Estimación no encontrada' });
+  const esAdmin = req.user.puesto === 'admin' || req.user.puesto === 'desarrollador';
+  if (!esAdmin && estRows[0].residente_id !== req.user.id) return res.status(404).json({ error: 'Estimación no encontrada' });
+  const { rows } = await db.pool.query(
+    'UPDATE estimaciones SET nombre = $1 WHERE id = $2 RETURNING *',
+    [nombre?.trim() || null, estId]
+  );
+  res.json(rows[0]);
+}));
+
+// Amortización de anticipo (Prompt 4) — captura manual, opcional. Mismo
+// candado de estado que "Calcular" (borrador/rechazada): una vez enviada,
+// el desglose de pago queda fijo. Recalcula total_a_pagar de inmediato con
+// el fondo_garantia_monto/iva_monto ya guardados por el último "Calcular"
+// (no dispara un recálculo del avance — para eso está el botón Calcular).
+app.put('/api/projects/:id/estimaciones/:estId/amortizacion', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  const estId = Number(req.params.estId);
+  const { amortizacion_anticipo } = req.body || {};
+  const monto = Number(amortizacion_anticipo);
+  if (!Number.isFinite(monto) || monto < 0) return res.status(400).json({ error: 'Monto de amortización inválido' });
+  const { rows: estRows } = await db.pool.query('SELECT * FROM estimaciones WHERE id = $1 AND project_id = $2 AND activo = true', [estId, req.project.id]);
+  if (!estRows[0]) return res.status(404).json({ error: 'Estimación no encontrada' });
+  const est = estRows[0];
+  if (req.user.puesto === 'residente' && est.residente_id !== req.user.id) {
+    return res.status(404).json({ error: 'Estimación no encontrada' });
+  }
+  if (!['borrador', 'rechazada'].includes(est.estado)) {
+    return res.status(409).json({ error: 'Solo se puede editar la amortización en una estimación en borrador o rechazada' });
+  }
+  const totalAPagar = Number(est.total_periodo) - monto - Number(est.fondo_garantia_monto) + Number(est.iva_monto);
+  const { rows } = await db.pool.query(
+    'UPDATE estimaciones SET amortizacion_anticipo = $1, total_a_pagar = $2 WHERE id = $3 RETURNING *',
+    [monto, totalAPagar, estId]
+  );
   res.json(rows[0]);
 }));
 

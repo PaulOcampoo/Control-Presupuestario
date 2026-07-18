@@ -647,6 +647,12 @@ body.modal-open { overflow: hidden; }
   display: flex; justify-content: space-between; align-items: center;
   margin-bottom: 20px; /* aire respecto a "Bienvenido/a" — antes quedaban apilados */
 }
+/* #btnGalleryMenu y .topbar-brand agrupados: con justify-content:space-between
+   y 3 hijos directos, "GRUPO ROFORB" (el hijo del medio) quedaba centrado en
+   vez de pegado a la izquierda como antes de que existiera el botón ☰. Al
+   agruparlos, .gallery-hero-top vuelve a tener 2 hijos (grupo izquierdo +
+   "Salir"), restaurando la alineación original de la marca. */
+.gallery-hero-left { display: flex; align-items: center; gap: 12px; }
 /* prompt_agrandar_logo_header_v3 (refinamiento — v2 quedó muy tosco/pesado):
    techo del clamp bajado de 5rem a 3.6rem para que "GRUPO ROFORB" siga
    siendo claramente el elemento dominante frente a "Bienvenido/a" (tope
@@ -681,6 +687,11 @@ body.modal-open { overflow: hidden; }
    justify-content. */
 @media (max-width: 480px) {
   .gallery-hero-top { position: relative; }
+  /* display:contents aplana el wrapper para que #btnGalleryMenu y
+     .topbar-brand se comporten como hijos directos de .gallery-hero-top,
+     igual que antes de agruparlos — necesario para que el position:absolute
+     de #btnGalleryMenu de abajo funcione igual que el de "Salir". */
+  .gallery-hero-left { display: contents; }
   .gallery-hero-top .topbar-brand {
     width: 100%;
     justify-content: center;

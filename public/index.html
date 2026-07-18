@@ -40,10 +40,12 @@
   <div id="clientGalleryScreen" class="gallery-screen hidden-initial">
     <div class="gallery-hero">
       <div class="gallery-hero-top">
-        <button id="btnGalleryMenu" class="icon-btn" aria-label="Menú">☰</button>
-        <div class="topbar-brand">
-          <img src="/assets/logo-roforb-icon.png" alt="" class="topbar-logo" />
-          <strong>Grupo Roforb</strong>
+        <div class="gallery-hero-left">
+          <button id="btnGalleryMenu" class="icon-btn" aria-label="Menú">☰</button>
+          <div class="topbar-brand">
+            <img src="/assets/logo-roforb-icon.png" alt="" class="topbar-logo" />
+            <strong>Grupo Roforb</strong>
+          </div>
         </div>
         <button id="btnGalleryLogout" class="btn small">Salir</button>
       </div>
@@ -74,6 +76,17 @@
         <button class="theme-opt" data-theme-set="dark"><span id="galleryThemeIconDark"></span>Oscuro</button>
         <button class="theme-opt" data-theme-set="system"><span id="galleryThemeIconSystem"></span>Sistema</button>
       </div>
+      <!-- Accesos globales de administración — mismas vistas del sidebar real
+           (#app), solo un punto de entrada adicional para no obligar a elegir
+           una obra primero. Ocultos por defecto (hidden-initial); visibilidad
+           real la decide updateGalleryDrawerGlobalLinks() en app.js según
+           state.allowedTabs, mismo criterio que ya protege esas vistas. -->
+      <hr class="ajustes-divider hidden-initial" id="galleryDrawerAdminDivider">
+      <label class="ajustes-tema-label hidden-initial" id="galleryDrawerAdminLabel">Administración</label>
+      <button id="btnGalleryGoUsuarios" class="btn full hidden-initial">Usuarios</button>
+      <button id="btnGalleryGoTrabajadoresGlobal" class="btn full hidden-initial">Trabajadores (Todas las Obras)</button>
+      <button id="btnGalleryGoNominasGlobal" class="btn full hidden-initial">Nóminas (Todas las Obras)</button>
+      <button id="btnGalleryGoPermisos" class="btn full hidden-initial">Permisos</button>
       <hr class="ajustes-divider">
       <button id="btnMiCuentaGalleryDrawer" class="btn full">Mi cuenta</button>
       <button id="btnLogoutGalleryDrawer" class="btn full">Cerrar sesión</button>

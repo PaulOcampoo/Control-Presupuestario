@@ -425,6 +425,26 @@ h3.section-title { margin: 18px 0 10px; font-size: 0.95rem; color: var(--text-se
 }
 .btn:active { transform: scale(0.98); }
 .btn-primary { background: var(--accent-gold); border-color: var(--accent-gold); color: #04212f; font-weight: 700; }
+
+/* Glow + micro-interacción de CTAs primarios (prompt-animaciones-y-galeria-
+   clientes.md, Prompt A) — .btn-primary/.icon-btn-accent/.fab son los 3
+   patrones ya usados app-wide para "acción destacada" (todos ya leían
+   var(--accent-gold) para su fondo); esta regla es la única definición del
+   efecto — las 4 paletas lo heredan solas vía la misma variable, sin tocar
+   esto por paleta. Solo box-shadow/transform/color (nunca width/height) para
+   no disparar layout/paint costoso. El scale-down en :active de .btn/
+   .icon-btn/.fab ya existía — aquí solo se le agrega transition (antes era
+   instantáneo) y se le suma box-shadow, que sí es nuevo para .btn-primary/
+   .icon-btn-accent (.fab ya traía su propio glow permanente). */
+.btn-primary, .icon-btn-accent, .fab {
+  box-shadow: 0 0 14px color-mix(in srgb, var(--accent-gold) 20%, transparent);
+  transition: box-shadow 0.15s var(--ease-out), transform 0.1s var(--ease-out),
+    background 0.15s, border-color 0.15s, color 0.15s;
+}
+.btn-primary:focus-visible, .icon-btn-accent:focus-visible, .fab:focus-visible {
+  box-shadow: 0 0 22px color-mix(in srgb, var(--accent-gold) 42%, transparent);
+  outline: none;
+}
 .btn-danger { background: var(--red); border-color: var(--red); color: #fff; }
 .btn-ghost { background: transparent; }
 .btn.full { width: 100%; }
@@ -2141,7 +2161,13 @@ body.modal-open { overflow: hidden; }
    en la misma declaración), pendientes de revisión aparte. ────────────────── */
 @media (hover: hover) and (pointer: fine) {
   .section-card:hover { border-color: var(--accent-gold); box-shadow: 0 0 18px color-mix(in srgb, var(--accent-gold) 28%, transparent); }
-  .btn-primary:hover { background: var(--accent-gold-hover); border-color: var(--accent-gold-hover); }
+  .btn-primary:hover {
+    background: var(--accent-gold-hover); border-color: var(--accent-gold-hover);
+    box-shadow: 0 0 22px color-mix(in srgb, var(--accent-gold) 42%, transparent);
+  }
+  .icon-btn-accent:hover, .fab:hover {
+    box-shadow: 0 0 22px color-mix(in srgb, var(--accent-gold) 42%, transparent);
+  }
   .search-bar-fancy .search-clear:hover { background: var(--border-color); color: var(--text-primary); }
   .gallery-hero-top .btn.small:hover { background: rgba(4,33,47,0.2); }
   .cliente-card:hover { border-color: var(--accent-gold); box-shadow: 0 0 18px color-mix(in srgb, var(--accent-gold) 28%, transparent); }
@@ -2253,6 +2279,13 @@ body.modal-open { overflow: hidden; }
   .proyecto-resumen-card:hover,
   .proyecto-resumen-card:active,
   .proyecto-resumen-card:active:hover {
+    transform: none;
+  }
+
+  /* Glow de CTAs primarios (Prompt A, prompts-animaciones-y-galeria-
+     clientes.md): sin movimiento (el scale-down de :active se apaga), el
+     glow en sí se deja — es un cambio de opacidad/color, no desplazamiento. */
+  .btn-primary:active, .icon-btn-accent:active, .fab:active {
     transform: none;
   }
 

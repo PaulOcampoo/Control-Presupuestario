@@ -8960,6 +8960,19 @@ const ESTIMACION_ESTADO_BADGE = {
   borrador: 'muted', enviada: 'yellow', aprobada: 'green', rechazada: 'red',
 };
 
+// Preferencia de UI (por dispositivo, no por obra): mostrar el folio "#N" en
+// gris tenue junto al nombre de una estimación renombrada. Default visible
+// (true) para no ocultar información de golpe a quien ya usaba el folio para
+// identificar la estimación — el usuario la apaga si le estorba.
+const MOSTRAR_FOLIO_ESTIMACION_KEY = 'cp_mostrar_folio_estimacion';
+function getMostrarFolioEstimacion() {
+  const v = localStorage.getItem(MOSTRAR_FOLIO_ESTIMACION_KEY);
+  return v === null ? true : v === '1';
+}
+function setMostrarFolioEstimacion(v) {
+  localStorage.setItem(MOSTRAR_FOLIO_ESTIMACION_KEY, v ? '1' : '0');
+}
+
 async function renderEstimaciones(view) {
   if (!puedeVerEstimaciones()) {
     view.innerHTML = `<div class="alert-box danger">⚠️ No tienes permiso para ver esta sección.</div>`;
@@ -8969,10 +8982,15 @@ async function renderEstimaciones(view) {
     <h2 class="section-title">Estimaciones</h2>
     <div class="section-actions mt-12">
       ${puedeCapturarEstimacion() ? `<button class="btn btn-primary" id="btnNuevaEstimacion">+ Nueva estimación</button>` : ''}
+      <label class="muted fs-08"><input type="checkbox" id="chkMostrarFolioEstimacion" class="w-auto" ${getMostrarFolioEstimacion() ? 'checked' : ''}> Mostrar folio (#N) junto al nombre</label>
     </div>
     <div id="estimacionesList"><div class="empty-state">Cargando…</div></div>
   `;
   $('#btnNuevaEstimacion')?.addEventListener('click', () => openEstimacionModal(loadEstimaciones));
+  $('#chkMostrarFolioEstimacion').addEventListener('change', (e) => {
+    setMostrarFolioEstimacion(e.target.checked);
+    loadEstimaciones();
+  });
   await loadEstimaciones();
 }
 
@@ -8982,11 +9000,12 @@ async function loadEstimaciones() {
   try {
     const estimaciones = await api(`/projects/${state.projectId}/estimaciones`);
     if (!estimaciones.length) { el.innerHTML = '<div class="empty-state">No hay estimaciones registradas.</div>'; return; }
+    const mostrarFolio = getMostrarFolioEstimacion();
     el.innerHTML = estimaciones.map((e) => `
       <div class="card">
         <div class="row between nomina-row-6">
           <div>
-            <strong>${e.nombre ? esc(e.nombre) + ' · Estimación #' + e.folio : 'Estimación #' + e.folio}</strong>
+            <strong>${e.nombre ? esc(e.nombre) + (mostrarFolio ? ` <span class="estimacion-folio-tenue">#${e.folio}</span>` : '') : 'Estimación #' + e.folio}</strong>
             <button class="icon-btn-inline" data-renombrar-estimacion="${e.id}" data-nombre-actual="${esc(e.nombre || '')}" title="Renombrar" aria-label="Renombrar">✎</button>
             <div class="muted fs-08">${esc(e.periodo_inicio)} al ${esc(e.periodo_fin)} · $${Number(e.total_periodo || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })}</div>
           </div>

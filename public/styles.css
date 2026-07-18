@@ -130,6 +130,11 @@ button, a, select, label,
 }
 
 .muted { color: var(--text-secondary); font-size: 0.8em; }
+/* Folio "#N" junto al nombre de una estimación renombrada — visible solo si
+   el usuario no lo apagó (ver getMostrarFolioEstimacion en app.js). Peso
+   normal explícito porque vive dentro de un <strong>, que si no quedaría
+   en negrita a pesar del color tenue. */
+.estimacion-folio-tenue { color: var(--text-secondary); font-weight: 400; font-size: 0.82em; }
 
 .topbar {
   display: flex; align-items: center; gap: 10px;

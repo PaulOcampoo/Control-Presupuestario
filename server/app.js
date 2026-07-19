@@ -1427,6 +1427,58 @@ app.get('/api/resumen-global', h(auth.allow()), h(async (req, res) => {
   });
 }));
 
+// Dashboard "Avance por cliente" (prompt-dashboard-favoritos-layout.md) —
+// agregado POR CLIENTE (no por obra individual, eso ya es "Mayor avance";
+// no el promedio global, eso ya es "Resumen Global" de arriba). Mismo
+// query base y MISMA fórmula de ponderación que /resumen-global
+// (importe_ejecutado = Σ presupuesto_i × avance_i / total_contratos_i),
+// solo que agrupada por cliente_id en vez de sumada globalmente — así el
+// criterio de "avance ponderado" es idéntico en toda la app, no un
+// cálculo nuevo inventado para este componente.
+app.get('/api/avance-por-cliente', h(auth.allow()), h(async (req, res) => {
+  const { rows } = await db.pool.query(`
+    SELECT
+      c.id AS cliente_id,
+      c.nombre AS cliente_nombre,
+      COALESCE(
+        (SELECT valor::DOUBLE PRECISION FROM meta
+         WHERE project_id = p.id AND clave = 'total_sin_iva' LIMIT 1),
+        (SELECT importe FROM conceptos
+         WHERE project_id = p.id AND es_total = 1 AND grupo IS NULL ORDER BY orden DESC LIMIT 1),
+        0
+      ) AS presupuesto_total,
+      COALESCE(
+        (SELECT avance_financiero_real FROM avances_semanales
+         WHERE project_id = p.id AND avance_financiero_real IS NOT NULL
+         ORDER BY semana DESC LIMIT 1),
+        0
+      ) AS avance_ejecutado_pct
+    FROM proyectos p
+    JOIN clientes c ON c.id = p.cliente_id
+  `);
+
+  const porCliente = new Map();
+  for (const r of rows) {
+    if (!porCliente.has(r.cliente_id)) {
+      porCliente.set(r.cliente_id, { cliente_id: r.cliente_id, cliente_nombre: r.cliente_nombre, totalContratos: 0, importeEjecutado: 0 });
+    }
+    const acc = porCliente.get(r.cliente_id);
+    acc.totalContratos += Number(r.presupuesto_total);
+    acc.importeEjecutado += Number(r.presupuesto_total) * Number(r.avance_ejecutado_pct) / 100;
+  }
+
+  const resultado = [...porCliente.values()]
+    .map((c) => ({
+      cliente_id: c.cliente_id,
+      cliente_nombre: c.cliente_nombre,
+      avance_ponderado_pct: c.totalContratos > 0 ? Number(((c.importeEjecutado / c.totalContratos) * 100).toFixed(1)) : 0,
+    }))
+    .sort((a, b) => b.avance_ponderado_pct - a.avance_ponderado_pct)
+    .slice(0, 4);
+
+  res.json(resultado);
+}));
+
 // ---------------------------------------------------------------------------
 // Bienvenida — resumen ligero por proyecto para la pantalla de bienvenida
 // ---------------------------------------------------------------------------
@@ -1469,6 +1521,36 @@ app.get('/api/bienvenida', h(auth.allow('residente', 'cabo', 'compras', 'tesorer
 // ---------------------------------------------------------------------------
 // Última visita — último proyecto visitado por usuario+cliente
 // ---------------------------------------------------------------------------
+// Panel "Actividad reciente" de la galería (Prompt B, prompts-animaciones-y-
+// galeria-clientes.md) — reutiliza ultima_visita (ya se escribe en cada
+// selectProject, sin tracking nuevo), solo agrega esta lectura agregada
+// cruzando todos los clientes del usuario. Registrada ANTES de
+// /ultima-visita/:clienteId para que Express no confunda "recientes" con un
+// clienteId (mismo patrón ya usado para /estimaciones/defaults-periodo).
+app.get('/api/ultima-visita/recientes', h(async (req, res) => {
+  // avance_ejecutado_pct (prompt-dashboard-favoritos-layout.md, barra de
+  // progreso por presupuesto) — mismo subquery ya usado en /bienvenida y
+  // /resumen-global (última avance_financiero_real registrada), no un
+  // cálculo nuevo.
+  const { rows } = await db.pool.query(`
+    SELECT uv.proyecto_id, uv.cliente_id, uv.actualizado_en,
+           p.nombre AS proyecto_nombre, c.nombre AS cliente_nombre,
+           COALESCE(
+             (SELECT avance_financiero_real FROM avances_semanales
+              WHERE project_id = p.id AND avance_financiero_real IS NOT NULL
+              ORDER BY semana DESC LIMIT 1),
+             0
+           ) AS avance_ejecutado_pct
+    FROM ultima_visita uv
+    JOIN proyectos p ON p.id = uv.proyecto_id
+    JOIN clientes c ON c.id = uv.cliente_id
+    WHERE uv.usuario_id = $1
+    ORDER BY uv.actualizado_en DESC
+    LIMIT 5
+  `, [req.user.id]);
+  res.json(rows);
+}));
+
 app.get('/api/ultima-visita/:clienteId', h(async (req, res) => {
   const clienteId = parseInt(req.params.clienteId, 10);
   if (!clienteId) return res.status(400).json({ error: 'Cliente inválido' });
@@ -1489,6 +1571,64 @@ app.put('/api/ultima-visita/:clienteId', h(async (req, res) => {
     ON CONFLICT (usuario_id, cliente_id) DO UPDATE
       SET proyecto_id = EXCLUDED.proyecto_id, actualizado_en = NOW()
   `, [req.user.id, clienteId, proyecto_id]);
+  res.json({ ok: true });
+}));
+
+// ---------------------------------------------------------------------------
+// Favoritos de la galería de clientes (Prompt B, prompts-animaciones-y-
+// galeria-clientes.md) — por usuario, no localStorage (viaja entre equipos
+// del mismo usuario, mismo criterio que ultima_visita arriba).
+// ---------------------------------------------------------------------------
+// Orden por drag (prompt-dashboard-favoritos-layout.md) — devuelto ya
+// ordenado por "orden" ASC; el front pinta la franja en este mismo orden
+// (no en el orden de state.clientes, que es el propio de la cuadrícula).
+app.get('/api/favoritos', h(async (req, res) => {
+  const { rows } = await db.pool.query(
+    'SELECT cliente_id FROM usuario_favoritos WHERE usuario_id = $1 ORDER BY orden ASC',
+    [req.user.id]
+  );
+  res.json(rows.map((r) => r.cliente_id));
+}));
+
+app.post('/api/favoritos/:clienteId', h(async (req, res) => {
+  const clienteId = parseInt(req.params.clienteId, 10);
+  if (!clienteId) return res.status(400).json({ error: 'Cliente inválido' });
+  // Nuevo favorito entra al final (MAX(orden)+1 de este usuario) — mismo
+  // criterio "se agrega al final" que ya usa el arrastre en clientes.
+  await db.pool.query(`
+    INSERT INTO usuario_favoritos (usuario_id, cliente_id, orden)
+    VALUES ($1, $2, (SELECT COALESCE(MAX(orden), -1) + 1 FROM usuario_favoritos WHERE usuario_id = $1))
+    ON CONFLICT (usuario_id, cliente_id) DO NOTHING
+  `, [req.user.id, clienteId]);
+  res.json({ ok: true });
+}));
+
+app.delete('/api/favoritos/:clienteId', h(async (req, res) => {
+  const clienteId = parseInt(req.params.clienteId, 10);
+  if (!clienteId) return res.status(400).json({ error: 'Cliente inválido' });
+  await db.pool.query(
+    'DELETE FROM usuario_favoritos WHERE usuario_id = $1 AND cliente_id = $2',
+    [req.user.id, clienteId]
+  );
+  res.json({ ok: true });
+}));
+
+// Reorder por drag (SortableJS) — mismo patrón que PUT /clientes/orden
+// (delete+reinsert con posición), pero en UPDATE porque las filas de
+// favoritos ya existen (solo cambia su orden, no su membresía).
+app.put('/api/favoritos/orden', h(async (req, res) => {
+  const { orden } = req.body || {};
+  if (!Array.isArray(orden) || !orden.length) {
+    return res.status(400).json({ error: 'Se requiere un arreglo "orden" con los IDs de cliente' });
+  }
+  await db.withTransaction(async (client) => {
+    for (let i = 0; i < orden.length; i++) {
+      await client.query(
+        'UPDATE usuario_favoritos SET orden = $1 WHERE usuario_id = $2 AND cliente_id = $3',
+        [i, req.user.id, Number(orden[i])]
+      );
+    }
+  });
   res.json({ ok: true });
 }));
 

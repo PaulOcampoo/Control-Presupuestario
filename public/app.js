@@ -29,6 +29,8 @@ const state = {
   projects: [],
   projectId: null,
   clientes: [],
+  favoritos: new Set(), // cliente_id de favoritos del usuario (Prompt B) — Set para O(1) lookup al pintar tarjetas
+  favoritosOrden: [], // mismos IDs que favoritos, pero en el orden elegido por drag (prompt-dashboard-favoritos-layout.md) — GET /favoritos ya los devuelve ordenados
   clienteId: null,
   pendingUploadClienteId: null,
   pendingContrato: null,
@@ -122,13 +124,66 @@ function getEffectiveTheme() {
   return t;
 }
 
+// FIX (prompt-fix-chart-y-2-paletas-nuevas.md): antes devolvía hex fijos
+// (en realidad los valores resueltos de --text-secondary/--border-color de
+// la paleta Dorada, copiados a mano) — se veían bien en Dorada por
+// coincidencia, pero no seguían ni el tema ni la paleta activos. Ahora lee
+// las custom properties reales en vivo, así que cualquier paleta nueva
+// (incluida Morada) queda cubierta automáticamente sin tocar esta función
+// de nuevo. cc.surface/cc.primary son para el borderColor de los donuts —
+// deben coincidir con el fondo REAL detrás del canvas (tarjeta .card vs.
+// fondo de página), ver applyChartTheme().
 function chartColors() {
-  const light = getEffectiveTheme() === 'light';
+  const cs = getComputedStyle(document.documentElement);
+  const v = (name) => cs.getPropertyValue(name).trim();
   return {
-    text: light ? '#334155' : '#e2e8f0',
-    grid: light ? '#e2e8f0' : '#334155',
-    tick: light ? '#475569' : '#94a3b8',
+    text: v('--text-primary'),
+    tick: v('--text-secondary'),
+    grid: v('--border-color'),
+    surface: v('--bg-surface'),
+    primary: v('--bg-primary'),
   };
+}
+
+// Re-pinta colores de TODOS los charts activos al cambiar tema/paleta en
+// caliente (sin recargar) — chartColors() solo se leía una vez al crear
+// cada Chart.js, así que sin esto los charts ya montados se quedaban con
+// los colores del render inicial. update('none') evita repetir la
+// animación de entrada solo por el cambio de color.
+function applyChartTheme(chart, cc) {
+  if (!chart || !chart.options) return;
+  const scales = chart.options.scales;
+  if (scales) {
+    ['x', 'y'].forEach((axis) => {
+      const scale = scales[axis];
+      if (!scale) return;
+      if (scale.ticks) scale.ticks.color = cc.tick;
+      if (scale.grid && scale.grid.display !== false) scale.grid.color = cc.grid;
+    });
+  }
+  const legendLabels = chart.options.plugins?.legend?.labels;
+  if (legendLabels) legendLabels.color = cc.text;
+  const ds = chart.data.datasets[0];
+  // Donut: el borderColor de cada segmento debe fundirse con el fondo real
+  // detrás del canvas (tag puesto al crear el chart, ver _cpBorderSurface).
+  if (chart._cpBorderSurface && ds) {
+    ds.borderColor = cc[chart._cpBorderSurface];
+  }
+  // Donut: el/los segmento(s) "vacíos" (ej. "Resto por ejecutar") se pintan
+  // con cc.grid al crear el chart — sin esto quedaban pegados al cc.grid de
+  // la paleta que estaba activa en ese momento (bug real encontrado al
+  // probar el hot-swap: cambiar de paleta recoloreaba todo MENOS este
+  // segmento). _cpGridBgIndexes son los índices de backgroundColor a
+  // re-derivar de cc.grid en cada refresh.
+  if (chart._cpGridBgIndexes && ds && Array.isArray(ds.backgroundColor)) {
+    chart._cpGridBgIndexes.forEach((i) => { ds.backgroundColor[i] = cc.grid; });
+  }
+  chart.update('none');
+}
+
+function refreshAllChartsTheme() {
+  const cc = chartColors();
+  Object.values(state.charts).forEach((chart) => applyChartTheme(chart, cc));
 }
 
 // Chart.js recrea la instancia en cada repintado de vista (el <canvas> se
@@ -144,13 +199,26 @@ function animationForChart(key) {
   return undefined; // undefined = Chart.js usa su animación default
 }
 
+// meta[name=theme-color] (color de la barra de estado del navegador/PWA) —
+// depende de AMBOS: paleta y modo efectivo, así que vive fuera de
+// applyTheme/applyPalette y ambas la llaman al final.
+const PALETTE_META_COLORS = {
+  dorada: { light: '#EAEEF5', dark: '#0B1220' },
+  morada: { light: '#F3EFFA', dark: '#030014' },
+};
+function updateThemeColorMeta() {
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (!meta) return;
+  const colors = PALETTE_META_COLORS[getPalette()] || PALETTE_META_COLORS.dorada;
+  meta.setAttribute('content', colors[getEffectiveTheme()]);
+}
+
 function applyTheme(pref) {
   const effective = pref === 'system' ? (_mqDark.matches ? 'dark' : 'light') : pref;
   document.documentElement.setAttribute('data-theme', effective);
   const btn = $('#btnThemeToggle');
   if (btn) btn.innerHTML = effective === 'light' ? icon('moon', 16) : icon('sun', 16);
-  const meta = document.querySelector('meta[name="theme-color"]');
-  if (meta) meta.setAttribute('content', effective === 'light' ? '#EAEEF5' : '#0B1220');
+  updateThemeColorMeta();
   // Actualizar botones activos en el popover
   $$('.theme-opt').forEach((el) => el.classList.toggle('active', el.dataset.themeSet === pref));
   // Actualizar íconos en el popover
@@ -163,6 +231,7 @@ function applyTheme(pref) {
   const gli = $('#galleryThemeIconLight'); if (gli) gli.innerHTML = icon('sun', 14);
   const gdi = $('#galleryThemeIconDark');  if (gdi) gdi.innerHTML = icon('moon', 14);
   const gsi = $('#galleryThemeIconSystem');if (gsi) gsi.innerHTML = icon('monitor', 14);
+  refreshAllChartsTheme();
 }
 
 function setTheme(pref) {
@@ -176,11 +245,84 @@ function toggleTheme() {
   setTheme(next);
 }
 
+// ---------------------------------------------------------------------------
+// Paleta de colores (prompt-selector-paleta-colores.md) — 4 opciones: Dorada
+// ("Tema GRUPO ROFORB", valores sin tocar desde que se agregó el selector),
+// Morada ("Tema NYRA", default actual — ver getPalette()), Verde ("Tema
+// JADE") y Naranja ("Tema TERRA"). Mismo mecanismo que el tema: atributo en
+// <html> (data-palette, aplicado antes del primer paint en theme-init.js) +
+// localStorage, aplicando DENTRO del modo claro/oscuro ya elegido arriba —
+// ver los bloques [data-palette="..."] en styles.css.
+// ---------------------------------------------------------------------------
+const PALETTE_KEY = 'cp_palette';
+
+// Default para usuarios sin preferencia guardada (prompt-fix-chart-y-2-
+// paletas-nuevas.md): pasa de 'dorada' a 'morada' ("Tema NYRA"). Usuarios
+// que YA tienen algo guardado en localStorage (dorada o morada) no se ven
+// afectados — este fallback solo aplica cuando la key ni existe.
+function getPalette() {
+  return localStorage.getItem(PALETTE_KEY) || 'morada';
+}
+
+function applyPalette(pref) {
+  document.documentElement.setAttribute('data-palette', pref);
+  $$('.palette-opt').forEach((el) => el.classList.toggle('active', el.dataset.paletteSet === pref));
+  updateThemeColorMeta();
+  refreshAllChartsTheme();
+}
+
+function setPalette(pref) {
+  localStorage.setItem(PALETTE_KEY, pref);
+  applyPalette(pref);
+}
+
 // Actualizar en vivo cuando el SO cambia y el usuario eligió 'system'
 _mqDark.addEventListener('change', () => { if (getTheme() === 'system') applyTheme('system'); });
 
 applyTheme(getTheme());
+applyPalette(getPalette());
 $('#btnThemeToggle').addEventListener('click', toggleTheme);
+// Wiring global de los selectores de paleta ya presentes en el DOM al cargar
+// (drawer de galería + popover de escritorio) — mismo patrón que
+// [data-theme-set] más abajo. El de openMobileAjustes() se wirea aparte,
+// donde se inyecta su HTML (no existe en el DOM hasta que se abre).
+$$('[data-palette-set]').forEach((btn) => {
+  btn.addEventListener('click', () => setPalette(btn.dataset.paletteSet));
+});
+
+// ---------------------------------------------------------------------------
+// Tamaño de tarjetas de cliente (Prompt B.3, prompts-animaciones-y-galeria-
+// clientes.md) — botones +/- en vez de slider, 4 pasos. Persistido en
+// localStorage (preferencia de dispositivo/pantalla, no del usuario en sí —
+// a diferencia de favoritos, que si viaja en BD). Aplicado vía CSS variable
+// en :root para que .cliente-grid (galería y franja de Favoritos, ambas) lo
+// hereden sin JS adicional — ver el fallback var(--cliente-card-min, 130px)
+// en styles.css.
+// ---------------------------------------------------------------------------
+const CLIENTE_CARD_SIZE_KEY = 'cp_cliente_card_size';
+const CLIENTE_CARD_SIZES = [110, 130, 150, 180]; // px — índice 1 (130px) es el tamaño original, sin cambio
+
+function getClienteCardSizeIndex() {
+  const saved = Number(localStorage.getItem(CLIENTE_CARD_SIZE_KEY));
+  const idx = CLIENTE_CARD_SIZES.indexOf(saved);
+  return idx >= 0 ? idx : 1;
+}
+
+function applyClienteCardSize() {
+  const px = CLIENTE_CARD_SIZES[getClienteCardSizeIndex()];
+  document.documentElement.style.setProperty('--cliente-card-min', `${px}px`);
+}
+
+function setClienteCardSizeIndex(idx) {
+  const clamped = Math.max(0, Math.min(CLIENTE_CARD_SIZES.length - 1, idx));
+  localStorage.setItem(CLIENTE_CARD_SIZE_KEY, CLIENTE_CARD_SIZES[clamped]);
+  applyClienteCardSize();
+}
+
+applyClienteCardSize();
+$('#btnIconSizeDown')?.addEventListener('click', () => setClienteCardSizeIndex(getClienteCardSizeIndex() - 1));
+$('#btnIconSizeUp')?.addEventListener('click', () => setClienteCardSizeIndex(getClienteCardSizeIndex() + 1));
+
 $('#btnNotif').innerHTML = icon('bell', 18);
 $('#btnLogout').innerHTML = icon('log-out', 18);
 
@@ -1228,6 +1370,7 @@ function closeQuickActionMenu() {
 // ---------------------------------------------------------------------------
 function openMobileAjustes() {
   const pref = getTheme();
+  const pal = getPalette();
   openModal(`
     <div class="modal-header-row">
       <h3 class="modal-title">Ajustes</h3>
@@ -1242,6 +1385,25 @@ function openMobileAjustes() {
       <button class="theme-opt ${pref==='light'?'active':''}" data-theme-set="light">${icon('sun',14)} Claro</button>
       <button class="theme-opt ${pref==='dark'?'active':''}" data-theme-set="dark">${icon('moon',14)} Oscuro</button>
       <button class="theme-opt ${pref==='system'?'active':''}" data-theme-set="system">${icon('monitor',14)} Sistema</button>
+    </div>
+    <label class="ajustes-tema-label">Apariencia</label>
+    <div class="palette-selector">
+      <button class="palette-opt ${pal==='dorada'?'active':''}" data-palette-set="dorada">
+        <span class="palette-swatch palette-swatch-dorada"><span></span><span></span><span></span></span>
+        Tema GRUPO ROFORB
+      </button>
+      <button class="palette-opt ${pal==='morada'?'active':''}" data-palette-set="morada">
+        <span class="palette-swatch palette-swatch-morada"><span></span><span></span><span></span></span>
+        Tema NYRA
+      </button>
+      <button class="palette-opt ${pal==='verde'?'active':''}" data-palette-set="verde">
+        <span class="palette-swatch palette-swatch-verde"><span></span><span></span><span></span></span>
+        Tema JADE
+      </button>
+      <button class="palette-opt ${pal==='naranja'?'active':''}" data-palette-set="naranja">
+        <span class="palette-swatch palette-swatch-naranja"><span></span><span></span><span></span></span>
+        Tema TERRA
+      </button>
     </div>
     ${!isStandalone() ? `<button class="btn full ajustes-btn-mb" id="btnInstallModal">📲 Instalar app</button>` : ''}
     <button class="btn full ajustes-btn-mb" id="btnMiCuentaModal">Mi cuenta</button>
@@ -1262,6 +1424,9 @@ function openMobileAjustes() {
       setTheme(btn.dataset.themeSet);
       $$('.theme-opt', $('#modal')).forEach((b) => b.classList.toggle('active', b.dataset.themeSet === btn.dataset.themeSet));
     });
+  });
+  $$('.palette-opt', $('#modal')).forEach((btn) => {
+    btn.addEventListener('click', () => setPalette(btn.dataset.paletteSet));
   });
   $('#btnInstallModal')?.addEventListener('click', () => { closeModal(); installApp(); });
   $('#btnMiCuentaModal').addEventListener('click', () => { closeModal(); openMiCuentaModal(false); });
@@ -1345,13 +1510,17 @@ async function resaltarFilaDestajo(destId) {
   scrollAndFlash(row || card);
 }
 
-function renderNotifList(targetEl) {
+// limit opcional (Prompt B: panel "Actividad reciente" de la galería solo
+// quiere las 5 más nuevas, no las hasta-50 del dropdown de la campana) — sin
+// límite se comporta exactamente igual que antes.
+function renderNotifList(targetEl, limit) {
   const list = targetEl || $('#notifList');
   if (!state.notificaciones.length) {
     list.innerHTML = '<div class="empty-state empty-state-compact">Sin notificaciones.</div>';
     return;
   }
-  list.innerHTML = state.notificaciones.map((n) => `
+  const items = limit ? state.notificaciones.slice(0, limit) : state.notificaciones;
+  list.innerHTML = items.map((n) => `
     <div class="notif-item ${n.leida ? '' : 'unread'}" data-notif="${n.id}">
       <div class="notif-msg">${esc(n.mensaje)}</div>
       <div class="notif-time">${timeAgo(n.creado_en)}</div>
@@ -1423,19 +1592,44 @@ function handleSessionExpired() {
   toast('Tu sesión expiró, inicia sesión de nuevo', 'danger');
 }
 
+// Panel de Actividad reciente de la galería (Prompt B) — hay DOS puntos de
+// entrada a la galería (bootApp(), en login y en restaurar sesión tras
+// reload; goToClientGallery(), al volver desde #app con "Volver a
+// clientes") y ambos necesitan pintarlo, así que vive en un solo helper.
+// SÍ puede quedar fuera del Promise.all principal y sin await del caller
+// (no bloquea el primer paint) porque nada más toca #galeriaRecientesList/
+// #galeriaAlertasList mientras tanto — a diferencia de favoritos (ver abajo),
+// aquí no hay riesgo de que una respuesta tardía pise un cambio del usuario.
+function loadGaleriaActividad() {
+  renderGaleriaActividad().catch(() => {});
+}
+
 async function bootApp() {
   destroyCharts();
   async function attempt() {
-    const [, , bienvenida] = await Promise.all([
+    // favoritos SÍ va dentro de este Promise.all (bloqueante, no fire-and-
+    // forget) — bug real encontrado al probar: si se pedía aparte sin
+    // esperar, una respuesta tardía podía llegar DESPUÉS de que el usuario
+    // ya hubiera marcado/desmarcado un favorito (toggleFavorito ya actualizó
+    // state.favoritos y repintó), y esa respuesta vieja pisaba el cambio de
+    // vuelta al estado anterior. La consulta es rápida (un solo SELECT por
+    // usuario_id), el costo de esperarla es mínimo.
+    const [, , bienvenida, favoritos] = await Promise.all([
       refreshClientList(),
       refreshProjectList(),
       api('/bienvenida').catch(() => []),
+      api('/favoritos').catch(() => []),
     ]);
+    state.favoritos = new Set(favoritos);
+    state.favoritosOrden = favoritos;
     showClientGallery();
     renderGalleryGreeting();
+    renderFavoritosSection();
     renderClientGallery();
     renderBienvenidaSummary(bienvenida);
     renderGlobalChart().catch(() => {});
+    renderAvancePorCliente().catch(() => {});
+    loadGaleriaActividad();
   }
   try {
     await attempt();
@@ -1764,15 +1958,21 @@ async function goToClientGallery() {
   state.clienteId = null;
   state.projectId = null;
   try {
-    const [, bienvenida] = await Promise.all([
+    const [, bienvenida, favoritos] = await Promise.all([
       refreshClientList(),
       api('/bienvenida').catch(() => []),
+      api('/favoritos').catch(() => []),
     ]);
+    state.favoritos = new Set(favoritos);
+    state.favoritosOrden = favoritos;
     showClientGallery();
     renderGalleryGreeting();
+    renderFavoritosSection();
     renderClientGallery();
     renderBienvenidaSummary(bienvenida);
     renderGlobalChart().catch(() => {});
+    renderAvancePorCliente().catch(() => {});
+    loadGaleriaActividad();
   } catch (err) {
     toast(err.message, 'danger');
     showClientGallery();
@@ -1950,14 +2150,16 @@ async function refreshClientList() {
   state.clientes = await api('/clientes');
 }
 
-function renderClientGallery() {
-  const grid = $('#clienteGrid');
-  // Proyectos sin cliente_id: solo pueden existir de cargas hechas antes de que
-  // cliente_id fuera obligatorio (ver PUT /projects/:id/cliente). Solo admin
-  // los ve, como una tarjeta especial, para poder reasignarlos.
-  const huerfanos = state.projects.filter((p) => p.cliente_id == null);
-  let html = state.clientes.map((c) => `
+// Markup de una tarjeta de cliente real — extraído de renderClientGallery()
+// (Prompt B) para reutilizarlo también en la franja de Favoritos, sin
+// duplicar la plantilla a mano en dos sitios.
+function clienteCardHtml(c) {
+  const isFav = state.favoritos.has(c.id);
+  return `
     <div class="cliente-card" data-cliente="${c.id}">
+      <button class="cliente-fav-btn ${isFav ? 'active' : ''}" data-cliente-fav="${c.id}"
+        title="${isFav ? 'Quitar de favoritos' : 'Marcar como favorito'}"
+        aria-label="${isFav ? 'Quitar de favoritos' : 'Marcar como favorito'}">${isFav ? '⭐' : '☆'}</button>
       <span class="cliente-icon">🏢</span>
       <span class="cliente-nombre">${esc(c.nombre)}</span>
       <span class="cliente-count">${c.num_proyectos} presupuesto${c.num_proyectos !== 1 ? 's' : ''}</span>
@@ -1967,28 +2169,15 @@ function renderClientGallery() {
           <button class="cliente-menu-item cliente-menu-item-danger" data-cliente-eliminar="${c.id}" data-cliente-eliminar-nombre="${esc(c.nombre)}">🗑️ Eliminar cliente</button>
         </div>` : ''}
     </div>
-  `).join('');
-  if (isAdmin() && huerfanos.length) {
-    html += `
-      <div class="cliente-card cliente-card-orphan" data-cliente="sin-cliente">
-        <span class="cliente-icon">⚠️</span>
-        <span class="cliente-nombre">Sin cliente asignado</span>
-        <span class="cliente-count">${huerfanos.length} presupuesto${huerfanos.length !== 1 ? 's' : ''}</span>
-      </div>`;
-  }
-  // Mismo permiso que "+ Nuevo cliente" en el drawer "Presupuestos cargados"
-  // (isAdmin(), ver applySession()) — mismo handler, solo un atajo adicional.
-  if (isAdmin()) {
-    html += `
-      <div class="cliente-card cliente-card-new" data-cliente="__nuevo__">
-        <span class="cliente-icon">➕</span>
-        <span class="cliente-nombre">Nuevo cliente</span>
-      </div>`;
-  }
-  grid.innerHTML = html || `<div class="empty-state"><div class="big">🏢</div>Aún no hay clientes registrados.</div>`;
+  `;
+}
+
+// Wiring de clicks (seleccionar/menú/eliminar/favorito) — común a #clienteGrid
+// y #favoritosGrid, extraído de renderClientGallery() (Prompt B).
+function wireClienteCards(grid) {
   $$('.cliente-card', grid).forEach((el) => {
     el.addEventListener('click', (ev) => {
-      if (ev.target.closest('[data-cliente-menu-btn]') || ev.target.closest('[data-cliente-menu-dropdown]')) return;
+      if (ev.target.closest('[data-cliente-menu-btn]') || ev.target.closest('[data-cliente-menu-dropdown]') || ev.target.closest('[data-cliente-fav]')) return;
       if (el.dataset.cliente === '__nuevo__') { openNuevoClienteModal(); return; }
       selectCliente(el.dataset.cliente === 'sin-cliente' ? 'sin-cliente' : Number(el.dataset.cliente));
     });
@@ -2009,7 +2198,165 @@ function renderClientGallery() {
       eliminarCliente(Number(btn.dataset.clienteEliminar), btn.dataset.clienteEliminarNombre);
     });
   });
+  $$('[data-cliente-fav]', grid).forEach((btn) => {
+    btn.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      toggleFavorito(Number(btn.dataset.clienteFav));
+    });
+  });
+}
+
+function renderClientGallery() {
+  const grid = $('#clienteGrid');
+  // Proyectos sin cliente_id: solo pueden existir de cargas hechas antes de que
+  // cliente_id fuera obligatorio (ver PUT /projects/:id/cliente). Solo admin
+  // los ve, como una tarjeta especial, para poder reasignarlos.
+  const huerfanos = state.projects.filter((p) => p.cliente_id == null);
+  let html = state.clientes.map((c) => clienteCardHtml(c)).join('');
+  if (isAdmin() && huerfanos.length) {
+    html += `
+      <div class="cliente-card cliente-card-orphan" data-cliente="sin-cliente">
+        <span class="cliente-icon">⚠️</span>
+        <span class="cliente-nombre">Sin cliente asignado</span>
+        <span class="cliente-count">${huerfanos.length} presupuesto${huerfanos.length !== 1 ? 's' : ''}</span>
+      </div>`;
+  }
+  // Mismo permiso que "+ Nuevo cliente" en el drawer "Presupuestos cargados"
+  // (isAdmin(), ver applySession()) — mismo handler, solo un atajo adicional.
+  if (isAdmin()) {
+    html += `
+      <div class="cliente-card cliente-card-new" data-cliente="__nuevo__">
+        <span class="cliente-icon">➕</span>
+        <span class="cliente-nombre">Nuevo cliente</span>
+      </div>`;
+  }
+  grid.innerHTML = html || `<div class="empty-state"><div class="big">🏢</div>Aún no hay clientes registrados.</div>`;
+  wireClienteCards(grid);
   initClienteSortable(grid);
+}
+
+// Franja "⭐ Favoritos" (Prompt B) — se oculta por completo (no deja hueco
+// vacío) si el usuario no tiene ningún cliente marcado.
+function renderFavoritosSection() {
+  const section = $('#favoritosSection');
+  const grid = $('#favoritosGrid');
+  if (!section || !grid) return;
+  // En el orden elegido por drag (state.favoritosOrden), NO en el orden de
+  // state.clientes (prompt-dashboard-favoritos-layout.md) — un cliente
+  // puede estar en cualquier posición de la cuadrícula general y aun así
+  // tener un lugar distinto dentro de Favoritos.
+  const favClientes = state.favoritosOrden
+    .map((id) => state.clientes.find((c) => c.id === id))
+    .filter(Boolean);
+  if (!favClientes.length) { section.classList.add('hidden-initial'); grid.innerHTML = ''; return; }
+  section.classList.remove('hidden-initial');
+  grid.innerHTML = favClientes.map((c) => clienteCardHtml(c)).join('');
+  wireClienteCards(grid);
+  initFavoritosSortable(grid);
+}
+
+// Drag-to-reorder de Favoritos (prompt-dashboard-favoritos-layout.md) —
+// mismo mecanismo que initClienteSortable() (SortableJS, long-press en
+// touch), simplificado: a diferencia de #clienteGrid, aquí todas las
+// tarjetas son clientes reales (sin "+ Nuevo cliente"/"Sin cliente
+// asignado" que excluir del arrastre).
+function initFavoritosSortable(grid) {
+  // Igual que initClienteSortable(): #favoritosGrid es un nodo persistente
+  // (solo su innerHTML cambia en cada render) — Sortable ya sigue operando
+  // sobre los hijos actuales sin reinicializarse, así que basta con
+  // engancharlo una sola vez.
+  if (grid._favoritosSortable) return;
+  grid._favoritosSortable = new Sortable(grid, {
+    animation: 150,
+    delay: 300,
+    delayOnTouchOnly: true,
+    touchStartThreshold: 5,
+    filter: '[data-cliente-menu-btn], .cliente-menu-dropdown',
+    preventOnFilter: false,
+    onEnd: async () => {
+      const orden = $$('.cliente-card', grid).map((el) => Number(el.dataset.cliente));
+      state.favoritosOrden = orden;
+      try {
+        await api('/favoritos/orden', { method: 'PUT', body: { orden } });
+      } catch (err) {
+        toast(err.message, 'danger');
+      }
+    },
+  });
+}
+
+async function toggleFavorito(clienteId) {
+  const isFav = state.favoritos.has(clienteId);
+  try {
+    if (isFav) {
+      await api(`/favoritos/${clienteId}`, { method: 'DELETE' });
+      state.favoritos.delete(clienteId);
+      state.favoritosOrden = state.favoritosOrden.filter((id) => id !== clienteId);
+    } else {
+      await api(`/favoritos/${clienteId}`, { method: 'POST' });
+      state.favoritos.add(clienteId);
+      state.favoritosOrden = [...state.favoritosOrden, clienteId]; // se agrega al final, igual que el backend
+    }
+    renderFavoritosSection();
+    renderClientGallery();
+  } catch (err) {
+    toast(err.message, 'danger');
+  }
+}
+
+// Panel "Actividad reciente" de la galería (Prompt B) — 2 fuentes ya
+// existentes, sin tracking nuevo: ultima_visita (histórico real de
+// proyectos abiertos) y state.notificaciones (mismo feed que la campana del
+// topbar, ya fresco por startNotifPolling() desde el login). Solo visible
+// en desktop (CSS), pero se pinta siempre — más barato que detectar el
+// breakpoint en JS y no falla si la ventana se agranda después.
+async function renderGaleriaActividad() {
+  const recientesEl = $('#galeriaRecientesList');
+  const alertasEl = $('#galeriaAlertasList');
+  if (!recientesEl || !alertasEl) return;
+
+  try {
+    const recientes = await api('/ultima-visita/recientes');
+    if (!recientes.length) {
+      recientesEl.innerHTML = '<div class="galeria-actividad-empty">Aún no has abierto ningún presupuesto.</div>';
+    } else {
+      // Cliente arriba (eyebrow) + obra en negrita abajo — mismo tratamiento
+      // que "Mayor avance" (prompt-dashboard-favoritos-layout.md), y barra
+      // de progreso compacta con el mismo dato ya usado en /bienvenida y
+      // /resumen-global (avance_ejecutado_pct), no un cálculo nuevo.
+      recientesEl.innerHTML = recientes.map((r) => {
+        const pct = Math.min(100, Math.max(0, Number(r.avance_ejecutado_pct) || 0));
+        return `
+        <div class="galeria-reciente-item" data-pid="${r.proyecto_id}" data-cid="${r.cliente_id}">
+          <div class="gr-cliente">${esc(r.cliente_nombre)}</div>
+          <div class="gr-proyecto">${esc(r.proyecto_nombre)}</div>
+          <div class="gr-progress-bar"><div class="gr-progress-fill" data-pct="${pct}"></div></div>
+          <div class="gr-meta-row">
+            <span class="gr-time">${timeAgo(r.actualizado_en)}</span>
+            <span class="gr-pct">${pct.toFixed(1)}%</span>
+          </div>
+        </div>`;
+      }).join('');
+      // Width por JS (CSP bloquea estilos inline con %) — mismo patrón que
+      // .wpc-progress-fill en renderBienvenidaSummary.
+      $$('.gr-progress-fill', recientesEl).forEach((fill) => { fill.style.width = fill.dataset.pct + '%'; });
+      $$('.galeria-reciente-item', recientesEl).forEach((el) => {
+        el.addEventListener('click', () => {
+          state.clienteId = Number(el.dataset.cid);
+          showApp();
+          selectProject(Number(el.dataset.pid));
+        });
+      });
+    }
+  } catch (err) {
+    recientesEl.innerHTML = '<div class="galeria-actividad-empty">No se pudo cargar.</div>';
+  }
+
+  if (!state.notificaciones.length) {
+    alertasEl.innerHTML = '<div class="galeria-actividad-empty">Sin alertas.</div>';
+  } else {
+    renderNotifList(alertasEl, 5);
+  }
 }
 
 function closeAllClienteMenus() {
@@ -2168,7 +2515,10 @@ async function renderGlobalChart() {
       datasets: [{
         data: [data.importe_ejecutado, data.importe_por_ejecutar],
         backgroundColor: ['#22c55e', cc.grid],
-        borderColor: getEffectiveTheme() === 'light' ? '#f1f5f9' : '#1e293b',
+        // Este donut vive directo sobre el fondo de página (.global-chart-section
+        // no tiene su propio background), no dentro de una .card — el borde de
+        // cada segmento debe fundirse con --bg-primary, no con --bg-surface.
+        borderColor: cc.primary,
         borderWidth: 3,
       }],
     },
@@ -2182,6 +2532,44 @@ async function renderGlobalChart() {
       },
     },
   });
+  state.charts.globalPie._cpBorderSurface = 'primary';
+  state.charts.globalPie._cpGridBgIndexes = [1]; // 'Por ejecutar' (índice 1 en backgroundColor)
+}
+
+// Dashboard "Avance por cliente" (prompt-dashboard-favoritos-layout.md,
+// Fase 4) — agregado POR CLIENTE (no confundir con "Mayor avance", que es
+// por obra individual, ni con "Resumen Global", que es el promedio de
+// TODAS las obras junto). GET /avance-por-cliente ya devuelve los top 4
+// con la misma fórmula de ponderación que Resumen Global — aquí solo se
+// pinta, sin recalcular nada. Mismo gate que Resumen Global (isAdmin()):
+// vive al lado de él en .dashboards-row, tiene sentido que comparta
+// visibilidad.
+async function renderAvancePorCliente() {
+  const el = $('#avancePorClienteSection');
+  if (!el) return;
+  if (!isAdmin()) { el.innerHTML = ''; return; }
+
+  const data = await api('/avance-por-cliente').catch(() => []);
+  if (!data.length) { el.innerHTML = ''; return; }
+
+  el.innerHTML = `
+    <div class="apc-section">
+      <div class="bienvenida-summary-title">Avance por cliente</div>
+      <div class="apc-list">
+        ${data.map((c) => {
+          const pct = Math.min(100, Math.max(0, Number(c.avance_ponderado_pct) || 0));
+          return `
+          <div class="apc-item">
+            <div class="apc-row-top">
+              <span class="apc-nombre">${esc(c.cliente_nombre)}</span>
+              <span class="apc-pct">${pct.toFixed(1)}%</span>
+            </div>
+            <div class="apc-bar"><div class="apc-fill" data-pct="${pct}"></div></div>
+          </div>`;
+        }).join('')}
+      </div>
+    </div>`;
+  $$('.apc-fill', el).forEach((fill) => { fill.style.width = fill.dataset.pct + '%'; });
 }
 
 async function selectCliente(id) {
@@ -2672,8 +3060,13 @@ async function renderInicio(view) {
             Math.max(0, resumen.importe_programado - resumen.importe_ejecutado),
             Math.max(0, resumen.presupuesto_total - Math.max(resumen.importe_programado, resumen.importe_ejecutado)),
           ],
-          backgroundColor: ['#22c55e', '#eab308', '#334155'],
-          borderColor: '#1e293b',
+          // 3er segmento ("Resto por ejecutar"): antes '#334155' fijo — ahora
+          // cc.grid (--border-color), se funde como "vacío" en cualquier paleta.
+          backgroundColor: ['#22c55e', '#eab308', cc.grid],
+          // Este donut sí vive dentro de una .card — el borde de cada segmento
+          // debe fundirse con --bg-surface (fondo real de la tarjeta), no un
+          // hex fijo que solo coincidía con Dorada dark por casualidad.
+          borderColor: cc.surface,
           borderWidth: 2,
         }],
       },
@@ -2686,6 +3079,8 @@ async function renderInicio(view) {
         },
       },
     });
+    state.charts.resumenDona._cpBorderSurface = 'surface';
+    state.charts.resumenDona._cpGridBgIndexes = [2]; // 'Resto por ejecutar' (índice 2 en backgroundColor)
     $('#btnEditFechasObra').addEventListener('click', () => openEditFechasObraModal(m));
     $('#btnActualizarFinObra')?.addEventListener('click', () => openQuickFinObraModal(m));
   }
@@ -4922,6 +5317,12 @@ function paintDestajoSemanaChart(destId, semanas) {
   const ctx = canvas.getContext('2d');
   const key = `destajo_${destId}`;
   if (state.charts[key]) state.charts[key].destroy();
+  // FIX (prompt-fix-chart-y-2-paletas-nuevas.md): tick/grid antes hardcodeados
+  // a los valores de Dorada dark ('#94a3b8'/'#334155') sin pasar por
+  // chartColors() — este era el único de los 5 charts que ni siquiera lo
+  // llamaba. borderColor del line ('#22c55e') es semántico (verde = avance),
+  // no cambia entre paletas, igual que en el resto de la app.
+  const cc = chartColors();
   state.charts[key] = new Chart(ctx, {
     type: 'line',
     data: {
@@ -4936,8 +5337,8 @@ function paintDestajoSemanaChart(destId, semanas) {
       responsive: true, maintainAspectRatio: false,
       animation: animationForChart(key),
       scales: {
-        x: { ticks: { color: '#94a3b8', maxRotation: 0, autoSkip: true, font: { size: 10 } }, grid: { color: '#334155' } },
-        y: { min: 0, max: 100, ticks: { color: '#94a3b8', callback: (v) => `${v}%` }, grid: { color: '#334155' } },
+        x: { ticks: { color: cc.tick, maxRotation: 0, autoSkip: true, font: { size: 10 } }, grid: { color: cc.grid } },
+        y: { min: 0, max: 100, ticks: { color: cc.tick, callback: (v) => `${v}%` }, grid: { color: cc.grid } },
       },
       plugins: { legend: { display: false } },
     },

@@ -52,11 +52,53 @@
       <div id="galleryGreeting" class="gallery-greeting"></div>
     </div>
     <div class="gallery-body">
-      <h1>Selecciona un cliente</h1>
-      <p class="muted">Elige el cliente para ver sus presupuestos.</p>
-      <div id="clienteGrid" class="cliente-grid"></div>
-      <div id="globalChartSection"></div>
-      <div id="bienvenidaSummary"></div>
+      <div class="gallery-body-layout">
+        <div class="gallery-body-main">
+          <!-- Favoritos (Prompt B, prompts-animaciones-y-galeria-clientes.md)
+               — oculto por defecto (hidden-initial), se muestra solo si el
+               usuario tiene al menos un favorito, ver renderFavoritosSection(). -->
+          <div id="favoritosSection" class="favoritos-section hidden-initial">
+            <h2 class="gallery-subtitle">⭐ Favoritos</h2>
+            <div id="favoritosGrid" class="cliente-grid cliente-grid-carousel"></div>
+          </div>
+
+          <div class="gallery-clientes-header">
+            <div>
+              <h1>Selecciona un cliente</h1>
+              <p class="muted">Elige el cliente para ver sus presupuestos.</p>
+            </div>
+            <div class="icon-size-control" role="group" aria-label="Tamaño de tarjetas">
+              <button type="button" class="icon-size-btn" id="btnIconSizeDown" aria-label="Tarjetas más pequeñas" title="Tarjetas más pequeñas">−</button>
+              <button type="button" class="icon-size-btn" id="btnIconSizeUp" aria-label="Tarjetas más grandes" title="Tarjetas más grandes">+</button>
+            </div>
+          </div>
+          <div id="clienteGrid" class="cliente-grid cliente-grid-carousel"></div>
+          <!-- Resumen Global + Avance por cliente (prompt-dashboard-
+               favoritos-layout.md) lado a lado en desktop ancho, apilados
+               en el resto — ver .dashboards-row en styles.css. -->
+          <div class="dashboards-row">
+            <div id="globalChartSection" class="dashboard-col"></div>
+            <div id="avancePorClienteSection" class="dashboard-col"></div>
+          </div>
+          <div id="bienvenidaSummary"></div>
+        </div>
+
+        <!-- Actividad reciente — solo desktop (oculto vía CSS en mobile).
+             Reutiliza 2 fuentes de datos YA existentes: ultima_visita
+             (histórico de proyectos abiertos, ya se escribía en cada
+             selectProject) y /api/notificaciones (mismo feed de la campana
+             del topbar, vía renderNotifList() reusada tal cual). -->
+        <aside id="galeriaActividadPanel" class="galeria-actividad-panel">
+          <div class="galeria-actividad-section">
+            <h4>Últimos presupuestos</h4>
+            <div id="galeriaRecientesList" class="galeria-actividad-list"></div>
+          </div>
+          <div class="galeria-actividad-section">
+            <h4>Alertas recientes</h4>
+            <div id="galeriaAlertasList" class="notif-list galeria-actividad-list"></div>
+          </div>
+        </aside>
+      </div>
     </div>
 
     <!-- Drawer de ajustes de la galería — independiente del #sidebar real
@@ -75,6 +117,30 @@
         <button class="theme-opt" data-theme-set="light"><span id="galleryThemeIconLight"></span>Claro</button>
         <button class="theme-opt" data-theme-set="dark"><span id="galleryThemeIconDark"></span>Oscuro</button>
         <button class="theme-opt" data-theme-set="system"><span id="galleryThemeIconSystem"></span>Sistema</button>
+      </div>
+      <!-- Paleta de colores (prompt-selector-paleta-colores.md) — mismo
+           mecanismo que el tema (atributo en <html>, persistido en
+           localStorage), aplicando dentro del modo claro/oscuro elegido
+           arriba. Wiring global de [data-palette-set] al fondo de app.js
+           (mismo patrón que [data-theme-set]). -->
+      <label class="ajustes-tema-label">Apariencia</label>
+      <div class="palette-selector">
+        <button class="palette-opt" data-palette-set="dorada">
+          <span class="palette-swatch palette-swatch-dorada"><span></span><span></span><span></span></span>
+          Tema GRUPO ROFORB
+        </button>
+        <button class="palette-opt" data-palette-set="morada">
+          <span class="palette-swatch palette-swatch-morada"><span></span><span></span><span></span></span>
+          Tema NYRA
+        </button>
+        <button class="palette-opt" data-palette-set="verde">
+          <span class="palette-swatch palette-swatch-verde"><span></span><span></span><span></span></span>
+          Tema JADE
+        </button>
+        <button class="palette-opt" data-palette-set="naranja">
+          <span class="palette-swatch palette-swatch-naranja"><span></span><span></span><span></span></span>
+          Tema TERRA
+        </button>
       </div>
       <!-- Accesos globales de administración — mismas vistas del sidebar real
            (#app), solo un punto de entrada adicional para no obligar a elegir
@@ -160,6 +226,25 @@
         <button class="theme-opt" data-theme-set="light"><span id="themeIconLight"></span>Claro</button>
         <button class="theme-opt" data-theme-set="dark"><span id="themeIconDark"></span>Oscuro</button>
         <button class="theme-opt" data-theme-set="system"><span id="themeIconSystem"></span>Sistema</button>
+      </div>
+      <label class="ajustes-tema-label">Apariencia</label>
+      <div class="palette-selector">
+        <button class="palette-opt" data-palette-set="dorada">
+          <span class="palette-swatch palette-swatch-dorada"><span></span><span></span><span></span></span>
+          Tema GRUPO ROFORB
+        </button>
+        <button class="palette-opt" data-palette-set="morada">
+          <span class="palette-swatch palette-swatch-morada"><span></span><span></span><span></span></span>
+          Tema NYRA
+        </button>
+        <button class="palette-opt" data-palette-set="verde">
+          <span class="palette-swatch palette-swatch-verde"><span></span><span></span><span></span></span>
+          Tema JADE
+        </button>
+        <button class="palette-opt" data-palette-set="naranja">
+          <span class="palette-swatch palette-swatch-naranja"><span></span><span></span><span></span></span>
+          Tema TERRA
+        </button>
       </div>
       <button id="btnInstallAppPopover" class="btn full">📲 Instalar app</button>
       <button id="btnMiCuentaPopover" class="btn full">Mi cuenta</button>

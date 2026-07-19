@@ -57,6 +57,95 @@
   --accent-silver: #71798A;
 }
 
+/* Paleta Morada (prompt-selector-paleta-colores.md) — inspirada en la
+   landing MARGEN (React, proyecto independiente; solo se tomó de ahí la
+   referencia de color, cero código compartido). Mismos tokens que la
+   paleta Dorada de arriba, mismo patrón tonal (bg-primary → bg-surface →
+   bg-surface-2 → border-color subiendo en luminosidad; accent-gold-hover
+   más claro que accent-gold en dark, más oscuro en light — igual relación
+   que ya tenía Dorada) — así ningún selector de estilos existente necesita
+   tocarse: basta con que [data-palette="morada"] gane la cascada.
+   Especificidad: [data-palette="morada"] (0,1,0) cae DESPUÉS de
+   [data-theme="light"] en el archivo, así que para data-theme=dark gana
+   este bloque; para data-theme=light hace falta el combinado de abajo,
+   con mayor especificidad (0,2,0), que sí gana sobre ambos anteriores. */
+[data-palette="morada"] {
+  --bg-primary: #030014;
+  --bg-surface: #0D0620;
+  --bg-surface-2: #1B0F35;
+  --border-color: #2E1F4D;
+  --text-primary: #EDE9F7;
+  --text-secondary: #A99BC4;
+  --accent-gold: #A855F7;
+  --accent-gold-hover: #C084FC;
+  --accent-silver: #8B7BA8;
+}
+[data-palette="morada"][data-theme="light"] {
+  --bg-primary: #F3EFFA;
+  --bg-surface: #FAF8FE;
+  --bg-surface-2: #EDE7F6;
+  --border-color: #DAD0EC;
+  --text-primary: #241B3D;
+  --text-secondary: #6B5F8A;
+  --accent-gold: #8B5CF6;
+  --accent-gold-hover: #7C3AED;
+  --accent-silver: #6D5A8C;
+}
+
+/* Paleta Verde ("Tema JADE", prompt-fix-chart-y-2-paletas-nuevas.md) — mismo
+   patrón tonal y misma lógica de especificidad que Morada arriba. Verde
+   fresco/jade, no estridente (emerald-400/600 de Tailwind como referencia
+   de tono, no un verde saturado tipo semáforo). */
+[data-palette="verde"] {
+  --bg-primary: #051512;
+  --bg-surface: #0A211C;
+  --bg-surface-2: #123830;
+  --border-color: #1D4F44;
+  --text-primary: #E8F5F0;
+  --text-secondary: #8FB5A8;
+  --accent-gold: #34D399;
+  --accent-gold-hover: #6EE7B7;
+  --accent-silver: #6B9C8A;
+}
+[data-palette="verde"][data-theme="light"] {
+  --bg-primary: #EFF7F3;
+  --bg-surface: #F8FCFA;
+  --bg-surface-2: #E4F0EA;
+  --border-color: #CFE4D9;
+  --text-primary: #16332A;
+  --text-secondary: #4F7566;
+  --accent-gold: #059669;
+  --accent-gold-hover: #047857;
+  --accent-silver: #5C8A79;
+}
+
+/* Paleta Naranja ("Tema TERRA", prompt-fix-chart-y-2-paletas-nuevas.md) —
+   mismo patrón, tono naranja cálido/tierra. Contraste de texto cuidado en
+   ambos modos (texto café oscuro sobre crema en light, no naranja sobre
+   naranja). */
+[data-palette="naranja"] {
+  --bg-primary: #180D03;
+  --bg-surface: #241407;
+  --bg-surface-2: #3A200D;
+  --border-color: #55321A;
+  --text-primary: #FBF0E4;
+  --text-secondary: #C4A488;
+  --accent-gold: #F97316;
+  --accent-gold-hover: #FB923C;
+  --accent-silver: #B08968;
+}
+[data-palette="naranja"][data-theme="light"] {
+  --bg-primary: #FBF1E7;
+  --bg-surface: #FFF9F2;
+  --bg-surface-2: #F5E6D3;
+  --border-color: #E8CFAE;
+  --text-primary: #3D2410;
+  --text-secondary: #8A6644;
+  --accent-gold: #C2410C;
+  --accent-gold-hover: #9A3412;
+  --accent-silver: #A17A54;
+}
+
 * { box-sizing: border-box; }
 html, body { height: 100%; }
 body {
@@ -69,7 +158,14 @@ body {
      (overflow-x:hidden eleva implícitamente overflow-y a auto, creando un
      doble scroll cuando hay elementos fixed con overflow-y:auto propios) */
   overflow-x: clip;
+  /* Cambio de modo/paleta (prompt-selector-paleta-colores.md): mismo timing
+     (0.15s) que ya usan decenas de componentes individuales (botones,
+     inputs, .theme-opt, etc.) al recolorearse — sin esto, esas superficies
+     grandes cambiaban de golpe mientras los componentes chicos sí
+     transicionaban, una mezcla inconsistente. */
+  transition: background 0.15s, color 0.15s;
 }
+#app, .main-area { transition: background 0.15s, color 0.15s; }
 
 /* Los controles de formulario NO heredan el font-family de body por default
    del navegador (usan la fuente del sistema/UI) — hay que forzarlo. Cubre
@@ -329,6 +425,26 @@ h3.section-title { margin: 18px 0 10px; font-size: 0.95rem; color: var(--text-se
 }
 .btn:active { transform: scale(0.98); }
 .btn-primary { background: var(--accent-gold); border-color: var(--accent-gold); color: #04212f; font-weight: 700; }
+
+/* Glow + micro-interacción de CTAs primarios (prompt-animaciones-y-galeria-
+   clientes.md, Prompt A) — .btn-primary/.icon-btn-accent/.fab son los 3
+   patrones ya usados app-wide para "acción destacada" (todos ya leían
+   var(--accent-gold) para su fondo); esta regla es la única definición del
+   efecto — las 4 paletas lo heredan solas vía la misma variable, sin tocar
+   esto por paleta. Solo box-shadow/transform/color (nunca width/height) para
+   no disparar layout/paint costoso. El scale-down en :active de .btn/
+   .icon-btn/.fab ya existía — aquí solo se le agrega transition (antes era
+   instantáneo) y se le suma box-shadow, que sí es nuevo para .btn-primary/
+   .icon-btn-accent (.fab ya traía su propio glow permanente). */
+.btn-primary, .icon-btn-accent, .fab {
+  box-shadow: 0 0 14px color-mix(in srgb, var(--accent-gold) 20%, transparent);
+  transition: box-shadow 0.15s var(--ease-out), transform 0.1s var(--ease-out),
+    background 0.15s, border-color 0.15s, color 0.15s;
+}
+.btn-primary:focus-visible, .icon-btn-accent:focus-visible, .fab:focus-visible {
+  box-shadow: 0 0 22px color-mix(in srgb, var(--accent-gold) 42%, transparent);
+  outline: none;
+}
 .btn-danger { background: var(--red); border-color: var(--red); color: #fff; }
 .btn-ghost { background: transparent; }
 .btn.full { width: 100%; }
@@ -515,6 +631,29 @@ body.modal-open { overflow: hidden; }
 /* En móvil el toast debe quedar por encima de la barra de navegación inferior */
 @media (max-width: 860px) {
   .toast { bottom: calc(var(--mobile-nav-h) + var(--mobile-nav-clear) + 20px); }
+
+  /* Carrusel de clientes (Prompt B.5, prompts-animaciones-y-galeria-
+     clientes.md) — en mobile la cuadrícula fija se vuelve una fila
+     deslizable con scroll-snap nativo (sin librería): cada tarjeta ocupa
+     ~74vw (se ve "un poco más" de la siguiente, invitando a deslizar) y
+     encaja al soltar. Aplica igual a #clienteGrid y #favoritosGrid (ambos
+     llevan la clase .cliente-grid-carousel).
+     Selector compuesto .cliente-grid.cliente-grid-carousel (no solo
+     .cliente-grid-carousel) a propósito: la regla base .cliente-grid{
+     display:grid } vive MÁS ABAJO en el archivo — con la misma
+     especificidad (0,1,0) que tendría .cliente-grid-carousel sola, esa
+     regla base (por ir después) ganaría y el carrusel nunca se activaría
+     pese a estar dentro del media query correcto. El selector compuesto
+     sube a (0,2,0), gana sin importar el orden. */
+  .cliente-grid.cliente-grid-carousel {
+    display: flex; flex-wrap: nowrap; overflow-x: auto; scroll-snap-type: x mandatory;
+    -webkit-overflow-scrolling: touch; overscroll-behavior-x: contain;
+    padding-bottom: 4px; margin-left: -4px; margin-right: -4px; padding-left: 4px; padding-right: 4px;
+    scrollbar-width: none;
+  }
+  .cliente-grid.cliente-grid-carousel::-webkit-scrollbar { display: none; }
+  .cliente-grid.cliente-grid-carousel > * { flex: 0 0 auto; width: min(74vw, 240px); scroll-snap-align: start; }
+  .favoritos-section .cliente-grid.cliente-grid-carousel > * { width: min(58vw, 190px); }
 }
 
 .spinner {
@@ -791,23 +930,133 @@ body.modal-open { overflow: hidden; }
 .gallery-greeting .muted { font-size: 0.92rem; margin: 0; color: color-mix(in srgb, #04212f 65%, transparent); }
 
 /* Contenido debajo del header: sin la tarjeta/borde de antes, scrollea junto
-   con la pantalla completa (.gallery-screen ya es el scroll container). */
+   con la pantalla completa (.gallery-screen ya es el scroll container).
+   max-width sube de 1040px a 1320px (prompt-dashboard-favoritos-layout.md,
+   Fase 3 — capturas de Paul mostraban espacio lateral vacío en desktop
+   ancho; el layout de 1040px ya se sentía cómodo pero dejaba mucho margen
+   sin usar en monitores de escritorio típicos). Solo afecta desktop: en
+   mobile .gallery-body-layout ya cae a una sola columna angosta por su
+   cuenta (el ancho de pantalla real manda, no este max-width). */
 .gallery-body {
-  flex: 1; width: 100%; max-width: 760px; margin: 0 auto;
+  flex: 1; width: 100%; max-width: 1320px; margin: 0 auto;
   padding: 22px 20px calc(20px + env(safe-area-inset-bottom, 0px));
 }
 .gallery-body h1 { font-size: 1.2rem; margin: 4px 0; }
 
+/* Layout de 2 columnas (Prompt B, ancho ajustado en Fase 3 de prompt-
+   dashboard-favoritos-layout.md): .gallery-body-main sube de 760px a 900px
+   — la cuadrícula de clientes gana una columna más en pantallas anchas en
+   vez de dejar el espacio vacío, y le da lugar cómodo al nuevo dashboard
+   "Avance por cliente" (ver .dashboards-row) junto a Resumen Global. El
+   panel de Actividad reciente sube de 260px a 280px, mismo criterio. En
+   mobile es una sola columna (el panel se oculta, ver .galeria-actividad-
+   panel más abajo). */
+.gallery-body-layout { display: flex; gap: 28px; align-items: flex-start; }
+.gallery-body-main { flex: 1; min-width: 0; max-width: 900px; }
+
+/* Resumen Global + Avance por cliente lado a lado quien apilados (Fase 4 de
+   prompt-dashboard-favoritos-layout.md) — columna en <1100px (se sentirían
+   apretados en flex-row a ese ancho, aunque ya haya espacio vertical de
+   sobra en .gallery-body-main), fila en >=1100px, breakpoint propio (no el
+   genérico de 861px) porque estos dos paneles son más anchos que un simple
+   componente móvil/desktop. */
+.dashboards-row { display: flex; flex-direction: column; gap: 16px; }
+.dashboards-row > .dashboard-col { flex: 1; min-width: 0; }
+.dashboards-row > .dashboard-col:empty { display: none; } /* Avance por cliente se oculta si no hay datos (ver renderAvancePorCliente) */
+@media (min-width: 1100px) {
+  .dashboards-row { flex-direction: row; align-items: stretch; }
+}
+
+.gallery-clientes-header { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; flex-wrap: wrap; }
+.gallery-subtitle { font-size: 1rem; margin: 0 0 10px; }
+
+/* Favoritos: mismo grid que clientes, tarjetas un poco más compactas (ver
+   --cliente-card-min más abajo, Prompt B.3) y sin margin-top propio porque
+   .favoritos-section ya trae su separación. */
+.favoritos-section { margin-bottom: 22px; }
+.favoritos-section .cliente-grid { margin-top: 0; }
+.favoritos-section .cliente-card { padding: 14px 10px; }
+.favoritos-section .cliente-icon { font-size: 1.4rem; }
+
+/* Control de tamaño de tarjetas (Prompt B.3) — botones +/- simples en vez de
+   slider: menos superficie de UI para un ajuste de 3-4 pasos, mismo patrón
+   visual que .icon-btn (tamaño/radio) pero más chico. */
+.icon-size-control { display: flex; gap: 6px; }
+.icon-size-btn {
+  width: 30px; height: 30px; border-radius: 8px; border: 1px solid var(--border-color);
+  background: var(--bg-surface-2); color: var(--text-secondary); font-size: 1.05rem; font-weight: 700;
+  cursor: pointer; display: flex; align-items: center; justify-content: center;
+}
+.icon-size-btn:active { transform: scale(0.94); }
+
 /* Grid de clientes: minmax + auto-fit (no auto-fill) para que, con pocos
    clientes, las tarjetas existentes llenen el ancho en vez de dejar
-   columnas vacías. 130px da 2 columnas en un móvil estándar (~360-390px de
-   ancho útil) y sube a 3 en pantallas más anchas (phablet/tablet/landscape),
-   sin depender de un breakpoint fijo ni del número de clientes. */
-.cliente-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 12px; margin-top: 14px; }
+   columnas vacías. var(--cliente-card-min, 130px) — el FALLBACK de var()
+   (no una declaración local de la propiedad) a propósito: applyIconSize()
+   en app.js setea --cliente-card-min en :root; si esta regla también la
+   declarara aquí, esa declaración local ganaría siempre sobre la heredada
+   de :root y el control +/- no tendría efecto. 130px da 2 columnas en un
+   móvil estándar (~360-390px de ancho útil) y sube a 3 en pantallas más
+   anchas (phablet/tablet/landscape), sin depender de un breakpoint fijo. */
+.cliente-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(var(--cliente-card-min, 130px), 1fr));
+  gap: 12px; margin-top: 14px;
+}
+
+/* Panel "Actividad reciente" — solo desktop (>=861px, mismo breakpoint que
+   el sidebar fijo de #app). En mobile no hay espacio libre que aprovechar
+   (la cuadrícula ya usa todo el ancho), así que se oculta por completo en
+   vez de apilarlo debajo — ver @media (min-width: 861px) más abajo. */
+.galeria-actividad-panel { display: none; flex-direction: column; gap: 20px; width: 280px; flex-shrink: 0; padding-top: 4px; }
+.galeria-actividad-section h4 {
+  font-size: 0.76rem; text-transform: uppercase; letter-spacing: 0.05em;
+  color: var(--text-secondary); margin: 0 0 10px; font-weight: 700;
+}
+.galeria-actividad-list { display: flex; flex-direction: column; gap: 8px; }
+.galeria-actividad-empty { color: var(--text-secondary); font-size: 0.8rem; }
+.galeria-reciente-item {
+  padding: 10px 12px; border-radius: 10px; background: var(--bg-surface-2);
+  border: 1px solid var(--border-color); cursor: pointer; transition: border-color 0.15s;
+}
+/* Cliente arriba en formato "eyebrow" (etiqueta chica en mayúsculas) y el
+   nombre de la obra abajo en negrita — mismo tratamiento que ya usa
+   .wpc-client/.wpc-nombre en "Mayor avance" (prompt-dashboard-favoritos-
+   layout.md: "considerar mismo tratamiento visual que MAYOR AVANCE"),
+   clases propias en vez de reusar .wpc-* tal cual porque este panel es
+   mucho más angosto (260px) y esas clases traen spacing pensado para las
+   tarjetas grandes de Mayor avance. */
+.galeria-reciente-item .gr-cliente {
+  font-size: 0.68rem; color: var(--text-secondary); text-transform: uppercase;
+  letter-spacing: 0.04em; font-weight: 700; margin-bottom: 2px;
+}
+.galeria-reciente-item .gr-proyecto { font-weight: 600; font-size: 0.85rem; line-height: 1.25; margin-bottom: 6px; }
+/* Barra de progreso compacta — mismo componente visual que .wpc-progress-
+   bar/.wpc-progress-fill (Mayor avance), a menor escala. */
+.galeria-reciente-item .gr-progress-bar { background: var(--border-color); border-radius: 4px; height: 5px; margin-bottom: 5px; overflow: hidden; }
+.galeria-reciente-item .gr-progress-fill { height: 100%; background: var(--accent-gold); border-radius: 4px; transition: width 0.6s ease; }
+.galeria-reciente-item .gr-meta-row { display: flex; justify-content: space-between; align-items: baseline; }
+.galeria-reciente-item .gr-time { color: var(--text-secondary); font-size: 0.68rem; }
+.galeria-reciente-item .gr-pct { color: var(--accent-gold); font-size: 0.72rem; font-weight: 700; }
+/* Reusa .notif-list/.notif-item (mismo feed de la campana del topbar) — solo
+   se le quita el max-height propio del dropdown, aquí no hace falta. */
+#galeriaAlertasList.notif-list { max-height: none; }
+#galeriaAlertasList .notif-item { border-radius: 10px; border: 1px solid var(--border-color); border-bottom: 1px solid var(--border-color); margin-bottom: 8px; }
+#galeriaAlertasList .notif-item:last-child { margin-bottom: 0; }
+
+@media (min-width: 861px) {
+  .galeria-actividad-panel { display: flex; }
+}
+/* Fondo simple (Prompt B, prompts-animaciones-y-galeria-clientes.md) — antes
+   usaba el acento del tema (color-mix con --accent-gold) como resaltado
+   dominante de CADA tarjeta; con 4 paletas ya no se leía como "marca de la
+   app" sino como ruido repetido en toda la cuadrícula. Ahora mismo fondo/
+   borde neutro que ya usaba "+ Nuevo cliente" — el ícono/nombre/contador ya
+   diferencian sobradamente una tarjeta de cliente real del botón de agregar,
+   el acento queda solo para el hover (ver @media hover más abajo). */
 .cliente-card {
   position: relative;
-  background: color-mix(in srgb, var(--accent-gold) 14%, var(--bg-surface-2));
-  border: 1px solid var(--accent-gold); border-radius: var(--radius);
+  background: var(--bg-surface-2);
+  border: 1px solid var(--border-color); border-radius: var(--radius);
   padding: 20px 12px; text-align: center; cursor: pointer;
   display: flex; flex-direction: column; gap: 8px; align-items: center;
   transition: border-color 0.2s, box-shadow 0.2s, transform 0.1s;
@@ -816,6 +1065,18 @@ body.modal-open { overflow: hidden; }
 .cliente-card .cliente-icon { font-size: 1.8rem; }
 .cliente-card .cliente-nombre { font-weight: 700; font-size: 0.98rem; text-transform: uppercase; }
 .cliente-card .cliente-count { color: var(--text-secondary); font-size: 0.76rem; }
+/* Favorito (Prompt B, prompts-animaciones-y-galeria-clientes.md) — esquina
+   superior IZQUIERDA (el menú de 3 puntos ya ocupa la derecha), visible para
+   cualquier usuario (no solo admin: es una preferencia personal, no una
+   acción de gestión). ⭐/☆ en vez de un ícono SVG — ya es universalmente
+   reconocible como favorito y no requiere tocar ICON_SVG. */
+.cliente-fav-btn {
+  position: absolute; top: 6px; left: 6px; width: 26px; height: 26px;
+  border: none; border-radius: 50%; background: transparent; color: var(--text-secondary);
+  font-size: 1rem; line-height: 1; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+}
+.cliente-fav-btn.active { color: var(--accent-gold); }
 /* Menú de 3 puntos (solo admin/desarrollador) — esquina superior derecha,
    fuera del flujo flex de la tarjeta para no desalinear icono/nombre/count. */
 .cliente-menu-btn {
@@ -841,13 +1102,12 @@ body.modal-open { overflow: hidden; }
    default del navegador, consistente con el resto de la app. */
 .cliente-card.sortable-ghost { opacity: 0.4; }
 .cliente-card.sortable-drag { box-shadow: 0 12px 30px rgba(0,0,0,0.4); cursor: grabbing; }
-/* No hereda el fondo/borde dorado de .cliente-card base — sigue siendo un
-   caso especial (solo admin, obras sin cliente asignado), no una tarjeta
-   de cliente real ni el botón "+ Nuevo cliente". */
+/* Caso especial (solo admin, obras sin cliente asignado) — mismo fondo base
+   que .cliente-card, se distingue con el borde punteado amarillo. */
 .cliente-card-orphan { background: var(--bg-surface-2); border-style: dashed; border-color: var(--yellow); }
-/* "+ Nuevo cliente": estilo blanco/neutro simple (el que antes tenían las
-   tarjetas de cliente reales) — el fondo/borde dorado ahora distingue a
-   las tarjetas de cliente reales, más llamativas que el botón de agregar. */
+/* "+ Nuevo cliente": mismo fondo/borde neutro que .cliente-card ahora
+   (ver comentario de .cliente-card arriba) — se distingue por su contenido
+   (ícono ➕ centrado, sin nombre/contador), no por el color. */
 .cliente-card-new {
   background: var(--bg-surface-2);
   border: 1px solid var(--border-color);
@@ -913,7 +1173,11 @@ body.modal-open { overflow: hidden; }
 }
 
 /* ── Gráfica global (admin/desarrollador) ─────────────────────────────────── */
-.global-chart-section { margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--border-color); }
+/* El margen/borde superior vive en .dashboards-row (no en .global-chart-
+   section) para que se vea una sola línea divisoria arriba de AMBAS
+   columnas cuando "Avance por cliente" está presente al lado, en vez de
+   una por columna (o solo en la primera, viéndose descentrada). */
+.dashboards-row { margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--border-color); }
 .global-chart-wrap { display: flex; align-items: center; gap: 20px; }
 .global-chart-canvas-wrap { flex-shrink: 0; width: 140px; height: 140px; position: relative; }
 .global-chart-pct {
@@ -930,6 +1194,21 @@ body.modal-open { overflow: hidden; }
   .global-chart-wrap { flex-direction: column; align-items: center; }
   .global-chart-kpis { grid-template-columns: repeat(2, 1fr); width: 100%; }
 }
+
+/* ── Dashboard "Avance por cliente" (prompt-dashboard-favoritos-layout.md,
+   Fase 4) — agregado por cliente, top 4, junto a Resumen Global en
+   .dashboards-row. Mismo lenguaje visual que .global-kpi (label chico
+   uppercase + valor en acento) pero en formato de barras horizontales en
+   vez de KPIs sueltos, ya que aquí lo que importa es comparar 4 valores
+   entre sí. ───────────────────────────────────────────────────────────── */
+.apc-section { height: 100%; }
+.apc-list { display: flex; flex-direction: column; gap: 12px; margin-top: 4px; }
+.apc-item { display: flex; flex-direction: column; gap: 4px; }
+.apc-row-top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.apc-nombre { font-size: 0.86rem; font-weight: 600; color: var(--text-primary); }
+.apc-pct { font-size: 0.82rem; font-weight: 700; color: var(--accent-gold); font-variant-numeric: tabular-nums; }
+.apc-bar { background: var(--border-color); border-radius: 4px; height: 8px; overflow: hidden; }
+.apc-fill { height: 100%; background: var(--accent-gold); border-radius: 4px; transition: width 0.6s ease; }
 
 /* Sección colapsable (avance semanal por destajista) */
 .collapse-toggle {
@@ -1013,7 +1292,12 @@ body.modal-open { overflow: hidden; }
   overflow: hidden;
   /* Mobile: hidden off-screen by default */
   transform: translateX(-105%);
-  transition: transform 0.3s var(--ease-in-out), width 0.3s var(--ease-in-out);
+  /* background/border-color en 0.15s (cambio de modo/paleta, mismo timing
+     que el resto de la app) fusionado en la MISMA declaración que ya movía
+     transform/width — un transition: posterior pisaría por completo al
+     anterior en vez de sumarse. */
+  transition: transform 0.3s var(--ease-in-out), width 0.3s var(--ease-in-out),
+    background 0.15s, border-color 0.15s;
 }
 #sidebar.mobile-open { transform: translateX(0); }
 
@@ -1244,6 +1528,42 @@ body.modal-open { overflow: hidden; }
   background: var(--accent-gold); color: #04212f;
   border-color: var(--accent-gold); font-weight: 600;
 }
+
+/* Selector de paleta (prompt-selector-paleta-colores.md) — mismo patrón que
+   .theme-selector/.theme-opt de arriba, pero sin llenar el fondo del botón
+   activo (cada opción ya lleva su propia identidad de color en el swatch;
+   pintar el fondo completo del botón competiría con esa muestra), solo un
+   borde + halo con var(--accent-gold) — que ya vale dorado o violeta según
+   la paleta ACTUALMENTE aplicada, no la que representa el botón. */
+.palette-selector { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+.palette-opt {
+  flex: 1; min-width: 108px; display: flex; flex-direction: column; align-items: center; gap: 6px;
+  padding: 10px 8px; border-radius: 10px; border: 1px solid var(--border-color);
+  background: var(--bg-surface-2); color: var(--text-secondary);
+  font-size: 0.78rem; cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s, box-shadow 0.15s;
+}
+.palette-opt.active {
+  border-color: var(--accent-gold); color: var(--text-primary); font-weight: 600;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-gold) 30%, transparent);
+}
+.palette-swatch { display: flex; gap: 3px; }
+.palette-swatch span { width: 16px; height: 16px; border-radius: 4px; display: block; }
+/* Colores fijos a propósito (no var(--...)): cada swatch debe mostrar SU
+   paleta sin importar cuál esté activa ahora mismo — son valores de
+   referencia, no deben cambiar con el tema. */
+.palette-swatch-dorada span:nth-child(1) { background: #0B1220; }
+.palette-swatch-dorada span:nth-child(2) { background: #C9A24B; }
+.palette-swatch-dorada span:nth-child(3) { background: #DEBB6C; }
+.palette-swatch-morada span:nth-child(1) { background: #030014; }
+.palette-swatch-morada span:nth-child(2) { background: #A855F7; }
+.palette-swatch-morada span:nth-child(3) { background: #C084FC; }
+.palette-swatch-verde span:nth-child(1) { background: #051512; }
+.palette-swatch-verde span:nth-child(2) { background: #34D399; }
+.palette-swatch-verde span:nth-child(3) { background: #6EE7B7; }
+.palette-swatch-naranja span:nth-child(1) { background: #180D03; }
+.palette-swatch-naranja span:nth-child(2) { background: #F97316; }
+.palette-swatch-naranja span:nth-child(3) { background: #FB923C; }
 
 /* ── Barra de navegación móvil — isla "liquid glass" ─────────────────────
    Flotante y separada de los bordes (--mobile-nav-gap), vidrio esmerilado
@@ -2004,10 +2324,19 @@ body.modal-open { overflow: hidden; }
    en la misma declaración), pendientes de revisión aparte. ────────────────── */
 @media (hover: hover) and (pointer: fine) {
   .section-card:hover { border-color: var(--accent-gold); box-shadow: 0 0 18px color-mix(in srgb, var(--accent-gold) 28%, transparent); }
-  .btn-primary:hover { background: var(--accent-gold-hover); border-color: var(--accent-gold-hover); }
+  .btn-primary:hover {
+    background: var(--accent-gold-hover); border-color: var(--accent-gold-hover);
+    box-shadow: 0 0 22px color-mix(in srgb, var(--accent-gold) 42%, transparent);
+  }
+  .icon-btn-accent:hover, .fab:hover {
+    box-shadow: 0 0 22px color-mix(in srgb, var(--accent-gold) 42%, transparent);
+  }
   .search-bar-fancy .search-clear:hover { background: var(--border-color); color: var(--text-primary); }
   .gallery-hero-top .btn.small:hover { background: rgba(4,33,47,0.2); }
   .cliente-card:hover { border-color: var(--accent-gold); box-shadow: 0 0 18px color-mix(in srgb, var(--accent-gold) 28%, transparent); }
+  .galeria-reciente-item:hover { border-color: var(--accent-gold); }
+  .icon-size-btn:hover { border-color: var(--accent-gold); color: var(--text-primary); }
+  .cliente-fav-btn:hover { background: color-mix(in srgb, var(--text-primary) 10%, transparent); }
   .sidebar-project-btn:hover { border-color: var(--accent-gold); }
   .sbar-item.sbar-disabled:hover { background: transparent; color: var(--text-secondary); }
   .sbar-soon:hover { background: transparent !important; }
@@ -2116,6 +2445,13 @@ body.modal-open { overflow: hidden; }
   .proyecto-resumen-card:hover,
   .proyecto-resumen-card:active,
   .proyecto-resumen-card:active:hover {
+    transform: none;
+  }
+
+  /* Glow de CTAs primarios (Prompt A, prompts-animaciones-y-galeria-
+     clientes.md): sin movimiento (el scale-down de :active se apaga), el
+     glow en sí se deja — es un cambio de opacidad/color, no desplazamiento. */
+  .btn-primary:active, .icon-btn-accent:active, .fab:active {
     transform: none;
   }
 

@@ -1265,7 +1265,7 @@ body.modal-open { overflow: hidden; }
   --sidebar-w: 264px;
   --sidebar-icon-w: 76px;
   --mobile-nav-h: 56px;
-  --mobile-nav-gap: 14px;
+  --mobile-nav-gap: 8px;
   /* Separación real entre la isla y el borde inferior: el margen de diseño
      (--mobile-nav-gap) O el safe-area del home indicator, el que sea mayor
      — NUNCA la suma de ambos. En Safari normal el safe-area suele ser 0
@@ -2500,6 +2500,42 @@ body.modal-open { overflow: hidden; }
    para que no se confundan con un permiso que sí controla acceso real. El
    badge "· informativo" sigue siendo el refuerzo textual. */
 .perm-check-informativo input[type="checkbox"] { accent-color: #38bdf8; }
+
+/* Header fijo de la matriz de permisos (prompt-sticky-header-permisos.md).
+   ⚠️ Ver CLAUDE.md, "Patrón conocido: position:sticky + overflow en iOS
+   Safari" — este proyecto ya documentó 2 incidentes reales con esta misma
+   causa raíz. Diagnóstico aplicado aquí antes de tocar nada:
+   .table-scroll (envoltura genérica de TODAS las tablas anchas de la app,
+   usada también en gantt/nómina/cotizador — no se puede tocar en general)
+   trae solo `overflow-x: auto`, pero la spec de CSS Overflow obliga a que
+   overflow-y se compute como 'auto' también en cuanto el otro eje no es
+   'visible' (no hay forma de anularlo con overflow-y:visible explícito —
+   la spec sigue forzando 'auto' aunque se declare visible a mano). Eso
+   convertía a .table-scroll en un scroll container VERTICAL accidental
+   entre el <thead> y el scroll real de la página (.main-scroll en mobile,
+   el documento en desktop) — exactamente el patrón ya roto documentado.
+   FIX (mismo principio que el fix #1 de CLAUDE.md, "aislar el scroll
+   vertical en un wrapper dedicado"): en vez de pelear contra el overflow-y
+   accidental de .table-scroll, se abraza — con max-height explícito,
+   .table-scroll dentro de .perm-matriz pasa a ser el scroll container
+   VERTICAL real e intencional (no uno ambiguo), que es justo la excepción
+   que permite CLAUDE.md ("salvo que ese contenedor SEA el scroll
+   container"). El <thead> puede quedar sticky con total confianza porque
+   ya no hay ningún ancestro con overflow ajeno entre él y su scroll
+   container real. Scope a .perm-matriz (no .table-scroll a secas) para no
+   afectar las demás tablas de la app que sí usan .table-scroll solo para
+   overflow horizontal sin necesitar límite de alto. */
+.perm-matriz .table-scroll {
+  max-height: min(60vh, 520px);
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.perm-matriz-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: var(--bg-surface); /* opaco: sin esto las filas se transparentan detrás al hacer scroll */
+}
 
 @media (min-width: 861px) {
   .perm-matriz-table tbody tr:not(.perm-grupo-row) td { transition: background 0.15s var(--ease-out); }

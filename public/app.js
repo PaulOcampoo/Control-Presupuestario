@@ -6878,6 +6878,15 @@ function openProveedorModal(proveedor) {
 // =========================================================================
 async function renderCotizador(view) {
   let ultimaBusqueda = null;
+  // Una búsqueda real (scrape en vivo) puede tardar 50-90s (ver
+  // PRESUPUESTO_TOTAL_MS en server/cotizador.js) — si el usuario reintenta o
+  // hace doble click en "Buscar" mientras la primera sigue pendiente, se
+  // disparan dos requests en paralelo. Sin este guard, cualquiera de las dos
+  // respuestas (incluida una obsoleta, p. ej. un 504 real de gateway de una
+  // búsqueda ya superada) puede llegar después y pisar el estado correcto en
+  // pantalla (bug real: prompt-fix-error-504-falso-cotizador.md). searchToken
+  // asegura que solo la respuesta de la búsqueda MÁS RECIENTE actualice el DOM.
+  let searchToken = 0;
 
   view.innerHTML = `
     <h2 class="section-title">Cotizador de materiales</h2>
@@ -6989,7 +6998,9 @@ async function renderCotizador(view) {
 
   async function buscar(query, forzar = false) {
     if (!query || !query.trim()) { toast('Escribe un término de búsqueda', 'danger'); return; }
+    const miToken = ++searchToken;
     const cont = $('#cotizadorResultados');
+    const btnBuscar = $('#btnCotizadorBuscar');
     // Animación de carga (prompt-animacion-carga-cotizador.md): el backend
     // responde todo junto al final (sin streaming por tienda), así que no
     // hay señal real de "esta tienda ya terminó" — en vez de simular
@@ -7017,6 +7028,7 @@ async function renderCotizador(view) {
         </div>
       </div>
     `;
+    btnBuscar.disabled = true;
     // La función serverless tiene maxDuration:90s (vercel.json) — si por
     // algún motivo la plataforma la mata sin responder, el fetch se quedaría
     // esperando indefinidamente sin este timeout explícito (bug real
@@ -7027,15 +7039,18 @@ async function renderCotizador(view) {
       const resultado = forzar
         ? await api('/cotizador/actualizar', { method: 'POST', body: { q: query }, signal: controller.signal })
         : await api(`/cotizador/buscar?q=${encodeURIComponent(query)}`, { signal: controller.signal });
+      if (miToken !== searchToken) return; // respuesta obsoleta: ya hay una búsqueda más reciente en curso
       ultimaBusqueda = resultado;
       pintarResultados();
     } catch (err) {
+      if (miToken !== searchToken) return; // idem: no pisar el estado de una búsqueda más reciente con un error viejo
       const msg = err.name === 'AbortError'
         ? 'La búsqueda tardó demasiado y se canceló. Intenta de nuevo.'
         : err.message;
       cont.innerHTML = `<div class="alert-box danger">⚠️ ${esc(msg)}</div>`;
     } finally {
       clearTimeout(timeoutId);
+      if (miToken === searchToken) btnBuscar.disabled = false;
     }
   }
 

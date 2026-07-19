@@ -30,6 +30,7 @@ const state = {
   projectId: null,
   clientes: [],
   favoritos: new Set(), // cliente_id de favoritos del usuario (Prompt B) — Set para O(1) lookup al pintar tarjetas
+  favoritosOrden: [], // mismos IDs que favoritos, pero en el orden elegido por drag (prompt-dashboard-favoritos-layout.md) — GET /favoritos ya los devuelve ordenados
   clienteId: null,
   pendingUploadClienteId: null,
   pendingContrato: null,
@@ -1620,12 +1621,14 @@ async function bootApp() {
       api('/favoritos').catch(() => []),
     ]);
     state.favoritos = new Set(favoritos);
+    state.favoritosOrden = favoritos;
     showClientGallery();
     renderGalleryGreeting();
     renderFavoritosSection();
     renderClientGallery();
     renderBienvenidaSummary(bienvenida);
     renderGlobalChart().catch(() => {});
+    renderAvancePorCliente().catch(() => {});
     loadGaleriaActividad();
   }
   try {
@@ -1961,12 +1964,14 @@ async function goToClientGallery() {
       api('/favoritos').catch(() => []),
     ]);
     state.favoritos = new Set(favoritos);
+    state.favoritosOrden = favoritos;
     showClientGallery();
     renderGalleryGreeting();
     renderFavoritosSection();
     renderClientGallery();
     renderBienvenidaSummary(bienvenida);
     renderGlobalChart().catch(() => {});
+    renderAvancePorCliente().catch(() => {});
     loadGaleriaActividad();
   } catch (err) {
     toast(err.message, 'danger');
@@ -2236,11 +2241,48 @@ function renderFavoritosSection() {
   const section = $('#favoritosSection');
   const grid = $('#favoritosGrid');
   if (!section || !grid) return;
-  const favClientes = state.clientes.filter((c) => state.favoritos.has(c.id));
+  // En el orden elegido por drag (state.favoritosOrden), NO en el orden de
+  // state.clientes (prompt-dashboard-favoritos-layout.md) — un cliente
+  // puede estar en cualquier posición de la cuadrícula general y aun así
+  // tener un lugar distinto dentro de Favoritos.
+  const favClientes = state.favoritosOrden
+    .map((id) => state.clientes.find((c) => c.id === id))
+    .filter(Boolean);
   if (!favClientes.length) { section.classList.add('hidden-initial'); grid.innerHTML = ''; return; }
   section.classList.remove('hidden-initial');
   grid.innerHTML = favClientes.map((c) => clienteCardHtml(c)).join('');
   wireClienteCards(grid);
+  initFavoritosSortable(grid);
+}
+
+// Drag-to-reorder de Favoritos (prompt-dashboard-favoritos-layout.md) —
+// mismo mecanismo que initClienteSortable() (SortableJS, long-press en
+// touch), simplificado: a diferencia de #clienteGrid, aquí todas las
+// tarjetas son clientes reales (sin "+ Nuevo cliente"/"Sin cliente
+// asignado" que excluir del arrastre).
+function initFavoritosSortable(grid) {
+  // Igual que initClienteSortable(): #favoritosGrid es un nodo persistente
+  // (solo su innerHTML cambia en cada render) — Sortable ya sigue operando
+  // sobre los hijos actuales sin reinicializarse, así que basta con
+  // engancharlo una sola vez.
+  if (grid._favoritosSortable) return;
+  grid._favoritosSortable = new Sortable(grid, {
+    animation: 150,
+    delay: 300,
+    delayOnTouchOnly: true,
+    touchStartThreshold: 5,
+    filter: '[data-cliente-menu-btn], .cliente-menu-dropdown',
+    preventOnFilter: false,
+    onEnd: async () => {
+      const orden = $$('.cliente-card', grid).map((el) => Number(el.dataset.cliente));
+      state.favoritosOrden = orden;
+      try {
+        await api('/favoritos/orden', { method: 'PUT', body: { orden } });
+      } catch (err) {
+        toast(err.message, 'danger');
+      }
+    },
+  });
 }
 
 async function toggleFavorito(clienteId) {
@@ -2249,9 +2291,11 @@ async function toggleFavorito(clienteId) {
     if (isFav) {
       await api(`/favoritos/${clienteId}`, { method: 'DELETE' });
       state.favoritos.delete(clienteId);
+      state.favoritosOrden = state.favoritosOrden.filter((id) => id !== clienteId);
     } else {
       await api(`/favoritos/${clienteId}`, { method: 'POST' });
       state.favoritos.add(clienteId);
+      state.favoritosOrden = [...state.favoritosOrden, clienteId]; // se agrega al final, igual que el backend
     }
     renderFavoritosSection();
     renderClientGallery();
@@ -2276,13 +2320,26 @@ async function renderGaleriaActividad() {
     if (!recientes.length) {
       recientesEl.innerHTML = '<div class="galeria-actividad-empty">Aún no has abierto ningún presupuesto.</div>';
     } else {
-      recientesEl.innerHTML = recientes.map((r) => `
+      // Cliente arriba (eyebrow) + obra en negrita abajo — mismo tratamiento
+      // que "Mayor avance" (prompt-dashboard-favoritos-layout.md), y barra
+      // de progreso compacta con el mismo dato ya usado en /bienvenida y
+      // /resumen-global (avance_ejecutado_pct), no un cálculo nuevo.
+      recientesEl.innerHTML = recientes.map((r) => {
+        const pct = Math.min(100, Math.max(0, Number(r.avance_ejecutado_pct) || 0));
+        return `
         <div class="galeria-reciente-item" data-pid="${r.proyecto_id}" data-cid="${r.cliente_id}">
-          <div class="gr-proyecto">${esc(r.proyecto_nombre)}</div>
           <div class="gr-cliente">${esc(r.cliente_nombre)}</div>
-          <div class="gr-time">${timeAgo(r.actualizado_en)}</div>
-        </div>
-      `).join('');
+          <div class="gr-proyecto">${esc(r.proyecto_nombre)}</div>
+          <div class="gr-progress-bar"><div class="gr-progress-fill" data-pct="${pct}"></div></div>
+          <div class="gr-meta-row">
+            <span class="gr-time">${timeAgo(r.actualizado_en)}</span>
+            <span class="gr-pct">${pct.toFixed(1)}%</span>
+          </div>
+        </div>`;
+      }).join('');
+      // Width por JS (CSP bloquea estilos inline con %) — mismo patrón que
+      // .wpc-progress-fill en renderBienvenidaSummary.
+      $$('.gr-progress-fill', recientesEl).forEach((fill) => { fill.style.width = fill.dataset.pct + '%'; });
       $$('.galeria-reciente-item', recientesEl).forEach((el) => {
         el.addEventListener('click', () => {
           state.clienteId = Number(el.dataset.cid);
@@ -2477,6 +2534,42 @@ async function renderGlobalChart() {
   });
   state.charts.globalPie._cpBorderSurface = 'primary';
   state.charts.globalPie._cpGridBgIndexes = [1]; // 'Por ejecutar' (índice 1 en backgroundColor)
+}
+
+// Dashboard "Avance por cliente" (prompt-dashboard-favoritos-layout.md,
+// Fase 4) — agregado POR CLIENTE (no confundir con "Mayor avance", que es
+// por obra individual, ni con "Resumen Global", que es el promedio de
+// TODAS las obras junto). GET /avance-por-cliente ya devuelve los top 4
+// con la misma fórmula de ponderación que Resumen Global — aquí solo se
+// pinta, sin recalcular nada. Mismo gate que Resumen Global (isAdmin()):
+// vive al lado de él en .dashboards-row, tiene sentido que comparta
+// visibilidad.
+async function renderAvancePorCliente() {
+  const el = $('#avancePorClienteSection');
+  if (!el) return;
+  if (!isAdmin()) { el.innerHTML = ''; return; }
+
+  const data = await api('/avance-por-cliente').catch(() => []);
+  if (!data.length) { el.innerHTML = ''; return; }
+
+  el.innerHTML = `
+    <div class="apc-section">
+      <div class="bienvenida-summary-title">Avance por cliente</div>
+      <div class="apc-list">
+        ${data.map((c) => {
+          const pct = Math.min(100, Math.max(0, Number(c.avance_ponderado_pct) || 0));
+          return `
+          <div class="apc-item">
+            <div class="apc-row-top">
+              <span class="apc-nombre">${esc(c.cliente_nombre)}</span>
+              <span class="apc-pct">${pct.toFixed(1)}%</span>
+            </div>
+            <div class="apc-bar"><div class="apc-fill" data-pct="${pct}"></div></div>
+          </div>`;
+        }).join('')}
+      </div>
+    </div>`;
+  $$('.apc-fill', el).forEach((fill) => { fill.style.width = fill.dataset.pct + '%'; });
 }
 
 async function selectCliente(id) {

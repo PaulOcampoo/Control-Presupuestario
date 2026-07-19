@@ -470,9 +470,16 @@ const SCHEMA = `
     usuario_id INTEGER NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
     cliente_id INTEGER NOT NULL REFERENCES clientes(id) ON DELETE CASCADE,
     creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    orden INTEGER NOT NULL DEFAULT 0,
     UNIQUE(usuario_id, cliente_id)
   );
   CREATE INDEX IF NOT EXISTS idx_usuario_favoritos_usuario ON usuario_favoritos(usuario_id);
+  -- orden (prompt-dashboard-favoritos-layout.md, reorder por drag de la
+  -- franja de Favoritos) — ALTER además del CREATE de arriba porque esta
+  -- tabla es tan nueva que puede ya existir sin la columna en algún
+  -- entorno donde ya corrió la migración anterior (mismo patrón ya usado
+  -- para estimaciones.nombre).
+  ALTER TABLE usuario_favoritos ADD COLUMN IF NOT EXISTS orden INTEGER NOT NULL DEFAULT 0;
 
   -- Catálogo formal de trabajadores por obra (expediente personal). Coexiste
   -- con 'destajistas' (rol en obra); el vínculo es opcional vía destajista_id.

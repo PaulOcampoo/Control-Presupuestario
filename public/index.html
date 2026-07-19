@@ -73,7 +73,13 @@
             </div>
           </div>
           <div id="clienteGrid" class="cliente-grid cliente-grid-carousel"></div>
-          <div id="globalChartSection"></div>
+          <!-- Resumen Global + Avance por cliente (prompt-dashboard-
+               favoritos-layout.md) lado a lado en desktop ancho, apilados
+               en el resto — ver .dashboards-row en styles.css. -->
+          <div class="dashboards-row">
+            <div id="globalChartSection" class="dashboard-col"></div>
+            <div id="avancePorClienteSection" class="dashboard-col"></div>
+          </div>
           <div id="bienvenidaSummary"></div>
         </div>
 

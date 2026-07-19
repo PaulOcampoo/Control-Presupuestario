@@ -931,21 +931,41 @@ body.modal-open { overflow: hidden; }
 
 /* Contenido debajo del header: sin la tarjeta/borde de antes, scrollea junto
    con la pantalla completa (.gallery-screen ya es el scroll container).
-   max-width sube de 760px a 1040px (Prompt B) para dar cabida al panel de
-   Actividad reciente en desktop sin apretar la cuadrícula de clientes. */
+   max-width sube de 1040px a 1320px (prompt-dashboard-favoritos-layout.md,
+   Fase 3 — capturas de Paul mostraban espacio lateral vacío en desktop
+   ancho; el layout de 1040px ya se sentía cómodo pero dejaba mucho margen
+   sin usar en monitores de escritorio típicos). Solo afecta desktop: en
+   mobile .gallery-body-layout ya cae a una sola columna angosta por su
+   cuenta (el ancho de pantalla real manda, no este max-width). */
 .gallery-body {
-  flex: 1; width: 100%; max-width: 1040px; margin: 0 auto;
+  flex: 1; width: 100%; max-width: 1320px; margin: 0 auto;
   padding: 22px 20px calc(20px + env(safe-area-inset-bottom, 0px));
 }
 .gallery-body h1 { font-size: 1.2rem; margin: 4px 0; }
 
-/* Layout de 2 columnas (Prompt B): .gallery-body-main se queda con el ancho
-   original (760px) para que la cuadrícula de clientes no cambie de tamaño;
-   el panel de Actividad reciente vive en el espacio que antes quedaba vacío
-   a la derecha. En mobile es una sola columna (el panel se oculta, ver
-   .galeria-actividad-panel más abajo). */
+/* Layout de 2 columnas (Prompt B, ancho ajustado en Fase 3 de prompt-
+   dashboard-favoritos-layout.md): .gallery-body-main sube de 760px a 900px
+   — la cuadrícula de clientes gana una columna más en pantallas anchas en
+   vez de dejar el espacio vacío, y le da lugar cómodo al nuevo dashboard
+   "Avance por cliente" (ver .dashboards-row) junto a Resumen Global. El
+   panel de Actividad reciente sube de 260px a 280px, mismo criterio. En
+   mobile es una sola columna (el panel se oculta, ver .galeria-actividad-
+   panel más abajo). */
 .gallery-body-layout { display: flex; gap: 28px; align-items: flex-start; }
-.gallery-body-main { flex: 1; min-width: 0; max-width: 760px; }
+.gallery-body-main { flex: 1; min-width: 0; max-width: 900px; }
+
+/* Resumen Global + Avance por cliente lado a lado quien apilados (Fase 4 de
+   prompt-dashboard-favoritos-layout.md) — columna en <1100px (se sentirían
+   apretados en flex-row a ese ancho, aunque ya haya espacio vertical de
+   sobra en .gallery-body-main), fila en >=1100px, breakpoint propio (no el
+   genérico de 861px) porque estos dos paneles son más anchos que un simple
+   componente móvil/desktop. */
+.dashboards-row { display: flex; flex-direction: column; gap: 16px; }
+.dashboards-row > .dashboard-col { flex: 1; min-width: 0; }
+.dashboards-row > .dashboard-col:empty { display: none; } /* Avance por cliente se oculta si no hay datos (ver renderAvancePorCliente) */
+@media (min-width: 1100px) {
+  .dashboards-row { flex-direction: row; align-items: stretch; }
+}
 
 .gallery-clientes-header { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; flex-wrap: wrap; }
 .gallery-subtitle { font-size: 1rem; margin: 0 0 10px; }
@@ -987,7 +1007,7 @@ body.modal-open { overflow: hidden; }
    el sidebar fijo de #app). En mobile no hay espacio libre que aprovechar
    (la cuadrícula ya usa todo el ancho), así que se oculta por completo en
    vez de apilarlo debajo — ver @media (min-width: 861px) más abajo. */
-.galeria-actividad-panel { display: none; flex-direction: column; gap: 20px; width: 260px; flex-shrink: 0; padding-top: 4px; }
+.galeria-actividad-panel { display: none; flex-direction: column; gap: 20px; width: 280px; flex-shrink: 0; padding-top: 4px; }
 .galeria-actividad-section h4 {
   font-size: 0.76rem; text-transform: uppercase; letter-spacing: 0.05em;
   color: var(--text-secondary); margin: 0 0 10px; font-weight: 700;
@@ -998,9 +1018,25 @@ body.modal-open { overflow: hidden; }
   padding: 10px 12px; border-radius: 10px; background: var(--bg-surface-2);
   border: 1px solid var(--border-color); cursor: pointer; transition: border-color 0.15s;
 }
-.galeria-reciente-item .gr-proyecto { font-weight: 600; font-size: 0.85rem; }
-.galeria-reciente-item .gr-cliente { color: var(--text-secondary); font-size: 0.75rem; }
-.galeria-reciente-item .gr-time { color: var(--text-secondary); font-size: 0.68rem; margin-top: 3px; }
+/* Cliente arriba en formato "eyebrow" (etiqueta chica en mayúsculas) y el
+   nombre de la obra abajo en negrita — mismo tratamiento que ya usa
+   .wpc-client/.wpc-nombre en "Mayor avance" (prompt-dashboard-favoritos-
+   layout.md: "considerar mismo tratamiento visual que MAYOR AVANCE"),
+   clases propias en vez de reusar .wpc-* tal cual porque este panel es
+   mucho más angosto (260px) y esas clases traen spacing pensado para las
+   tarjetas grandes de Mayor avance. */
+.galeria-reciente-item .gr-cliente {
+  font-size: 0.68rem; color: var(--text-secondary); text-transform: uppercase;
+  letter-spacing: 0.04em; font-weight: 700; margin-bottom: 2px;
+}
+.galeria-reciente-item .gr-proyecto { font-weight: 600; font-size: 0.85rem; line-height: 1.25; margin-bottom: 6px; }
+/* Barra de progreso compacta — mismo componente visual que .wpc-progress-
+   bar/.wpc-progress-fill (Mayor avance), a menor escala. */
+.galeria-reciente-item .gr-progress-bar { background: var(--border-color); border-radius: 4px; height: 5px; margin-bottom: 5px; overflow: hidden; }
+.galeria-reciente-item .gr-progress-fill { height: 100%; background: var(--accent-gold); border-radius: 4px; transition: width 0.6s ease; }
+.galeria-reciente-item .gr-meta-row { display: flex; justify-content: space-between; align-items: baseline; }
+.galeria-reciente-item .gr-time { color: var(--text-secondary); font-size: 0.68rem; }
+.galeria-reciente-item .gr-pct { color: var(--accent-gold); font-size: 0.72rem; font-weight: 700; }
 /* Reusa .notif-list/.notif-item (mismo feed de la campana del topbar) — solo
    se le quita el max-height propio del dropdown, aquí no hace falta. */
 #galeriaAlertasList.notif-list { max-height: none; }
@@ -1137,7 +1173,11 @@ body.modal-open { overflow: hidden; }
 }
 
 /* ── Gráfica global (admin/desarrollador) ─────────────────────────────────── */
-.global-chart-section { margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--border-color); }
+/* El margen/borde superior vive en .dashboards-row (no en .global-chart-
+   section) para que se vea una sola línea divisoria arriba de AMBAS
+   columnas cuando "Avance por cliente" está presente al lado, en vez de
+   una por columna (o solo en la primera, viéndose descentrada). */
+.dashboards-row { margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--border-color); }
 .global-chart-wrap { display: flex; align-items: center; gap: 20px; }
 .global-chart-canvas-wrap { flex-shrink: 0; width: 140px; height: 140px; position: relative; }
 .global-chart-pct {
@@ -1154,6 +1194,21 @@ body.modal-open { overflow: hidden; }
   .global-chart-wrap { flex-direction: column; align-items: center; }
   .global-chart-kpis { grid-template-columns: repeat(2, 1fr); width: 100%; }
 }
+
+/* ── Dashboard "Avance por cliente" (prompt-dashboard-favoritos-layout.md,
+   Fase 4) — agregado por cliente, top 4, junto a Resumen Global en
+   .dashboards-row. Mismo lenguaje visual que .global-kpi (label chico
+   uppercase + valor en acento) pero en formato de barras horizontales en
+   vez de KPIs sueltos, ya que aquí lo que importa es comparar 4 valores
+   entre sí. ───────────────────────────────────────────────────────────── */
+.apc-section { height: 100%; }
+.apc-list { display: flex; flex-direction: column; gap: 12px; margin-top: 4px; }
+.apc-item { display: flex; flex-direction: column; gap: 4px; }
+.apc-row-top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.apc-nombre { font-size: 0.86rem; font-weight: 600; color: var(--text-primary); }
+.apc-pct { font-size: 0.82rem; font-weight: 700; color: var(--accent-gold); font-variant-numeric: tabular-nums; }
+.apc-bar { background: var(--border-color); border-radius: 4px; height: 8px; overflow: hidden; }
+.apc-fill { height: 100%; background: var(--accent-gold); border-radius: 4px; transition: width 0.6s ease; }
 
 /* Sección colapsable (avance semanal por destajista) */
 .collapse-toggle {

@@ -76,6 +76,12 @@ const SECCIONES_PERMISOS = [
   'presupuestos', 'requisiciones', 'proveedores', 'ordenes_compra', 'avance',
   'destajo', 'finanzas', 'estado_resultados', 'insumos', 'mapeo', 'usuarios', 'contrato', 'impuestos',
   'nominas', 'sugerencias', 'programa', 'estimaciones', 'maquinaria',
+  // CN-002: 'maquinaria' quedaba como una sola sección compartida entre
+  // captura de horas (cabo) y combustible/mantenimiento (taller), así que
+  // cualquiera de los dos roles podía POSTear a los endpoints del otro
+  // (confirmado en vivo). Separadas para que cada rol solo tenga
+  // puede_crear en la suya — ver defaultPermisosParaRol más abajo.
+  'maquinaria_captura', 'maquinaria_combustible',
   // Secciones NUEVAS (prompts-cotizador-permisos.md, Prompt 2) — DISTINTAS de
   // 'nominas' a propósito: 'nominas' ya gatea el acceso por-obra (una obra a
   // la vez, ver checkPermiso en /api/projects/:id/nominas/...); estas dos
@@ -138,14 +144,29 @@ function defaultPermisosParaRol(puesto) {
   if (puesto === 'cabo') {
     if (porSeccion.destajo) { porSeccion.destajo.puede_editar = true; }
     if (porSeccion.avance)  { porSeccion.avance.puede_crear = true; }
-    // Captura de horas de maquinaria (diseño de primer borrador, ver
-    // prompt-modulo-maquinaria.md) — necesita puede_crear desde el default
-    // para no bloquearse el mismo día que se activa el enforcement real.
+    // 'maquinaria' (equipos) queda como estaba — /api/maquinaria/equipos no
+    // es parte de este fix (CN-002), solo se separa captura de horas.
     if (porSeccion.maquinaria) { porSeccion.maquinaria.puede_crear = true; }
+    // CN-002: sección propia de captura de horas — cabo ya NO recibe
+    // puede_crear en 'maquinaria_combustible' (antes lo tenía implícito al
+    // compartir 'maquinaria' con taller).
+    filas.push({
+      seccion: 'maquinaria_captura', puede_ver: true, puede_crear: true,
+      puede_editar: false, puede_editar_precios: false, puede_eliminar: false,
+    });
   }
   if (puesto === 'taller' || puesto === 'admin' || puesto === 'desarrollador') {
     // Registro de combustible/mantenimiento (mismo diseño de primer borrador).
     if (porSeccion.maquinaria) { porSeccion.maquinaria.puede_crear = true; porSeccion.maquinaria.puede_editar = true; }
+  }
+  if (puesto === 'taller') {
+    // CN-002: sección propia de combustible/mantenimiento — taller ya NO
+    // recibe puede_crear en 'maquinaria_captura' (antes lo tenía implícito
+    // al compartir 'maquinaria' con cabo).
+    filas.push({
+      seccion: 'maquinaria_combustible', puede_ver: true, puede_crear: true,
+      puede_editar: false, puede_editar_precios: false, puede_eliminar: false,
+    });
   }
   return filas;
 }

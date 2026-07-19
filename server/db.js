@@ -700,7 +700,7 @@ const SCHEMA = `
       'presupuestos','requisiciones','proveedores','ordenes_compra','avance',
       'destajo','finanzas','insumos','mapeo','usuarios','contrato','impuestos',
       'nominas','sugerencias','programa','estimaciones','maquinaria',
-      'trabajadores_global','nominas_global','trabajadores'
+      'trabajadores_global','nominas_global','trabajadores','estado_resultados'
     )),
     puede_ver BOOLEAN NOT NULL DEFAULT false,
     puede_crear BOOLEAN NOT NULL DEFAULT false,
@@ -722,7 +722,7 @@ const SCHEMA = `
     'presupuestos','requisiciones','proveedores','ordenes_compra','avance',
     'destajo','finanzas','insumos','mapeo','usuarios','contrato','impuestos',
     'nominas','sugerencias','programa','estimaciones','maquinaria',
-    'trabajadores_global','nominas_global','trabajadores'
+    'trabajadores_global','nominas_global','trabajadores','estado_resultados'
   ));
 
   -- Contador de folios por obra + tipo de documento. INSERT...ON CONFLICT DO

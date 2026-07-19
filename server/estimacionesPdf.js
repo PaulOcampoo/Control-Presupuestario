@@ -111,8 +111,38 @@ function buildEstimacionPdf({ project, clienteNombre, estimacion, items, residen
     doc.text(`Total del periodo: ${money(estimacion.total_periodo)}`, TABLE_LEFT, y);
     doc.text(`Total acumulado: ${money(estimacion.total_acumulado)}`, TABLE_LEFT + 260, y);
 
-    // Espacio de firma — en página nueva si ya no cabe debajo de los totales
-    let firmaY = y + 70;
+    // Desglose de pago (Prompt 4, prompts-cotizador-sidebar-permisos-
+    // estimaciones.md) — mismo documento que se firma/envía al cliente, así
+    // que debe mostrar el mismo desglose que ya ve el residente en pantalla
+    // antes de aprobar. Salta de página completa si no cabe junto con la
+    // firma, para no partir el bloque entre "Total a pagar" y las firmas.
+    const desgloseBoxWidth = 260;
+    const desgloseBoxHeight = 100;
+    if (y + desgloseBoxHeight + 80 > PAGE_BOTTOM) { doc.addPage(); y = 40; }
+    y += 26;
+    const boxX = TABLE_LEFT;
+    doc.rect(boxX, y, desgloseBoxWidth, desgloseBoxHeight).strokeColor('#cccccc').stroke();
+    let dy = y + 8;
+    doc.font('Helvetica').fontSize(9).fillColor('#000000');
+    doc.text('Amortización de anticipo:', boxX + 8, dy, { width: 150 });
+    doc.text(`-${money(estimacion.amortizacion_anticipo)}`, boxX + 8, dy, { width: desgloseBoxWidth - 16, align: 'right' });
+    dy += 16;
+    doc.text('2% Fondo de garantía:', boxX + 8, dy, { width: 150 });
+    doc.text(`-${money(estimacion.fondo_garantia_monto)}`, boxX + 8, dy, { width: desgloseBoxWidth - 16, align: 'right' });
+    dy += 16;
+    doc.text('Más IVA 16%:', boxX + 8, dy, { width: 150 });
+    doc.text(`+${money(estimacion.iva_monto)}`, boxX + 8, dy, { width: desgloseBoxWidth - 16, align: 'right' });
+    dy += 20;
+    // Fondo dorado detrás de "Total a pagar" — mismo resaltado que en pantalla.
+    doc.rect(boxX + 4, dy - 4, desgloseBoxWidth - 8, 24).fill('#d4af37');
+    doc.font('Helvetica-Bold').fontSize(11).fillColor('#04212f');
+    doc.text('Total a pagar:', boxX + 8, dy, { width: 150 });
+    doc.text(money(estimacion.total_a_pagar), boxX + 8, dy, { width: desgloseBoxWidth - 16, align: 'right' });
+    doc.fillColor('#000000');
+    y += desgloseBoxHeight + 10;
+
+    // Espacio de firma — en página nueva si ya no cabe debajo del desglose
+    let firmaY = y + 40;
     if (firmaY > PAGE_BOTTOM) { doc.addPage(); firmaY = 60; }
     doc.font('Helvetica').fontSize(9);
     doc.moveTo(TABLE_LEFT, firmaY).lineTo(TABLE_LEFT + 220, firmaY).stroke();

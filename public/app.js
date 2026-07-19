@@ -6624,6 +6624,7 @@ async function openUsuarioModal(usuario) {
     <div class="field">
       <label>${isEdit ? 'Nueva contraseña (déjalo vacío para no cambiarla)' : 'Contraseña *'}</label>
       <input id="uPassword" type="password" autocomplete="new-password" placeholder="Mínimo 6 caracteres" />
+      <div id="uPasswordError" class="alert-box danger hidden-initial"></div>
     </div>
     ${isEdit ? `
     <div class="field">
@@ -6695,14 +6696,38 @@ async function openUsuarioModal(usuario) {
   renderProyectosResumen();
 
   $('#btnCancelUsuario').addEventListener('click', closeModal);
+  // uPasswordError: la validación de contraseña ya mostraba un toast, pero
+  // el toast aparece fijo en la esquina inferior de la pantalla, lejos del
+  // modal — con el modal cubriendo la mayor parte de la vista (hasta 88dvh)
+  // y el toast desapareciendo a los 2.5s, era fácil no verlo nunca y percibir
+  // el submit como si "no hiciera nada" (bug reportado en vivo). Este mensaje
+  // inline, pegado al campo, no depende de que el usuario mire hacia abajo
+  // ni de un timer — se queda visible hasta el siguiente intento de guardar.
+  function showUPasswordError(msg) {
+    const el = $('#uPasswordError');
+    el.textContent = msg;
+    el.classList.remove('hidden-initial');
+  }
+  function clearUPasswordError() {
+    $('#uPasswordError').classList.add('hidden-initial');
+  }
   $('#btnSaveUsuario').addEventListener('click', async () => {
+    clearUPasswordError();
     const nombre = $('#uNombre').value.trim();
     const puesto = $('#uPuesto').value;
     const password = $('#uPassword').value;
     if (!nombre) { toast('Escribe el nombre completo', 'danger'); return; }
     if (!isEdit && !$('#uUsuario').value.trim()) { toast('Escribe el usuario de acceso', 'danger'); return; }
-    if (!isEdit && !password) { toast('Escribe una contraseña', 'danger'); return; }
-    if (password && password.length < 6) { toast('La contraseña debe tener al menos 6 caracteres', 'danger'); return; }
+    if (!isEdit && !password) {
+      toast('Escribe una contraseña', 'danger');
+      showUPasswordError('Escribe una contraseña.');
+      return;
+    }
+    if (password && password.length < 6) {
+      toast('La contraseña debe tener al menos 6 caracteres', 'danger');
+      showUPasswordError('La contraseña debe tener al menos 6 caracteres.');
+      return;
+    }
     const btn = $('#btnSaveUsuario');
     btn.disabled = true;
     try {
@@ -6744,6 +6769,7 @@ function openResetPasswordModal(usuario) {
     <div class="field">
       <label>Confirmar contraseña *</label>
       <input id="rpConfirm" type="password" autocomplete="new-password" />
+      <div id="rpPasswordError" class="alert-box danger hidden-initial"></div>
     </div>
     <div class="modal-actions">
       <button class="btn" id="btnCancelReset">Cancelar</button>
@@ -6751,12 +6777,36 @@ function openResetPasswordModal(usuario) {
     </div>
   `);
   $('#btnCancelReset').addEventListener('click', closeModal);
+  // Mismo motivo que showUPasswordError en openUsuarioModal: el toast solo
+  // no era suficiente feedback con el modal cubriendo la mayor parte de la
+  // pantalla — mensaje inline pegado al campo en vez de (o además de) toast.
+  function showRPPasswordError(msg) {
+    const el = $('#rpPasswordError');
+    el.textContent = msg;
+    el.classList.remove('hidden-initial');
+  }
+  function clearRPPasswordError() {
+    $('#rpPasswordError').classList.add('hidden-initial');
+  }
   $('#btnConfirmReset').addEventListener('click', async () => {
+    clearRPPasswordError();
     const password = $('#rpPassword').value;
     const confirm = $('#rpConfirm').value;
-    if (!password) { toast('Escribe una contraseña', 'danger'); return; }
-    if (password.length < 6) { toast('Mínimo 6 caracteres', 'danger'); return; }
-    if (password !== confirm) { toast('Las contraseñas no coinciden', 'danger'); return; }
+    if (!password) {
+      toast('Escribe una contraseña', 'danger');
+      showRPPasswordError('Escribe una contraseña.');
+      return;
+    }
+    if (password.length < 6) {
+      toast('Mínimo 6 caracteres', 'danger');
+      showRPPasswordError('La contraseña debe tener al menos 6 caracteres.');
+      return;
+    }
+    if (password !== confirm) {
+      toast('Las contraseñas no coinciden', 'danger');
+      showRPPasswordError('Las contraseñas no coinciden.');
+      return;
+    }
     const btn = $('#btnConfirmReset');
     btn.disabled = true;
     try {

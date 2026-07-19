@@ -16,7 +16,7 @@ const PUESTO_LABELS = {
 const ROLE_TABS = {
   admin:          ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'finanzas', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', 'maquinaria', 'cotizador'],
   desarrollador:  ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'finanzas', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', 'maquinaria', 'cotizador'],
-  residente:      ['programa', 'avance', 'destajo', 'requisiciones', 'insumos', 'ordenes', 'nominas', 'estimaciones'],
+  residente:      ['programa', 'avance', 'destajo', 'requisiciones', 'insumos', 'ordenes', 'nominas', 'trabajadores', 'estimaciones'],
   cabo:           ['destajo', 'insumos', 'avance', 'requisiciones', 'maquinaria'],
   compras:        ['programa', 'requisiciones', 'insumos', 'ordenes', 'proveedores', 'cotizador'],
   tesoreria:      ['resumen', 'finanzas', 'ordenes', 'contrato', 'impuestos', 'proveedores'],
@@ -46,6 +46,7 @@ const state = {
   notifNoLeidas: 0,
   notifTimer: null,
   needsTotpReminder: false, // 2FA opcional: banner en Inicio pendiente de mostrarse esta sesión
+  usuariosSubView: null, // 'permisos' cuando se entra desde el acceso directo del drawer de galería; se consume una vez en renderView()
 };
 
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -156,6 +157,12 @@ function applyTheme(pref) {
   const li = $('#themeIconLight'); if (li) li.innerHTML = icon('sun', 14);
   const di = $('#themeIconDark');  if (di) di.innerHTML = icon('moon', 14);
   const si = $('#themeIconSystem');if (si) si.innerHTML = icon('monitor', 14);
+  // Mismos íconos en el drawer de ajustes de la galería de clientes (prompt 2,
+  // prompts-cotizador-sidebar-permisos-estimaciones.md) — reusa esta misma
+  // función en vez de duplicar la lógica de tema.
+  const gli = $('#galleryThemeIconLight'); if (gli) gli.innerHTML = icon('sun', 14);
+  const gdi = $('#galleryThemeIconDark');  if (gdi) gdi.innerHTML = icon('moon', 14);
+  const gsi = $('#galleryThemeIconSystem');if (gsi) gsi.innerHTML = icon('monitor', 14);
 }
 
 function setTheme(pref) {
@@ -893,7 +900,67 @@ function closeSidebar() {
   $('#sidebarOverlay').classList.remove('show');
 }
 
+// Drawer de ajustes de la galería de clientes (prompt 2,
+// prompts-cotizador-sidebar-permisos-estimaciones.md) — el #sidebar real
+// vive dentro de #app, que queda display:none en la galería, así que no es
+// alcanzable desde ahí. Este drawer es un componente propio y más simple
+// (solo tema/cuenta/sesión, nada que dependa de una obra seleccionada),
+// pero reutiliza las funciones existentes de tema en vez de reimplementarlas.
+function openGalleryDrawer() {
+  $('#galleryDrawer').classList.add('show');
+  $('#galleryDrawerOverlay').classList.add('show');
+  applyTheme(getTheme());
+}
+
+function closeGalleryDrawer() {
+  $('#galleryDrawer').classList.remove('show');
+  $('#galleryDrawerOverlay').classList.remove('show');
+}
+
+// Accesos globales de administración del drawer de galería (Usuarios,
+// Trabajadores/Nóminas todas las obras, Permisos) — visibilidad calculada
+// con el mismo criterio (state.allowedTabs / isAdmin()) que ya protege esas
+// vistas dentro de #app, para que un link nunca aparezca si el usuario no
+// tendría acceso real al hacer click. Llamado desde renderSidebar(), el
+// único choke point de re-render cada vez que allowedTabs puede cambiar
+// (login, simulación de rol, logout).
+function updateGalleryDrawerGlobalLinks() {
+  const puedeVer = (tab) => !!state.user && state.allowedTabs.includes(tab);
+  const links = [
+    ['btnGalleryGoUsuarios', puedeVer('usuarios')],
+    ['btnGalleryGoTrabajadoresGlobal', puedeVer('trabajadores_global')],
+    ['btnGalleryGoNominasGlobal', puedeVer('nominas_global')],
+    // "Permisos" es la subvista "Permisos de Acceso" dentro de Usuarios
+    // (ver renderUsuarios/renderSubNav) — mismo gate ahí: isAdmin().
+    ['btnGalleryGoPermisos', puedeVer('usuarios') && isAdmin()],
+  ];
+  let anyVisible = false;
+  links.forEach(([id, visible]) => {
+    const btn = $('#' + id);
+    if (btn) btn.classList.toggle('hidden-initial', !visible);
+    if (visible) anyVisible = true;
+  });
+  const divider = $('#galleryDrawerAdminDivider');
+  const label = $('#galleryDrawerAdminLabel');
+  if (divider) divider.classList.toggle('hidden-initial', !anyVisible);
+  if (label) label.classList.toggle('hidden-initial', !anyVisible);
+}
+
+// Navega a una vista global de administración (sin obra seleccionada) desde
+// el drawer de la galería — mismo patrón que selectCliente() para entrar a
+// #app sin projectId, seguido de switchToView() para llegar directo a la
+// vista pedida en vez de quedarse en 'inicio'.
+function goToGlobalAdminView(viewId) {
+  closeGalleryDrawer();
+  state.clienteId = null;
+  state.projectId = null;
+  showApp();
+  $('#projectName').textContent = '';
+  switchToView(viewId);
+}
+
 function renderSidebar() {
+  updateGalleryDrawerGlobalLinks();
   const nav = $('#sidebarNav');
   if (!nav) return;
 
@@ -1638,6 +1705,7 @@ function openModal(html) {
 }
 function closeModal() {
   $('#modal').classList.remove('show');
+  $('#modal').classList.remove('modal-wide'); // ver openVerEstimacionModal — no debe pegarse a otros modales
   $('#modalOverlay').classList.remove('show');
   $('#modal').innerHTML = '';
   document.body.classList.remove('modal-open');
@@ -2140,6 +2208,16 @@ $('#btnGalleryLogout').addEventListener('click', logout);
 $('#btnNuevoClienteDrawer').addEventListener('click', () => { closeDrawer(); openNuevoClienteModal(); });
 $('#btnCargarContratoDrawer').addEventListener('click', () => { closeDrawer(); promptUploadContrato(); });
 
+$('#btnGalleryMenu').addEventListener('click', openGalleryDrawer);
+$('#btnGalleryDrawerClose').addEventListener('click', closeGalleryDrawer);
+$('#galleryDrawerOverlay').addEventListener('click', closeGalleryDrawer);
+$('#btnMiCuentaGalleryDrawer').addEventListener('click', () => { closeGalleryDrawer(); openMiCuentaModal(false); });
+$('#btnLogoutGalleryDrawer').addEventListener('click', () => { closeGalleryDrawer(); logout(); });
+$('#btnGalleryGoUsuarios').addEventListener('click', () => goToGlobalAdminView('usuarios'));
+$('#btnGalleryGoTrabajadoresGlobal').addEventListener('click', () => goToGlobalAdminView('trabajadores_global'));
+$('#btnGalleryGoNominasGlobal').addEventListener('click', () => goToGlobalAdminView('nominas_global'));
+$('#btnGalleryGoPermisos').addEventListener('click', () => { state.usuariosSubView = 'permisos'; goToGlobalAdminView('usuarios'); });
+
 function openNuevoClienteModal() {
   openModal(`
     <h3>Nuevo cliente</h3>
@@ -2405,7 +2483,7 @@ async function renderView() {
   const view = $('#view');
   if (state.view === 'usuarios' || state.view === 'proveedores' || state.view === 'maquinaria' || state.view === 'nominas_global' || state.view === 'trabajadores_global' || state.view === 'cotizador' || state.view === 'estadoResultadosGlobal') {
     try {
-      if (state.view === 'usuarios') await renderUsuarios(view);
+      if (state.view === 'usuarios') { await renderUsuarios(view, state.usuariosSubView); state.usuariosSubView = null; }
       else if (state.view === 'proveedores') await renderProveedores(view);
       else if (state.view === 'nominas_global') await renderNominasGlobal(view);
       else if (state.view === 'trabajadores_global') await renderTrabajadoresGlobal(view);
@@ -5692,7 +5770,7 @@ const PERMISOS_SECCION_LABELS = {
   estado_resultados: 'Estado de Resultados',
   insumos: 'Insumos', mapeo: 'Mapeo', usuarios: 'Usuarios', contrato: 'Contrato', impuestos: 'Impuestos',
   nominas: 'Nóminas', sugerencias: 'Sugerencias', programa: 'Programa', estimaciones: 'Estimaciones',
-  maquinaria: 'Maquinaria',
+  maquinaria: 'Maquinaria', trabajadores: 'Trabajadores',
   trabajadores_global: 'Trabajadores (Todas las Obras)', nominas_global: 'Nóminas (Todas las Obras)',
 };
 // Secciones que NUNCA son por-obra — no existe (ni tiene sentido) una versión
@@ -5716,7 +5794,7 @@ const PERMISOS_ACCIONES = [
 // (auth.allow()), marcarla o no aquí todavía no cambia nada en el backend.
 // Actualizar esta lista cada vez que se le agregue checkPermiso a una
 // sección nueva (ver mismo patrón en server/auth.js SECCIONES_PERMISOS).
-const SECCIONES_CON_ENFORCEMENT = ['nominas', 'avance', 'maquinaria', 'trabajadores_global', 'nominas_global'];
+const SECCIONES_CON_ENFORCEMENT = ['nominas', 'avance', 'maquinaria', 'trabajadores_global', 'nominas_global', 'trabajadores'];
 // Agrupa las secciones de permisos igual que SECTION_DEFS agrupa las pestañas
 // en la pantalla de inicio (Obra / Compras / Tesorería / Administración) —
 // mismo criterio de negocio, para que la matriz se lea en el mismo orden que
@@ -5725,7 +5803,7 @@ const PERMISOS_GRUPOS = [
   { label: 'Obra',           secciones: ['presupuestos', 'programa', 'avance', 'destajo', 'estimaciones'] },
   { label: 'Compras',        secciones: ['requisiciones', 'insumos', 'proveedores', 'ordenes_compra'] },
   { label: 'Tesorería',      secciones: ['finanzas', 'estado_resultados', 'impuestos'] },
-  { label: 'Administración', secciones: ['mapeo', 'contrato', 'nominas', 'usuarios', 'trabajadores_global', 'nominas_global'] },
+  { label: 'Administración', secciones: ['mapeo', 'contrato', 'nominas', 'usuarios', 'trabajadores', 'trabajadores_global', 'nominas_global'] },
   { label: 'Maquinaria',     secciones: ['maquinaria'] },
   { label: 'General',        secciones: ['sugerencias'] },
 ];
@@ -5741,7 +5819,7 @@ const TAB_A_SECCION = {
   usuarios: 'usuarios', proveedores: 'proveedores', finanzas: 'finanzas',
   estadoResultados: 'estado_resultados',
   mapeo: 'mapeo', nominas: 'nominas', estimaciones: 'estimaciones',
-  maquinaria: 'maquinaria',
+  maquinaria: 'maquinaria', trabajadores: 'trabajadores',
 };
 function defaultPermisosParaRolFrontend(puesto) {
   const tabs = ROLE_TABS[puesto] || [];
@@ -5771,7 +5849,7 @@ function defaultPermisosParaRolFrontend(puesto) {
   return porSeccion;
 }
 
-async function renderUsuarios(view) {
+async function renderUsuarios(view, initialSubView) {
   if (!puedeGestionarUsuarios()) {
     view.innerHTML = `<div class="alert-box danger">⚠️ No tienes permiso para ver esta sección.</div>`;
     return;
@@ -6017,7 +6095,8 @@ async function renderUsuarios(view) {
     pintarMatriz();
   }
 
-  await showCuentas();
+  if (initialSubView === 'permisos' && isAdmin()) await showPermisos();
+  else await showCuentas();
 }
 
 function paintUsuariosList(usuarios) {
@@ -6401,7 +6480,11 @@ async function renderCotizador(view) {
 
   view.innerHTML = `
     <h2 class="section-title">Cotizador de materiales</h2>
-    <p class="muted">Compara precios entre Home Depot y Sodimac para un material. Los resultados se guardan en caché por 24 horas.</p>
+    <p class="muted">Compara precios entre Home Depot, Sodimac y Amazon para un material. Los resultados se guardan en caché por 24 horas.</p>
+    <div class="row gap-8 items-center mt-4">
+      <span class="muted fs-08" id="cotizadorUbicacionLabel">Ubicación para Amazon: —</span>
+      <button class="btn small" id="btnCotizadorUbicacion">📍 Configurar ubicación</button>
+    </div>
     <div class="row gap-8 mt-8">
       <div class="field flex-1">
         <label>Buscar material</label>
@@ -6414,11 +6497,56 @@ async function renderCotizador(view) {
     <div id="cotizadorResultados" class="mt-12"></div>
   `;
 
-  const TIENDA_LABELS = { home_depot: 'Home Depot', sodimac: 'Sodimac' };
+  const TIENDA_LABELS = { home_depot: 'Home Depot', sodimac: 'Sodimac', amazon: 'Amazon' };
   const fmtFechaHora = (s) => {
     const d = new Date(s);
     return Number.isNaN(d.getTime()) ? '—' : d.toLocaleString('es-MX', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
   };
+
+  // Ubicación fija (Fase 1, prompt-cotizador-mas-tiendas.md) — solo Amazon
+  // de las tiendas del comparador soporta fijar zona de envío vía UI (ver
+  // diagnóstico en server/cotizador.js); Home Depot/Sodimac la ignoran.
+  async function refrescarUbicacionLabel() {
+    const label = $('#cotizadorUbicacionLabel');
+    try {
+      const cfg = await api('/cotizador/config');
+      label.textContent = cfg.codigo_postal
+        ? `Ubicación para Amazon: ${cfg.ciudad ? cfg.ciudad + ' · ' : ''}CP ${cfg.codigo_postal}`
+        : 'Ubicación para Amazon: no configurada (usa geo-IP por defecto)';
+    } catch (err) {
+      label.textContent = 'Ubicación para Amazon: —';
+    }
+  }
+  refrescarUbicacionLabel();
+
+  $('#btnCotizadorUbicacion').addEventListener('click', async () => {
+    let actual = { ciudad: '', codigo_postal: '' };
+    try { actual = await api('/cotizador/config'); } catch (err) { /* formulario abre vacío si falla */ }
+    openModal(`
+      <h3>Configurar ubicación</h3>
+      <p class="muted fs-08">Se usa al cotizar en Amazon para que el precio y la disponibilidad reflejen esta zona. Home Depot y Sodimac no la usan.</p>
+      <div class="field"><label>Ciudad</label><input id="cotizadorCiudad" value="${esc(actual.ciudad || '')}" placeholder="Ej. Cuernavaca" /></div>
+      <div class="field"><label>Código postal</label><input id="cotizadorCP" value="${esc(actual.codigo_postal || '')}" placeholder="Ej. 62050" maxlength="5" /></div>
+      <div class="modal-actions">
+        <button class="btn" id="btnCotizadorUbicacionCancelar">Cancelar</button>
+        <button class="btn btn-primary" id="btnCotizadorUbicacionGuardar">Guardar</button>
+      </div>
+    `);
+    $('#btnCotizadorUbicacionCancelar').addEventListener('click', closeModal);
+    $('#btnCotizadorUbicacionGuardar').addEventListener('click', async () => {
+      const ciudad = $('#cotizadorCiudad').value.trim();
+      const codigo_postal = $('#cotizadorCP').value.trim();
+      if (codigo_postal && !/^\d{4,5}$/.test(codigo_postal)) { toast('Código postal inválido', 'danger'); return; }
+      try {
+        await api('/cotizador/config', { method: 'PUT', body: { ciudad, codigo_postal } });
+        closeModal();
+        toast('Ubicación guardada', 'success');
+        refrescarUbicacionLabel();
+      } catch (err) {
+        toast(err.message, 'danger');
+      }
+    });
+  });
 
   function pintarResultados() {
     const cont = $('#cotizadorResultados');
@@ -6461,7 +6589,33 @@ async function renderCotizador(view) {
   async function buscar(query, forzar = false) {
     if (!query || !query.trim()) { toast('Escribe un término de búsqueda', 'danger'); return; }
     const cont = $('#cotizadorResultados');
-    cont.innerHTML = '<div class="spinner"></div><p class="muted">Consultando precios en vivo, puede tardar unos segundos…</p>';
+    // Animación de carga (prompt-animacion-carga-cotizador.md): el backend
+    // responde todo junto al final (sin streaming por tienda), así que no
+    // hay señal real de "esta tienda ya terminó" — en vez de simular
+    // checkmarks falsos (engañoso si el timing no coincide), se usa un
+    // "escaneo" ambiguo que recorre las 3 tiendas en loop + mensaje
+    // rotativo + shimmer sobre la forma de la tabla que está por aparecer.
+    // 100% CSS (@keyframes cotizadorScan/cotizadorMsgFade/cotizadorShimmer
+    // en styles.css), sin JS timers que limpiar.
+    cont.innerHTML = `
+      <div class="cotizador-loading">
+        <div class="cotizador-loading-tiendas">
+          <span class="cotizador-loading-tienda" style="--i:0">Home Depot</span>
+          <span class="cotizador-loading-tienda" style="--i:1">Sodimac</span>
+          <span class="cotizador-loading-tienda" style="--i:2">Amazon</span>
+        </div>
+        <div class="cotizador-loading-msg">
+          <span>Comparando precios en 3 tiendas…</span>
+          <span>Puede tardar unos segundos…</span>
+          <span>Casi listo…</span>
+        </div>
+        <div class="cotizador-skeleton">
+          <div class="cotizador-skeleton-row"></div>
+          <div class="cotizador-skeleton-row"></div>
+          <div class="cotizador-skeleton-row"></div>
+        </div>
+      </div>
+    `;
     // La función serverless tiene maxDuration:90s (vercel.json) — si por
     // algún motivo la plataforma la mata sin responder, el fetch se quedaría
     // esperando indefinidamente sin este timeout explícito (bug real
@@ -7582,10 +7736,20 @@ async function renderTrabajadoresGlobal(view) {
 }
 
 async function renderTrabajadores(view) {
-  if (!isAdmin()) {
+  // Antes hardcodeado a isAdmin() — ahora usa el permiso granular por-obra
+  // (prompts-cotizador-sidebar-permisos-estimaciones.md, Prompt 3), mismo
+  // patrón que renderAvance()/misPermisosAvance. admin/desarrollador siguen
+  // viendo todo (el endpoint de mis-permisos les devuelve todo en true).
+  const misPermisos = await api(`/projects/${state.projectId}/mis-permisos/trabajadores`);
+  if (!misPermisos.puede_ver) {
     view.innerHTML = `<div class="alert-box danger">⚠️ No tienes permiso para ver esta sección.</div>`;
     return;
   }
+  // "Nuevo trabajador" es la única acción que un no-admin puede ganar vía el
+  // permiso granular (puede_crear) — editar/documentos/contratos/EPP/baja/
+  // eliminar se quedan admin-only (puedeGestionarTrabajadores()) porque sus
+  // endpoints siguen sin checkPermiso real, mismo alcance parcial que 'nominas'.
+  const puedeCrear = isAdmin() || !!misPermisos.puede_crear;
   let mostrarInactivos = false;
   async function repaint() {
     const trabajadores = await api(`/projects/${state.projectId}/trabajadores${mostrarInactivos ? '' : '?activo=1'}`);
@@ -7598,7 +7762,7 @@ async function renderTrabajadores(view) {
     <h2 class="section-title">Trabajadores</h2>
     <p class="muted">Expediente de personal asignado a esta obra.</p>
     <div class="section-actions section-actions-wrap">
-      ${puedeGestionarTrabajadores() ? `<button class="btn btn-primary" id="btnNuevoTrabajador">+ Nuevo trabajador</button>` : ''}
+      ${puedeCrear ? `<button class="btn btn-primary" id="btnNuevoTrabajador">+ Nuevo trabajador</button>` : ''}
       ${puedeGestionarTrabajadores() ? `<button class="btn" id="btnCatalogoEpp">Catálogo EPP</button>` : ''}
       <label class="checkbox-label-inline">
         <input type="checkbox" id="chkVerInactivos" class="w-auto"> Ver inactivos
@@ -8959,19 +9123,91 @@ const ESTIMACION_ESTADO_BADGE = {
   borrador: 'muted', enviada: 'yellow', aprobada: 'green', rechazada: 'red',
 };
 
+// Preferencia de UI (por dispositivo, no por obra): mostrar el folio "#N" en
+// gris tenue junto al nombre de una estimación renombrada. Default visible
+// (true) para no ocultar información de golpe a quien ya usaba el folio para
+// identificar la estimación — el usuario la apaga si le estorba.
+const MOSTRAR_FOLIO_ESTIMACION_KEY = 'cp_mostrar_folio_estimacion';
+function getMostrarFolioEstimacion() {
+  const v = localStorage.getItem(MOSTRAR_FOLIO_ESTIMACION_KEY);
+  return v === null ? true : v === '1';
+}
+function setMostrarFolioEstimacion(v) {
+  localStorage.setItem(MOSTRAR_FOLIO_ESTIMACION_KEY, v ? '1' : '0');
+}
+
+// Búsqueda/orden/filtro (Fase 2, prompt-fix-nombre-emojis-filtros-estimaciones.md)
+// — 100% en frontend sobre los datos ya cargados: /estimaciones no pagina y
+// el volumen por obra es bajo (folio consecutivo, decenas como mucho), así
+// que no se justifica un endpoint nuevo. estimacionesRaw guarda el último
+// fetch; cambiar filtro/orden solo repinta, nunca vuelve a pedir al server.
+let estimacionesRaw = [];
+let estimacionesFilter = { q: '', estados: new Set(), orden: 'fecha_desc' };
+const ESTIMACION_ORDEN_OPCIONES = [
+  { value: 'fecha_desc', label: 'Fecha de creación (más reciente primero)' },
+  { value: 'fecha_asc', label: 'Fecha de creación (más antigua primero)' },
+  { value: 'nombre_asc', label: 'Nombre (A-Z)' },
+  { value: 'nombre_desc', label: 'Nombre (Z-A)' },
+  { value: 'monto_desc', label: 'Monto (mayor a menor)' },
+  { value: 'monto_asc', label: 'Monto (menor a mayor)' },
+];
+
 async function renderEstimaciones(view) {
   if (!puedeVerEstimaciones()) {
     view.innerHTML = `<div class="alert-box danger">⚠️ No tienes permiso para ver esta sección.</div>`;
     return;
   }
+  estimacionesFilter = { q: '', estados: new Set(), orden: 'fecha_desc' };
   view.innerHTML = `
     <h2 class="section-title">Estimaciones</h2>
     <div class="section-actions mt-12">
       ${puedeCapturarEstimacion() ? `<button class="btn btn-primary" id="btnNuevaEstimacion">+ Nueva estimación</button>` : ''}
+      <div class="row">
+        <label class="perm-check">
+          <input type="checkbox" id="chkMostrarFolioEstimacion" ${getMostrarFolioEstimacion() ? 'checked' : ''} />
+          <span class="perm-check-track"><span class="perm-check-thumb"></span></span>
+        </label>
+        <span class="muted fs-08">Mostrar folio (#N) junto al nombre</span>
+      </div>
+    </div>
+    <div class="sticky-filters">
+      <div class="search-bar">
+        <input type="search" id="estimacionSearch" placeholder="Buscar por nombre o folio…" />
+      </div>
+      <div class="chip-row" id="estimacionEstadoChips">
+        ${Object.entries(ESTIMACION_ESTADO_LABELS).map(([key, label]) => `<button class="chip" data-estado-filter="${key}">${esc(label)}</button>`).join('')}
+      </div>
+      <div class="field mt-8">
+        <label class="fs-08 muted">Ordenar por</label>
+        <select id="estimacionOrden">
+          ${ESTIMACION_ORDEN_OPCIONES.map((o) => `<option value="${o.value}">${esc(o.label)}</option>`).join('')}
+        </select>
+      </div>
     </div>
     <div id="estimacionesList"><div class="empty-state">Cargando…</div></div>
   `;
   $('#btnNuevaEstimacion')?.addEventListener('click', () => openEstimacionModal(loadEstimaciones));
+  $('#chkMostrarFolioEstimacion').addEventListener('change', (e) => {
+    setMostrarFolioEstimacion(e.target.checked);
+    paintEstimacionesList();
+  });
+  $('#estimacionSearch').addEventListener('input', debounce((e) => {
+    estimacionesFilter.q = e.target.value.trim().toLowerCase();
+    paintEstimacionesList();
+  }, 220));
+  $$('#estimacionEstadoChips .chip').forEach((chip) => {
+    chip.addEventListener('click', () => {
+      const estado = chip.dataset.estadoFilter;
+      if (estimacionesFilter.estados.has(estado)) estimacionesFilter.estados.delete(estado);
+      else estimacionesFilter.estados.add(estado);
+      chip.classList.toggle('active');
+      paintEstimacionesList();
+    });
+  });
+  $('#estimacionOrden').addEventListener('change', (e) => {
+    estimacionesFilter.orden = e.target.value;
+    paintEstimacionesList();
+  });
   await loadEstimaciones();
 }
 
@@ -8979,13 +9215,55 @@ async function loadEstimaciones() {
   const el = $('#estimacionesList');
   if (!el) return;
   try {
-    const estimaciones = await api(`/projects/${state.projectId}/estimaciones`);
-    if (!estimaciones.length) { el.innerHTML = '<div class="empty-state">No hay estimaciones registradas.</div>'; return; }
-    el.innerHTML = estimaciones.map((e) => `
+    estimacionesRaw = await api(`/projects/${state.projectId}/estimaciones`);
+    paintEstimacionesList();
+  } catch (err) {
+    el.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+  }
+}
+
+// Nombre "efectivo" para búsqueda/orden alfabético: el real si existe, si no
+// el mismo fallback que ya se muestra en la tarjeta ("Estimación #N") — así
+// buscar/ordenar por nombre también encuentra/ordena las que no tienen uno.
+function nombreEfectivoEstimacion(e) { return e.nombre || `Estimación #${e.folio}`; }
+
+function paintEstimacionesList() {
+  const el = $('#estimacionesList');
+  if (!el) return;
+  if (!estimacionesRaw.length) { el.innerHTML = '<div class="empty-state">No hay estimaciones registradas.</div>'; return; }
+
+  let estimaciones = estimacionesRaw;
+  if (estimacionesFilter.q) {
+    const q = estimacionesFilter.q;
+    estimaciones = estimaciones.filter((e) =>
+      nombreEfectivoEstimacion(e).toLowerCase().includes(q) || String(e.folio).includes(q)
+    );
+  }
+  if (estimacionesFilter.estados.size) {
+    estimaciones = estimaciones.filter((e) => estimacionesFilter.estados.has(e.estado));
+  }
+  const collator = new Intl.Collator('es', { sensitivity: 'base' });
+  estimaciones = estimaciones.slice().sort((a, b) => {
+    switch (estimacionesFilter.orden) {
+      case 'fecha_asc': return new Date(a.fecha_captura) - new Date(b.fecha_captura);
+      case 'nombre_asc': return collator.compare(nombreEfectivoEstimacion(a), nombreEfectivoEstimacion(b));
+      case 'nombre_desc': return collator.compare(nombreEfectivoEstimacion(b), nombreEfectivoEstimacion(a));
+      case 'monto_asc': return (a.total_periodo || 0) - (b.total_periodo || 0);
+      case 'monto_desc': return (b.total_periodo || 0) - (a.total_periodo || 0);
+      case 'fecha_desc':
+      default: return new Date(b.fecha_captura) - new Date(a.fecha_captura);
+    }
+  });
+
+  if (!estimaciones.length) { el.innerHTML = '<div class="empty-state">No se encontraron estimaciones con esos filtros.</div>'; return; }
+
+  const mostrarFolio = getMostrarFolioEstimacion();
+  el.innerHTML = estimaciones.map((e) => `
       <div class="card">
         <div class="row between nomina-row-6">
           <div>
-            <strong>Estimación #${e.folio}</strong>
+            <strong>${e.nombre ? esc(e.nombre) + (mostrarFolio ? ` <span class="estimacion-folio-tenue">#${e.folio}</span>` : '') : 'Estimación #' + e.folio}</strong>
+            <button class="icon-btn-inline" data-renombrar-estimacion="${e.id}" data-nombre-actual="${esc(e.nombre || '')}" title="Renombrar" aria-label="Renombrar">✎</button>
             <div class="muted fs-08">${esc(e.periodo_inicio)} al ${esc(e.periodo_fin)} · $${Number(e.total_periodo || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })}</div>
           </div>
           <div class="row nomina-row-6-center">
@@ -9006,51 +9284,51 @@ async function loadEstimaciones() {
       </div>
     `).join('');
 
-    $$('[data-ver-estimacion]', el).forEach((btn) => {
-      btn.addEventListener('click', () => openVerEstimacionModal(Number(btn.dataset.verEstimacion)));
+  $$('[data-ver-estimacion]', el).forEach((btn) => {
+    btn.addEventListener('click', () => openVerEstimacionModal(Number(btn.dataset.verEstimacion)));
+  });
+  $$('[data-renombrar-estimacion]', el).forEach((btn) => {
+    btn.addEventListener('click', () => openRenombrarEstimacionModal(Number(btn.dataset.renombrarEstimacion), btn.dataset.nombreActual, loadEstimaciones));
+  });
+  $$('[data-calcular-estimacion]', el).forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      btn.disabled = true;
+      try {
+        await api(`/projects/${state.projectId}/estimaciones/${btn.dataset.calcularEstimacion}/calcular`, { method: 'POST' });
+        toast('Estimación calculada — se jaló el avance registrado en el periodo', 'success');
+        await loadEstimaciones();
+      } catch (err) { toast(err.message, 'danger'); btn.disabled = false; }
     });
-    $$('[data-calcular-estimacion]', el).forEach((btn) => {
-      btn.addEventListener('click', async () => {
-        btn.disabled = true;
-        try {
-          await api(`/projects/${state.projectId}/estimaciones/${btn.dataset.calcularEstimacion}/calcular`, { method: 'POST' });
-          toast('Estimación calculada — se jaló el avance registrado en el periodo', 'success');
-          await loadEstimaciones();
-        } catch (err) { toast(err.message, 'danger'); btn.disabled = false; }
-      });
+  });
+  $$('[data-enviar-estimacion]', el).forEach((btn) => {
+    btn.addEventListener('click', () => openCambioEstadoEstimacionModal(Number(btn.dataset.enviarEstimacion), 'enviada', false, loadEstimaciones));
+  });
+  $$('[data-aprobar-estimacion]', el).forEach((btn) => {
+    btn.addEventListener('click', () => openCambioEstadoEstimacionModal(Number(btn.dataset.aprobarEstimacion), 'aprobada', false, loadEstimaciones));
+  });
+  $$('[data-rechazar-estimacion]', el).forEach((btn) => {
+    btn.addEventListener('click', () => openCambioEstadoEstimacionModal(Number(btn.dataset.rechazarEstimacion), 'rechazada', true, loadEstimaciones));
+  });
+  $$('[data-eliminar-estimacion]', el).forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      if (!confirm('¿Eliminar esta estimación en borrador?')) return;
+      btn.disabled = true;
+      try {
+        await api(`/projects/${state.projectId}/estimaciones/${btn.dataset.eliminarEstimacion}`, { method: 'DELETE' });
+        toast('Estimación eliminada', 'success');
+        await loadEstimaciones();
+      } catch (err) { toast(err.message, 'danger'); btn.disabled = false; }
     });
-    $$('[data-enviar-estimacion]', el).forEach((btn) => {
-      btn.addEventListener('click', () => openCambioEstadoEstimacionModal(Number(btn.dataset.enviarEstimacion), 'enviada', false, loadEstimaciones));
+  });
+  $$('[data-descargar-estimacion]', el).forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      btn.disabled = true;
+      try {
+        await apiDownload(`/projects/${state.projectId}/estimaciones/${btn.dataset.descargarEstimacion}/pdf`, `Estimacion_${btn.dataset.folio}.pdf`);
+      } catch (err) { toast(err.message, 'danger'); }
+      btn.disabled = false;
     });
-    $$('[data-aprobar-estimacion]', el).forEach((btn) => {
-      btn.addEventListener('click', () => openCambioEstadoEstimacionModal(Number(btn.dataset.aprobarEstimacion), 'aprobada', false, loadEstimaciones));
-    });
-    $$('[data-rechazar-estimacion]', el).forEach((btn) => {
-      btn.addEventListener('click', () => openCambioEstadoEstimacionModal(Number(btn.dataset.rechazarEstimacion), 'rechazada', true, loadEstimaciones));
-    });
-    $$('[data-eliminar-estimacion]', el).forEach((btn) => {
-      btn.addEventListener('click', async () => {
-        if (!confirm('¿Eliminar esta estimación en borrador?')) return;
-        btn.disabled = true;
-        try {
-          await api(`/projects/${state.projectId}/estimaciones/${btn.dataset.eliminarEstimacion}`, { method: 'DELETE' });
-          toast('Estimación eliminada', 'success');
-          await loadEstimaciones();
-        } catch (err) { toast(err.message, 'danger'); btn.disabled = false; }
-      });
-    });
-    $$('[data-descargar-estimacion]', el).forEach((btn) => {
-      btn.addEventListener('click', async () => {
-        btn.disabled = true;
-        try {
-          await apiDownload(`/projects/${state.projectId}/estimaciones/${btn.dataset.descargarEstimacion}/pdf`, `Estimacion_${btn.dataset.folio}.pdf`);
-        } catch (err) { toast(err.message, 'danger'); }
-        btn.disabled = false;
-      });
-    });
-  } catch (err) {
-    el.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
-  }
+  });
 }
 
 async function openEstimacionModal(onSave) {
@@ -9064,6 +9342,7 @@ async function openEstimacionModal(onSave) {
   openModal(`
     <h3>Nueva estimación</h3>
     <p class="muted fs-088">Los montos se jalan automáticamente del avance ya registrado en el periodo — no se capturan aquí. Si algo no cuadra, corrígelo en Avance y vuelve a calcular.</p>
+    <div class="field"><label>Nombre (opcional)</label><input id="eNombre" placeholder="Ej. Cimentación etapa 1" maxlength="120" /></div>
     <div class="estimacion-periodo-grid">
       <div class="field"><label>Periodo inicio *</label><input id="ePeriodoInicio" type="date" value="${esc(defaults.periodo_inicio || '')}" /></div>
       <div class="field"><label>Periodo fin *</label><input id="ePeriodoFin" type="date" value="${esc(defaults.periodo_fin || '')}" /></div>
@@ -9074,6 +9353,7 @@ async function openEstimacionModal(onSave) {
       <button class="btn btn-primary" id="btnSaveEstimacion">Crear estimación</button>
     </div>
   `);
+  const nombreEl = $('#eNombre');
   const inicioEl = $('#ePeriodoInicio');
   const finEl = $('#ePeriodoFin');
   const errorEl = $('#ePeriodoError');
@@ -9106,7 +9386,7 @@ async function openEstimacionModal(onSave) {
     try {
       await api(`/projects/${state.projectId}/estimaciones`, {
         method: 'POST',
-        body: { periodo_inicio, periodo_fin },
+        body: { periodo_inicio, periodo_fin, nombre: nombreEl.value.trim() || null },
       });
       toast('Estimación creada', 'success');
       closeModal();
@@ -9115,18 +9395,59 @@ async function openEstimacionModal(onSave) {
   });
 }
 
+// Renombrar (Prompt 4, prompts-cotizador-sidebar-permisos-estimaciones.md)
+// — modal chico y separado del detalle, mismo patrón que otros "renombrar"
+// de la app (confirm-dialog simple, sin abrir el detalle completo).
+function openRenombrarEstimacionModal(estimacionId, nombreActual, onDone) {
+  openModal(`
+    <h3>Renombrar estimación</h3>
+    <div class="field"><label>Nombre</label><input id="renombrarEstimacionInput" value="${esc(nombreActual || '')}" placeholder="Ej. Cimentación etapa 1" maxlength="120" /></div>
+    <p class="muted fs-08">Déjalo vacío para volver a mostrar solo el folio.</p>
+    <div class="modal-actions">
+      <button class="btn" id="btnCancelarRenombrarEstimacion">Cancelar</button>
+      <button class="btn btn-primary" id="btnGuardarRenombrarEstimacion">Guardar</button>
+    </div>
+  `);
+  $('#renombrarEstimacionInput').focus();
+  $('#btnCancelarRenombrarEstimacion').addEventListener('click', closeModal);
+  $('#btnGuardarRenombrarEstimacion').addEventListener('click', async () => {
+    const btn = $('#btnGuardarRenombrarEstimacion');
+    btn.disabled = true;
+    try {
+      await api(`/projects/${state.projectId}/estimaciones/${estimacionId}/nombre`, {
+        method: 'PUT',
+        body: { nombre: $('#renombrarEstimacionInput').value.trim() },
+      });
+      toast('Nombre actualizado', 'success');
+      closeModal();
+      if (onDone) await onDone();
+    } catch (err) { toast(err.message, 'danger'); btn.disabled = false; }
+  });
+}
+
+// Modal en pantalla ancha en desktop (Prompt 4) — .modal-wide se limpia en
+// closeModal() para no dejarlo pegado a otros modales que reusan el mismo
+// #modal compartido.
 async function openVerEstimacionModal(estimacionId) {
+  $('#modal').classList.add('modal-wide');
   openModal(`<h3>Detalle de estimación</h3><div id="verEstimacionBody"><div class="empty-state">Cargando…</div></div><div class="modal-actions"><button class="btn" id="btnCerrarVerEstimacion">Cerrar</button></div>`);
   $('#btnCerrarVerEstimacion').addEventListener('click', closeModal);
+  await pintarVerEstimacion(estimacionId);
+}
+
+async function pintarVerEstimacion(estimacionId) {
+  const money = (n) => `$${Number(n || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })}`;
   try {
     const data = await api(`/projects/${state.projectId}/estimaciones/${estimacionId}`);
     const items = data.items || [];
     const el = $('#verEstimacionBody');
     if (!el) return;
     if (!items.length) { el.innerHTML = '<div class="empty-state">Sin conceptos calculados. Usa el botón Calcular primero.</div>'; return; }
-    const money = (n) => `$${Number(n || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })}`;
+    // Amortización solo editable mientras el desglose de pago no está fijo
+    // (mismo candado que "Calcular" en el backend — ver PUT .../amortizacion).
+    const puedeEditarAmortizacion = ['borrador', 'rechazada'].includes(data.estado) && puedeCapturarEstimacion();
     el.innerHTML = `
-      <div class="muted nomina-detalle-fecha">Folio #${data.folio} · ${esc(data.periodo_inicio)} al ${esc(data.periodo_fin)}</div>
+      <div class="muted nomina-detalle-fecha">Folio #${data.folio}${data.nombre ? ' · ' + esc(data.nombre) : ''} · ${esc(data.periodo_inicio)} al ${esc(data.periodo_fin)}</div>
       <div class="nomina-table-wrap">
       <table class="nomina-table">
         <thead><tr>
@@ -9157,7 +9478,55 @@ async function openVerEstimacionModal(estimacionId) {
         </tr></tfoot>
       </table>
       </div>
+
+      <h4 class="mt-16">Desglose de pago</h4>
+      <div class="table-scroll">
+        <table class="nomina-table estimacion-desglose-table">
+          <tbody>
+            <tr>
+              <td class="nomina-td">Estimación (periodo)</td>
+              <td class="nomina-td-right">${money(data.total_periodo)}</td>
+            </tr>
+            <tr>
+              <td class="nomina-td">Amortización de anticipo</td>
+              <td class="nomina-td-right">
+                ${puedeEditarAmortizacion
+                  ? `<input type="number" min="0" step="0.01" id="estAmortizacionInput" value="${Number(data.amortizacion_anticipo || 0)}" class="estimacion-amortizacion-input" />`
+                  : `-${money(data.amortizacion_anticipo)}`}
+              </td>
+            </tr>
+            <tr>
+              <td class="nomina-td">2% Fondo de garantía</td>
+              <td class="nomina-td-right">-${money(data.fondo_garantia_monto)}</td>
+            </tr>
+            <tr>
+              <td class="nomina-td">Más IVA 16%</td>
+              <td class="nomina-td-right">+${money(data.iva_monto)}</td>
+            </tr>
+            <tr class="estimacion-total-a-pagar-row">
+              <td class="nomina-td">Total a pagar</td>
+              <td class="nomina-td-right">${money(data.total_a_pagar)}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      ${puedeEditarAmortizacion ? `<div class="row end mt-8"><button class="btn small btn-primary" id="btnGuardarAmortizacion">Guardar amortización</button></div>` : ''}
     `;
+    $('#btnGuardarAmortizacion')?.addEventListener('click', async () => {
+      const btn = $('#btnGuardarAmortizacion');
+      const input = $('#estAmortizacionInput');
+      const monto = Number(input.value);
+      if (!Number.isFinite(monto) || monto < 0) { toast('Monto de amortización inválido', 'danger'); return; }
+      btn.disabled = true;
+      try {
+        await api(`/projects/${state.projectId}/estimaciones/${estimacionId}/amortizacion`, {
+          method: 'PUT',
+          body: { amortizacion_anticipo: monto },
+        });
+        toast('Amortización actualizada', 'success');
+        await pintarVerEstimacion(estimacionId);
+      } catch (err) { toast(err.message, 'danger'); btn.disabled = false; }
+    });
   } catch (err) {
     const el = $('#verEstimacionBody');
     if (el) el.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;

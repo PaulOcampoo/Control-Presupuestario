@@ -460,6 +460,20 @@ const SCHEMA = `
   );
   CREATE INDEX IF NOT EXISTS idx_ultima_visita_usuario_cliente ON ultima_visita(usuario_id, cliente_id);
 
+  -- Favoritos de la galería de clientes (Prompt B, prompts-animaciones-y-
+  -- galeria-clientes.md) — por usuario (no por dispositivo/localStorage) para
+  -- que viaje entre sesiones/equipos del mismo usuario, mismo patrón que
+  -- ultima_visita de arriba. UNIQUE(usuario_id, cliente_id) evita duplicados;
+  -- marcar/desmarcar es INSERT/DELETE simple, no hace falta upsert.
+  CREATE TABLE IF NOT EXISTS usuario_favoritos (
+    id SERIAL PRIMARY KEY,
+    usuario_id INTEGER NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+    cliente_id INTEGER NOT NULL REFERENCES clientes(id) ON DELETE CASCADE,
+    creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(usuario_id, cliente_id)
+  );
+  CREATE INDEX IF NOT EXISTS idx_usuario_favoritos_usuario ON usuario_favoritos(usuario_id);
+
   -- Catálogo formal de trabajadores por obra (expediente personal). Coexiste
   -- con 'destajistas' (rol en obra); el vínculo es opcional vía destajista_id.
   CREATE TABLE IF NOT EXISTS trabajadores (

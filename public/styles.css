@@ -631,6 +631,29 @@ body.modal-open { overflow: hidden; }
 /* En móvil el toast debe quedar por encima de la barra de navegación inferior */
 @media (max-width: 860px) {
   .toast { bottom: calc(var(--mobile-nav-h) + var(--mobile-nav-clear) + 20px); }
+
+  /* Carrusel de clientes (Prompt B.5, prompts-animaciones-y-galeria-
+     clientes.md) — en mobile la cuadrícula fija se vuelve una fila
+     deslizable con scroll-snap nativo (sin librería): cada tarjeta ocupa
+     ~74vw (se ve "un poco más" de la siguiente, invitando a deslizar) y
+     encaja al soltar. Aplica igual a #clienteGrid y #favoritosGrid (ambos
+     llevan la clase .cliente-grid-carousel).
+     Selector compuesto .cliente-grid.cliente-grid-carousel (no solo
+     .cliente-grid-carousel) a propósito: la regla base .cliente-grid{
+     display:grid } vive MÁS ABAJO en el archivo — con la misma
+     especificidad (0,1,0) que tendría .cliente-grid-carousel sola, esa
+     regla base (por ir después) ganaría y el carrusel nunca se activaría
+     pese a estar dentro del media query correcto. El selector compuesto
+     sube a (0,2,0), gana sin importar el orden. */
+  .cliente-grid.cliente-grid-carousel {
+    display: flex; flex-wrap: nowrap; overflow-x: auto; scroll-snap-type: x mandatory;
+    -webkit-overflow-scrolling: touch; overscroll-behavior-x: contain;
+    padding-bottom: 4px; margin-left: -4px; margin-right: -4px; padding-left: 4px; padding-right: 4px;
+    scrollbar-width: none;
+  }
+  .cliente-grid.cliente-grid-carousel::-webkit-scrollbar { display: none; }
+  .cliente-grid.cliente-grid-carousel > * { flex: 0 0 auto; width: min(74vw, 240px); scroll-snap-align: start; }
+  .favoritos-section .cliente-grid.cliente-grid-carousel > * { width: min(58vw, 190px); }
 }
 
 .spinner {
@@ -907,23 +930,97 @@ body.modal-open { overflow: hidden; }
 .gallery-greeting .muted { font-size: 0.92rem; margin: 0; color: color-mix(in srgb, #04212f 65%, transparent); }
 
 /* Contenido debajo del header: sin la tarjeta/borde de antes, scrollea junto
-   con la pantalla completa (.gallery-screen ya es el scroll container). */
+   con la pantalla completa (.gallery-screen ya es el scroll container).
+   max-width sube de 760px a 1040px (Prompt B) para dar cabida al panel de
+   Actividad reciente en desktop sin apretar la cuadrícula de clientes. */
 .gallery-body {
-  flex: 1; width: 100%; max-width: 760px; margin: 0 auto;
+  flex: 1; width: 100%; max-width: 1040px; margin: 0 auto;
   padding: 22px 20px calc(20px + env(safe-area-inset-bottom, 0px));
 }
 .gallery-body h1 { font-size: 1.2rem; margin: 4px 0; }
 
+/* Layout de 2 columnas (Prompt B): .gallery-body-main se queda con el ancho
+   original (760px) para que la cuadrícula de clientes no cambie de tamaño;
+   el panel de Actividad reciente vive en el espacio que antes quedaba vacío
+   a la derecha. En mobile es una sola columna (el panel se oculta, ver
+   .galeria-actividad-panel más abajo). */
+.gallery-body-layout { display: flex; gap: 28px; align-items: flex-start; }
+.gallery-body-main { flex: 1; min-width: 0; max-width: 760px; }
+
+.gallery-clientes-header { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; flex-wrap: wrap; }
+.gallery-subtitle { font-size: 1rem; margin: 0 0 10px; }
+
+/* Favoritos: mismo grid que clientes, tarjetas un poco más compactas (ver
+   --cliente-card-min más abajo, Prompt B.3) y sin margin-top propio porque
+   .favoritos-section ya trae su separación. */
+.favoritos-section { margin-bottom: 22px; }
+.favoritos-section .cliente-grid { margin-top: 0; }
+.favoritos-section .cliente-card { padding: 14px 10px; }
+.favoritos-section .cliente-icon { font-size: 1.4rem; }
+
+/* Control de tamaño de tarjetas (Prompt B.3) — botones +/- simples en vez de
+   slider: menos superficie de UI para un ajuste de 3-4 pasos, mismo patrón
+   visual que .icon-btn (tamaño/radio) pero más chico. */
+.icon-size-control { display: flex; gap: 6px; }
+.icon-size-btn {
+  width: 30px; height: 30px; border-radius: 8px; border: 1px solid var(--border-color);
+  background: var(--bg-surface-2); color: var(--text-secondary); font-size: 1.05rem; font-weight: 700;
+  cursor: pointer; display: flex; align-items: center; justify-content: center;
+}
+.icon-size-btn:active { transform: scale(0.94); }
+
 /* Grid de clientes: minmax + auto-fit (no auto-fill) para que, con pocos
    clientes, las tarjetas existentes llenen el ancho en vez de dejar
-   columnas vacías. 130px da 2 columnas en un móvil estándar (~360-390px de
-   ancho útil) y sube a 3 en pantallas más anchas (phablet/tablet/landscape),
-   sin depender de un breakpoint fijo ni del número de clientes. */
-.cliente-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 12px; margin-top: 14px; }
+   columnas vacías. var(--cliente-card-min, 130px) — el FALLBACK de var()
+   (no una declaración local de la propiedad) a propósito: applyIconSize()
+   en app.js setea --cliente-card-min en :root; si esta regla también la
+   declarara aquí, esa declaración local ganaría siempre sobre la heredada
+   de :root y el control +/- no tendría efecto. 130px da 2 columnas en un
+   móvil estándar (~360-390px de ancho útil) y sube a 3 en pantallas más
+   anchas (phablet/tablet/landscape), sin depender de un breakpoint fijo. */
+.cliente-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(var(--cliente-card-min, 130px), 1fr));
+  gap: 12px; margin-top: 14px;
+}
+
+/* Panel "Actividad reciente" — solo desktop (>=861px, mismo breakpoint que
+   el sidebar fijo de #app). En mobile no hay espacio libre que aprovechar
+   (la cuadrícula ya usa todo el ancho), así que se oculta por completo en
+   vez de apilarlo debajo — ver @media (min-width: 861px) más abajo. */
+.galeria-actividad-panel { display: none; flex-direction: column; gap: 20px; width: 260px; flex-shrink: 0; padding-top: 4px; }
+.galeria-actividad-section h4 {
+  font-size: 0.76rem; text-transform: uppercase; letter-spacing: 0.05em;
+  color: var(--text-secondary); margin: 0 0 10px; font-weight: 700;
+}
+.galeria-actividad-list { display: flex; flex-direction: column; gap: 8px; }
+.galeria-actividad-empty { color: var(--text-secondary); font-size: 0.8rem; }
+.galeria-reciente-item {
+  padding: 10px 12px; border-radius: 10px; background: var(--bg-surface-2);
+  border: 1px solid var(--border-color); cursor: pointer; transition: border-color 0.15s;
+}
+.galeria-reciente-item .gr-proyecto { font-weight: 600; font-size: 0.85rem; }
+.galeria-reciente-item .gr-cliente { color: var(--text-secondary); font-size: 0.75rem; }
+.galeria-reciente-item .gr-time { color: var(--text-secondary); font-size: 0.68rem; margin-top: 3px; }
+/* Reusa .notif-list/.notif-item (mismo feed de la campana del topbar) — solo
+   se le quita el max-height propio del dropdown, aquí no hace falta. */
+#galeriaAlertasList.notif-list { max-height: none; }
+#galeriaAlertasList .notif-item { border-radius: 10px; border: 1px solid var(--border-color); border-bottom: 1px solid var(--border-color); margin-bottom: 8px; }
+#galeriaAlertasList .notif-item:last-child { margin-bottom: 0; }
+
+@media (min-width: 861px) {
+  .galeria-actividad-panel { display: flex; }
+}
+/* Fondo simple (Prompt B, prompts-animaciones-y-galeria-clientes.md) — antes
+   usaba el acento del tema (color-mix con --accent-gold) como resaltado
+   dominante de CADA tarjeta; con 4 paletas ya no se leía como "marca de la
+   app" sino como ruido repetido en toda la cuadrícula. Ahora mismo fondo/
+   borde neutro que ya usaba "+ Nuevo cliente" — el ícono/nombre/contador ya
+   diferencian sobradamente una tarjeta de cliente real del botón de agregar,
+   el acento queda solo para el hover (ver @media hover más abajo). */
 .cliente-card {
   position: relative;
-  background: color-mix(in srgb, var(--accent-gold) 14%, var(--bg-surface-2));
-  border: 1px solid var(--accent-gold); border-radius: var(--radius);
+  background: var(--bg-surface-2);
+  border: 1px solid var(--border-color); border-radius: var(--radius);
   padding: 20px 12px; text-align: center; cursor: pointer;
   display: flex; flex-direction: column; gap: 8px; align-items: center;
   transition: border-color 0.2s, box-shadow 0.2s, transform 0.1s;
@@ -932,6 +1029,18 @@ body.modal-open { overflow: hidden; }
 .cliente-card .cliente-icon { font-size: 1.8rem; }
 .cliente-card .cliente-nombre { font-weight: 700; font-size: 0.98rem; text-transform: uppercase; }
 .cliente-card .cliente-count { color: var(--text-secondary); font-size: 0.76rem; }
+/* Favorito (Prompt B, prompts-animaciones-y-galeria-clientes.md) — esquina
+   superior IZQUIERDA (el menú de 3 puntos ya ocupa la derecha), visible para
+   cualquier usuario (no solo admin: es una preferencia personal, no una
+   acción de gestión). ⭐/☆ en vez de un ícono SVG — ya es universalmente
+   reconocible como favorito y no requiere tocar ICON_SVG. */
+.cliente-fav-btn {
+  position: absolute; top: 6px; left: 6px; width: 26px; height: 26px;
+  border: none; border-radius: 50%; background: transparent; color: var(--text-secondary);
+  font-size: 1rem; line-height: 1; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+}
+.cliente-fav-btn.active { color: var(--accent-gold); }
 /* Menú de 3 puntos (solo admin/desarrollador) — esquina superior derecha,
    fuera del flujo flex de la tarjeta para no desalinear icono/nombre/count. */
 .cliente-menu-btn {
@@ -957,13 +1066,12 @@ body.modal-open { overflow: hidden; }
    default del navegador, consistente con el resto de la app. */
 .cliente-card.sortable-ghost { opacity: 0.4; }
 .cliente-card.sortable-drag { box-shadow: 0 12px 30px rgba(0,0,0,0.4); cursor: grabbing; }
-/* No hereda el fondo/borde dorado de .cliente-card base — sigue siendo un
-   caso especial (solo admin, obras sin cliente asignado), no una tarjeta
-   de cliente real ni el botón "+ Nuevo cliente". */
+/* Caso especial (solo admin, obras sin cliente asignado) — mismo fondo base
+   que .cliente-card, se distingue con el borde punteado amarillo. */
 .cliente-card-orphan { background: var(--bg-surface-2); border-style: dashed; border-color: var(--yellow); }
-/* "+ Nuevo cliente": estilo blanco/neutro simple (el que antes tenían las
-   tarjetas de cliente reales) — el fondo/borde dorado ahora distingue a
-   las tarjetas de cliente reales, más llamativas que el botón de agregar. */
+/* "+ Nuevo cliente": mismo fondo/borde neutro que .cliente-card ahora
+   (ver comentario de .cliente-card arriba) — se distingue por su contenido
+   (ícono ➕ centrado, sin nombre/contador), no por el color. */
 .cliente-card-new {
   background: var(--bg-surface-2);
   border: 1px solid var(--border-color);
@@ -2171,6 +2279,9 @@ body.modal-open { overflow: hidden; }
   .search-bar-fancy .search-clear:hover { background: var(--border-color); color: var(--text-primary); }
   .gallery-hero-top .btn.small:hover { background: rgba(4,33,47,0.2); }
   .cliente-card:hover { border-color: var(--accent-gold); box-shadow: 0 0 18px color-mix(in srgb, var(--accent-gold) 28%, transparent); }
+  .galeria-reciente-item:hover { border-color: var(--accent-gold); }
+  .icon-size-btn:hover { border-color: var(--accent-gold); color: var(--text-primary); }
+  .cliente-fav-btn:hover { background: color-mix(in srgb, var(--text-primary) 10%, transparent); }
   .sidebar-project-btn:hover { border-color: var(--accent-gold); }
   .sbar-item.sbar-disabled:hover { background: transparent; color: var(--text-secondary); }
   .sbar-soon:hover { background: transparent !important; }

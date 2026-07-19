@@ -29,6 +29,7 @@ const state = {
   projects: [],
   projectId: null,
   clientes: [],
+  favoritos: new Set(), // cliente_id de favoritos del usuario (Prompt B) — Set para O(1) lookup al pintar tarjetas
   clienteId: null,
   pendingUploadClienteId: null,
   pendingContrato: null,
@@ -287,6 +288,40 @@ $('#btnThemeToggle').addEventListener('click', toggleTheme);
 $$('[data-palette-set]').forEach((btn) => {
   btn.addEventListener('click', () => setPalette(btn.dataset.paletteSet));
 });
+
+// ---------------------------------------------------------------------------
+// Tamaño de tarjetas de cliente (Prompt B.3, prompts-animaciones-y-galeria-
+// clientes.md) — botones +/- en vez de slider, 4 pasos. Persistido en
+// localStorage (preferencia de dispositivo/pantalla, no del usuario en sí —
+// a diferencia de favoritos, que si viaja en BD). Aplicado vía CSS variable
+// en :root para que .cliente-grid (galería y franja de Favoritos, ambas) lo
+// hereden sin JS adicional — ver el fallback var(--cliente-card-min, 130px)
+// en styles.css.
+// ---------------------------------------------------------------------------
+const CLIENTE_CARD_SIZE_KEY = 'cp_cliente_card_size';
+const CLIENTE_CARD_SIZES = [110, 130, 150, 180]; // px — índice 1 (130px) es el tamaño original, sin cambio
+
+function getClienteCardSizeIndex() {
+  const saved = Number(localStorage.getItem(CLIENTE_CARD_SIZE_KEY));
+  const idx = CLIENTE_CARD_SIZES.indexOf(saved);
+  return idx >= 0 ? idx : 1;
+}
+
+function applyClienteCardSize() {
+  const px = CLIENTE_CARD_SIZES[getClienteCardSizeIndex()];
+  document.documentElement.style.setProperty('--cliente-card-min', `${px}px`);
+}
+
+function setClienteCardSizeIndex(idx) {
+  const clamped = Math.max(0, Math.min(CLIENTE_CARD_SIZES.length - 1, idx));
+  localStorage.setItem(CLIENTE_CARD_SIZE_KEY, CLIENTE_CARD_SIZES[clamped]);
+  applyClienteCardSize();
+}
+
+applyClienteCardSize();
+$('#btnIconSizeDown')?.addEventListener('click', () => setClienteCardSizeIndex(getClienteCardSizeIndex() - 1));
+$('#btnIconSizeUp')?.addEventListener('click', () => setClienteCardSizeIndex(getClienteCardSizeIndex() + 1));
+
 $('#btnNotif').innerHTML = icon('bell', 18);
 $('#btnLogout').innerHTML = icon('log-out', 18);
 
@@ -1474,13 +1509,17 @@ async function resaltarFilaDestajo(destId) {
   scrollAndFlash(row || card);
 }
 
-function renderNotifList(targetEl) {
+// limit opcional (Prompt B: panel "Actividad reciente" de la galería solo
+// quiere las 5 más nuevas, no las hasta-50 del dropdown de la campana) — sin
+// límite se comporta exactamente igual que antes.
+function renderNotifList(targetEl, limit) {
   const list = targetEl || $('#notifList');
   if (!state.notificaciones.length) {
     list.innerHTML = '<div class="empty-state empty-state-compact">Sin notificaciones.</div>';
     return;
   }
-  list.innerHTML = state.notificaciones.map((n) => `
+  const items = limit ? state.notificaciones.slice(0, limit) : state.notificaciones;
+  list.innerHTML = items.map((n) => `
     <div class="notif-item ${n.leida ? '' : 'unread'}" data-notif="${n.id}">
       <div class="notif-msg">${esc(n.mensaje)}</div>
       <div class="notif-time">${timeAgo(n.creado_en)}</div>
@@ -1552,19 +1591,42 @@ function handleSessionExpired() {
   toast('Tu sesión expiró, inicia sesión de nuevo', 'danger');
 }
 
+// Panel de Actividad reciente de la galería (Prompt B) — hay DOS puntos de
+// entrada a la galería (bootApp(), en login y en restaurar sesión tras
+// reload; goToClientGallery(), al volver desde #app con "Volver a
+// clientes") y ambos necesitan pintarlo, así que vive en un solo helper.
+// SÍ puede quedar fuera del Promise.all principal y sin await del caller
+// (no bloquea el primer paint) porque nada más toca #galeriaRecientesList/
+// #galeriaAlertasList mientras tanto — a diferencia de favoritos (ver abajo),
+// aquí no hay riesgo de que una respuesta tardía pise un cambio del usuario.
+function loadGaleriaActividad() {
+  renderGaleriaActividad().catch(() => {});
+}
+
 async function bootApp() {
   destroyCharts();
   async function attempt() {
-    const [, , bienvenida] = await Promise.all([
+    // favoritos SÍ va dentro de este Promise.all (bloqueante, no fire-and-
+    // forget) — bug real encontrado al probar: si se pedía aparte sin
+    // esperar, una respuesta tardía podía llegar DESPUÉS de que el usuario
+    // ya hubiera marcado/desmarcado un favorito (toggleFavorito ya actualizó
+    // state.favoritos y repintó), y esa respuesta vieja pisaba el cambio de
+    // vuelta al estado anterior. La consulta es rápida (un solo SELECT por
+    // usuario_id), el costo de esperarla es mínimo.
+    const [, , bienvenida, favoritos] = await Promise.all([
       refreshClientList(),
       refreshProjectList(),
       api('/bienvenida').catch(() => []),
+      api('/favoritos').catch(() => []),
     ]);
+    state.favoritos = new Set(favoritos);
     showClientGallery();
     renderGalleryGreeting();
+    renderFavoritosSection();
     renderClientGallery();
     renderBienvenidaSummary(bienvenida);
     renderGlobalChart().catch(() => {});
+    loadGaleriaActividad();
   }
   try {
     await attempt();
@@ -1893,15 +1955,19 @@ async function goToClientGallery() {
   state.clienteId = null;
   state.projectId = null;
   try {
-    const [, bienvenida] = await Promise.all([
+    const [, bienvenida, favoritos] = await Promise.all([
       refreshClientList(),
       api('/bienvenida').catch(() => []),
+      api('/favoritos').catch(() => []),
     ]);
+    state.favoritos = new Set(favoritos);
     showClientGallery();
     renderGalleryGreeting();
+    renderFavoritosSection();
     renderClientGallery();
     renderBienvenidaSummary(bienvenida);
     renderGlobalChart().catch(() => {});
+    loadGaleriaActividad();
   } catch (err) {
     toast(err.message, 'danger');
     showClientGallery();
@@ -2079,14 +2145,16 @@ async function refreshClientList() {
   state.clientes = await api('/clientes');
 }
 
-function renderClientGallery() {
-  const grid = $('#clienteGrid');
-  // Proyectos sin cliente_id: solo pueden existir de cargas hechas antes de que
-  // cliente_id fuera obligatorio (ver PUT /projects/:id/cliente). Solo admin
-  // los ve, como una tarjeta especial, para poder reasignarlos.
-  const huerfanos = state.projects.filter((p) => p.cliente_id == null);
-  let html = state.clientes.map((c) => `
+// Markup de una tarjeta de cliente real — extraído de renderClientGallery()
+// (Prompt B) para reutilizarlo también en la franja de Favoritos, sin
+// duplicar la plantilla a mano en dos sitios.
+function clienteCardHtml(c) {
+  const isFav = state.favoritos.has(c.id);
+  return `
     <div class="cliente-card" data-cliente="${c.id}">
+      <button class="cliente-fav-btn ${isFav ? 'active' : ''}" data-cliente-fav="${c.id}"
+        title="${isFav ? 'Quitar de favoritos' : 'Marcar como favorito'}"
+        aria-label="${isFav ? 'Quitar de favoritos' : 'Marcar como favorito'}">${isFav ? '⭐' : '☆'}</button>
       <span class="cliente-icon">🏢</span>
       <span class="cliente-nombre">${esc(c.nombre)}</span>
       <span class="cliente-count">${c.num_proyectos} presupuesto${c.num_proyectos !== 1 ? 's' : ''}</span>
@@ -2096,28 +2164,15 @@ function renderClientGallery() {
           <button class="cliente-menu-item cliente-menu-item-danger" data-cliente-eliminar="${c.id}" data-cliente-eliminar-nombre="${esc(c.nombre)}">🗑️ Eliminar cliente</button>
         </div>` : ''}
     </div>
-  `).join('');
-  if (isAdmin() && huerfanos.length) {
-    html += `
-      <div class="cliente-card cliente-card-orphan" data-cliente="sin-cliente">
-        <span class="cliente-icon">⚠️</span>
-        <span class="cliente-nombre">Sin cliente asignado</span>
-        <span class="cliente-count">${huerfanos.length} presupuesto${huerfanos.length !== 1 ? 's' : ''}</span>
-      </div>`;
-  }
-  // Mismo permiso que "+ Nuevo cliente" en el drawer "Presupuestos cargados"
-  // (isAdmin(), ver applySession()) — mismo handler, solo un atajo adicional.
-  if (isAdmin()) {
-    html += `
-      <div class="cliente-card cliente-card-new" data-cliente="__nuevo__">
-        <span class="cliente-icon">➕</span>
-        <span class="cliente-nombre">Nuevo cliente</span>
-      </div>`;
-  }
-  grid.innerHTML = html || `<div class="empty-state"><div class="big">🏢</div>Aún no hay clientes registrados.</div>`;
+  `;
+}
+
+// Wiring de clicks (seleccionar/menú/eliminar/favorito) — común a #clienteGrid
+// y #favoritosGrid, extraído de renderClientGallery() (Prompt B).
+function wireClienteCards(grid) {
   $$('.cliente-card', grid).forEach((el) => {
     el.addEventListener('click', (ev) => {
-      if (ev.target.closest('[data-cliente-menu-btn]') || ev.target.closest('[data-cliente-menu-dropdown]')) return;
+      if (ev.target.closest('[data-cliente-menu-btn]') || ev.target.closest('[data-cliente-menu-dropdown]') || ev.target.closest('[data-cliente-fav]')) return;
       if (el.dataset.cliente === '__nuevo__') { openNuevoClienteModal(); return; }
       selectCliente(el.dataset.cliente === 'sin-cliente' ? 'sin-cliente' : Number(el.dataset.cliente));
     });
@@ -2138,7 +2193,113 @@ function renderClientGallery() {
       eliminarCliente(Number(btn.dataset.clienteEliminar), btn.dataset.clienteEliminarNombre);
     });
   });
+  $$('[data-cliente-fav]', grid).forEach((btn) => {
+    btn.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      toggleFavorito(Number(btn.dataset.clienteFav));
+    });
+  });
+}
+
+function renderClientGallery() {
+  const grid = $('#clienteGrid');
+  // Proyectos sin cliente_id: solo pueden existir de cargas hechas antes de que
+  // cliente_id fuera obligatorio (ver PUT /projects/:id/cliente). Solo admin
+  // los ve, como una tarjeta especial, para poder reasignarlos.
+  const huerfanos = state.projects.filter((p) => p.cliente_id == null);
+  let html = state.clientes.map((c) => clienteCardHtml(c)).join('');
+  if (isAdmin() && huerfanos.length) {
+    html += `
+      <div class="cliente-card cliente-card-orphan" data-cliente="sin-cliente">
+        <span class="cliente-icon">⚠️</span>
+        <span class="cliente-nombre">Sin cliente asignado</span>
+        <span class="cliente-count">${huerfanos.length} presupuesto${huerfanos.length !== 1 ? 's' : ''}</span>
+      </div>`;
+  }
+  // Mismo permiso que "+ Nuevo cliente" en el drawer "Presupuestos cargados"
+  // (isAdmin(), ver applySession()) — mismo handler, solo un atajo adicional.
+  if (isAdmin()) {
+    html += `
+      <div class="cliente-card cliente-card-new" data-cliente="__nuevo__">
+        <span class="cliente-icon">➕</span>
+        <span class="cliente-nombre">Nuevo cliente</span>
+      </div>`;
+  }
+  grid.innerHTML = html || `<div class="empty-state"><div class="big">🏢</div>Aún no hay clientes registrados.</div>`;
+  wireClienteCards(grid);
   initClienteSortable(grid);
+}
+
+// Franja "⭐ Favoritos" (Prompt B) — se oculta por completo (no deja hueco
+// vacío) si el usuario no tiene ningún cliente marcado.
+function renderFavoritosSection() {
+  const section = $('#favoritosSection');
+  const grid = $('#favoritosGrid');
+  if (!section || !grid) return;
+  const favClientes = state.clientes.filter((c) => state.favoritos.has(c.id));
+  if (!favClientes.length) { section.classList.add('hidden-initial'); grid.innerHTML = ''; return; }
+  section.classList.remove('hidden-initial');
+  grid.innerHTML = favClientes.map((c) => clienteCardHtml(c)).join('');
+  wireClienteCards(grid);
+}
+
+async function toggleFavorito(clienteId) {
+  const isFav = state.favoritos.has(clienteId);
+  try {
+    if (isFav) {
+      await api(`/favoritos/${clienteId}`, { method: 'DELETE' });
+      state.favoritos.delete(clienteId);
+    } else {
+      await api(`/favoritos/${clienteId}`, { method: 'POST' });
+      state.favoritos.add(clienteId);
+    }
+    renderFavoritosSection();
+    renderClientGallery();
+  } catch (err) {
+    toast(err.message, 'danger');
+  }
+}
+
+// Panel "Actividad reciente" de la galería (Prompt B) — 2 fuentes ya
+// existentes, sin tracking nuevo: ultima_visita (histórico real de
+// proyectos abiertos) y state.notificaciones (mismo feed que la campana del
+// topbar, ya fresco por startNotifPolling() desde el login). Solo visible
+// en desktop (CSS), pero se pinta siempre — más barato que detectar el
+// breakpoint en JS y no falla si la ventana se agranda después.
+async function renderGaleriaActividad() {
+  const recientesEl = $('#galeriaRecientesList');
+  const alertasEl = $('#galeriaAlertasList');
+  if (!recientesEl || !alertasEl) return;
+
+  try {
+    const recientes = await api('/ultima-visita/recientes');
+    if (!recientes.length) {
+      recientesEl.innerHTML = '<div class="galeria-actividad-empty">Aún no has abierto ningún presupuesto.</div>';
+    } else {
+      recientesEl.innerHTML = recientes.map((r) => `
+        <div class="galeria-reciente-item" data-pid="${r.proyecto_id}" data-cid="${r.cliente_id}">
+          <div class="gr-proyecto">${esc(r.proyecto_nombre)}</div>
+          <div class="gr-cliente">${esc(r.cliente_nombre)}</div>
+          <div class="gr-time">${timeAgo(r.actualizado_en)}</div>
+        </div>
+      `).join('');
+      $$('.galeria-reciente-item', recientesEl).forEach((el) => {
+        el.addEventListener('click', () => {
+          state.clienteId = Number(el.dataset.cid);
+          showApp();
+          selectProject(Number(el.dataset.pid));
+        });
+      });
+    }
+  } catch (err) {
+    recientesEl.innerHTML = '<div class="galeria-actividad-empty">No se pudo cargar.</div>';
+  }
+
+  if (!state.notificaciones.length) {
+    alertasEl.innerHTML = '<div class="galeria-actividad-empty">Sin alertas.</div>';
+  } else {
+    renderNotifList(alertasEl, 5);
+  }
 }
 
 function closeAllClienteMenus() {

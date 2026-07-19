@@ -1469,6 +1469,26 @@ app.get('/api/bienvenida', h(auth.allow('residente', 'cabo', 'compras', 'tesorer
 // ---------------------------------------------------------------------------
 // Última visita — último proyecto visitado por usuario+cliente
 // ---------------------------------------------------------------------------
+// Panel "Actividad reciente" de la galería (Prompt B, prompts-animaciones-y-
+// galeria-clientes.md) — reutiliza ultima_visita (ya se escribe en cada
+// selectProject, sin tracking nuevo), solo agrega esta lectura agregada
+// cruzando todos los clientes del usuario. Registrada ANTES de
+// /ultima-visita/:clienteId para que Express no confunda "recientes" con un
+// clienteId (mismo patrón ya usado para /estimaciones/defaults-periodo).
+app.get('/api/ultima-visita/recientes', h(async (req, res) => {
+  const { rows } = await db.pool.query(`
+    SELECT uv.proyecto_id, uv.cliente_id, uv.actualizado_en,
+           p.nombre AS proyecto_nombre, c.nombre AS cliente_nombre
+    FROM ultima_visita uv
+    JOIN proyectos p ON p.id = uv.proyecto_id
+    JOIN clientes c ON c.id = uv.cliente_id
+    WHERE uv.usuario_id = $1
+    ORDER BY uv.actualizado_en DESC
+    LIMIT 5
+  `, [req.user.id]);
+  res.json(rows);
+}));
+
 app.get('/api/ultima-visita/:clienteId', h(async (req, res) => {
   const clienteId = parseInt(req.params.clienteId, 10);
   if (!clienteId) return res.status(400).json({ error: 'Cliente inválido' });
@@ -1489,6 +1509,39 @@ app.put('/api/ultima-visita/:clienteId', h(async (req, res) => {
     ON CONFLICT (usuario_id, cliente_id) DO UPDATE
       SET proyecto_id = EXCLUDED.proyecto_id, actualizado_en = NOW()
   `, [req.user.id, clienteId, proyecto_id]);
+  res.json({ ok: true });
+}));
+
+// ---------------------------------------------------------------------------
+// Favoritos de la galería de clientes (Prompt B, prompts-animaciones-y-
+// galeria-clientes.md) — por usuario, no localStorage (viaja entre equipos
+// del mismo usuario, mismo criterio que ultima_visita arriba).
+// ---------------------------------------------------------------------------
+app.get('/api/favoritos', h(async (req, res) => {
+  const { rows } = await db.pool.query(
+    'SELECT cliente_id FROM usuario_favoritos WHERE usuario_id = $1',
+    [req.user.id]
+  );
+  res.json(rows.map((r) => r.cliente_id));
+}));
+
+app.post('/api/favoritos/:clienteId', h(async (req, res) => {
+  const clienteId = parseInt(req.params.clienteId, 10);
+  if (!clienteId) return res.status(400).json({ error: 'Cliente inválido' });
+  await db.pool.query(
+    'INSERT INTO usuario_favoritos (usuario_id, cliente_id) VALUES ($1, $2) ON CONFLICT (usuario_id, cliente_id) DO NOTHING',
+    [req.user.id, clienteId]
+  );
+  res.json({ ok: true });
+}));
+
+app.delete('/api/favoritos/:clienteId', h(async (req, res) => {
+  const clienteId = parseInt(req.params.clienteId, 10);
+  if (!clienteId) return res.status(400).json({ error: 'Cliente inválido' });
+  await db.pool.query(
+    'DELETE FROM usuario_favoritos WHERE usuario_id = $1 AND cliente_id = $2',
+    [req.user.id, clienteId]
+  );
   res.json({ ok: true });
 }));
 

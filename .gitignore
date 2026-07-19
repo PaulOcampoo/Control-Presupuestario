@@ -8,3 +8,10 @@ uploads/
 
 .vercel
 .env*
+
+# CN-004: llaves/certificados nunca deben terminar en el repo
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa*

@@ -28,6 +28,15 @@ const cotizador = require('./cotizador');
 const { metaToObject, presupuestoTotalDe, getFinanzasResumenData } = require('./finanzas');
 const estadoResultados = require('./estadoResultados');
 
+// CN-007: nombre_archivo/pdf_filename vienen del cliente (upload); una comilla
+// doble en el valor rompe fuera del filename="..." y permite inyectar
+// parámetros extra en el header Content-Disposition. Quita comillas/backslash
+// antes de interpolar — no rechaza la request, solo neutraliza el caracter.
+function safeContentDisposition(type, filename) {
+  const clean = String(filename || 'archivo').replace(/["\\]/g, '');
+  return `${type}; filename="${clean}"`;
+}
+
 const app = express();
 
 app.use(express.json({ limit: '2mb' }));
@@ -152,7 +161,7 @@ app.post('/api/auth/login', h(async (req, res) => {
     return res.status(400).json({ error: 'Indica usuario y contraseña' });
   }
 
-  const ip = ((req.headers['x-forwarded-for'] || '') + '').split(',')[0].trim() || req.socket?.remoteAddress || 'unknown';
+  const ip = auth.getIp(req);
   const ident = usuario.trim().toLowerCase();
 
   // Rate limiting por usuario: 5 fallos en 10 minutos (serverless-safe, cuenta en Postgres)
@@ -559,7 +568,7 @@ app.put('/api/auth/mi-cuenta', h(async (req, res) => {
     }
   }
 
-  const ip = ((req.headers['x-forwarded-for'] || '') + '').split(',')[0].trim() || req.socket?.remoteAddress || 'unknown';
+  const ip = auth.getIp(req);
   if (passwordActual) {
     // Rate limiting serverless-safe (mismo mecanismo que login/TOTP): cuenta
     // en Postgres, solo fallos de passwordActual, por usuario y por IP.
@@ -720,7 +729,7 @@ app.post('/api/usuarios', h(auth.allow('administracion')), h(async (req, res) =>
         [rows[0].id, p.seccion, p.puede_ver, p.puede_crear, p.puede_editar, p.puede_editar_precios, p.puede_eliminar]
       );
     }
-    const ip = ((req.headers['x-forwarded-for'] || '') + '').split(',')[0].trim() || req.socket?.remoteAddress || 'unknown';
+    const ip = auth.getIp(req);
     await db.pool.query(
       'INSERT INTO audit_log (actor_id, actor_usuario, accion, target_id, target_usuario, ip) VALUES ($1,$2,$3,$4,$5,$6)',
       [req.user.id, req.user.usuario, 'crear_usuario', rows[0].id, rows[0].usuario, ip]
@@ -765,7 +774,7 @@ app.put('/api/usuarios/:id', h(auth.allow('administracion')), h(async (req, res)
   );
   if (!rows[0]) return res.status(404).json({ error: 'Usuario no encontrado' });
   if (password) {
-    const ip = ((req.headers['x-forwarded-for'] || '') + '').split(',')[0].trim() || req.socket?.remoteAddress || 'unknown';
+    const ip = auth.getIp(req);
     await db.pool.query(
       'INSERT INTO audit_log (actor_id, actor_usuario, accion, target_id, target_usuario, ip) VALUES ($1,$2,$3,$4,$5,$6)',
       [req.user.id, req.user.usuario, 'reset_password', rows[0].id, rows[0].usuario, ip]
@@ -793,7 +802,7 @@ app.post('/api/usuarios/:id/totp-reset', h(auth.allow()), h(async (req, res) => 
     [id]
   );
   if (!rows[0]) return res.status(404).json({ error: 'Usuario no encontrado' });
-  const ip = ((req.headers['x-forwarded-for'] || '') + '').split(',')[0].trim() || req.socket?.remoteAddress || 'unknown';
+  const ip = auth.getIp(req);
   await db.pool.query(
     'INSERT INTO audit_log (actor_id, actor_usuario, accion, target_id, target_usuario, ip) VALUES ($1,$2,$3,$4,$5,$6)',
     [req.user.id, req.user.usuario, 'reset_totp', rows[0].id, rows[0].usuario, ip]
@@ -2010,7 +2019,7 @@ app.get('/api/projects/:id/contrato/pdf', h(auth.allow()), h(requireProject), h(
   const blobResult = await get(rows[0].blob_url, { access: 'private' });
   if (!blobResult) return res.status(404).json({ error: 'Archivo no encontrado en almacenamiento' });
   res.setHeader('Content-Type', 'application/pdf');
-  res.setHeader('Content-Disposition', `inline; filename="${rows[0].nombre_archivo}"`);
+  res.setHeader('Content-Disposition', safeContentDisposition('inline', rows[0].nombre_archivo));
   await pipeline(Readable.fromWeb(blobResult.stream), res);
 }));
 
@@ -2343,7 +2352,7 @@ function requisicionAjena(row, user) {
 // están restringidos por dueño y no se registran aquí.
 async function logRequisicionAudit(req, accion, requisicion, detalleExtra) {
   if (!['residente', 'cabo'].includes(req.user.puesto)) return;
-  const ip = ((req.headers['x-forwarded-for'] || '') + '').split(',')[0].trim() || req.socket?.remoteAddress || 'unknown';
+  const ip = auth.getIp(req);
   const label = requisicion.folio || `Requisición #${requisicion.id}`;
   await db.pool.query(
     'INSERT INTO audit_log (actor_id, actor_usuario, accion, target_id, target_usuario, project_id, ip) VALUES ($1,$2,$3,$4,$5,$6,$7)',
@@ -4392,7 +4401,7 @@ app.get('/api/projects/:id/trabajadores/:wId/documentos/:docId/download', h(auth
   const ext = (rows[0].nombre_archivo.split('.').pop() || 'bin').toLowerCase();
   const mimeMap = { pdf: 'application/pdf', jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', heic: 'image/heic', webp: 'image/webp' };
   res.setHeader('Content-Type', mimeMap[ext] || 'application/octet-stream');
-  res.setHeader('Content-Disposition', `inline; filename="${rows[0].nombre_archivo}"`);
+  res.setHeader('Content-Disposition', safeContentDisposition('inline', rows[0].nombre_archivo));
   const { pipeline: pipe } = require('stream/promises');
   await pipe(Readable.fromWeb(blobResult.stream), res);
 }));
@@ -4481,7 +4490,7 @@ app.get('/api/projects/:id/trabajadores/:wId/contratos/:cId/download', h(auth.al
   const blobResult = await get(rows[0].pdf_url, { access: 'private' });
   if (!blobResult) return res.status(404).json({ error: 'Archivo no encontrado en almacenamiento' });
   res.setHeader('Content-Type', 'application/pdf');
-  res.setHeader('Content-Disposition', `inline; filename="${rows[0].pdf_filename || 'contrato.pdf'}"`);
+  res.setHeader('Content-Disposition', safeContentDisposition('inline', rows[0].pdf_filename || 'contrato.pdf'));
   const { pipeline: pipe } = require('stream/promises');
   await pipe(Readable.fromWeb(blobResult.stream), res);
 }));

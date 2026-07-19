@@ -217,21 +217,24 @@ function signToken(user) {
   return jwt.sign(
     { id: user.id, nombre: user.nombre, usuario: user.usuario, puesto: user.puesto },
     SESSION_SECRET,
-    { expiresIn: TOKEN_TTL }
+    { expiresIn: TOKEN_TTL, algorithm: 'HS256' }
   );
 }
 
 function signRefreshToken(user) {
-  return jwt.sign({ id: user.id, usuario: user.usuario }, SESSION_SECRET, { expiresIn: REFRESH_TTL });
+  return jwt.sign({ id: user.id, usuario: user.usuario }, SESSION_SECRET, { expiresIn: REFRESH_TTL, algorithm: 'HS256' });
 }
 
 function verifyRefreshToken(token) {
-  return jwt.verify(token, SESSION_SECRET);
+  return jwt.verify(token, SESSION_SECRET, { algorithms: ['HS256'] });
 }
 
 // Construye el valor de la cookie Set-Cookie para el refresh token.
 function buildRefreshCookie(token, clear = false) {
-  const isProd = process.env.NODE_ENV === 'production';
+  // VERCEL_ENV es la señal autoritativa en Vercel (production/preview/development);
+  // NODE_ENV no está garantizado en cada invocación serverless. Fallback a NODE_ENV
+  // fuera de Vercel (dev local / server/index.js standalone).
+  const isProd = process.env.VERCEL_ENV ? process.env.VERCEL_ENV !== 'development' : process.env.NODE_ENV === 'production';
   const maxAge = clear ? 0 : 7 * 24 * 60 * 60; // 7 días en segundos
   const value = clear ? '' : encodeURIComponent(token);
   return `${REFRESH_COOKIE}=${value}; HttpOnly; SameSite=Strict; Path=/api/auth/refresh; Max-Age=${maxAge}${isProd ? '; Secure' : ''}`;
@@ -242,11 +245,11 @@ function buildRefreshCookie(token, clear = false) {
 // como Bearer a un endpoint protegido. enroll=true cuando es inscripción forzada
 // (primer login sin TOTP configurado) vs. login normal ya inscrito.
 function signPreAuthToken(user, { enroll = false } = {}) {
-  return jwt.sign({ id: user.id, usuario: user.usuario, stage: 'pre_totp', enroll }, SESSION_SECRET, { expiresIn: PRE_AUTH_TTL });
+  return jwt.sign({ id: user.id, usuario: user.usuario, stage: 'pre_totp', enroll }, SESSION_SECRET, { expiresIn: PRE_AUTH_TTL, algorithm: 'HS256' });
 }
 
 function verifyPreAuthToken(token) {
-  const decoded = jwt.verify(token, SESSION_SECRET);
+  const decoded = jwt.verify(token, SESSION_SECRET, { algorithms: ['HS256'] });
   if (decoded.stage !== 'pre_totp') throw new Error('Token no es de pre-autenticación');
   return decoded;
 }
@@ -338,7 +341,7 @@ async function requireAuth(req, res, next) {
   if (!token) return res.status(401).json({ error: 'No autenticado' });
   let decoded;
   try {
-    decoded = jwt.verify(token, SESSION_SECRET);
+    decoded = jwt.verify(token, SESSION_SECRET, { algorithms: ['HS256'] });
   } catch {
     return res.status(401).json({ error: 'Sesión inválida o expirada, inicia sesión de nuevo' });
   }
@@ -365,9 +368,17 @@ async function requireAuth(req, res, next) {
   }
 }
 
-// Extrae IP del request (mismo patrón que login).
+// Extrae IP del request para rate-limiting y audit_log. X-Forwarded-For es
+// un header que CUALQUIER cliente puede mandar con cualquier valor — solo es
+// confiable si hay un proxy/edge delante (Vercel) que lo sobreescribe él
+// mismo. Sin TRUST_PROXY=1 explícito (seteado en Vercel, no en dev/LAN vía
+// server/index.js), se ignora y se usa la IP real del socket.
 function getIp(req) {
-  return ((req.headers['x-forwarded-for'] || '') + '').split(',')[0].trim() || req.socket?.remoteAddress || 'unknown';
+  if (process.env.TRUST_PROXY === '1') {
+    const fwd = ((req.headers['x-forwarded-for'] || '') + '').split(',')[0].trim();
+    if (fwd) return fwd;
+  }
+  return req.socket?.remoteAddress || 'unknown';
 }
 
 // Inserta en audit_log de forma fire-and-forget: no bloquea la respuesta.
@@ -455,4 +466,5 @@ module.exports = {
   checkPermiso,
   tienePermiso,
   logDenied,
+  getIp,
 };

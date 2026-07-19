@@ -678,6 +678,15 @@ app.put('/api/notificaciones/leer-todas', h(async (req, res) => {
 // ---------------------------------------------------------------------------
 // Usuarios (solo admin)
 // ---------------------------------------------------------------------------
+// CN-001: 'administracion' puede gestionar usuarios pero no debe poder
+// asignarse (ni asignarle a nadie) los puestos más altos, ni cambiar su
+// propio puesto — ambos casos bypasean permisos_usuario/checkPermiso.
+const ROLES_ALTOS = ['admin', 'desarrollador'];
+function puedeAsignarPuesto(actor, puestoDestino) {
+  if (!ROLES_ALTOS.includes(puestoDestino)) return true;
+  return actor.puesto === 'admin' || actor.puesto === 'desarrollador';
+}
+
 app.get('/api/usuarios', h(auth.allow('administracion')), h(async (_req, res) => {
   const { rows } = await db.pool.query(
     'SELECT id, nombre, usuario, puesto, activo, creado_en, must_change_password, totp_enabled FROM usuarios ORDER BY id'
@@ -689,6 +698,9 @@ app.post('/api/usuarios', h(auth.allow('administracion')), h(async (req, res) =>
   const { nombre, usuario, password, puesto } = req.body || {};
   if (!nombre?.trim() || !usuario?.trim() || !password || !auth.isValidPuesto(puesto)) {
     return res.status(400).json({ error: 'Indica nombre, usuario, contraseña y un puesto válido' });
+  }
+  if (!puedeAsignarPuesto(req.user, puesto)) {
+    return res.status(403).json({ error: 'No puedes asignar ese puesto' });
   }
   if (password.length < 6) return res.status(400).json({ error: 'La contraseña debe tener al menos 6 caracteres' });
   try {
@@ -725,6 +737,12 @@ app.put('/api/usuarios/:id', h(auth.allow('administracion')), h(async (req, res)
   const { nombre, puesto, activo, password } = req.body || {};
   if (puesto != null && !auth.isValidPuesto(puesto)) {
     return res.status(400).json({ error: 'Puesto inválido' });
+  }
+  if (puesto != null && !puedeAsignarPuesto(req.user, puesto)) {
+    return res.status(403).json({ error: 'No puedes asignar ese puesto' });
+  }
+  if (id === req.user.id && puesto != null && puesto !== req.user.puesto) {
+    return res.status(403).json({ error: 'No puedes cambiar tu propio puesto' });
   }
   if (password != null && password.length < 6) {
     return res.status(400).json({ error: 'La contraseña debe tener al menos 6 caracteres' });

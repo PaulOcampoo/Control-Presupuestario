@@ -1916,7 +1916,7 @@ $('#modalOverlay').addEventListener('click', () => { if (!blockOverlayDismiss) c
 // no da el look&feel deseado. El resto de la app sigue usando confirm()
 // nativo (ver "Eliminar sugerencia"/"Eliminar equipo", etc.) — no se tocó
 // nada de eso, este helper es de uso opcional para casos puntuales nuevos.
-function confirmDialog(mensaje, { titulo = 'Confirmar', textoAceptar = 'Aceptar', textoCancelar = 'Cancelar' } = {}) {
+function confirmDialog(mensaje, { titulo = 'Confirmar', textoAceptar = 'Aceptar', textoCancelar = 'Cancelar', claseAceptar = 'btn-primary' } = {}) {
   return new Promise((resolve) => {
     blockOverlayDismiss = true; // debe elegir un botón, no cerrar tocando fuera
     openModal(`
@@ -1924,7 +1924,7 @@ function confirmDialog(mensaje, { titulo = 'Confirmar', textoAceptar = 'Aceptar'
       <p>${esc(mensaje)}</p>
       <div class="modal-actions">
         <button class="btn" id="btnConfirmDialogCancelar">${esc(textoCancelar)}</button>
-        <button class="btn btn-primary" id="btnConfirmDialogAceptar">${esc(textoAceptar)}</button>
+        <button class="btn ${esc(claseAceptar)}" id="btnConfirmDialogAceptar">${esc(textoAceptar)}</button>
       </div>
     `);
     $('#btnConfirmDialogCancelar').addEventListener('click', () => { closeModal(); resolve(false); });
@@ -6568,7 +6568,10 @@ function paintUsuariosList(usuarios) {
     btn.addEventListener('click', async () => {
       const u = usuarios.find((x) => x.id === Number(btn.dataset.delUser));
       if (!u) return;
-      if (!confirm(`¿Eliminar la cuenta de "${u.nombre}"? Esta acción no se puede deshacer.`)) return;
+      const ok = await confirmDialog(`¿Eliminar la cuenta de "${u.nombre}"? Esta acción no se puede deshacer.`, {
+        titulo: 'Eliminar usuario', textoAceptar: 'Eliminar', claseAceptar: 'btn-danger',
+      });
+      if (!ok) return;
       try {
         await api(`/usuarios/${u.id}`, { method: 'DELETE' });
         toast('Usuario eliminado', 'success');

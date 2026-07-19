@@ -1107,7 +1107,7 @@ app.get('/api/maquinaria/combustible', h(auth.checkPermiso('maquinaria', 'puede_
   res.json(await maquinaria.listCombustible(req.query.equipo_id ? Number(req.query.equipo_id) : null));
 }));
 
-app.post('/api/maquinaria/combustible', h(auth.checkPermiso('maquinaria', 'puede_crear')), h(async (req, res) => {
+app.post('/api/maquinaria/combustible', h(auth.checkPermiso('maquinaria_combustible', 'puede_crear')), h(async (req, res) => {
   const { equipo_id, fecha, litros, costo } = req.body || {};
   if (!equipo_id || !fecha || !(litros > 0) || !(costo >= 0)) {
     return res.status(400).json({ error: 'Indica equipo, fecha, litros y costo válidos' });
@@ -1128,7 +1128,7 @@ app.get('/api/maquinaria/mantenimientos', h(auth.checkPermiso('maquinaria', 'pue
   res.json(await maquinaria.listMantenimientos(req.query.equipo_id ? Number(req.query.equipo_id) : null));
 }));
 
-app.post('/api/maquinaria/mantenimientos', h(auth.checkPermiso('maquinaria', 'puede_crear')), h(async (req, res) => {
+app.post('/api/maquinaria/mantenimientos', h(auth.checkPermiso('maquinaria_combustible', 'puede_crear')), h(async (req, res) => {
   const { equipo_id, fecha, tipo, descripcion, costo, proveedor } = req.body || {};
   if (!equipo_id || !fecha || !['preventivo', 'correctivo'].includes(tipo) || !(costo >= 0)) {
     return res.status(400).json({ error: "Indica equipo, fecha, tipo ('preventivo'/'correctivo') y costo válidos" });
@@ -1153,7 +1153,7 @@ app.get('/api/maquinaria/horas', h(auth.checkPermiso('maquinaria', 'puede_ver'))
 // Cabo siempre captura sus propias horas (operador_id = quien está autenticado,
 // se ignora cualquier operador_id enviado); admin/desarrollador sí pueden
 // capturar a nombre de otro operador si lo indican explícitamente.
-app.post('/api/maquinaria/horas', h(auth.checkPermiso('maquinaria', 'puede_crear')), h(async (req, res) => {
+app.post('/api/maquinaria/horas', h(auth.checkPermiso('maquinaria_captura', 'puede_crear')), h(async (req, res) => {
   const { equipo_id, operador_id, fecha, horas, obra_id } = req.body || {};
   if (!equipo_id || !fecha || !(horas > 0)) {
     return res.status(400).json({ error: 'Indica equipo, fecha y horas válidas' });

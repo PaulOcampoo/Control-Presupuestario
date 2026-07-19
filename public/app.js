@@ -6171,7 +6171,8 @@ const PERMISOS_SECCION_LABELS = {
   estado_resultados: 'Estado de Resultados',
   insumos: 'Insumos', mapeo: 'Mapeo', usuarios: 'Usuarios', contrato: 'Contrato', impuestos: 'Impuestos',
   nominas: 'Nóminas', sugerencias: 'Sugerencias', programa: 'Programa', estimaciones: 'Estimaciones',
-  maquinaria: 'Maquinaria', trabajadores: 'Trabajadores',
+  maquinaria: 'Maquinaria (equipos)', maquinaria_captura: 'Maquinaria (captura de horas)',
+  maquinaria_combustible: 'Maquinaria (combustible/mantenimiento)', trabajadores: 'Trabajadores',
   trabajadores_global: 'Trabajadores (Todas las Obras)', nominas_global: 'Nóminas (Todas las Obras)',
 };
 // Secciones que NUNCA son por-obra — no existe (ni tiene sentido) una versión
@@ -6195,7 +6196,7 @@ const PERMISOS_ACCIONES = [
 // (auth.allow()), marcarla o no aquí todavía no cambia nada en el backend.
 // Actualizar esta lista cada vez que se le agregue checkPermiso a una
 // sección nueva (ver mismo patrón en server/auth.js SECCIONES_PERMISOS).
-const SECCIONES_CON_ENFORCEMENT = ['nominas', 'avance', 'maquinaria', 'trabajadores_global', 'nominas_global', 'trabajadores'];
+const SECCIONES_CON_ENFORCEMENT = ['nominas', 'avance', 'maquinaria', 'maquinaria_captura', 'maquinaria_combustible', 'trabajadores_global', 'nominas_global', 'trabajadores'];
 // Agrupa las secciones de permisos igual que SECTION_DEFS agrupa las pestañas
 // en la pantalla de inicio (Obra / Compras / Tesorería / Administración) —
 // mismo criterio de negocio, para que la matriz se lea en el mismo orden que
@@ -6205,7 +6206,7 @@ const PERMISOS_GRUPOS = [
   { label: 'Compras',        secciones: ['requisiciones', 'insumos', 'proveedores', 'ordenes_compra'] },
   { label: 'Tesorería',      secciones: ['finanzas', 'estado_resultados', 'impuestos'] },
   { label: 'Administración', secciones: ['mapeo', 'contrato', 'nominas', 'usuarios', 'trabajadores', 'trabajadores_global', 'nominas_global'] },
-  { label: 'Maquinaria',     secciones: ['maquinaria'] },
+  { label: 'Maquinaria',     secciones: ['maquinaria', 'maquinaria_captura', 'maquinaria_combustible'] },
   { label: 'General',        secciones: ['sugerencias'] },
 ];
 // Mirror de TAB_A_SECCION/defaultPermisosParaRol en server/auth.js — solo se
@@ -6243,9 +6244,19 @@ function defaultPermisosParaRolFrontend(puesto) {
     if (porSeccion.destajo) porSeccion.destajo.puede_editar = true;
     if (porSeccion.avance)  porSeccion.avance.puede_crear = true;
     if (porSeccion.maquinaria) porSeccion.maquinaria.puede_crear = true;
+    porSeccion.maquinaria_captura = {
+      seccion: 'maquinaria_captura', puede_ver: true, puede_crear: true,
+      puede_editar: false, puede_editar_precios: false, puede_eliminar: false,
+    };
   }
   if (puesto === 'taller' || puesto === 'admin' || puesto === 'desarrollador') {
     if (porSeccion.maquinaria) { porSeccion.maquinaria.puede_crear = true; porSeccion.maquinaria.puede_editar = true; }
+  }
+  if (puesto === 'taller') {
+    porSeccion.maquinaria_combustible = {
+      seccion: 'maquinaria_combustible', puede_ver: true, puede_crear: true,
+      puede_editar: false, puede_editar_precios: false, puede_eliminar: false,
+    };
   }
   return porSeccion;
 }
@@ -7068,18 +7079,24 @@ const MAQUINARIA_TIPOS = ['retroexcavadora'];
 let maquinariaEquiposCache = [];
 
 async function renderMaquinaria(view) {
-  const [equipos, resumen, misPermisos, proyectos, reporteClientes] = await Promise.all([
+  const [equipos, resumen, misPermisos, misPermisosCaptura, misPermisosCombustible, proyectos, reporteClientes] = await Promise.all([
     api('/maquinaria/equipos'),
     api('/maquinaria/resumen'),
     api('/mis-permisos/maquinaria'),
+    api('/mis-permisos/maquinaria_captura'),
+    api('/mis-permisos/maquinaria_combustible'),
     api('/projects').catch(() => []),
     api('/maquinaria/reporte-clientes').catch(() => null),
   ]);
   maquinariaEquiposCache = equipos;
-  const puedeCrear = !!misPermisos.puede_crear;
+  const puedeCrear = !!misPermisos.puede_crear; // equipos — sección 'maquinaria', sin cambio (CN-002)
   const puedeEditar = !!misPermisos.puede_editar;
   const puedeEliminar = !!misPermisos.puede_eliminar;
-  const esCabo = effectivePuesto() === 'cabo';
+  // CN-002: combustible/mantenimiento y horas ya no comparten el permiso de
+  // 'maquinaria' (que antes obligaba a excluir a cabo a mano con !esCabo,
+  // y nunca excluía a taller de horas) — cada botón usa su propia sección.
+  const puedeCrearCombustible = !!misPermisosCombustible.puede_crear;
+  const puedeCrearHoras = !!misPermisosCaptura.puede_crear;
 
   const pct = Math.min(100, resumen.pct_gastado);
   view.innerHTML = `
@@ -7097,9 +7114,9 @@ async function renderMaquinaria(view) {
 
     <div class="section-actions mt-12">
       ${puedeCrear ? '<button class="btn btn-primary" id="btnNuevoEquipoMaq">+ Nuevo equipo</button>' : ''}
-      ${puedeCrear && !esCabo ? '<button class="btn" id="btnCombustibleMaq">+ Combustible</button>' : ''}
-      ${puedeCrear && !esCabo ? '<button class="btn" id="btnMantenimientoMaq">+ Mantenimiento</button>' : ''}
-      ${puedeCrear ? '<button class="btn" id="btnHorasMaq">+ Capturar horas</button>' : ''}
+      ${puedeCrearCombustible ? '<button class="btn" id="btnCombustibleMaq">+ Combustible</button>' : ''}
+      ${puedeCrearCombustible ? '<button class="btn" id="btnMantenimientoMaq">+ Mantenimiento</button>' : ''}
+      ${puedeCrearHoras ? '<button class="btn" id="btnHorasMaq">+ Capturar horas</button>' : ''}
     </div>
     <div id="equiposMaqList"></div>
   `;

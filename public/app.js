@@ -925,10 +925,14 @@ Object.entries(SECTION_DEFS).forEach(([sectionId, def]) => {
 // Secciones que muestran primero una galería de subsecciones (mismo patrón
 // visual que .section-grid) en vez de saltar directo a la primera pestaña
 // permitida — prompt-rediseno-navegacion-subsecciones.md, Fix B. Piloto
-// solo en 'obra' por ahora (aprobado así explícitamente); replicar a las
-// otras 4 secciones es agregar su id aquí, nada más — goToSection(),
-// renderView(), renderTabsBar() y syncFab() ya generalizan sobre este set.
-const SECTIONS_WITH_GALLERY = new Set(['obra']);
+// original solo en 'obra'; replicado a las otras 4 (prompt-replicar-galeria-
+// 4-secciones.md) — goToSection(), renderView(), renderTabsBar() y syncFab()
+// ya generalizaban sobre este set, así que extenderlo es el único cambio de
+// lógica que hace falta. 'maquinaria' tiene una sola subsección hoy
+// (tabs: ['maquinaria']) — el guard de goToSection() (tabsPermitidos.length
+// > 1) ya evita mostrarle una galería de 1 tile, se incluye igual por
+// consistencia/si gana más subsecciones después (decisión explícita).
+const SECTIONS_WITH_GALLERY = new Set(['obra', 'compras', 'tesoreria', 'administracion', 'maquinaria']);
 SECTIONS_WITH_GALLERY.forEach((sectionId) => { VIEW_TO_SECTION[`${sectionId}_gallery`] = sectionId; });
 
 // Historial de navegación (botón atrás del navegador / gesto equivalente en

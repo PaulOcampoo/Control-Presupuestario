@@ -12,6 +12,30 @@ const QRCode = require('qrcode');
 const { del, get, put } = require('@vercel/blob');
 const { handleUpload } = require('@vercel/blob/client');
 
+// Sentry (observabilidad de errores backend) — inicializado solo si
+// SENTRY_DSN está configurada; sin la key, Sentry.captureException() más
+// abajo es un no-op seguro (no lanza, no bloquea nada). Paul debe crear la
+// cuenta y agregar SENTRY_DSN a Vercel para activarlo (mismo patrón que el
+// bloqueo actual de SMS/email 2FA con Resend/Twilio).
+const Sentry = require('@sentry/node');
+if (process.env.SENTRY_DSN) {
+  Sentry.init({ dsn: process.env.SENTRY_DSN, environment: process.env.NODE_ENV || 'development', tracesSampleRate: 0 });
+}
+
+// PostHog (analytics de backend) — mismo patrón que Sentry: sin
+// POSTHOG_API_KEY, posthogClient queda null y trackServerEvent() es un
+// no-op. Solo los 4 eventos del alcance de esta fase (screen_view se manda
+// desde el frontend; login_success/login_failed/error_boundary se mandan
+// desde aquí porque el backend es la fuente de verdad de esos 3).
+const { PostHog } = require('posthog-node');
+const posthogClient = process.env.POSTHOG_API_KEY
+  ? new PostHog(process.env.POSTHOG_API_KEY, { host: process.env.POSTHOG_HOST || 'https://app.posthog.com' })
+  : null;
+function trackServerEvent(distinctId, event, properties = {}) {
+  if (!posthogClient) return;
+  try { posthogClient.capture({ distinctId: String(distinctId), event, properties }); } catch (_) { /* best-effort */ }
+}
+
 const db = require('./db');
 const { parseWorkbook } = require('./parser');
 const { ingest } = require('./ingest');
@@ -26,6 +50,7 @@ const { calcularDiasRestantes, determinarUmbral, construirMensaje } = require('.
 const maquinaria = require('./maquinaria');
 const cotizador = require('./cotizador');
 const { metaToObject, presupuestoTotalDe, getFinanzasResumenData } = require('./finanzas');
+const { calcularJornal, calcularDestajo } = require('./calculos');
 const estadoResultados = require('./estadoResultados');
 
 // CN-007: nombre_archivo/pdf_filename vienen del cliente (upload); una comilla
@@ -130,12 +155,13 @@ async function requireProject(req, res, next) {
 // 2° factor (o durante enroll-confirm). Mismo shape que el login pre-2FA;
 // `extra` permite añadir campos puntuales (ej. backupCodes, solo en enroll).
 function issueFullSession(res, user, extra = {}) {
+  trackServerEvent(user.id, 'login_success', { puesto: user.puesto });
   const token = auth.signToken(user);
   const refreshToken = auth.signRefreshToken(user);
   res.setHeader('Set-Cookie', auth.buildRefreshCookie(refreshToken));
   res.json({
     token,
-    user: { id: user.id, nombre: user.nombre, usuario: user.usuario, puesto: user.puesto, totp_enabled: !!user.totp_enabled },
+    user: { id: user.id, nombre: user.nombre, usuario: user.usuario, puesto: user.puesto, totp_enabled: !!user.totp_enabled, solicitud_eliminacion_datos: !!user.solicitud_eliminacion_datos },
     tabs: auth.PERMISSIONS[user.puesto] ? auth.PERMISSIONS[user.puesto].tabs : [],
     must_change_password: user.must_change_password || false,
     ...extra,
@@ -200,6 +226,10 @@ app.post('/api/auth/login', h(async (req, res) => {
   );
 
   if (!ok) {
+    // distinctId = identificador escrito (no hay usuario_id confiable en un
+    // login fallido — pudo ni existir la cuenta) — sin PII más allá del
+    // usuario mismo, que ya es el identificador de negocio de este evento.
+    trackServerEvent(ident, 'login_failed', {});
     return res.status(401).json({ error: 'Usuario o contraseña incorrectos' });
   }
 
@@ -475,16 +505,30 @@ app.post('/api/auth/logout', (_req, res) => {
   res.json({ ok: true });
 });
 
+// Config pública para el frontend (Sentry DSN / PostHog key). Público a
+// propósito, antes de auth.requireAuth: ambas son claves públicas por diseño
+// de sus SDKs (se embeben en cualquier bundle de cliente), no secretos como
+// TOTP_ENC_KEY/SESSION_SECRET — nunca se exponen aquí. null cuando Paul
+// todavía no las configura en el entorno, para que el frontend sepa no
+// inicializar el SDK correspondiente.
+app.get('/api/public-config', (_req, res) => {
+  res.json({
+    sentryDsn: process.env.SENTRY_DSN || null,
+    posthogKey: process.env.POSTHOG_API_KEY || null,
+    posthogHost: process.env.POSTHOG_HOST || null,
+  });
+});
+
 app.use('/api', auth.requireAuth);
 
 app.get('/api/auth/me', h(async (req, res) => {
   const { rows } = await db.pool.query(
-    'SELECT id, nombre, usuario, puesto, must_change_password, totp_enabled, totp_reminder_last_shown_at FROM usuarios WHERE id = $1 AND activo = true',
+    'SELECT id, nombre, usuario, puesto, must_change_password, totp_enabled, totp_reminder_last_shown_at, solicitud_eliminacion_datos FROM usuarios WHERE id = $1 AND activo = true',
     [req.user.id]
   );
   if (!rows[0]) return res.status(401).json({ error: 'Sesión inválida' });
   res.json({
-    user: { id: rows[0].id, nombre: rows[0].nombre, usuario: rows[0].usuario, puesto: rows[0].puesto, totp_enabled: !!rows[0].totp_enabled },
+    user: { id: rows[0].id, nombre: rows[0].nombre, usuario: rows[0].usuario, puesto: rows[0].puesto, totp_enabled: !!rows[0].totp_enabled, solicitud_eliminacion_datos: !!rows[0].solicitud_eliminacion_datos },
     tabs: auth.PERMISSIONS[rows[0].puesto] ? auth.PERMISSIONS[rows[0].puesto].tabs : [],
     must_change_password: rows[0].must_change_password || false,
     needsTotpReminder: shouldShowTotpReminder(rows[0]),
@@ -642,6 +686,26 @@ app.post('/api/auth/cerrar-todas-sesiones', h(async (req, res) => {
     'UPDATE usuarios SET token_valid_since = NOW() WHERE id = $1',
     [req.user.id]
   );
+  res.json({ ok: true });
+}));
+
+// Autoservicio: el usuario solicita la eliminación de sus datos personales.
+// NUNCA borra nada físicamente — solo marca la solicitud (ver comentario en
+// server/db.js) para que un administrador la revise y procese manualmente.
+app.post('/api/auth/solicitar-eliminacion-datos', h(async (req, res) => {
+  const { rows } = await db.pool.query(
+    `UPDATE usuarios SET solicitud_eliminacion_datos = true, fecha_solicitud_eliminacion = NOW()
+     WHERE id = $1 RETURNING id, nombre, usuario, puesto`,
+    [req.user.id]
+  );
+  if (!rows[0]) return res.status(404).json({ error: 'Usuario no encontrado' });
+
+  const ip = auth.getIp(req);
+  await db.pool.query(
+    'INSERT INTO audit_log (actor_id, actor_usuario, accion, target_id, target_usuario, ip) VALUES ($1,$2,$3,$4,$5,$6)',
+    [req.user.id, req.user.usuario, 'solicitud_eliminacion_datos', rows[0].id, rows[0].usuario, ip]
+  );
+
   res.json({ ok: true });
 }));
 
@@ -2087,7 +2151,7 @@ app.post('/api/projects/:id/impuestos/:periodoId/cargar', h(auth.allow()), h(req
 // ---------------------------------------------------------------------------
 // Conceptos
 // ---------------------------------------------------------------------------
-app.get('/api/projects/:id/conceptos', h(auth.allow('residente', 'cabo', 'compras', 'tesoreria', 'administracion', 'logistica')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+app.get('/api/projects/:id/conceptos', h(auth.allow('residente', 'cabo', 'compras', 'tesoreria', 'administracion', 'logistica')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('presupuestos', 'puede_ver')), h(async (req, res) => {
   const { rows } = await db.pool.query('SELECT * FROM conceptos WHERE project_id = $1 ORDER BY orden', [req.project.id]);
   res.json(rows);
 }));
@@ -2386,7 +2450,7 @@ async function getRequisicionesData(pid, usuarioId = null) {
   }));
 }
 
-app.get('/api/projects/:id/requisiciones', h(auth.allow('residente', 'cabo', 'compras', 'logistica')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+app.get('/api/projects/:id/requisiciones', h(auth.allow('residente', 'cabo', 'compras', 'logistica')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('requisiciones', 'puede_ver')), h(async (req, res) => {
   const soloPropias = ['residente', 'cabo'].includes(req.user.puesto);
   let data = await getRequisicionesData(req.project.id, soloPropias ? req.user.id : null);
   if (soloPropias) {
@@ -2395,7 +2459,7 @@ app.get('/api/projects/:id/requisiciones', h(auth.allow('residente', 'cabo', 'co
   res.json(data);
 }));
 
-app.get('/api/projects/:id/requisiciones/export', h(auth.allow('residente', 'cabo', 'compras', 'logistica')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+app.get('/api/projects/:id/requisiciones/export', h(auth.allow('residente', 'cabo', 'compras', 'logistica')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('requisiciones', 'puede_ver')), h(async (req, res) => {
   const soloPropias = ['residente', 'cabo'].includes(req.user.puesto);
   const reqs = await getRequisicionesData(req.project.id, soloPropias ? req.user.id : null);
   const reqMap = new Map(reqs.map((r) => [r.id, r]));
@@ -2475,7 +2539,7 @@ app.get('/api/projects/:id/requisiciones/export', h(auth.allow('residente', 'cab
   });
 }));
 
-app.get('/api/projects/:id/requisiciones/:reqId', h(auth.allow('residente', 'cabo', 'compras', 'logistica')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+app.get('/api/projects/:id/requisiciones/:reqId', h(auth.allow('residente', 'cabo', 'compras', 'logistica')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('requisiciones', 'puede_ver')), h(async (req, res) => {
   const { rows: reqRows } = await db.pool.query(
     'SELECT * FROM requisiciones WHERE id = $1 AND project_id = $2',
     [Number(req.params.reqId), req.project.id]
@@ -2499,7 +2563,7 @@ app.get('/api/projects/:id/requisiciones/:reqId', h(auth.allow('residente', 'cab
   res.json({ ...reqRows[0], items });
 }));
 
-app.post('/api/projects/:id/requisiciones', h(auth.allow('residente', 'cabo', 'compras')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+app.post('/api/projects/:id/requisiciones', h(auth.allow('residente', 'cabo', 'compras')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('requisiciones', 'puede_crear')), h(async (req, res) => {
   const pid = req.project.id;
   const { folio, fecha, observaciones, items } = req.body || {};
   if (!Array.isArray(items) || items.length === 0) {
@@ -2537,7 +2601,7 @@ app.post('/api/projects/:id/requisiciones', h(auth.allow('residente', 'cabo', 'c
   }
 }));
 
-app.put('/api/projects/:id/requisiciones/:reqId', h(auth.allow('residente', 'cabo', 'compras')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+app.put('/api/projects/:id/requisiciones/:reqId', h(auth.allow('residente', 'cabo', 'compras')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('requisiciones', 'puede_editar')), h(async (req, res) => {
   const pid = req.project.id;
   const reqId = Number(req.params.reqId);
   const { rows: existRows } = await db.pool.query(
@@ -2589,7 +2653,7 @@ app.put('/api/projects/:id/requisiciones/:reqId', h(auth.allow('residente', 'cab
 // llegar hasta 'enviada' (que dispara la notificación de autorización) o
 // 'cancelada'/'borrador' igual que antes. No se degrada nada del flujo
 // existente, solo se restringe quién puede poner el estado final.
-app.put('/api/projects/:id/requisiciones/:reqId/estado', h(auth.allow('residente', 'cabo', 'compras', 'logistica')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+app.put('/api/projects/:id/requisiciones/:reqId/estado', h(auth.allow('residente', 'cabo', 'compras', 'logistica')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('requisiciones', 'puede_editar')), h(async (req, res) => {
   const { estado } = req.body || {};
   if (!['borrador', 'enviada', 'autorizada', 'rechazada', 'cancelada'].includes(estado)) {
     return res.status(400).json({ error: 'Estado inválido' });
@@ -2619,7 +2683,7 @@ app.put('/api/projects/:id/requisiciones/:reqId/estado', h(auth.allow('residente
   res.json({ ok: true });
 }));
 
-app.delete('/api/projects/:id/requisiciones/:reqId', h(auth.allow('residente', 'cabo', 'compras')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+app.delete('/api/projects/:id/requisiciones/:reqId', h(auth.allow('residente', 'cabo', 'compras')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('requisiciones', 'puede_eliminar')), h(async (req, res) => {
   const reqId = Number(req.params.reqId);
   const { rows } = await db.pool.query(
     'SELECT estado, folio, usuario_id FROM requisiciones WHERE id = $1 AND project_id = $2', [reqId, req.project.id]
@@ -3810,18 +3874,18 @@ async function getDestajistasData(pid) {
       WHERE di.destajista_id = $1
       ORDER BY di.orden, di.id
     `, [d.id]);
-    const totalAsignado = items.reduce((s, i) => s + (Number(i.cantidad_asignada) * Number(i.precio_destajo)), 0);
-    const totalGanado = items.reduce((s, i) => s + (Number(i.cantidad_ejecutada) * Number(i.precio_destajo)), 0);
+    const totalAsignado = items.reduce((s, i) => s + calcularDestajo(i.cantidad_asignada, i.precio_destajo), 0);
+    const totalGanado = items.reduce((s, i) => s + calcularDestajo(i.cantidad_ejecutada, i.precio_destajo), 0);
     const pctAvance = totalAsignado > 0 ? Math.min(100, (totalGanado / totalAsignado) * 100) : 0;
     return { ...d, items, total_asignado: totalAsignado, total_ganado: totalGanado, pct_avance: pctAvance };
   }));
 }
 
-app.get('/api/projects/:id/destajistas', h(auth.allow('residente', 'cabo', 'administracion')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+app.get('/api/projects/:id/destajistas', h(auth.allow('residente', 'cabo', 'administracion')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('destajo', 'puede_ver')), h(async (req, res) => {
   res.json(await getDestajistasData(req.project.id));
 }));
 
-app.get('/api/projects/:id/destajistas/export', h(auth.allow('residente', 'cabo', 'administracion')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+app.get('/api/projects/:id/destajistas/export', h(auth.allow('residente', 'cabo', 'administracion')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('destajo', 'puede_ver')), h(async (req, res) => {
   const { rows: rlDest } = await db.pool.query(
     `SELECT COUNT(*)::int AS n FROM api_rate_limits
      WHERE usuario_id = $1 AND endpoint = 'export_destajistas'
@@ -3871,7 +3935,7 @@ app.get('/api/projects/:id/destajistas/export', h(auth.allow('residente', 'cabo'
   });
 }));
 
-app.post('/api/projects/:id/destajistas', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+app.post('/api/projects/:id/destajistas', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('destajo', 'puede_crear')), h(async (req, res) => {
   const { nombre, telefono } = req.body || {};
   if (!nombre?.trim()) return res.status(400).json({ error: 'El nombre del destajista es requerido' });
   const { rows } = await db.pool.query(
@@ -3881,7 +3945,7 @@ app.post('/api/projects/:id/destajistas', h(auth.allow('residente')), h(requireP
   res.status(201).json(rows[0]);
 }));
 
-app.put('/api/projects/:id/destajistas/:destId', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+app.put('/api/projects/:id/destajistas/:destId', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('destajo', 'puede_editar')), h(async (req, res) => {
   const { nombre, telefono } = req.body || {};
   if (!nombre?.trim()) return res.status(400).json({ error: 'El nombre del destajista es requerido' });
   const { rows } = await db.pool.query(
@@ -3892,7 +3956,7 @@ app.put('/api/projects/:id/destajistas/:destId', h(auth.allow('residente')), h(r
   res.json(rows[0]);
 }));
 
-app.delete('/api/projects/:id/destajistas/:destId', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+app.delete('/api/projects/:id/destajistas/:destId', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('destajo', 'puede_eliminar')), h(async (req, res) => {
   const { rowCount } = await db.pool.query(
     'DELETE FROM destajistas WHERE id = $1 AND project_id = $2',
     [Number(req.params.destId), req.project.id]
@@ -3901,7 +3965,7 @@ app.delete('/api/projects/:id/destajistas/:destId', h(auth.allow('residente')), 
   res.json({ ok: true });
 }));
 
-app.post('/api/projects/:id/destajistas/:destId/items', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+app.post('/api/projects/:id/destajistas/:destId/items', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('destajo', 'puede_crear')), h(async (req, res) => {
   const pid = req.project.id;
   const destId = Number(req.params.destId);
   const { rows: destRows } = await db.pool.query(
@@ -3939,7 +4003,7 @@ app.post('/api/projects/:id/destajistas/:destId/items', h(auth.allow('residente'
   res.status(201).json(rows[0]);
 }));
 
-app.put('/api/projects/:id/destajistas/:destId/items/:itemId', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+app.put('/api/projects/:id/destajistas/:destId/items/:itemId', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('destajo', 'puede_editar')), h(async (req, res) => {
   const pid = req.project.id;
   const itemId = Number(req.params.itemId);
   let { cantidad_asignada, precio_destajo } = req.body || {};
@@ -3963,7 +4027,7 @@ app.put('/api/projects/:id/destajistas/:destId/items/:itemId', h(auth.allow('res
   res.json(rows[0]);
 }));
 
-app.delete('/api/projects/:id/destajistas/:destId/items/:itemId', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+app.delete('/api/projects/:id/destajistas/:destId/items/:itemId', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('destajo', 'puede_eliminar')), h(async (req, res) => {
   const { rowCount } = await db.pool.query(
     'DELETE FROM destajo_items WHERE id = $1 AND project_id = $2',
     [Number(req.params.itemId), req.project.id]
@@ -3977,7 +4041,7 @@ app.delete('/api/projects/:id/destajistas/:destId/items/:itemId', h(auth.allow('
 // (avances_semanales) para que el avance de cada destajista se capture en
 // los mismos periodos que el resto del proyecto.
 // ---------------------------------------------------------------------------
-app.get('/api/projects/:id/destajistas/:destId/avance', h(auth.allow('residente', 'cabo', 'administracion')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+app.get('/api/projects/:id/destajistas/:destId/avance', h(auth.allow('residente', 'cabo', 'administracion')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('destajo', 'puede_ver')), h(async (req, res) => {
   const pid = req.project.id;
   const destId = Number(req.params.destId);
   const { rows: destRows } = await db.pool.query(
@@ -4022,7 +4086,7 @@ app.get('/api/projects/:id/destajistas/:destId/avance', h(auth.allow('residente'
   res.json({ destajista_id: destId, total_asignado: totalAsignado, semanas: result });
 }));
 
-app.get('/api/projects/:id/destajistas/:destId/avance/:semana', h(auth.allow('residente', 'cabo', 'administracion')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+app.get('/api/projects/:id/destajistas/:destId/avance/:semana', h(auth.allow('residente', 'cabo', 'administracion')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('destajo', 'puede_ver')), h(async (req, res) => {
   const pid = req.project.id;
   const destId = Number(req.params.destId);
   const semana = Number(req.params.semana);
@@ -4079,7 +4143,7 @@ app.put('/api/projects/:id/destajistas/:destId/avance/:semana/autorizacion', h(a
   res.json(rows[0]);
 }));
 
-app.put('/api/projects/:id/destajistas/:destId/avance/:semana', h(auth.allow('residente', 'cabo')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+app.put('/api/projects/:id/destajistas/:destId/avance/:semana', h(auth.allow('residente', 'cabo')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('destajo', 'puede_editar')), h(async (req, res) => {
   const pid = req.project.id;
   const destId = Number(req.params.destId);
   const semana = Number(req.params.semana);
@@ -4956,7 +5020,7 @@ app.post('/api/projects/:id/nominas/:nomId/calcular', h(auth.allow('residente'))
     for (const t of trabajadores) {
       const dias = asistMap.get(t.id) || 0;
       const montoDest = (t.tipo_pago === 'destajo' || t.tipo_pago === 'mixto') ? (destajoMap.get(t.id) || 0) : 0;
-      const montoJornal = (t.tipo_pago === 'jornal' || t.tipo_pago === 'mixto') ? dias * Number(t.tarifa_jornal) : 0;
+      const montoJornal = (t.tipo_pago === 'jornal' || t.tipo_pago === 'mixto') ? calcularJornal(dias, t.tarifa_jornal) : 0;
       const total = montoJornal + montoDest;
       await client.query(`
         INSERT INTO nomina_items (nomina_id, trabajador_id, dias_trabajados, monto_jornal, monto_destajo, monto_total)
@@ -5645,8 +5709,22 @@ app.get('/api/admin/dev-info', requireDesarrollador, h(async (_req, res) => {
 app.get('/health', (_req, res) => res.json({ ok: true }));
 
 // Global error handler
-app.use((err, _req, res, _next) => {
+app.use((err, req, res, _next) => {
   console.error(err);
+  // Sin SENTRY_DSN, Sentry.captureException es un no-op (Sentry.init nunca
+  // corrió) — seguro llamarlo siempre en vez de envolverlo en el mismo if.
+  // proyecto_id/usuario_id como tags (no PII adicional) para poder filtrar
+  // eventos por obra en el dashboard de Sentry.
+  Sentry.captureException(err, {
+    tags: {
+      proyecto_id: req.project?.id ?? req.params?.id ?? null,
+      usuario_id: req.user?.id ?? null,
+    },
+  });
+  trackServerEvent(req.user?.id || 'anonimo', 'error_boundary', {
+    proyecto_id: req.project?.id ?? req.params?.id ?? null,
+    ruta: req.originalUrl,
+  });
   // Los errores de PostgreSQL tienen la propiedad `severity` ('ERROR', 'FATAL', etc.).
   // Nunca exponemos el mensaje crudo de DB al cliente — puede filtrar nombres de
   // tablas, columnas o constraints. Los errores de validación (multer, negocio)

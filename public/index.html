@@ -104,9 +104,9 @@
     <!-- Drawer de ajustes de la galería — independiente del #sidebar real
          (ese vive dentro de #app, que queda display:none aquí, así que no es
          alcanzable desde esta pantalla). Solo controles que no dependen de una
-         obra seleccionada: tema, cuenta, sesión. Reutiliza las funciones
-         existentes (setTheme/applyTheme, openMiCuentaModal, logout) sin
-         duplicar su lógica. -->
+         obra seleccionada: tema, accesibilidad, cuenta, sesión. Reutiliza las
+         funciones existentes (setTheme/applyTheme, setReduceMotion,
+         setHighContrast, openMiCuentaModal, logout) sin duplicar su lógica. -->
     <aside id="galleryDrawer" class="gallery-drawer" aria-label="Ajustes">
       <div class="gallery-drawer-header">
         <strong>Ajustes</strong>
@@ -141,6 +141,21 @@
           <span class="palette-swatch palette-swatch-naranja"><span></span><span></span><span></span></span>
           Tema TERRA
         </button>
+      </div>
+      <hr class="ajustes-divider">
+      <div class="a11y-switch">
+        <span class="a11y-switch-label">Reducir movimiento</span>
+        <label>
+          <input type="checkbox" id="chkReduceMotionGallery" />
+          <span class="a11y-switch-track"><span class="a11y-switch-thumb"></span></span>
+        </label>
+      </div>
+      <div class="a11y-switch">
+        <span class="a11y-switch-label">Alto contraste</span>
+        <label>
+          <input type="checkbox" id="chkHighContrastGallery" />
+          <span class="a11y-switch-track"><span class="a11y-switch-thumb"></span></span>
+        </label>
       </div>
       <!-- Accesos globales de administración — mismas vistas del sidebar real
            (#app), solo un punto de entrada adicional para no obligar a elegir
@@ -245,6 +260,21 @@
           <span class="palette-swatch palette-swatch-naranja"><span></span><span></span><span></span></span>
           Tema TERRA
         </button>
+      </div>
+      <hr class="ajustes-divider">
+      <div class="a11y-switch">
+        <span class="a11y-switch-label">Reducir movimiento</span>
+        <label>
+          <input type="checkbox" id="chkReduceMotionPopover" />
+          <span class="a11y-switch-track"><span class="a11y-switch-thumb"></span></span>
+        </label>
+      </div>
+      <div class="a11y-switch">
+        <span class="a11y-switch-label">Alto contraste</span>
+        <label>
+          <input type="checkbox" id="chkHighContrastPopover" />
+          <span class="a11y-switch-track"><span class="a11y-switch-thumb"></span></span>
+        </label>
       </div>
       <button id="btnInstallAppPopover" class="btn full">📲 Instalar app</button>
       <button id="btnMiCuentaPopover" class="btn full">Mi cuenta</button>
@@ -376,6 +406,8 @@
   <script src="/vendor/chart.umd.min.js"></script>
   <script src="/vendor/vercel-blob-client.js"></script>
   <script src="/vendor/sortable.min.js"></script>
+  <script src="/vendor/sentry-browser.js"></script>
+  <script src="/vendor/posthog-browser.js"></script>
   <script src="/app.js"></script>
 </body>
 </html>

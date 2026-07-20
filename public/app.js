@@ -282,6 +282,91 @@ _mqDark.addEventListener('change', () => { if (getTheme() === 'system') applyThe
 
 applyTheme(getTheme());
 applyPalette(getPalette());
+
+// ---------------------------------------------------------------------------
+// Observabilidad (Sentry) y analytics (PostHog) — ambos detrás de su propia
+// key pública, servida por GET /api/public-config (sin auth, ver server/app.js:
+// son claves públicas por diseño de sus SDKs, no secretos). Sin key, cada SDK
+// simplemente no se inicializa — Paul debe crear las cuentas y agregar
+// SENTRY_DSN/POSTHOG_API_KEY en Vercel para activarlos (mismo patrón que el
+// bloqueo actual de SMS/email 2FA con Resend/Twilio).
+// ---------------------------------------------------------------------------
+let sentryActive = false;
+let posthogActive = false;
+async function initObservability() {
+  try {
+    const cfg = await fetch('/api/public-config').then((r) => r.json());
+    if (cfg.sentryDsn && window.SentryBrowser) {
+      window.SentryBrowser.init({ dsn: cfg.sentryDsn, environment: location.hostname === 'localhost' ? 'development' : 'production' });
+      sentryActive = true;
+    }
+    if (cfg.posthogKey && window.posthog) {
+      window.posthog.init(cfg.posthogKey, { api_host: cfg.posthogHost || 'https://app.posthog.com', capture_pageview: false, autocapture: false });
+      posthogActive = true;
+    }
+  } catch (_) { /* best-effort — nunca bloquea el arranque de la app */ }
+}
+initObservability();
+
+// Etiqueta los eventos de Sentry con proyecto_id/usuario_id (sin PII
+// adicional) para poder filtrar por obra — llamar tras login y al cambiar de
+// proyecto (ver applySession() y selectProject()).
+function syncErrorTags() {
+  if (!sentryActive || !window.SentryBrowser) return;
+  if (state.user?.id) window.SentryBrowser.setTag('usuario_id', state.user.id);
+  if (state.projectId) window.SentryBrowser.setTag('proyecto_id', state.projectId);
+}
+
+// Los 4 eventos de analytics que pide el alcance de esta fase — nada más
+// (ver prompt-cerrar-gaps-mayores.md, Punto 3). Sin key, es un no-op.
+function trackEvent(nombre, props = {}) {
+  if (!posthogActive || !window.posthog) return;
+  try { window.posthog.capture(nombre, props); } catch (_) { /* best-effort */ }
+}
+
+// error_boundary del lado frontend — independiente de Sentry (Sentry ya
+// captura estos mismos eventos vía sus propias integraciones de
+// window.onerror/unhandledrejection, pero PostHog necesita su propio
+// listener; ambos SDKs pueden estar activos o inactivos de forma
+// independiente entre sí, según qué keys tenga configuradas Paul).
+window.addEventListener('error', (e) => {
+  trackEvent('error_boundary', { mensaje: e.message, origen: 'window.onerror' });
+});
+window.addEventListener('unhandledrejection', (e) => {
+  trackEvent('error_boundary', { mensaje: String(e.reason?.message || e.reason || ''), origen: 'unhandledrejection' });
+});
+
+// ---------------------------------------------------------------------------
+// Performance: Time to Interactive (medición básica, PerformanceObserver
+// nativo — sin librería externa). Aproximación simple, no el algoritmo
+// completo de Lighthouse: espera 500ms sin 'longtask' después de que
+// tryRestoreSession() termina (login mostrado o app arrancada, ver Boot al
+// final del archivo) para considerar que la app ya está "quieta". Si el
+// navegador no soporta la entrada 'longtask' (ej. Safari), se usa
+// directamente el momento en que tryRestoreSession() terminó.
+// ---------------------------------------------------------------------------
+function medirTTI() {
+  let quietTimer = null;
+  const finalize = () => {
+    const ttiMs = Math.round(performance.now());
+    if (location.hostname === 'localhost' || location.hostname === '127.0.0.1') {
+      console.log(`[perf] Time to Interactive (aprox.): ${ttiMs}ms`);
+    } else {
+      trackEvent('performance_tti', { tti_ms: ttiMs });
+    }
+  };
+  try {
+    const obs = new PerformanceObserver(() => {
+      clearTimeout(quietTimer);
+      quietTimer = setTimeout(finalize, 500);
+    });
+    obs.observe({ type: 'longtask', buffered: true });
+    quietTimer = setTimeout(finalize, 500); // por si no hubo ningún long task
+  } catch (_) {
+    finalize(); // 'longtask' no soportado — se usa el momento actual directamente
+  }
+}
+
 $('#btnThemeToggle').addEventListener('click', toggleTheme);
 // Wiring global de los selectores de paleta ya presentes en el DOM al cargar
 // (drawer de galería + popover de escritorio) — mismo patrón que
@@ -290,6 +375,33 @@ $('#btnThemeToggle').addEventListener('click', toggleTheme);
 $$('[data-palette-set]').forEach((btn) => {
   btn.addEventListener('click', () => setPalette(btn.dataset.paletteSet));
 });
+
+// ---------------------------------------------------------------------------
+// Accesibilidad (Ajustes > Accesibilidad) — 3 controles independientes entre
+// sí y del tema, cada uno persistido en su propia key de localStorage (mismo
+// patrón que THEME_KEY). Reducir movimiento y Alto contraste son clases en
+// <body>; tamaño de fuente es un atributo en <html> (para escalar las
+// unidades rem de toda la app, igual que hace data-theme con los colores).
+// ---------------------------------------------------------------------------
+const A11Y_MOTION_KEY = 'cp_a11y_reduce_motion';
+const A11Y_CONTRAST_KEY = 'cp_a11y_high_contrast';
+const A11Y_FONT_KEY = 'cp_a11y_font_size'; // 'normal' | 'large' | 'xlarge'
+
+function getReduceMotion() { return localStorage.getItem(A11Y_MOTION_KEY) === 'true'; }
+function getHighContrast() { return localStorage.getItem(A11Y_CONTRAST_KEY) === 'true'; }
+function getFontSize() { return localStorage.getItem(A11Y_FONT_KEY) || 'normal'; }
+
+function applyA11ySettings() {
+  document.body.classList.toggle('a11y-reduce-motion', getReduceMotion());
+  document.body.classList.toggle('a11y-high-contrast', getHighContrast());
+  document.documentElement.setAttribute('data-font-size', getFontSize());
+}
+
+function setReduceMotion(on) { localStorage.setItem(A11Y_MOTION_KEY, on ? 'true' : 'false'); applyA11ySettings(); }
+function setHighContrast(on) { localStorage.setItem(A11Y_CONTRAST_KEY, on ? 'true' : 'false'); applyA11ySettings(); }
+function setFontSize(size) { localStorage.setItem(A11Y_FONT_KEY, size); applyA11ySettings(); }
+
+applyA11ySettings();
 
 // ---------------------------------------------------------------------------
 // Tamaño de tarjetas de cliente (Prompt B.3, prompts-animaciones-y-galeria-
@@ -684,6 +796,7 @@ function mostrarPantalla(id, display) {
   el.style.zIndex = ''; // restaura el z-index de su clase (ver comentario arriba)
   el.style.display = display;
   requestAnimationFrame(() => el.classList.add('show'));
+  trackEvent('screen_view', { screen: id });
 }
 
 function showLoginScreen() {
@@ -746,6 +859,7 @@ function applySession(user, tabs, needsTotpReminder = false) {
   state.allowedTabs = tabs;
   state._realAllowedTabs = tabs;
   state.needsTotpReminder = needsTotpReminder;
+  syncErrorTags();
   updateTotpReminderBanner();
   state.simulatedPuesto = null; // resetea simulación al re-autenticar
   const isAdminUser = user.puesto === 'admin' || user.puesto === 'desarrollador';
@@ -1086,12 +1200,15 @@ function closeSidebar() {
 // prompts-cotizador-sidebar-permisos-estimaciones.md) — el #sidebar real
 // vive dentro de #app, que queda display:none en la galería, así que no es
 // alcanzable desde ahí. Este drawer es un componente propio y más simple
-// (solo tema/cuenta/sesión, nada que dependa de una obra seleccionada),
-// pero reutiliza las funciones existentes de tema en vez de reimplementarlas.
+// (solo tema/accesibilidad/cuenta/sesión, nada que dependa de una obra
+// seleccionada), pero reutiliza las funciones existentes de tema y
+// accesibilidad en vez de reimplementarlas.
 function openGalleryDrawer() {
   $('#galleryDrawer').classList.add('show');
   $('#galleryDrawerOverlay').classList.add('show');
   applyTheme(getTheme());
+  const rm = $('#chkReduceMotionGallery'); if (rm) rm.checked = getReduceMotion();
+  const hc = $('#chkHighContrastGallery'); if (hc) hc.checked = getHighContrast();
 }
 
 function closeGalleryDrawer() {
@@ -1340,8 +1457,12 @@ function openUserPopover() {
     }
   }
   requestAnimationFrame(() => pop.classList.add('show'));
-  // Marcar tema activo
+  // Marcar tema activo y sincronizar los toggles de Accesibilidad con su
+  // estado guardado (los checkboxes son estáticos en el HTML, a diferencia
+  // del modal móvil que los recrea cada vez que se abre).
   applyTheme(getTheme());
+  const rmChk = $('#chkReduceMotionPopover'); if (rmChk) rmChk.checked = getReduceMotion();
+  const hcChk = $('#chkHighContrastPopover'); if (hcChk) hcChk.checked = getHighContrast();
 }
 
 function closeUserPopover() {
@@ -1411,6 +1532,7 @@ function closeQuickActionMenu() {
 function openMobileAjustes() {
   const pref = getTheme();
   const pal = getPalette();
+  const fontSize = getFontSize();
   openModal(`
     <div class="modal-header-row">
       <h3 class="modal-title">Ajustes</h3>
@@ -1420,36 +1542,68 @@ function openMobileAjustes() {
       <strong>${esc(state.user?.nombre || '')}</strong>
       <div class="muted">${esc(PUESTO_LABELS[state.user?.puesto] || '')}</div>
     </div>
-    <label class="ajustes-tema-label">Tema</label>
-    <div class="theme-selector ajustes-theme-selector">
-      <button class="theme-opt ${pref==='light'?'active':''}" data-theme-set="light">${icon('sun',14)} Claro</button>
-      <button class="theme-opt ${pref==='dark'?'active':''}" data-theme-set="dark">${icon('moon',14)} Oscuro</button>
-      <button class="theme-opt ${pref==='system'?'active':''}" data-theme-set="system">${icon('monitor',14)} Sistema</button>
+    <input type="text" id="ajustesSearchInput" class="ajustes-search-input" placeholder="Buscar en Ajustes…" autocomplete="off" />
+
+    <div class="ajustes-item">
+      <label class="ajustes-tema-label">Tema</label>
+      <div class="theme-selector ajustes-theme-selector">
+        <button class="theme-opt ${pref==='light'?'active':''}" data-theme-set="light">${icon('sun',14)} Claro</button>
+        <button class="theme-opt ${pref==='dark'?'active':''}" data-theme-set="dark">${icon('moon',14)} Oscuro</button>
+        <button class="theme-opt ${pref==='system'?'active':''}" data-theme-set="system">${icon('monitor',14)} Sistema</button>
+      </div>
+      <label class="ajustes-tema-label">Apariencia</label>
+      <div class="palette-selector">
+        <button class="palette-opt ${pal==='dorada'?'active':''}" data-palette-set="dorada">
+          <span class="palette-swatch palette-swatch-dorada"><span></span><span></span><span></span></span>
+          Tema GRUPO ROFORB
+        </button>
+        <button class="palette-opt ${pal==='morada'?'active':''}" data-palette-set="morada">
+          <span class="palette-swatch palette-swatch-morada"><span></span><span></span><span></span></span>
+          Tema NYRA
+        </button>
+        <button class="palette-opt ${pal==='verde'?'active':''}" data-palette-set="verde">
+          <span class="palette-swatch palette-swatch-verde"><span></span><span></span><span></span></span>
+          Tema JADE
+        </button>
+        <button class="palette-opt ${pal==='naranja'?'active':''}" data-palette-set="naranja">
+          <span class="palette-swatch palette-swatch-naranja"><span></span><span></span><span></span></span>
+          Tema TERRA
+        </button>
+      </div>
     </div>
-    <label class="ajustes-tema-label">Apariencia</label>
-    <div class="palette-selector">
-      <button class="palette-opt ${pal==='dorada'?'active':''}" data-palette-set="dorada">
-        <span class="palette-swatch palette-swatch-dorada"><span></span><span></span><span></span></span>
-        Tema GRUPO ROFORB
-      </button>
-      <button class="palette-opt ${pal==='morada'?'active':''}" data-palette-set="morada">
-        <span class="palette-swatch palette-swatch-morada"><span></span><span></span><span></span></span>
-        Tema NYRA
-      </button>
-      <button class="palette-opt ${pal==='verde'?'active':''}" data-palette-set="verde">
-        <span class="palette-swatch palette-swatch-verde"><span></span><span></span><span></span></span>
-        Tema JADE
-      </button>
-      <button class="palette-opt ${pal==='naranja'?'active':''}" data-palette-set="naranja">
-        <span class="palette-swatch palette-swatch-naranja"><span></span><span></span><span></span></span>
-        Tema TERRA
-      </button>
+
+    <hr class="ajustes-divider">
+    <div class="ajustes-item">
+      <label class="ajustes-tema-label">Accesibilidad</label>
+      <div class="a11y-switch">
+        <span class="a11y-switch-label">Reducir movimiento</span>
+        <label>
+          <input type="checkbox" id="chkReduceMotion" ${getReduceMotion() ? 'checked' : ''} />
+          <span class="a11y-switch-track"><span class="a11y-switch-thumb"></span></span>
+        </label>
+      </div>
+      <div class="a11y-switch">
+        <span class="a11y-switch-label">Alto contraste</span>
+        <label>
+          <input type="checkbox" id="chkHighContrast" ${getHighContrast() ? 'checked' : ''} />
+          <span class="a11y-switch-track"><span class="a11y-switch-thumb"></span></span>
+        </label>
+      </div>
+      <label class="ajustes-tema-label">Tamaño de fuente</label>
+      <div class="theme-selector ajustes-theme-selector" id="fontSizeSelector">
+        <button class="theme-opt ${fontSize==='normal'?'active':''}" data-fontsize-set="normal">Normal</button>
+        <button class="theme-opt ${fontSize==='large'?'active':''}" data-fontsize-set="large">Grande</button>
+        <button class="theme-opt ${fontSize==='xlarge'?'active':''}" data-fontsize-set="xlarge">Muy grande</button>
+      </div>
     </div>
-    ${!isStandalone() ? `<button class="btn full ajustes-btn-mb" id="btnInstallModal">📲 Instalar app</button>` : ''}
-    <button class="btn full ajustes-btn-mb" id="btnMiCuentaModal">Mi cuenta</button>
-    <button class="btn btn-danger full" id="btnLogoutModal">Cerrar sesión</button>
+    <hr class="ajustes-divider">
+
+    ${!isStandalone() ? `<div class="ajustes-item"><button class="btn full ajustes-btn-mb" id="btnInstallModal">📲 Instalar app</button></div>` : ''}
+    <div class="ajustes-item"><button class="btn full ajustes-btn-mb" id="btnMiCuentaModal">Mi cuenta</button></div>
+    <div class="ajustes-item"><button class="btn btn-danger full" id="btnLogoutModal">Cerrar sesión</button></div>
     ${isAdmin() ? `
     <hr class="ajustes-divider">
+    <div class="ajustes-item">
     <button id="__dbgToggle" class="dbg-toggle-btn">
       <span id="__dbgChevron" class="dbg-chevron">▶</span> Información técnica
     </button>
@@ -1457,16 +1611,31 @@ function openMobileAjustes() {
       <div id="__dbgInline" class="dbg-inline-box">
         <span class="muted fs-08">Cargando…</span>
       </div>
+    </div>
     </div>` : ''}
   `);
-  $$('.theme-opt', $('#modal')).forEach((btn) => {
+  $$('.theme-opt[data-theme-set]', $('#modal')).forEach((btn) => {
     btn.addEventListener('click', () => {
       setTheme(btn.dataset.themeSet);
-      $$('.theme-opt', $('#modal')).forEach((b) => b.classList.toggle('active', b.dataset.themeSet === btn.dataset.themeSet));
+      $$('.theme-opt[data-theme-set]', $('#modal')).forEach((b) => b.classList.toggle('active', b.dataset.themeSet === btn.dataset.themeSet));
     });
   });
   $$('.palette-opt', $('#modal')).forEach((btn) => {
     btn.addEventListener('click', () => setPalette(btn.dataset.paletteSet));
+  });
+  $$('.theme-opt[data-fontsize-set]', $('#modal')).forEach((btn) => {
+    btn.addEventListener('click', () => {
+      setFontSize(btn.dataset.fontsizeSet);
+      $$('.theme-opt[data-fontsize-set]', $('#modal')).forEach((b) => b.classList.toggle('active', b.dataset.fontsizeSet === btn.dataset.fontsizeSet));
+    });
+  });
+  $('#chkReduceMotion').addEventListener('change', (e) => setReduceMotion(e.target.checked));
+  $('#chkHighContrast').addEventListener('change', (e) => setHighContrast(e.target.checked));
+  $('#ajustesSearchInput').addEventListener('input', (e) => {
+    const q = e.target.value.trim().toLowerCase();
+    $$('.ajustes-item', $('#modal')).forEach((item) => {
+      item.classList.toggle('ajustes-item-hidden', !!q && !item.textContent.toLowerCase().includes(q));
+    });
   });
   $('#btnInstallModal')?.addEventListener('click', () => { closeModal(); installApp(); });
   $('#btnMiCuentaModal').addEventListener('click', () => { closeModal(); openMiCuentaModal(false); });
@@ -2164,6 +2333,7 @@ function openCambiarClienteModal(project) {
 function selectProject(id, targetView) {
   const vieneDeSinProyecto = !state.projectId; // true cuando se entra desde el resumen de cliente
   state.projectId = id;
+  syncErrorTags();
   state.cache[id] = state.cache[id] || {};
   const p = state.projects.find((x) => x.id === id);
   $('#projectName').textContent = p ? `Trabajando en: ${p.nombre}` : '';
@@ -2639,6 +2809,8 @@ $('#btnCargarContratoDrawer').addEventListener('click', () => { closeDrawer(); p
 $('#btnGalleryMenu').addEventListener('click', openGalleryDrawer);
 $('#btnGalleryDrawerClose').addEventListener('click', closeGalleryDrawer);
 $('#galleryDrawerOverlay').addEventListener('click', closeGalleryDrawer);
+$('#chkReduceMotionGallery').addEventListener('change', (e) => setReduceMotion(e.target.checked));
+$('#chkHighContrastGallery').addEventListener('change', (e) => setHighContrast(e.target.checked));
 $('#btnMiCuentaGalleryDrawer').addEventListener('click', () => { closeGalleryDrawer(); openMiCuentaModal(false); });
 $('#btnLogoutGalleryDrawer').addEventListener('click', () => { closeGalleryDrawer(); logout(); });
 $('#btnGalleryGoUsuarios').addEventListener('click', () => goToGlobalAdminView('usuarios'));
@@ -5918,6 +6090,15 @@ async function openMiCuentaModal(mustChange) {
     <div class="field"><label>Contraseña actual</label><input id="mcPwActual" type="password" autocomplete="current-password" /></div>
     <div class="field"><label>Contraseña nueva</label><input id="mcPwNueva" type="password" autocomplete="new-password" placeholder="Mínimo 6 caracteres" /></div>
     <div class="field"><label>Confirmar contraseña nueva</label><input id="mcPwConfirm" type="password" autocomplete="new-password" /></div>
+    ${!mustChange ? `
+    <hr class="hr-14">
+    <div class="row between">
+      <span>${state.user?.solicitud_eliminacion_datos ? 'Solicitud de eliminación de datos enviada' : 'Eliminar mis datos personales'}</span>
+      ${state.user?.solicitud_eliminacion_datos
+        ? '<span class="badge muted" title="En revisión">En revisión</span>'
+        : '<button class="btn small btn-danger" id="btnEliminarMisDatos">Solicitar eliminación</button>'}
+    </div>
+    ` : ''}
     <div class="modal-actions col-gap8">
       <div class="row-end-gap8">
         ${mustChange ? '' : '<button class="btn btn-cerrar-sesiones" id="btnCerrarTodasSesiones">Cerrar sesión en todos los dispositivos</button>'}
@@ -5930,6 +6111,10 @@ async function openMiCuentaModal(mustChange) {
   $('#btnMiCuenta2FA')?.addEventListener('click', () => {
     closeModal();
     startTotpEnrollment();
+  });
+
+  $('#btnEliminarMisDatos')?.addEventListener('click', () => {
+    openEliminarDatosModal();
   });
 
   if (!mustChange) {
@@ -5979,6 +6164,45 @@ async function openMiCuentaModal(mustChange) {
     } catch (err) {
       toast(err.message, 'danger');
       btn.disabled = false;
+    }
+  });
+}
+
+// Confirmación explícita (escribir "ELIMINAR") antes de disparar la solicitud
+// — no existía un patrón de "escribir para confirmar" en la app (confirmDialog
+// solo tiene botones Aceptar/Cancelar), así que este es el primero de ese tipo.
+function openEliminarDatosModal() {
+  blockOverlayDismiss = true;
+  openModal(`
+    <h3>Solicitar eliminación de mis datos</h3>
+    <p>Esto marca tu cuenta para que un administrador revise y procese manualmente la eliminación de tus datos personales (nombre, teléfono, firma EPP, historial de asistencia). No borra nada de inmediato ni de forma automática.</p>
+    <p class="muted fs-08">Para confirmar, escribe <strong>ELIMINAR</strong> abajo.</p>
+    <div class="field"><input id="eliminarDatosConfirmInput" autocomplete="off" placeholder="ELIMINAR" /></div>
+    <div class="modal-actions">
+      <button class="btn" id="btnEliminarDatosCancelar">Cancelar</button>
+      <button class="btn btn-danger" id="btnEliminarDatosConfirmar" disabled>Confirmar eliminación</button>
+    </div>
+  `);
+  const input = $('#eliminarDatosConfirmInput');
+  const btnConfirmar = $('#btnEliminarDatosConfirmar');
+  input.addEventListener('input', () => {
+    btnConfirmar.disabled = input.value.trim() !== 'ELIMINAR';
+  });
+  input.focus();
+  $('#btnEliminarDatosCancelar').addEventListener('click', () => { blockOverlayDismiss = false; closeModal(); });
+  btnConfirmar.addEventListener('click', async () => {
+    btnConfirmar.disabled = true;
+    btnConfirmar.textContent = 'Enviando…';
+    try {
+      await api('/auth/solicitar-eliminacion-datos', { method: 'POST' });
+      state.user = { ...state.user, solicitud_eliminacion_datos: true };
+      blockOverlayDismiss = false;
+      closeModal();
+      toast('Solicitud registrada. Un administrador la revisará.', 'success');
+    } catch (err) {
+      toast(err.message, 'danger');
+      btnConfirmar.disabled = false;
+      btnConfirmar.textContent = 'Confirmar eliminación';
     }
   });
 }
@@ -6285,7 +6509,13 @@ const PERMISOS_ACCIONES = [
 // (auth.allow()), marcarla o no aquí todavía no cambia nada en el backend.
 // Actualizar esta lista cada vez que se le agregue checkPermiso a una
 // sección nueva (ver mismo patrón en server/auth.js SECCIONES_PERMISOS).
-const SECCIONES_CON_ENFORCEMENT = ['nominas', 'avance', 'maquinaria', 'maquinaria_captura', 'maquinaria_combustible', 'trabajadores_global', 'nominas_global', 'trabajadores'];
+const SECCIONES_CON_ENFORCEMENT = ['nominas', 'avance', 'maquinaria', 'maquinaria_captura', 'maquinaria_combustible', 'trabajadores_global', 'nominas_global', 'trabajadores', 'destajo', 'requisiciones'];
+// 'presupuestos' NO se agrega aquí todavía (prompt-checkpermiso-presupuestos.md):
+// solo GET /api/projects/:id/conceptos (puede_ver) tiene checkPermiso real —
+// no existe endpoint de editar/eliminar concepto individual, así que agregar
+// la sección completa mostraría puede_crear/editar/eliminar/editar_precios
+// como "reales" en la matriz cuando en realidad son inertes todavía. Agregar
+// 'presupuestos' aquí solo cuando esas acciones también tengan enforcement.
 // Agrupa las secciones de permisos igual que SECTION_DEFS agrupa las pestañas
 // en la pantalla de inicio (Obra / Compras / Tesorería / Administración) —
 // mismo criterio de negocio, para que la matriz se lea en el mismo orden que
@@ -8198,6 +8428,8 @@ document.addEventListener('click', (e) => {
 $$('[data-theme-set]').forEach((btn) => {
   btn.addEventListener('click', () => setTheme(btn.dataset.themeSet));
 });
+$('#chkReduceMotionPopover')?.addEventListener('change', (e) => setReduceMotion(e.target.checked));
+$('#chkHighContrastPopover')?.addEventListener('change', (e) => setHighContrast(e.target.checked));
 $('#btnLogoutPopover').addEventListener('click', () => { closeUserPopover(); logout(); });
 $('#btnMiCuentaPopover').addEventListener('click', () => { closeUserPopover(); openMiCuentaModal(false); });
 $('#btnInstallAppPopover').addEventListener('click', () => { closeUserPopover(); installApp(); });
@@ -10279,4 +10511,4 @@ async function initDebugSection(targetEl) {
 // ---------------------------------------------------------------------------
 // Boot
 // ---------------------------------------------------------------------------
-tryRestoreSession();
+tryRestoreSession().finally(medirTTI);

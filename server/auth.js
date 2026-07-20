@@ -54,9 +54,9 @@ function isValidPuesto(p) {
 // ---------------------------------------------------------------------------
 // Permisos granulares por usuario/obra/sección (tabla permisos_usuario).
 // Conviven con PERMISSIONS/allow() de arriba — no lo reemplazan. Alcance de
-// enforcement real (checkPermiso aplicado en endpoints): Nómina, Avance y
-// Maquinaria (ver SECCIONES_CON_ENFORCEMENT en public/app.js, debe
-// mantenerse en sync con esta lista).
+// enforcement real (checkPermiso aplicado en endpoints): Nómina, Avance,
+// Maquinaria, Destajo y Requisiciones (ver SECCIONES_CON_ENFORCEMENT en
+// public/app.js, debe mantenerse en sync con esta lista).
 //
 // GAP CONOCIDO, PENDIENTE DE REVISIÓN (módulo Maquinaria, ver
 // prompt-modulo-maquinaria.md y server/maquinaria.js): la sección
@@ -123,7 +123,8 @@ const TAB_A_SECCION = {
 // Set de permisos default al dar de alta un usuario: puede_ver=true en las
 // secciones ya cubiertas por sus tabs de rol (PERMISSIONS), más el mínimo de
 // puede_crear/puede_editar necesario para que el rol siga operando igual que
-// hoy en las secciones con enforcement real (nóminas, destajo, avance).
+// hoy en las secciones con enforcement real (nóminas, destajo, avance,
+// requisiciones).
 // puede_editar_precios y puede_eliminar quedan en false para todos por
 // default — se conceden manualmente desde el panel de checkboxes.
 function defaultPermisosParaRol(puesto) {
@@ -137,9 +138,17 @@ function defaultPermisosParaRol(puesto) {
   const porSeccion = Object.fromEntries(filas.map((f) => [f.seccion, f]));
   if (puesto === 'residente') {
     if (porSeccion.nominas) { porSeccion.nominas.puede_crear = true; }
-    if (porSeccion.destajo) { porSeccion.destajo.puede_crear = true; porSeccion.destajo.puede_editar = true; }
+    // puede_eliminar=true (a diferencia del resto de secciones, donde eliminar
+    // se concede manualmente): antes de que destajo tuviera checkPermiso real,
+    // auth.allow('residente') ya le permitía eliminar destajistas/items sin
+    // restricción adicional — este default preserva ese comportamiento.
+    if (porSeccion.destajo) { porSeccion.destajo.puede_crear = true; porSeccion.destajo.puede_editar = true; porSeccion.destajo.puede_eliminar = true; }
     if (porSeccion.avance)  { porSeccion.avance.puede_crear = true; }
-    if (porSeccion.requisiciones) { porSeccion.requisiciones.puede_crear = true; }
+    // Mismo criterio que destajo arriba: auth.allow('residente','cabo','compras')
+    // ya le permitía crear/editar/eliminar sus propias requisiciones (en
+    // borrador) antes de que esta sección tuviera checkPermiso real — este
+    // default preserva exactamente esa capacidad (prompt-requisiciones-permisos.md).
+    if (porSeccion.requisiciones) { porSeccion.requisiciones.puede_crear = true; porSeccion.requisiciones.puede_editar = true; porSeccion.requisiciones.puede_eliminar = true; }
   }
   if (puesto === 'cabo') {
     if (porSeccion.destajo) { porSeccion.destajo.puede_editar = true; }
@@ -154,6 +163,22 @@ function defaultPermisosParaRol(puesto) {
       seccion: 'maquinaria_captura', puede_ver: true, puede_crear: true,
       puede_editar: false, puede_editar_precios: false, puede_eliminar: false,
     });
+    // Mismo criterio que residente arriba — cabo también podía crear/editar/
+    // eliminar requisiciones por rol plano.
+    if (porSeccion.requisiciones) { porSeccion.requisiciones.puede_crear = true; porSeccion.requisiciones.puede_editar = true; porSeccion.requisiciones.puede_eliminar = true; }
+  }
+  if (puesto === 'compras') {
+    // compras podía crear/editar/eliminar requisiciones de cualquier obra por
+    // rol plano (a diferencia de residente/cabo, sin restricción de dueño —
+    // ver requisicionAjena() en server/app.js, que solo acota a residente/cabo).
+    if (porSeccion.requisiciones) { porSeccion.requisiciones.puede_crear = true; porSeccion.requisiciones.puede_editar = true; porSeccion.requisiciones.puede_eliminar = true; }
+  }
+  if (puesto === 'logistica') {
+    // logistica no crea/edita el contenido de una requisición, pero sí podía
+    // cambiar su estado (PUT .../estado, mapeado a puede_editar) por rol
+    // plano — 'autorizada' sigue restringido a admin/logistica dentro del
+    // propio handler, eso no cambia aquí.
+    if (porSeccion.requisiciones) { porSeccion.requisiciones.puede_editar = true; }
   }
   if (puesto === 'taller' || puesto === 'admin' || puesto === 'desarrollador') {
     // Registro de combustible/mantenimiento (mismo diseño de primer borrador).

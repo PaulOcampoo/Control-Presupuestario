@@ -411,6 +411,12 @@ const SCHEMA = `
   -- recordatorio por última vez, para no repetirlo antes de 3 días.
   ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS totp_reminder_last_shown_at TIMESTAMP;
 
+  -- Autoservicio de privacidad: el usuario marca que solicitó la eliminación
+  -- de sus datos personales (Ajustes > Mi cuenta). NUNCA dispara un borrado
+  -- físico — solo marca la solicitud para revisión manual de un admin.
+  ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS solicitud_eliminacion_datos BOOLEAN NOT NULL DEFAULT false;
+  ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS fecha_solicitud_eliminacion TIMESTAMPTZ;
+
   -- Intentos de login para rate limiting por usuario (serverless-safe:
   -- persiste entre instancias). Índice compuesto para la consulta de ventana
   -- temporal (identificador + creado_en).

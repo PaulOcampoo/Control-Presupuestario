@@ -1937,8 +1937,31 @@ body.modal-open { overflow: hidden; }
 }
 #resumenClienteProyectos.view-grid .proyecto-resumen-card { margin-bottom: 0; }
 
-/* Galería de subsecciones (prompt-rediseno-navegacion-subsecciones.md, Fix B) */
+/* Galería de subsecciones (prompt-rediseno-navegacion-subsecciones.md, Fix B).
+   Reusa .section-grid/.section-card tal cual (mismos colores/bordes/íconos),
+   pero con tiles más grandes y centrados en un bloque de ancho acotado —
+   con pocas opciones (4 en Obra) la versión sin escopar (2-3 columnas fijas,
+   pensada para hasta 5 secciones de nivel superior) se veía comprimida en
+   la esquina superior izquierda con mucho espacio vacío al lado. Todo
+   scopeado a .subseccion-galeria para NO tocar .section-grid/.section-card
+   base, que sigue siendo la galería de secciones de nivel superior (fuera
+   de alcance, prompt original). En mobile se mantiene repeat(2,1fr) — ver
+   el comentario del bug de threshold de Android Chrome en la regla base de
+   .section-grid — solo crece el padding/tipografía; el auto-fit/minmax más
+   generoso entra desde el mismo breakpoint (640px) que ya usa la base. */
 .seccion-galeria-back { margin-bottom: 10px; }
+.subseccion-galeria .section-grid {
+  max-width: 600px; margin-left: auto; margin-right: auto; gap: 20px;
+}
+@media (min-width: 640px) {
+  /* max-width 600px + minmax(260px,1fr) fuerza 2 columnas (3*260px+gaps no
+     cabe en 600px) — con 4 tiles queda un bloque 2×2 centrado y prominente,
+     en vez de 3 arriba + 1 suelta abajo (lo que se veía disperso). */
+  .subseccion-galeria .section-grid { grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+}
+.subseccion-galeria .section-card { padding: 34px 22px; gap: 14px; }
+.subseccion-galeria .section-card .section-icon { font-size: 2.6rem; }
+.subseccion-galeria .section-card .section-nombre { font-size: 1.12rem; }
 
 /* ── Barrido de style="" dinámicos restantes (colores/estados condicionales) ── */
 .text-verde { color: var(--green); }

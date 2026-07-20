@@ -3006,12 +3006,14 @@ function renderSeccionGaleria(view, sectionId) {
     <button class="btn seccion-galeria-back" data-goto="inicio">← Secciones</button>
     <h2 class="section-title">${def.emoji} ${esc(def.label)}</h2>
     <p class="muted">Selecciona una subsección para continuar.</p>
+    <div class="subseccion-galeria">
     <div class="section-grid">
       ${tabsPermitidos.map((t) => `
         <div class="section-card" data-goto="${t}">
           <span class="section-icon section-icon-lg">${TAB_ICONS[t] || ''}</span>
           <span class="section-nombre">${esc(TAB_LABELS[t])}</span>
         </div>`).join('')}
+    </div>
     </div>
   `;
   $$('[data-goto]', view).forEach((btn) => btn.addEventListener('click', () => switchToView(btn.dataset.goto)));

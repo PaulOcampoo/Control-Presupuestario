@@ -2537,6 +2537,62 @@ body.modal-open { overflow: hidden; }
   }
 }
 
+/* ── Accesibilidad (Ajustes > Accesibilidad) ───────────────────────────────
+   Tamaño de fuente: porcentaje sobre <html> para que escale toda unidad rem
+   de la app (el sistema de diseño ya usa rem, ej. 0.72rem en varias tablas),
+   igual criterio que data-theme para los colores. 'normal' es el 100% base,
+   no necesita regla propia. */
+html[data-font-size="large"]  { font-size: 112.5%; }
+html[data-font-size="xlarge"] { font-size: 125%; }
+
+/* Alto contraste: refuerza bordes y texto secundario al mismo tono que el
+   texto primario del tema activo — var(--text-primary) ya resuelve al valor
+   correcto de dark/light en cascada, así que no hace falta una paleta nueva
+   ni reglas separadas por tema. */
+body.a11y-high-contrast {
+  --border-color: var(--text-primary);
+  --text-secondary: var(--text-primary);
+}
+
+/* Reducir movimiento: mismo resultado que @media (prefers-reduced-motion:
+   reduce) de arriba, pero como preferencia explícita dentro de la app,
+   independiente de la config del SO. animation-duration casi cero (no
+   'none') para no romper JS que espera eventos transitionend/animationend. */
+body.a11y-reduce-motion,
+body.a11y-reduce-motion *,
+body.a11y-reduce-motion *::before,
+body.a11y-reduce-motion *::after {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
+  scroll-behavior: auto !important;
+}
+
+/* Switch simple para los toggles de Accesibilidad — a diferencia de
+   .perm-check-track/.perm-check-thumb (skin exclusivo de escritorio para la
+   matriz de Permisos, ver @media arriba), este se ve igual en cualquier
+   breakpoint. */
+.a11y-switch { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 0; }
+.a11y-switch-label { font-size: 0.85rem; }
+.a11y-switch input[type="checkbox"] { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.a11y-switch-track {
+  position: relative; flex: none; width: 40px; height: 22px; border-radius: 999px;
+  background: var(--bg-surface-2); border: 1px solid var(--border-color); cursor: pointer;
+  transition: background 0.15s var(--ease-out), border-color 0.15s var(--ease-out);
+}
+.a11y-switch-thumb {
+  position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%;
+  background: var(--text-secondary); transition: transform 0.15s var(--ease-out), background 0.15s var(--ease-out);
+}
+.a11y-switch input:checked + .a11y-switch-track { background: var(--accent-gold); border-color: var(--accent-gold); }
+.a11y-switch input:checked + .a11y-switch-track .a11y-switch-thumb { transform: translateX(18px); background: #fff; }
+.a11y-switch input:focus-visible + .a11y-switch-track { outline: 2px solid var(--accent-gold); outline-offset: 2px; }
+
+/* Buscador de Ajustes: filtra en vivo los .ajustes-item del modal (ver
+   openMobileAjustes() en app.js). */
+.ajustes-search-input { width: 100%; margin-bottom: 14px; }
+.ajustes-item-hidden { display: none !important; }
+
 /* ── Permisos de Acceso: agrupación por sección + escritorio interactivo ──
    Mobile-first: los grupos se ven como encabezados de sub-sección dentro de
    la misma tabla; las casillas siguen siendo checkboxes nativos (mejor

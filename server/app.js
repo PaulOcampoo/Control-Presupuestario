@@ -135,7 +135,7 @@ function issueFullSession(res, user, extra = {}) {
   res.setHeader('Set-Cookie', auth.buildRefreshCookie(refreshToken));
   res.json({
     token,
-    user: { id: user.id, nombre: user.nombre, usuario: user.usuario, puesto: user.puesto, totp_enabled: !!user.totp_enabled },
+    user: { id: user.id, nombre: user.nombre, usuario: user.usuario, puesto: user.puesto, totp_enabled: !!user.totp_enabled, solicitud_eliminacion_datos: !!user.solicitud_eliminacion_datos },
     tabs: auth.PERMISSIONS[user.puesto] ? auth.PERMISSIONS[user.puesto].tabs : [],
     must_change_password: user.must_change_password || false,
     ...extra,
@@ -479,12 +479,12 @@ app.use('/api', auth.requireAuth);
 
 app.get('/api/auth/me', h(async (req, res) => {
   const { rows } = await db.pool.query(
-    'SELECT id, nombre, usuario, puesto, must_change_password, totp_enabled, totp_reminder_last_shown_at FROM usuarios WHERE id = $1 AND activo = true',
+    'SELECT id, nombre, usuario, puesto, must_change_password, totp_enabled, totp_reminder_last_shown_at, solicitud_eliminacion_datos FROM usuarios WHERE id = $1 AND activo = true',
     [req.user.id]
   );
   if (!rows[0]) return res.status(401).json({ error: 'Sesión inválida' });
   res.json({
-    user: { id: rows[0].id, nombre: rows[0].nombre, usuario: rows[0].usuario, puesto: rows[0].puesto, totp_enabled: !!rows[0].totp_enabled },
+    user: { id: rows[0].id, nombre: rows[0].nombre, usuario: rows[0].usuario, puesto: rows[0].puesto, totp_enabled: !!rows[0].totp_enabled, solicitud_eliminacion_datos: !!rows[0].solicitud_eliminacion_datos },
     tabs: auth.PERMISSIONS[rows[0].puesto] ? auth.PERMISSIONS[rows[0].puesto].tabs : [],
     must_change_password: rows[0].must_change_password || false,
     needsTotpReminder: shouldShowTotpReminder(rows[0]),
@@ -642,6 +642,26 @@ app.post('/api/auth/cerrar-todas-sesiones', h(async (req, res) => {
     'UPDATE usuarios SET token_valid_since = NOW() WHERE id = $1',
     [req.user.id]
   );
+  res.json({ ok: true });
+}));
+
+// Autoservicio: el usuario solicita la eliminación de sus datos personales.
+// NUNCA borra nada físicamente — solo marca la solicitud (ver comentario en
+// server/db.js) para que un administrador la revise y procese manualmente.
+app.post('/api/auth/solicitar-eliminacion-datos', h(async (req, res) => {
+  const { rows } = await db.pool.query(
+    `UPDATE usuarios SET solicitud_eliminacion_datos = true, fecha_solicitud_eliminacion = NOW()
+     WHERE id = $1 RETURNING id, nombre, usuario, puesto`,
+    [req.user.id]
+  );
+  if (!rows[0]) return res.status(404).json({ error: 'Usuario no encontrado' });
+
+  const ip = auth.getIp(req);
+  await db.pool.query(
+    'INSERT INTO audit_log (actor_id, actor_usuario, accion, target_id, target_usuario, ip) VALUES ($1,$2,$3,$4,$5,$6)',
+    [req.user.id, req.user.usuario, 'solicitud_eliminacion_datos', rows[0].id, rows[0].usuario, ip]
+  );
+
   res.json({ ok: true });
 }));
 

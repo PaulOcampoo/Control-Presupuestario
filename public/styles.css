@@ -1950,8 +1950,22 @@ body.modal-open { overflow: hidden; }
    .section-grid — solo crece el padding/tipografía; el auto-fit/minmax más
    generoso entra desde el mismo breakpoint (640px) que ya usa la base. */
 .seccion-galeria-back { margin-bottom: 10px; }
+/* Feedback: el bloque se percibía "pegado a la izquierda" en pantallas
+   anchas. Verificado con getBoundingClientRect en 4 anchos de viewport
+   (900/1200/1440/1920px): ya quedaba centrado exacto respecto al área de
+   contenido (a la derecha del sidebar) — delta 0px en los 4 casos. El
+   desfase percibido (~132px, la mitad del ancho del sidebar) es contra la
+   ventana COMPLETA, no un bug de este bloque: #view ya centra así en TODA
+   la app (mismo criterio en cada pantalla). Centrar contra la ventana
+   completa requeriría un breakout (100vw + transform) que rompe el
+   contenedor normal — mismo tipo de patrón que ya causó bugs reales de
+   overflow en iOS Safari en este proyecto (ver CLAUDE.md) — descartado por
+   decisión explícita, se mantiene el centrado consistente con el resto de
+   la app. display:flex + justify-content:center aquí es solo un mecanismo
+   más explícito que el margin:auto anidado anterior, mismo resultado. */
+.subseccion-galeria { display: flex; justify-content: center; }
 .subseccion-galeria .section-grid {
-  max-width: 600px; margin-left: auto; margin-right: auto; gap: 20px;
+  max-width: 600px; width: 100%; gap: 20px;
 }
 @media (min-width: 640px) {
   /* max-width 600px + minmax(260px,1fr) fuerza 2 columnas (3*260px+gaps no

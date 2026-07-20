@@ -91,6 +91,7 @@ const ICON_SVG = {
   pencil:        '<path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>',
   phone:         '<path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.88 10.3 19.79 19.79 0 0 1 2 1.63 2 2 0 0 1 4.11 0h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 7.91A16 16 0 0 0 15.1 15l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 23 16.92z"/>',
   list:          '<line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>',
+  'layout-grid': '<rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/>',
   search:        '<circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>',
   folder:        '<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>',
   building:      '<rect x="4" y="2" width="16" height="20"/><path d="M9 22V12h6v10"/><path d="M2 22h20"/><line x1="9" y1="7" x2="9.01" y2="7"/><line x1="15" y1="7" x2="15.01" y2="7"/>',
@@ -322,6 +323,23 @@ function setClienteCardSizeIndex(idx) {
 applyClienteCardSize();
 $('#btnIconSizeDown')?.addEventListener('click', () => setClienteCardSizeIndex(getClienteCardSizeIndex() - 1));
 $('#btnIconSizeUp')?.addEventListener('click', () => setClienteCardSizeIndex(getClienteCardSizeIndex() + 1));
+
+// ---------------------------------------------------------------------------
+// Vista grid/lista de "Presupuestos" en renderResumenCliente (prompt-rediseno-
+// navegacion-subsecciones.md, Fix A) — mismo patrón de persistencia que el
+// tema (localStorage, sin backend). Solo cambia el layout del contenedor;
+// las tarjetas .proyecto-resumen-card no cambian de markup entre modos.
+// ---------------------------------------------------------------------------
+const PRESUPUESTO_VIEW_KEY = 'cp_presupuesto_view';
+function getPresupuestoViewMode() {
+  return localStorage.getItem(PRESUPUESTO_VIEW_KEY) === 'grid' ? 'grid' : 'list';
+}
+function setPresupuestoViewMode(mode) {
+  localStorage.setItem(PRESUPUESTO_VIEW_KEY, mode);
+  const cont = $('#resumenClienteProyectos');
+  if (cont) cont.classList.toggle('view-grid', mode === 'grid');
+  $$('.presupuesto-view-opt').forEach((btn) => btn.classList.toggle('active', btn.dataset.presupuestoView === mode));
+}
 
 $('#btnNotif').innerHTML = icon('bell', 18);
 $('#btnLogout').innerHTML = icon('log-out', 18);
@@ -904,6 +922,15 @@ Object.entries(SECTION_DEFS).forEach(([sectionId, def]) => {
   def.tabs.forEach((t) => { VIEW_TO_SECTION[t] = sectionId; });
 });
 
+// Secciones que muestran primero una galería de subsecciones (mismo patrón
+// visual que .section-grid) en vez de saltar directo a la primera pestaña
+// permitida — prompt-rediseno-navegacion-subsecciones.md, Fix B. Piloto
+// solo en 'obra' por ahora (aprobado así explícitamente); replicar a las
+// otras 4 secciones es agregar su id aquí, nada más — goToSection(),
+// renderView(), renderTabsBar() y syncFab() ya generalizan sobre este set.
+const SECTIONS_WITH_GALLERY = new Set(['obra']);
+SECTIONS_WITH_GALLERY.forEach((sectionId) => { VIEW_TO_SECTION[`${sectionId}_gallery`] = sectionId; });
+
 // Historial de navegación (botón atrás del navegador / gesto equivalente en
 // móvil) — registra cada cambio de pestaña dentro del presupuesto abierto
 // para que "atrás" regrese a la pestaña anterior en vez de salir de la app
@@ -977,19 +1004,28 @@ function goToSection(sectionId) {
   const def = SECTION_DEFS[sectionId];
   if (!def) return;
   if (def.tabs.length === 0) { showProximamenteTooltip(def.label); return; }
-  const firstTab = def.tabs.find((t) => state.allowedTabs.includes(t));
-  if (!firstTab) { toast('No tienes módulos disponibles en esta sección', ''); return; }
-  switchToView(firstTab);
+  const tabsPermitidos = def.tabs.filter((t) => state.allowedTabs.includes(t));
+  if (!tabsPermitidos.length) { toast('No tienes módulos disponibles en esta sección', ''); return; }
+  // Con más de una subsección permitida, mostrar primero la galería para
+  // elegir — con solo una, saltar directo a ella (una galería de 1 tile no
+  // aporta nada, y así el filtro por permisos ya rige si aparece o no).
+  if (SECTIONS_WITH_GALLERY.has(sectionId) && tabsPermitidos.length > 1) {
+    switchToView(`${sectionId}_gallery`);
+    return;
+  }
+  switchToView(tabsPermitidos[0]);
 }
 
 // Reconstruye la barra bajo el topbar: oculta en 'inicio' (la navegación ahí
 // es por las tarjetas de sección dentro de la vista), botón "← Secciones"
 // + tabs reales de la sección cuando hay una activa, o solo "← Inicio"
-// para los accesos rápidos sin sección (Contrato/Impuestos).
+// para los accesos rápidos sin sección (Contrato/Impuestos). También oculta
+// en las galerías de subsecciones (*_gallery) — ahí todavía no hay una
+// subsección activa que resaltar, la elección misma es la vista de galería.
 function renderTabsBar() {
   const nav = $('#tabs');
   if (!nav) return;
-  if (!state.projectId || state.view === 'inicio') { nav.innerHTML = ''; nav.style.display = 'none'; return; }
+  if (!state.projectId || state.view === 'inicio' || state.view.endsWith('_gallery')) { nav.innerHTML = ''; nav.style.display = 'none'; return; }
   nav.classList.remove('hidden-initial'); // ver .hidden-initial en styles.css
   nav.style.display = '';
   let html = '';
@@ -2893,6 +2929,11 @@ async function renderView() {
     syncFab();
     return;
   }
+  if (state.view.endsWith('_gallery')) {
+    try { renderSeccionGaleria(view, state.view.replace('_gallery', '')); } catch (err) { view.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`; }
+    syncFab();
+    return;
+  }
   if (!state.projectId) {
     const puedeVerAgregado = isAdmin() || state.user?.puesto === 'residente';
     if (typeof state.clienteId === 'number' && puedeVerAgregado) {
@@ -2947,6 +2988,33 @@ function invalidate(...keys) {
   const bucket = state.cache[state.projectId];
   if (!bucket) return;
   keys.forEach((k) => delete bucket[k]);
+}
+
+// =========================================================================
+// VISTA: Galería de subsecciones (prompt-rediseno-navegacion-subsecciones.md,
+// Fix B) — piloto solo en las secciones listadas en SECTIONS_WITH_GALLERY.
+// Mismo patrón visual .section-card/.section-grid que la galería de
+// secciones de nivel superior (seccionesGridHtml, más abajo) — reutilizado
+// tal cual, no un sistema nuevo. Respeta state.allowedTabs igual que
+// renderTabsBar()/goToSection(): ningún tile aparece si el rol no tiene
+// acceso a esa subsección.
+// =========================================================================
+function renderSeccionGaleria(view, sectionId) {
+  const def = SECTION_DEFS[sectionId];
+  const tabsPermitidos = def.tabs.filter((t) => state.allowedTabs.includes(t));
+  view.innerHTML = `
+    <button class="btn seccion-galeria-back" data-goto="inicio">← Secciones</button>
+    <h2 class="section-title">${def.emoji} ${esc(def.label)}</h2>
+    <p class="muted">Selecciona una subsección para continuar.</p>
+    <div class="section-grid">
+      ${tabsPermitidos.map((t) => `
+        <div class="section-card" data-goto="${t}">
+          <span class="section-icon section-icon-lg">${TAB_ICONS[t] || ''}</span>
+          <span class="section-nombre">${esc(TAB_LABELS[t])}</span>
+        </div>`).join('')}
+    </div>
+  `;
+  $$('[data-goto]', view).forEach((btn) => btn.addEventListener('click', () => switchToView(btn.dataset.goto)));
 }
 
 // =========================================================================
@@ -3178,7 +3246,17 @@ async function renderResumenCliente(view) {
       <div class="kpi yellow"><div class="label">Por ejecutar</div><div class="value">${fmtMoney(importe_por_ejecutar)}</div></div>
     </div>
 
-    <h3 class="section-title">Presupuestos</h3>
+    <div class="row between presupuestos-header">
+      <div>
+        <h3 class="section-title presupuestos-title">Presupuestos</h3>
+        ${proyectos.length ? '<p class="muted presupuestos-guia">Selecciona un presupuesto para ver el detalle.</p>' : ''}
+      </div>
+      ${proyectos.length ? `
+      <div class="presupuesto-view-toggle" role="group" aria-label="Vista de presupuestos">
+        <button class="icon-btn presupuesto-view-opt" data-presupuesto-view="list" aria-label="Vista de lista" title="Vista de lista">${icon('list', 16)}</button>
+        <button class="icon-btn presupuesto-view-opt" data-presupuesto-view="grid" aria-label="Vista de cuadrícula" title="Vista de cuadrícula">${icon('layout-grid', 16)}</button>
+      </div>` : ''}
+    </div>
     <div id="resumenClienteProyectos">
       ${proyectos.map((p) => `
         <div class="card proyecto-resumen-card" data-pid="${p.id}">
@@ -3206,6 +3284,11 @@ async function renderResumenCliente(view) {
   $$('.proyecto-resumen-card', view).forEach((card) => {
     card.addEventListener('click', () => selectProject(Number(card.dataset.pid)));
   });
+
+  $$('.presupuesto-view-opt', view).forEach((btn) => {
+    btn.addEventListener('click', () => setPresupuestoViewMode(btn.dataset.presupuestoView));
+  });
+  setPresupuestoViewMode(getPresupuestoViewMode());
 }
 
 // =========================================================================
@@ -8013,7 +8096,8 @@ fab.addEventListener('click', () => {
 function syncFab() {
   const noFabViews = ['usuarios', 'proveedores', 'ordenes', 'finanzas', 'estadoResultados', 'estadoResultadosGlobal', 'mapeo', 'avance'];
   const hasAction = ['requisiciones', 'insumos', 'destajo'].includes(state.view);
-  fab.style.display = !noFabViews.includes(state.view) && state.projectId && (hasAction || isAdmin()) ? 'flex' : 'none';
+  const esGaleria = state.view.endsWith('_gallery');
+  fab.style.display = !esGaleria && !noFabViews.includes(state.view) && state.projectId && (hasAction || isAdmin()) ? 'flex' : 'none';
   if (state.view === 'requisiciones' || state.view === 'insumos') fab.textContent = '🧾';
   else if (state.view === 'destajo') fab.textContent = '👷';
   else fab.textContent = '+';

@@ -1920,6 +1920,26 @@ body.modal-open { overflow: hidden; }
 .proyecto-resumen-card .card-row:first-child .k { font-weight: 600; font-size: 0.9rem; color: var(--text-primary); }
 .proyecto-resumen-card .progress-bar { margin: 0 0 8px; }
 
+/* Toggle grid/lista + mensaje guía de "Presupuestos" (prompt-rediseno-
+   navegacion-subsecciones.md, Fix A) — mismo patrón de persistencia que el
+   tema (ver THEME_KEY/applyTheme en app.js), solo cambia el layout del
+   contenedor: las .proyecto-resumen-card no cambian de markup entre modos. */
+.presupuestos-header { align-items: flex-start; margin: 14px 0 8px; }
+.presupuestos-title { margin: 0; }
+.presupuestos-guia { margin: 2px 0 0; font-size: 0.86rem; }
+.presupuesto-view-toggle { display: flex; gap: 4px; flex-shrink: 0; }
+.presupuesto-view-opt.active { color: var(--accent-gold); border-color: var(--accent-gold); }
+#resumenClienteProyectos.view-grid {
+  display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px;
+}
+@media (min-width: 900px) {
+  #resumenClienteProyectos.view-grid { grid-template-columns: repeat(3, 1fr); }
+}
+#resumenClienteProyectos.view-grid .proyecto-resumen-card { margin-bottom: 0; }
+
+/* Galería de subsecciones (prompt-rediseno-navegacion-subsecciones.md, Fix B) */
+.seccion-galeria-back { margin-bottom: 10px; }
+
 /* ── Barrido de style="" dinámicos restantes (colores/estados condicionales) ── */
 .text-verde { color: var(--green); }
 .text-rojo { color: var(--red); }

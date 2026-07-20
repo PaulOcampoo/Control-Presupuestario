@@ -6509,7 +6509,13 @@ const PERMISOS_ACCIONES = [
 // (auth.allow()), marcarla o no aquí todavía no cambia nada en el backend.
 // Actualizar esta lista cada vez que se le agregue checkPermiso a una
 // sección nueva (ver mismo patrón en server/auth.js SECCIONES_PERMISOS).
-const SECCIONES_CON_ENFORCEMENT = ['nominas', 'avance', 'maquinaria', 'maquinaria_captura', 'maquinaria_combustible', 'trabajadores_global', 'nominas_global', 'trabajadores'];
+const SECCIONES_CON_ENFORCEMENT = ['nominas', 'avance', 'maquinaria', 'maquinaria_captura', 'maquinaria_combustible', 'trabajadores_global', 'nominas_global', 'trabajadores', 'destajo', 'requisiciones'];
+// 'presupuestos' NO se agrega aquí todavía (prompt-checkpermiso-presupuestos.md):
+// solo GET /api/projects/:id/conceptos (puede_ver) tiene checkPermiso real —
+// no existe endpoint de editar/eliminar concepto individual, así que agregar
+// la sección completa mostraría puede_crear/editar/eliminar/editar_precios
+// como "reales" en la matriz cuando en realidad son inertes todavía. Agregar
+// 'presupuestos' aquí solo cuando esas acciones también tengan enforcement.
 // Agrupa las secciones de permisos igual que SECTION_DEFS agrupa las pestañas
 // en la pantalla de inicio (Obra / Compras / Tesorería / Administración) —
 // mismo criterio de negocio, para que la matriz se lea en el mismo orden que

@@ -1075,11 +1075,11 @@ async function getProveedoresData(activoQuery) {
   return rows;
 }
 
-app.get('/api/proveedores', h(auth.allow('residente', 'cabo', 'compras', 'tesoreria', 'administracion')), h(async (req, res) => {
+app.get('/api/proveedores', h(auth.allow('residente', 'cabo', 'compras', 'tesoreria', 'administracion')), h(auth.checkPermiso('proveedores', 'puede_ver')), h(async (req, res) => {
   res.json(await getProveedoresData(req.query.activo));
 }));
 
-app.get('/api/proveedores/export', h(auth.allow('residente', 'cabo', 'compras', 'tesoreria', 'administracion')), h(async (req, res) => {
+app.get('/api/proveedores/export', h(auth.allow('residente', 'cabo', 'compras', 'tesoreria', 'administracion')), h(auth.checkPermiso('proveedores', 'puede_ver')), h(async (req, res) => {
   const proveedores = await getProveedoresData(req.query.activo);
   await sendXlsxExport(res, {
     filename: buildExportFilename('Proveedores'),
@@ -1105,7 +1105,7 @@ app.get('/api/proveedores/export', h(auth.allow('residente', 'cabo', 'compras', 
   });
 }));
 
-app.post('/api/proveedores', h(auth.allow('compras')), h(async (req, res) => {
+app.post('/api/proveedores', h(auth.allow('compras')), h(auth.checkPermiso('proveedores', 'puede_crear')), h(async (req, res) => {
   const { nombre, contacto, telefono, email, rfc } = req.body || {};
   if (!nombre?.trim()) return res.status(400).json({ error: 'El nombre del proveedor es requerido' });
   const { rows } = await db.pool.query(
@@ -1115,7 +1115,7 @@ app.post('/api/proveedores', h(auth.allow('compras')), h(async (req, res) => {
   res.status(201).json(rows[0]);
 }));
 
-app.put('/api/proveedores/:id', h(auth.allow('compras')), h(async (req, res) => {
+app.put('/api/proveedores/:id', h(auth.allow('compras')), h(auth.checkPermiso('proveedores', 'puede_editar')), h(async (req, res) => {
   const id = Number(req.params.id);
   const { nombre, contacto, telefono, email, rfc } = req.body || {};
   if (!nombre?.trim()) return res.status(400).json({ error: 'El nombre del proveedor es requerido' });
@@ -1127,7 +1127,10 @@ app.put('/api/proveedores/:id', h(auth.allow('compras')), h(async (req, res) => 
   res.json(rows[0]);
 }));
 
-app.put('/api/proveedores/:id/estado', h(auth.allow('compras')), h(async (req, res) => {
+// Baja/reactivación es soft-delete (toggle de `activo`, nunca DELETE físico)
+// — mapeada a 'puede_eliminar' porque semánticamente es la acción de "quitar"
+// un proveedor del catálogo activo, aunque técnicamente sea un UPDATE.
+app.put('/api/proveedores/:id/estado', h(auth.allow('compras')), h(auth.checkPermiso('proveedores', 'puede_eliminar')), h(async (req, res) => {
   const id = Number(req.params.id);
   const { activo } = req.body || {};
   const { rows } = await db.pool.query(

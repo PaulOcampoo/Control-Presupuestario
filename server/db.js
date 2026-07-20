@@ -932,8 +932,32 @@ const SCHEMA = `
   CREATE INDEX IF NOT EXISTS idx_cobros_factura ON cobros(factura_id);
 `;
 
+// prompt-fix-error-permiso-trabajadores.md → el diagnóstico de ese prompt no
+// encontró ningún bug real ligado a 'trabajadores' (reproducido sin éxito
+// contra Postgres desechable y vía UI real); en su lugar, los logs de
+// runtime de Vercel mostraron deadlocks reales y recurrentes (10-34
+// ocurrencias, activos desde el 3 hasta el 20 de julio) con initSchema() en
+// el stack trace. Causa: api/index.js corre initSchema() una vez por cada
+// cold start de cada instancia serverless (ensureInit() en api/index.js);
+// si dos instancias arrancan en frío casi al mismo tiempo, sus dos
+// ejecuciones concurrentes de este bloque —varios ALTER TABLE, cada uno
+// toma un lock ACCESS EXCLUSIVE— pueden tomar locks en tablas distintas en
+// orden distinto y deadlockear entre sí. Como ensureInit() no envuelve el
+// await en try/catch, el error sube crudo y Vercel responde 500 genérico a
+// cualquier request que haya coincidido con ese cold start — sin relación
+// alguna con qué sección de permisos se estuviera guardando en ese momento.
+//
+// Fix: pg_advisory_xact_lock serializa las ejecuciones concurrentes de
+// initSchema() — la segunda transacción espera aquí (antes de tocar
+// cualquier tabla) en vez de competir por locks de tabla más abajo. Se
+// libera solo al hacer COMMIT/ROLLBACK (withTransaction ya maneja ambos),
+// sin necesidad de un unlock manual. hashtext(...) da un identificador
+// estable y legible en vez de un número mágico arbitrario.
 async function initSchema() {
-  await pool.query(SCHEMA);
+  await withTransaction(async (client) => {
+    await client.query("SELECT pg_advisory_xact_lock(hashtext('ctrl-ppto:initSchema'))");
+    await client.query(SCHEMA);
+  });
 }
 
 async function withTransaction(fn) {

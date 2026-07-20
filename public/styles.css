@@ -1965,13 +1965,20 @@ body.modal-open { overflow: hidden; }
    más explícito que el margin:auto anidado anterior, mismo resultado. */
 .subseccion-galeria { display: flex; justify-content: center; }
 .subseccion-galeria .section-grid {
-  max-width: 600px; width: 100%; gap: 20px;
+  max-width: 880px; width: 100%; gap: 20px;
 }
 @media (min-width: 640px) {
-  /* max-width 600px + minmax(260px,1fr) fuerza 2 columnas (3*260px+gaps no
-     cabe en 600px) — con 4 tiles queda un bloque 2×2 centrado y prominente,
-     en vez de 3 arriba + 1 suelta abajo (lo que se veía disperso). */
-  .subseccion-galeria .section-grid { grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+  /* prompt-ajustar-grid-mas-columnas.md: max-width 600px + minmax(260px,1fr)
+     forzaba 2 columnas fijas — bien para Obra (4 tiles = bloque 2×2), pero
+     Administración (7 tiles, el caso más grande) quedaba en 4 filas con
+     scroll. max-width 880px + minmax(200px,1fr) da 4 columnas a este ancho
+     (4*200px + 3*20px de gap = 860px ≤ 880px; una 5ta columna no cabe:
+     5*200+4*20=1080px > 880px) — Administración cabe en 2 filas (4+3) sin
+     scroll, Obra/Tesorería (4 tiles) llenan una sola fila, Compras (5)
+     queda en 4+1. Tamaño de tile sin cambios (mismo padding/tipografía del
+     piloto de Obra) — la reducción de min-width (260px->200px) es la única
+     que permite más columnas por fila, no se tocó el tile en sí. */
+  .subseccion-galeria .section-grid { grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
 }
 .subseccion-galeria .section-card { padding: 34px 22px; gap: 14px; }
 .subseccion-galeria .section-card .section-icon { font-size: 2.6rem; }

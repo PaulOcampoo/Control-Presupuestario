@@ -10,4 +10,10 @@
   // (dorada o morada) siempre gana sobre este fallback.
   var pal = localStorage.getItem('cp_palette') || 'morada';
   document.documentElement.setAttribute('data-palette', pal);
+  // Igual razón que el tema: aplicarlo aquí (antes de pintar) evita un
+  // parpadeo de tamaño de fuente al cargar. Alto contraste/reducir
+  // movimiento son clases en <body>, que todavía no existe en este punto
+  // del parseo — esos dos se aplican en app.js (applyA11ySettings()).
+  var fs = localStorage.getItem('cp_a11y_font_size') || 'normal';
+  document.documentElement.setAttribute('data-font-size', fs);
 })();

@@ -5,6 +5,7 @@
 // "Erogado Real" sin duplicar la query — comportamiento sin cambios.
 
 const db = require('./db');
+const { montoSinIva } = require('./calculos');
 
 function metaToObject(rows) {
   const o = {};
@@ -93,8 +94,8 @@ async function getFinanzasResumenData(pid) {
   // pagos ni orden_compra_items, que siguen representando el monto real con
   // IVA. gastos_generales queda fuera de este ajuste (fuera de alcance).
   const IVA_RATE = 0.16;
-  const comprasPagadoSinIva = Number((comprasPagado / (1 + IVA_RATE)).toFixed(2));
-  const comprasComprometidoSinIva = Number((comprasComprometido / (1 + IVA_RATE)).toFixed(2));
+  const comprasPagadoSinIva = montoSinIva(comprasPagado, IVA_RATE);
+  const comprasComprometidoSinIva = montoSinIva(comprasComprometido, IVA_RATE);
 
   const totalPagado = Number((comprasPagadoSinIva + gastosPagado + destajoGanado).toFixed(2));
   const totalComprometidoNoPagado = Number((comprasComprometidoSinIva + gastosPendiente).toFixed(2));

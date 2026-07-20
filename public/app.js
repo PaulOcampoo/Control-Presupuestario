@@ -282,6 +282,91 @@ _mqDark.addEventListener('change', () => { if (getTheme() === 'system') applyThe
 
 applyTheme(getTheme());
 applyPalette(getPalette());
+
+// ---------------------------------------------------------------------------
+// Observabilidad (Sentry) y analytics (PostHog) — ambos detrás de su propia
+// key pública, servida por GET /api/public-config (sin auth, ver server/app.js:
+// son claves públicas por diseño de sus SDKs, no secretos). Sin key, cada SDK
+// simplemente no se inicializa — Paul debe crear las cuentas y agregar
+// SENTRY_DSN/POSTHOG_API_KEY en Vercel para activarlos (mismo patrón que el
+// bloqueo actual de SMS/email 2FA con Resend/Twilio).
+// ---------------------------------------------------------------------------
+let sentryActive = false;
+let posthogActive = false;
+async function initObservability() {
+  try {
+    const cfg = await fetch('/api/public-config').then((r) => r.json());
+    if (cfg.sentryDsn && window.SentryBrowser) {
+      window.SentryBrowser.init({ dsn: cfg.sentryDsn, environment: location.hostname === 'localhost' ? 'development' : 'production' });
+      sentryActive = true;
+    }
+    if (cfg.posthogKey && window.posthog) {
+      window.posthog.init(cfg.posthogKey, { api_host: cfg.posthogHost || 'https://app.posthog.com', capture_pageview: false, autocapture: false });
+      posthogActive = true;
+    }
+  } catch (_) { /* best-effort — nunca bloquea el arranque de la app */ }
+}
+initObservability();
+
+// Etiqueta los eventos de Sentry con proyecto_id/usuario_id (sin PII
+// adicional) para poder filtrar por obra — llamar tras login y al cambiar de
+// proyecto (ver applySession() y selectProject()).
+function syncErrorTags() {
+  if (!sentryActive || !window.SentryBrowser) return;
+  if (state.user?.id) window.SentryBrowser.setTag('usuario_id', state.user.id);
+  if (state.projectId) window.SentryBrowser.setTag('proyecto_id', state.projectId);
+}
+
+// Los 4 eventos de analytics que pide el alcance de esta fase — nada más
+// (ver prompt-cerrar-gaps-mayores.md, Punto 3). Sin key, es un no-op.
+function trackEvent(nombre, props = {}) {
+  if (!posthogActive || !window.posthog) return;
+  try { window.posthog.capture(nombre, props); } catch (_) { /* best-effort */ }
+}
+
+// error_boundary del lado frontend — independiente de Sentry (Sentry ya
+// captura estos mismos eventos vía sus propias integraciones de
+// window.onerror/unhandledrejection, pero PostHog necesita su propio
+// listener; ambos SDKs pueden estar activos o inactivos de forma
+// independiente entre sí, según qué keys tenga configuradas Paul).
+window.addEventListener('error', (e) => {
+  trackEvent('error_boundary', { mensaje: e.message, origen: 'window.onerror' });
+});
+window.addEventListener('unhandledrejection', (e) => {
+  trackEvent('error_boundary', { mensaje: String(e.reason?.message || e.reason || ''), origen: 'unhandledrejection' });
+});
+
+// ---------------------------------------------------------------------------
+// Performance: Time to Interactive (medición básica, PerformanceObserver
+// nativo — sin librería externa). Aproximación simple, no el algoritmo
+// completo de Lighthouse: espera 500ms sin 'longtask' después de que
+// tryRestoreSession() termina (login mostrado o app arrancada, ver Boot al
+// final del archivo) para considerar que la app ya está "quieta". Si el
+// navegador no soporta la entrada 'longtask' (ej. Safari), se usa
+// directamente el momento en que tryRestoreSession() terminó.
+// ---------------------------------------------------------------------------
+function medirTTI() {
+  let quietTimer = null;
+  const finalize = () => {
+    const ttiMs = Math.round(performance.now());
+    if (location.hostname === 'localhost' || location.hostname === '127.0.0.1') {
+      console.log(`[perf] Time to Interactive (aprox.): ${ttiMs}ms`);
+    } else {
+      trackEvent('performance_tti', { tti_ms: ttiMs });
+    }
+  };
+  try {
+    const obs = new PerformanceObserver(() => {
+      clearTimeout(quietTimer);
+      quietTimer = setTimeout(finalize, 500);
+    });
+    obs.observe({ type: 'longtask', buffered: true });
+    quietTimer = setTimeout(finalize, 500); // por si no hubo ningún long task
+  } catch (_) {
+    finalize(); // 'longtask' no soportado — se usa el momento actual directamente
+  }
+}
+
 $('#btnThemeToggle').addEventListener('click', toggleTheme);
 // Wiring global de los selectores de paleta ya presentes en el DOM al cargar
 // (drawer de galería + popover de escritorio) — mismo patrón que
@@ -684,6 +769,7 @@ function mostrarPantalla(id, display) {
   el.style.zIndex = ''; // restaura el z-index de su clase (ver comentario arriba)
   el.style.display = display;
   requestAnimationFrame(() => el.classList.add('show'));
+  trackEvent('screen_view', { screen: id });
 }
 
 function showLoginScreen() {
@@ -746,6 +832,7 @@ function applySession(user, tabs, needsTotpReminder = false) {
   state.allowedTabs = tabs;
   state._realAllowedTabs = tabs;
   state.needsTotpReminder = needsTotpReminder;
+  syncErrorTags();
   updateTotpReminderBanner();
   state.simulatedPuesto = null; // resetea simulación al re-autenticar
   const isAdminUser = user.puesto === 'admin' || user.puesto === 'desarrollador';
@@ -2164,6 +2251,7 @@ function openCambiarClienteModal(project) {
 function selectProject(id, targetView) {
   const vieneDeSinProyecto = !state.projectId; // true cuando se entra desde el resumen de cliente
   state.projectId = id;
+  syncErrorTags();
   state.cache[id] = state.cache[id] || {};
   const p = state.projects.find((x) => x.id === id);
   $('#projectName').textContent = p ? `Trabajando en: ${p.nombre}` : '';
@@ -10279,4 +10367,4 @@ async function initDebugSection(targetEl) {
 // ---------------------------------------------------------------------------
 // Boot
 // ---------------------------------------------------------------------------
-tryRestoreSession();
+tryRestoreSession().finally(medirTTI);

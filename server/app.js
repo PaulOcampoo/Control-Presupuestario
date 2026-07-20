@@ -12,6 +12,30 @@ const QRCode = require('qrcode');
 const { del, get, put } = require('@vercel/blob');
 const { handleUpload } = require('@vercel/blob/client');
 
+// Sentry (observabilidad de errores backend) — inicializado solo si
+// SENTRY_DSN está configurada; sin la key, Sentry.captureException() más
+// abajo es un no-op seguro (no lanza, no bloquea nada). Paul debe crear la
+// cuenta y agregar SENTRY_DSN a Vercel para activarlo (mismo patrón que el
+// bloqueo actual de SMS/email 2FA con Resend/Twilio).
+const Sentry = require('@sentry/node');
+if (process.env.SENTRY_DSN) {
+  Sentry.init({ dsn: process.env.SENTRY_DSN, environment: process.env.NODE_ENV || 'development', tracesSampleRate: 0 });
+}
+
+// PostHog (analytics de backend) — mismo patrón que Sentry: sin
+// POSTHOG_API_KEY, posthogClient queda null y trackServerEvent() es un
+// no-op. Solo los 4 eventos del alcance de esta fase (screen_view se manda
+// desde el frontend; login_success/login_failed/error_boundary se mandan
+// desde aquí porque el backend es la fuente de verdad de esos 3).
+const { PostHog } = require('posthog-node');
+const posthogClient = process.env.POSTHOG_API_KEY
+  ? new PostHog(process.env.POSTHOG_API_KEY, { host: process.env.POSTHOG_HOST || 'https://app.posthog.com' })
+  : null;
+function trackServerEvent(distinctId, event, properties = {}) {
+  if (!posthogClient) return;
+  try { posthogClient.capture({ distinctId: String(distinctId), event, properties }); } catch (_) { /* best-effort */ }
+}
+
 const db = require('./db');
 const { parseWorkbook } = require('./parser');
 const { ingest } = require('./ingest');
@@ -26,6 +50,7 @@ const { calcularDiasRestantes, determinarUmbral, construirMensaje } = require('.
 const maquinaria = require('./maquinaria');
 const cotizador = require('./cotizador');
 const { metaToObject, presupuestoTotalDe, getFinanzasResumenData } = require('./finanzas');
+const { calcularJornal, calcularDestajo } = require('./calculos');
 const estadoResultados = require('./estadoResultados');
 
 // CN-007: nombre_archivo/pdf_filename vienen del cliente (upload); una comilla
@@ -130,6 +155,7 @@ async function requireProject(req, res, next) {
 // 2° factor (o durante enroll-confirm). Mismo shape que el login pre-2FA;
 // `extra` permite añadir campos puntuales (ej. backupCodes, solo en enroll).
 function issueFullSession(res, user, extra = {}) {
+  trackServerEvent(user.id, 'login_success', { puesto: user.puesto });
   const token = auth.signToken(user);
   const refreshToken = auth.signRefreshToken(user);
   res.setHeader('Set-Cookie', auth.buildRefreshCookie(refreshToken));
@@ -200,6 +226,10 @@ app.post('/api/auth/login', h(async (req, res) => {
   );
 
   if (!ok) {
+    // distinctId = identificador escrito (no hay usuario_id confiable en un
+    // login fallido — pudo ni existir la cuenta) — sin PII más allá del
+    // usuario mismo, que ya es el identificador de negocio de este evento.
+    trackServerEvent(ident, 'login_failed', {});
     return res.status(401).json({ error: 'Usuario o contraseña incorrectos' });
   }
 
@@ -473,6 +503,20 @@ app.post('/api/auth/refresh', h(async (req, res) => {
 app.post('/api/auth/logout', (_req, res) => {
   res.setHeader('Set-Cookie', auth.buildRefreshCookie('', true));
   res.json({ ok: true });
+});
+
+// Config pública para el frontend (Sentry DSN / PostHog key). Público a
+// propósito, antes de auth.requireAuth: ambas son claves públicas por diseño
+// de sus SDKs (se embeben en cualquier bundle de cliente), no secretos como
+// TOTP_ENC_KEY/SESSION_SECRET — nunca se exponen aquí. null cuando Paul
+// todavía no las configura en el entorno, para que el frontend sepa no
+// inicializar el SDK correspondiente.
+app.get('/api/public-config', (_req, res) => {
+  res.json({
+    sentryDsn: process.env.SENTRY_DSN || null,
+    posthogKey: process.env.POSTHOG_API_KEY || null,
+    posthogHost: process.env.POSTHOG_HOST || null,
+  });
 });
 
 app.use('/api', auth.requireAuth);
@@ -3810,8 +3854,8 @@ async function getDestajistasData(pid) {
       WHERE di.destajista_id = $1
       ORDER BY di.orden, di.id
     `, [d.id]);
-    const totalAsignado = items.reduce((s, i) => s + (Number(i.cantidad_asignada) * Number(i.precio_destajo)), 0);
-    const totalGanado = items.reduce((s, i) => s + (Number(i.cantidad_ejecutada) * Number(i.precio_destajo)), 0);
+    const totalAsignado = items.reduce((s, i) => s + calcularDestajo(i.cantidad_asignada, i.precio_destajo), 0);
+    const totalGanado = items.reduce((s, i) => s + calcularDestajo(i.cantidad_ejecutada, i.precio_destajo), 0);
     const pctAvance = totalAsignado > 0 ? Math.min(100, (totalGanado / totalAsignado) * 100) : 0;
     return { ...d, items, total_asignado: totalAsignado, total_ganado: totalGanado, pct_avance: pctAvance };
   }));
@@ -4956,7 +5000,7 @@ app.post('/api/projects/:id/nominas/:nomId/calcular', h(auth.allow('residente'))
     for (const t of trabajadores) {
       const dias = asistMap.get(t.id) || 0;
       const montoDest = (t.tipo_pago === 'destajo' || t.tipo_pago === 'mixto') ? (destajoMap.get(t.id) || 0) : 0;
-      const montoJornal = (t.tipo_pago === 'jornal' || t.tipo_pago === 'mixto') ? dias * Number(t.tarifa_jornal) : 0;
+      const montoJornal = (t.tipo_pago === 'jornal' || t.tipo_pago === 'mixto') ? calcularJornal(dias, t.tarifa_jornal) : 0;
       const total = montoJornal + montoDest;
       await client.query(`
         INSERT INTO nomina_items (nomina_id, trabajador_id, dias_trabajados, monto_jornal, monto_destajo, monto_total)
@@ -5645,8 +5689,22 @@ app.get('/api/admin/dev-info', requireDesarrollador, h(async (_req, res) => {
 app.get('/health', (_req, res) => res.json({ ok: true }));
 
 // Global error handler
-app.use((err, _req, res, _next) => {
+app.use((err, req, res, _next) => {
   console.error(err);
+  // Sin SENTRY_DSN, Sentry.captureException es un no-op (Sentry.init nunca
+  // corrió) — seguro llamarlo siempre en vez de envolverlo en el mismo if.
+  // proyecto_id/usuario_id como tags (no PII adicional) para poder filtrar
+  // eventos por obra en el dashboard de Sentry.
+  Sentry.captureException(err, {
+    tags: {
+      proyecto_id: req.project?.id ?? req.params?.id ?? null,
+      usuario_id: req.user?.id ?? null,
+    },
+  });
+  trackServerEvent(req.user?.id || 'anonimo', 'error_boundary', {
+    proyecto_id: req.project?.id ?? req.params?.id ?? null,
+    ruta: req.originalUrl,
+  });
   // Los errores de PostgreSQL tienen la propiedad `severity` ('ERROR', 'FATAL', etc.).
   // Nunca exponemos el mensaje crudo de DB al cliente — puede filtrar nombres de
   // tablas, columnas o constraints. Los errores de validación (multer, negocio)

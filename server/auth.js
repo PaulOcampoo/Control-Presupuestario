@@ -182,6 +182,19 @@ function defaultPermisosParaRol(puesto) {
     // Mismo criterio que residente arriba — cabo también podía crear/editar/
     // eliminar requisiciones por rol plano.
     if (porSeccion.requisiciones) { porSeccion.requisiciones.puede_crear = true; porSeccion.requisiciones.puede_editar = true; porSeccion.requisiciones.puede_eliminar = true; }
+    // 'ordenes_compra' no está en las tabs de cabo, así que el default base
+    // (vía TAB_A_SECCION) no le crea fila — pero auth.allow('cabo', ...) ya
+    // le daba lectura del listado/detalle de OC antes de que esta sección
+    // tuviera checkPermiso real. Este default preserva solo esa lectura, sin
+    // crear/editar/eliminar (prompt-checkpermiso-ordenes-compra.md).
+    if (!porSeccion.ordenes_compra) {
+      const filaOrdenes = {
+        seccion: 'ordenes_compra', puede_ver: true, puede_crear: false,
+        puede_editar: false, puede_editar_precios: false, puede_eliminar: false,
+      };
+      filas.push(filaOrdenes);
+      porSeccion.ordenes_compra = filaOrdenes;
+    }
   }
   if (puesto === 'compras') {
     // compras podía crear/editar/eliminar requisiciones de cualquier obra por
@@ -193,6 +206,18 @@ function defaultPermisosParaRol(puesto) {
     // restricción adicional — este default preserva esa capacidad
     // (prompt-checkpermiso-proveedores.md).
     if (porSeccion.proveedores) { porSeccion.proveedores.puede_crear = true; porSeccion.proveedores.puede_editar = true; porSeccion.proveedores.puede_eliminar = true; }
+    // auth.allow('compras') ya le permitía generar OC desde una requisición
+    // autorizada (puede_crear), cambiar su estado (puede_editar) y eliminarla
+    // en borrador (puede_eliminar) sin restricción adicional — este default
+    // preserva esa capacidad (prompt-checkpermiso-ordenes-compra.md).
+    if (porSeccion.ordenes_compra) { porSeccion.ordenes_compra.puede_crear = true; porSeccion.ordenes_compra.puede_editar = true; porSeccion.ordenes_compra.puede_eliminar = true; }
+  }
+  if (puesto === 'tesoreria') {
+    // auth.allow('compras', 'tesoreria') ya le permitía cambiar el estado de
+    // una OC (incluyendo confirmar/rechazar, restringido aparte dentro del
+    // propio handler a admin/tesorería) sin restricción adicional — este
+    // default preserva esa capacidad (prompt-checkpermiso-ordenes-compra.md).
+    if (porSeccion.ordenes_compra) { porSeccion.ordenes_compra.puede_editar = true; }
   }
   if (puesto === 'logistica') {
     // logistica no crea/edita el contenido de una requisición, pero sí podía

@@ -6509,7 +6509,15 @@ const PERMISOS_ACCIONES = [
 // (auth.allow()), marcarla o no aquí todavía no cambia nada en el backend.
 // Actualizar esta lista cada vez que se le agregue checkPermiso a una
 // sección nueva (ver mismo patrón en server/auth.js SECCIONES_PERMISOS).
-const SECCIONES_CON_ENFORCEMENT = ['nominas', 'avance', 'maquinaria', 'maquinaria_captura', 'maquinaria_combustible', 'trabajadores_global', 'nominas_global', 'trabajadores', 'destajo', 'requisiciones', 'proveedores'];
+const SECCIONES_CON_ENFORCEMENT = ['nominas', 'avance', 'maquinaria', 'maquinaria_captura', 'maquinaria_combustible', 'trabajadores_global', 'nominas_global', 'trabajadores', 'destajo', 'requisiciones', 'proveedores', 'ordenes_compra'];
+// 'ordenes_compra' SÍ se agrega completa (prompt-checkpermiso-ordenes-compra.md):
+// a diferencia de presupuestos/finanzas/mapeo, las 4 acciones (ver/crear/
+// editar/eliminar) tienen checkPermiso real — listar/detalle/export, generar
+// OC desde requisición autorizada, cambiar estado (incluye confirmar/
+// rechazar, con su propia restricción fina admin/tesorería dentro del
+// handler), y eliminar (solo en borrador). Recepciones y pagos quedan fuera
+// de scope, sin checkPermiso todavía — son sub-flujos con concern propio,
+// no CRUD directo de la Orden de Compra.
 // 'presupuestos' NO se agrega aquí todavía (prompt-checkpermiso-presupuestos.md):
 // solo GET /api/projects/:id/conceptos (puede_ver) tiene checkPermiso real —
 // no existe endpoint de editar/eliminar concepto individual, así que agregar

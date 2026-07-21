@@ -7621,10 +7621,15 @@ async function renderMaquinaria(view) {
   const puedeCrearCombustible = !!misPermisosCombustible.puede_crear;
   const puedeCrearHoras = !!misPermisosCaptura.puede_crear;
 
-  const pct = Math.min(100, resumen.pct_gastado);
+  // Cifras de presupuesto (total/gastado/%/sugerido por cliente) — solo
+  // admin/desarrollador; backend ya las envía null para el resto de roles,
+  // esto solo evita renderizar un bloque vacío.
+  const puedeVerPresupuesto = isAdmin();
+  const pct = Math.min(100, resumen.pct_gastado || 0);
   view.innerHTML = `
     <h2 class="section-title">Maquinaria</h2>
     <p class="muted">Catálogo de equipos propios, combustible, mantenimiento y horas de uso — presupuesto único para toda la flota.</p>
+    ${puedeVerPresupuesto ? `
     <div class="card">
       <div class="card-row"><span class="k">Presupuesto total</span><span class="v">${fmtMoney(resumen.monto_total)}</span></div>
       <div class="card-row"><span class="k">Gastado (combustible + mantenimiento)</span><span class="v">${fmtMoney(resumen.gasto_total)}</span></div>
@@ -7632,8 +7637,9 @@ async function renderMaquinaria(view) {
       <div class="muted fs-08 mt-4">${fmtPct(resumen.pct_gastado)} del presupuesto${resumen.alerta ? ` — ⚠️ superó el ${resumen.umbral_alerta_pct}% de alerta` : ''}</div>
       ${puedeEditar ? `<button class="btn small mt-8" id="btnEditarPresupuestoMaq">Editar presupuesto total</button>` : ''}
     </div>
+    ` : ''}
 
-    ${reporteClientes ? renderReporteClientesMaqHtml(reporteClientes) : ''}
+    ${puedeVerPresupuesto && reporteClientes ? renderReporteClientesMaqHtml(reporteClientes) : ''}
 
     <div class="section-actions mt-12">
       ${puedeCrear ? '<button class="btn btn-primary" id="btnNuevoEquipoMaq">+ Nuevo equipo</button>' : ''}

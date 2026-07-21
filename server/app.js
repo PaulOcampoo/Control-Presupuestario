@@ -2534,7 +2534,7 @@ async function getInsumosData(pid, { categoria, q } = {}) {
   });
 }
 
-app.get('/api/projects/:id/insumos', h(auth.allow('residente', 'cabo', 'compras', 'logistica')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+app.get('/api/projects/:id/insumos', h(auth.allow('residente', 'cabo', 'compras', 'logistica')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('insumos', 'puede_ver')), h(async (req, res) => {
   let data = await getInsumosData(req.project.id, req.query);
   if (req.user.puesto === 'cabo') {
     data = data.map(({ precio_presupuesto, ...rest }) => ({ ...rest, precio_presupuesto: null }));
@@ -2542,7 +2542,7 @@ app.get('/api/projects/:id/insumos', h(auth.allow('residente', 'cabo', 'compras'
   res.json(data);
 }));
 
-app.get('/api/projects/:id/insumos/export', h(auth.allow('residente', 'cabo', 'compras', 'logistica')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+app.get('/api/projects/:id/insumos/export', h(auth.allow('residente', 'cabo', 'compras', 'logistica')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('insumos', 'puede_ver')), h(async (req, res) => {
   const insumos = await getInsumosData(req.project.id, req.query);
   await sendXlsxExport(res, {
     filename: buildExportFilename('Insumos', req.project.nombre),
@@ -2576,7 +2576,7 @@ app.get('/api/projects/:id/insumos/export', h(auth.allow('residente', 'cabo', 'c
   });
 }));
 
-app.get('/api/projects/:id/insumos/categorias', h(auth.allow('residente', 'cabo', 'compras', 'logistica')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+app.get('/api/projects/:id/insumos/categorias', h(auth.allow('residente', 'cabo', 'compras', 'logistica')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('insumos', 'puede_ver')), h(async (req, res) => {
   const { rows } = await db.pool.query(
     "SELECT DISTINCT categoria FROM insumos WHERE project_id = $1 AND categoria IS NOT NULL AND (codigo IS NULL OR codigo NOT ILIKE 'MO%') ORDER BY categoria",
     [req.project.id]
@@ -2586,7 +2586,12 @@ app.get('/api/projects/:id/insumos/categorias', h(auth.allow('residente', 'cabo'
 
 // Solo permite editar la tasa de IVA del insumo (captura hacia adelante para
 // Compras) — no toca codigo/concepto/cantidad/precio del catálogo del .xlsx.
-app.put('/api/projects/:id/insumos/:insumoId', h(auth.allow()), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+// checkPermiso('insumos', 'puede_editar') cableado como infraestructura
+// preparada: la ruta sigue detrás de auth.allow() sin argumentos (solo
+// admin/desarrollador la alcanzan, y ambos bypasean checkPermiso por
+// diseño), así que hoy es inerte en la práctica — mismo patrón que
+// Mapeo/Impuestos/Contrato (prompt-checkpermiso-insumos.md).
+app.put('/api/projects/:id/insumos/:insumoId', h(auth.allow()), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('insumos', 'puede_editar')), h(async (req, res) => {
   const ivaTasa = Number((req.body || {}).iva_tasa);
   if (!Number.isFinite(ivaTasa) || ivaTasa < 0 || ivaTasa > 100) {
     return res.status(400).json({ error: 'iva_tasa debe ser un número entre 0 y 100' });

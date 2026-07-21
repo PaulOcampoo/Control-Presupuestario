@@ -2163,7 +2163,15 @@ app.get('/api/projects/:id/conceptos', h(auth.allow('residente', 'cabo', 'compra
 // Mapeo concepto ↔ insumos (solo admin) — infraestructura de captura para un
 // futuro bloqueo de avance; todavía no se usa para bloquear nada.
 // ---------------------------------------------------------------------------
-app.get('/api/conceptos/:id/insumos', h(auth.allow()), h(async (req, res) => {
+// checkPermiso('mapeo', accion) va antes del handler (no hay requireProject
+// en estas rutas concepto-scoped, así que req.project no existe todavía al
+// momento de correr checkPermiso — solo reconoce permisos_usuario con
+// proyecto_id IS NULL, no overrides por-obra específicos). El chequeo IDOR
+// manual (usuario_proyectos contra el project_id real del concepto/insumo)
+// sigue intacto, sin tocar, y sigue ejecutándose siempre dentro del handler
+// — checkPermiso es un gate de rol adicional, independiente, nunca lo
+// reemplaza ni lo puede saltar (prompt-checkpermiso-mapeo.md).
+app.get('/api/conceptos/:id/insumos', h(auth.allow()), h(auth.checkPermiso('mapeo', 'puede_ver')), h(async (req, res) => {
   const conceptoId = Number(req.params.id);
   const { rows: conceptoRows } = await db.pool.query('SELECT id, project_id FROM conceptos WHERE id = $1', [conceptoId]);
   if (!conceptoRows[0]) return res.status(404).json({ error: 'Concepto no encontrado' });
@@ -2181,7 +2189,7 @@ app.get('/api/conceptos/:id/insumos', h(auth.allow()), h(async (req, res) => {
   res.json(rows);
 }));
 
-app.post('/api/conceptos/:id/insumos', h(auth.allow()), h(async (req, res) => {
+app.post('/api/conceptos/:id/insumos', h(auth.allow()), h(auth.checkPermiso('mapeo', 'puede_crear')), h(async (req, res) => {
   const conceptoId = Number(req.params.id);
   const insumoId = Number((req.body || {}).insumo_id);
   if (!insumoId) return res.status(400).json({ error: 'insumo_id es requerido' });
@@ -2215,7 +2223,7 @@ app.post('/api/conceptos/:id/insumos', h(auth.allow()), h(async (req, res) => {
   res.status(201).json({ ok: true });
 }));
 
-app.delete('/api/conceptos/:id/insumos/:insumo_id', h(auth.allow()), h(async (req, res) => {
+app.delete('/api/conceptos/:id/insumos/:insumo_id', h(auth.allow()), h(auth.checkPermiso('mapeo', 'puede_eliminar')), h(async (req, res) => {
   const conceptoId = Number(req.params.id);
   const insumoId = Number(req.params.insumo_id);
   const { rows: conceptoRows } = await db.pool.query('SELECT id, project_id FROM conceptos WHERE id = $1', [conceptoId]);
@@ -2235,7 +2243,7 @@ app.delete('/api/conceptos/:id/insumos/:insumo_id', h(auth.allow()), h(async (re
 
 // Resumen de progreso de mapeo por proyecto (no pedido explícitamente, pero
 // necesario para el contador "X/95 conceptos mapeados" de la pantalla admin).
-app.get('/api/projects/:id/concepto-insumos/resumen', h(auth.allow()), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+app.get('/api/projects/:id/concepto-insumos/resumen', h(auth.allow()), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('mapeo', 'puede_ver')), h(async (req, res) => {
   const pid = req.project.id;
   const { rows: totalRows } = await db.pool.query(
     "SELECT COUNT(*) AS n FROM conceptos WHERE project_id = $1 AND es_total = 0", [pid]

@@ -6521,6 +6521,13 @@ const SECCIONES_CON_ENFORCEMENT = ['nominas', 'avance', 'maquinaria', 'maquinari
 // puede_ver) — no existe ninguna acción de crear/editar/eliminar en este
 // módulo, así que agregar la sección completa mostraría esas 3 casillas como
 // "reales" en la matriz cuando el módulo ni siquiera tiene esas operaciones.
+// 'mapeo' NO se agrega aquí tampoco (prompt-checkpermiso-mapeo.md): a
+// diferencia de presupuestos/finanzas, aquí SÍ hay checkPermiso real en
+// ver/crear/eliminar (listar, vincular y desvincular concepto↔insumo) — pero
+// no existe ningún endpoint de "editar" (la relación es un puente m2m, se
+// desvincula y vuelve a vincular en vez de editarse), así que 'puede_editar'
+// seguiría siendo inerte. Agregar la sección completa mostraría esa casilla
+// como "real" cuando no lo es — mismo motivo, acción puntual distinta.
 // Agrupa las secciones de permisos igual que SECTION_DEFS agrupa las pestañas
 // en la pantalla de inicio (Obra / Compras / Tesorería / Administración) —
 // mismo criterio de negocio, para que la matriz se lea en el mismo orden que

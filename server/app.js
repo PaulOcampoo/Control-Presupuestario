@@ -2809,11 +2809,11 @@ async function getOrdenesData(pid) {
   }));
 }
 
-app.get('/api/projects/:id/ordenes', h(auth.allow('residente', 'cabo', 'compras', 'tesoreria', 'administracion', 'logistica')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+app.get('/api/projects/:id/ordenes', h(auth.allow('residente', 'cabo', 'compras', 'tesoreria', 'administracion', 'logistica')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('ordenes_compra', 'puede_ver')), h(async (req, res) => {
   res.json(await getOrdenesData(req.project.id));
 }));
 
-app.get('/api/projects/:id/ordenes/export', h(auth.allow('residente', 'cabo', 'compras', 'tesoreria', 'administracion', 'logistica')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+app.get('/api/projects/:id/ordenes/export', h(auth.allow('residente', 'cabo', 'compras', 'tesoreria', 'administracion', 'logistica')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('ordenes_compra', 'puede_ver')), h(async (req, res) => {
   const { rows: rlOrdenes } = await db.pool.query(
     `SELECT COUNT(*)::int AS n FROM api_rate_limits
      WHERE usuario_id = $1 AND endpoint = 'export_ordenes'
@@ -2857,7 +2857,7 @@ app.get('/api/projects/:id/ordenes/export', h(auth.allow('residente', 'cabo', 'c
   });
 }));
 
-app.get('/api/projects/:id/ordenes/:ocId', h(auth.allow('residente', 'cabo', 'compras', 'tesoreria', 'administracion', 'logistica')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+app.get('/api/projects/:id/ordenes/:ocId', h(auth.allow('residente', 'cabo', 'compras', 'tesoreria', 'administracion', 'logistica')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('ordenes_compra', 'puede_ver')), h(async (req, res) => {
   const { rows: ocRows } = await db.pool.query(`
     SELECT oc.*, pv.nombre AS proveedor_nombre, pv.contacto AS proveedor_contacto, pv.telefono AS proveedor_telefono,
            r.folio AS requisicion_folio
@@ -2879,7 +2879,7 @@ app.get('/api/projects/:id/ordenes/:ocId', h(auth.allow('residente', 'cabo', 'co
   res.json({ ...ocRows[0], items, desglose_iva: computeIvaBreakdown(items, ocRows[0].incluye_iva) });
 }));
 
-app.post('/api/projects/:id/requisiciones/:reqId/ordenes', h(auth.allow('compras')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+app.post('/api/projects/:id/requisiciones/:reqId/ordenes', h(auth.allow('compras')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('ordenes_compra', 'puede_crear')), h(async (req, res) => {
   const pid = req.project.id;
   const reqId = Number(req.params.reqId);
   const { proveedor_id, folio, fecha, observaciones, items } = req.body || {};
@@ -2965,7 +2965,7 @@ app.post('/api/projects/:id/requisiciones/:reqId/ordenes', h(auth.allow('compras
 // 'confirmada'/'rechazada' quedan reservadas a admin, mismo criterio que en
 // requisiciones — residente puede llegar hasta 'enviada' (dispara la
 // notificación) o 'cancelada', igual que antes.
-app.put('/api/projects/:id/ordenes/:ocId/estado', h(auth.allow('compras', 'tesoreria')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+app.put('/api/projects/:id/ordenes/:ocId/estado', h(auth.allow('compras', 'tesoreria')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('ordenes_compra', 'puede_editar')), h(async (req, res) => {
   const { estado } = req.body || {};
   if (!['borrador', 'enviada', 'confirmada', 'rechazada', 'cancelada'].includes(estado)) {
     return res.status(400).json({ error: 'Estado inválido. Los estados de recepción se controlan automáticamente.' });
@@ -2994,7 +2994,7 @@ app.put('/api/projects/:id/ordenes/:ocId/estado', h(auth.allow('compras', 'tesor
   res.json({ ok: true });
 }));
 
-app.delete('/api/projects/:id/ordenes/:ocId', h(auth.allow('compras')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+app.delete('/api/projects/:id/ordenes/:ocId', h(auth.allow('compras')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('ordenes_compra', 'puede_eliminar')), h(async (req, res) => {
   const ocId = Number(req.params.ocId);
   const { rows: ocRows } = await db.pool.query(
     'SELECT estado FROM ordenes_compra WHERE id = $1 AND project_id = $2', [ocId, req.project.id]

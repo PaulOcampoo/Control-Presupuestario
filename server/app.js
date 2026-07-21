@@ -1249,7 +1249,16 @@ app.delete('/api/maquinaria/horas/:id', h(auth.checkPermiso('maquinaria', 'puede
   res.json({ ok: true });
 }));
 
+// Cifras de presupuesto (monto total, gastado, % consumido) — solo
+// admin/desarrollador; el resto de roles con acceso a Maquinaria ve el
+// catálogo/combustible/mantenimiento/horas pero no estos montos.
 app.get('/api/maquinaria/resumen', h(auth.checkPermiso('maquinaria', 'puede_ver')), h(async (req, res) => {
+  if (req.user.puesto !== 'admin' && req.user.puesto !== 'desarrollador') {
+    return res.json({
+      monto_total: null, gasto_combustible: null, gasto_mantenimiento: null,
+      gasto_total: null, pct_gastado: null, alerta: false, umbral_alerta_pct: null,
+    });
+  }
   res.json(await maquinaria.getResumen());
 }));
 
@@ -1264,10 +1273,15 @@ app.put('/api/maquinaria/presupuesto', h(auth.checkPermiso('maquinaria', 'puede_
 // solo lectura, para prellenar el campo de edición manual. No toca
 // presupuesto_maquinaria por sí solo.
 app.get('/api/maquinaria/presupuesto-sugerido', h(auth.checkPermiso('maquinaria', 'puede_ver')), h(async (req, res) => {
+  if (req.user.puesto !== 'admin' && req.user.puesto !== 'desarrollador') return res.json(null);
   res.json(await maquinaria.getPresupuestoSugerido());
 }));
 
+// Tabla "Presupuesto sugerido por cliente" — mismo criterio que /resumen,
+// solo admin/desarrollador. El cálculo (maquinaria.getReportePorCliente)
+// no se toca, solo su visibilidad.
 app.get('/api/maquinaria/reporte-clientes', h(auth.checkPermiso('maquinaria', 'puede_ver')), h(async (req, res) => {
+  if (req.user.puesto !== 'admin' && req.user.puesto !== 'desarrollador') return res.json(null);
   res.json(await maquinaria.getReportePorCliente());
 }));
 

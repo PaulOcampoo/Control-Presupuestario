@@ -52,6 +52,7 @@ const cotizador = require('./cotizador');
 const { metaToObject, presupuestoTotalDe, getFinanzasResumenData } = require('./finanzas');
 const { calcularJornal, calcularDestajo } = require('./calculos');
 const estadoResultados = require('./estadoResultados');
+const { emparejarConceptos } = require('./reintegracionPresupuesto');
 
 // CN-007: nombre_archivo/pdf_filename vienen del cliente (upload); una comilla
 // doble en el valor rompe fuera del filename="..." y permite inyectar
@@ -2177,8 +2178,205 @@ app.post('/api/projects/:id/impuestos/:periodoId/cargar', h(auth.allow()), h(req
 // Conceptos
 // ---------------------------------------------------------------------------
 app.get('/api/projects/:id/conceptos', h(auth.allow('residente', 'cabo', 'compras', 'tesoreria', 'administracion', 'logistica')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('presupuestos', 'puede_ver')), h(async (req, res) => {
-  const { rows } = await db.pool.query('SELECT * FROM conceptos WHERE project_id = $1 ORDER BY orden', [req.project.id]);
+  const { rows } = await db.pool.query('SELECT * FROM conceptos WHERE project_id = $1 AND activo = 1 ORDER BY orden', [req.project.id]);
   res.json(rows);
+}));
+
+// ---------------------------------------------------------------------------
+// Actualización de presupuesto preservando avance (DISEÑO-ACTUALIZACION-
+// PRESUPUESTO.md, aprobado por Paul 2026-07-21). Dos pasos: preview (nunca
+// escribe) y confirmar (aplica dentro de una transacción). auth.allow() sin
+// argumentos = solo admin/desarrollador, mismo criterio que POST
+// /api/projects (creación inicial) — reintegrar un presupuesto existente es
+// al menos igual de sensible. checkPermiso('presupuestos', accion) se
+// agrega encima como capa adicional, mismo patrón que el resto del rollout:
+// 'puede_ver' para el preview (es de solo lectura), 'puede_editar' para
+// confirmar (es una reconciliación de datos existentes, no un alta nueva
+// tipo 'puede_crear').
+// ---------------------------------------------------------------------------
+app.post('/api/projects/:id/presupuesto/actualizar/preview', h(auth.allow()), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('presupuestos', 'puede_ver')), h(async (req, res) => {
+  const { archivo_url } = req.body || {};
+  if (!archivo_url) return res.status(400).json({ error: 'Sube un archivo .xlsx de presupuesto' });
+  const pid = req.project.id;
+  const tmpPath = path.join(os.tmpdir(), `presupuesto-actualizar-${Date.now()}-${Math.round(Math.random() * 1e9)}.xlsx`);
+  try {
+    const blobResult = await get(archivo_url, { access: 'private' });
+    if (!blobResult) throw new Error('No se pudo descargar el archivo subido');
+    await pipeline(Readable.fromWeb(blobResult.stream), fs.createWriteStream(tmpPath));
+    const parsed = await parseWorkbook(tmpPath);
+    if (!parsed.conceptos.length) {
+      throw new Error('No se reconoció una hoja de presupuesto en el archivo. Verifica que tenga el formato esperado (columnas Código, Concepto, Unidad, Cantidad, Precio, Importe).');
+    }
+
+    const { rows: existentes } = await db.pool.query(
+      'SELECT id, codigo, concepto, unidad, cantidad, precio_unitario, importe, grupo, es_total, orden, activo FROM conceptos WHERE project_id = $1 AND es_total = 0',
+      [pid]
+    );
+
+    const { emparejados, nuevos, historicos, conflictos } = emparejarConceptos(parsed.conceptos, existentes);
+    const totalNuevo = parsed.conceptos.filter((c) => !c.es_total).reduce((s, c) => s + (Number(c.importe) || 0), 0);
+    const totalActual = await presupuestoTotalDe(pid);
+
+    res.json({
+      nuevos: nuevos.map((c) => ({ codigo: c.codigo || null, concepto: c.concepto, unidad: c.unidad, cantidad: c.cantidad, precio_unitario: c.precio_unitario })),
+      emparejados: emparejados.map((m) => ({
+        concepto_id: m.existente.id,
+        codigo: m.nuevo.codigo || m.existente.codigo,
+        concepto: m.nuevo.concepto,
+        via: m.via,
+        precio_anterior: m.existente.precio_unitario,
+        precio_nuevo: m.nuevo.precio_unitario,
+        cambia_precio: Number(m.existente.precio_unitario) !== Number(m.nuevo.precio_unitario),
+        cantidad_anterior: m.existente.cantidad,
+        cantidad_nueva: m.nuevo.cantidad,
+        cambia_cantidad: Number(m.existente.cantidad) !== Number(m.nuevo.cantidad),
+        regresa: Number(m.existente.activo) === 0,
+      })),
+      historicos: historicos.map((e) => ({ concepto_id: e.id, codigo: e.codigo, concepto: e.concepto })),
+      conflictos,
+      total_nuevo: Number(totalNuevo.toFixed(2)),
+      total_actual: Number(totalActual),
+    });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  } finally {
+    fs.rm(tmpPath, () => {});
+  }
+}));
+
+app.post('/api/projects/:id/presupuesto/actualizar/confirmar', h(auth.allow()), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('presupuestos', 'puede_editar')), h(async (req, res) => {
+  const { archivo_url, confirmado } = req.body || {};
+  if (!archivo_url) return res.status(400).json({ error: 'Sube un archivo .xlsx de presupuesto' });
+  if (confirmado !== true) return res.status(400).json({ error: 'Falta confirmar explícitamente la actualización' });
+  const pid = req.project.id;
+  const tmpPath = path.join(os.tmpdir(), `presupuesto-actualizar-${Date.now()}-${Math.round(Math.random() * 1e9)}.xlsx`);
+  try {
+    const blobResult = await get(archivo_url, { access: 'private' });
+    if (!blobResult) throw new Error('No se pudo descargar el archivo subido');
+    await pipeline(Readable.fromWeb(blobResult.stream), fs.createWriteStream(tmpPath));
+    const parsed = await parseWorkbook(tmpPath);
+    if (!parsed.conceptos.length) {
+      throw new Error('No se reconoció una hoja de presupuesto en el archivo.');
+    }
+
+    const { rows: existentes } = await db.pool.query(
+      'SELECT id, codigo, concepto, unidad, cantidad, precio_unitario, importe, grupo, es_total, orden, activo FROM conceptos WHERE project_id = $1 AND es_total = 0',
+      [pid]
+    );
+
+    // Repite exactamente el mismo emparejamiento del preview (función
+    // compartida) — nunca se reenvía el resultado del preview desde el
+    // frontend, para evitar divergencia si algo cambió entre los dos pasos.
+    const { emparejados, nuevos, historicos, conflictos } = emparejarConceptos(parsed.conceptos, existentes);
+
+    if (conflictos.length > 0) {
+      return res.status(409).json({
+        error: 'Hay conceptos ambiguos que no se pueden emparejar automáticamente — corrige el Excel (ej. agregando código) y vuelve a intentar.',
+        conflictos,
+      });
+    }
+
+    const totalAntes = await presupuestoTotalDe(pid);
+    const { rows: maxOrdenRows } = await db.pool.query(
+      'SELECT COALESCE(MAX(orden), 0) AS max_orden FROM conceptos WHERE project_id = $1', [pid]
+    );
+    const maxOrdenExistente = Number(maxOrdenRows[0].max_orden);
+
+    let totalFinal = 0;
+
+    await db.withTransaction(async (client) => {
+      for (const { existente, nuevo } of emparejados) {
+        const importe = Number(nuevo.cantidad) * Number(nuevo.precio_unitario);
+        await client.query(
+          `UPDATE conceptos SET codigo=$1, concepto=$2, unidad=$3, cantidad=$4, precio_unitario=$5, importe=$6, grupo=$7, activo=1
+           WHERE id=$8`,
+          [nuevo.codigo || null, nuevo.concepto, nuevo.unidad, nuevo.cantidad, nuevo.precio_unitario, importe, nuevo.grupo, existente.id]
+        );
+      }
+
+      for (const nuevo of nuevos) {
+        const importe = Number(nuevo.cantidad) * Number(nuevo.precio_unitario);
+        // orden se desplaza más allá del máximo ya existente en el proyecto
+        // (en vez de usar el orden crudo del Excel, que siempre arranca en
+        // 1 y se solaparía con conceptos activos actuales) — los conceptos
+        // nuevos se agregan al final, preservando su orden relativo entre sí.
+        await client.query(
+          `INSERT INTO conceptos (project_id, codigo, concepto, unidad, cantidad, precio_unitario, importe, grupo, es_total, orden, activo)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,0,$9,1)`,
+          [pid, nuevo.codigo || null, nuevo.concepto, nuevo.unidad, nuevo.cantidad, nuevo.precio_unitario, importe, nuevo.grupo, maxOrdenExistente + nuevo.orden]
+        );
+      }
+
+      for (const existente of historicos) {
+        await client.query('UPDATE conceptos SET activo = 0 WHERE id = $1', [existente.id]);
+      }
+
+      // Recalcula meta.total_sin_iva contra el conjunto activo resultante
+      // (no solo la suma del Excel) — cierra el gap del diseño §5.
+      const { rows: totalRows } = await client.query(
+        'SELECT COALESCE(SUM(importe), 0) AS total FROM conceptos WHERE project_id = $1 AND es_total = 0 AND activo = 1',
+        [pid]
+      );
+      totalFinal = Number(totalRows[0].total);
+      await client.query(
+        `INSERT INTO meta (project_id, clave, valor) VALUES ($1, 'total_sin_iva', $2)
+         ON CONFLICT (project_id, clave) DO UPDATE SET valor = EXCLUDED.valor`,
+        [pid, String(totalFinal)]
+      );
+
+      // Recalcula avance_financiero_real de toda semana con avance
+      // capturado, contra los precios/volúmenes ya actualizados arriba y el
+      // total nuevo — cierra el otro gap del diseño §5/§6.3 (cachés de
+      // semanas ya cerradas quedarían desactualizadas si no se hace esto).
+      const { rows: semanasConAvance } = await client.query(
+        `SELECT DISTINCT ac.semana FROM avance_conceptos ac
+         JOIN conceptos c ON c.id = ac.concepto_id
+         WHERE c.project_id = $1`,
+        [pid]
+      );
+      for (const { semana } of semanasConAvance) {
+        const { rows: acumRows } = await client.query(
+          `SELECT COALESCE(SUM(ac.cantidad_ejecutada * c.precio_unitario), 0) AS monto
+           FROM avance_conceptos ac JOIN conceptos c ON c.id = ac.concepto_id
+           WHERE c.project_id = $1 AND ac.semana <= $2`,
+          [pid, semana]
+        );
+        const montoEjecutado = Number(acumRows[0].monto);
+        const financiero = totalFinal > 0 ? Number(((montoEjecutado / totalFinal) * 100).toFixed(2)) : 0;
+        await client.query(
+          'UPDATE avances_semanales SET avance_financiero_real = $1 WHERE project_id = $2 AND semana = $3',
+          [financiero, pid, semana]
+        );
+      }
+
+      const detalle = JSON.stringify({
+        nuevos: nuevos.length,
+        emparejados: emparejados.length,
+        historicos: historicos.length,
+        cambios_precio: emparejados
+          .filter((m) => Number(m.existente.precio_unitario) !== Number(m.nuevo.precio_unitario))
+          .map((m) => ({ concepto_id: m.existente.id, codigo: m.existente.codigo, precio_anterior: m.existente.precio_unitario, precio_nuevo: m.nuevo.precio_unitario })),
+        cambios_cantidad: emparejados
+          .filter((m) => Number(m.existente.cantidad) !== Number(m.nuevo.cantidad))
+          .map((m) => ({ concepto_id: m.existente.id, codigo: m.existente.codigo, cantidad_anterior: m.existente.cantidad, cantidad_nueva: m.nuevo.cantidad })),
+        total_antes: totalAntes,
+        total_despues: totalFinal,
+      });
+
+      await client.query(
+        `INSERT INTO audit_log (actor_id, actor_usuario, accion, target_id, project_id, ip, detalle)
+         VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+        [req.user.id, req.user.usuario, 'actualizacion_presupuesto', pid, pid, auth.getIp(req), detalle]
+      );
+    });
+
+    res.json({ ok: true, nuevos: nuevos.length, emparejados: emparejados.length, historicos: historicos.length, total_anterior: totalAntes, total_nuevo: totalFinal });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  } finally {
+    fs.rm(tmpPath, () => {});
+    del(archivo_url).catch(() => {});
+  }
 }));
 
 // ---------------------------------------------------------------------------
@@ -3637,7 +3835,7 @@ app.put('/api/projects/:id/avances/:semana', h(auth.allow('residente', 'cabo')),
   // el flujo detallado por concepto se podía saltar completo escribiendo el
   // % agregado aquí directamente.
   const { rows: conceptoRows } = await db.pool.query(
-    'SELECT id FROM conceptos WHERE project_id = $1 AND es_total = 0', [pid]
+    'SELECT id FROM conceptos WHERE project_id = $1 AND es_total = 0 AND activo = 1', [pid]
   );
   const pendientesProyecto = await insumosPendientesPorConcepto(pid, conceptoRows.map((c) => c.id));
   if (pendientesProyecto.size > 0) {
@@ -3695,7 +3893,7 @@ app.get('/api/projects/:id/avances/:semana/conceptos', h(auth.allow('residente',
     SELECT id AS concepto_id, codigo, concepto, unidad, grupo,
            cantidad AS cantidad_presupuesto, precio_unitario, importe AS importe_presupuesto
     FROM conceptos
-    WHERE project_id = $1 AND es_total = 0 AND cantidad > 0 AND TRIM(COALESCE(unidad, '')) <> ''
+    WHERE project_id = $1 AND es_total = 0 AND activo = 1 AND cantidad > 0 AND TRIM(COALESCE(unidad, '')) <> ''
     ORDER BY orden
   `, [pid]);
 
@@ -5326,10 +5524,11 @@ app.post('/api/projects/:id/estimaciones/:estId/calcular', h(auth.allow('residen
   );
   const semanas = semanasPeriodo.map((s) => s.semana);
 
-  // Mismo filtro de "concepto real" (no subtotal/total) que /avances/:semana/conceptos
+  // Mismo filtro de "concepto real" (no subtotal/total, no histórico) que
+  // /avances/:semana/conceptos
   const { rows: conceptos } = await db.pool.query(
     `SELECT id AS concepto_id, precio_unitario FROM conceptos
-     WHERE project_id = $1 AND es_total = 0 AND cantidad > 0 AND TRIM(COALESCE(unidad, '')) <> ''`,
+     WHERE project_id = $1 AND es_total = 0 AND activo = 1 AND cantidad > 0 AND TRIM(COALESCE(unidad, '')) <> ''`,
     [pid]
   );
 

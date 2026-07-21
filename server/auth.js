@@ -136,6 +136,22 @@ function defaultPermisosParaRol(puesto) {
     puede_editar_precios: false, puede_eliminar: false,
   }));
   const porSeccion = Object.fromEntries(filas.map((f) => [f.seccion, f]));
+  if (puesto === 'residente' || puesto === 'cabo') {
+    // 'proveedores' no está en las tabs de residente/cabo, así que el default
+    // base no le crea fila — pero auth.allow('residente','cabo',...) ya le
+    // daba lectura del catálogo (se usa para elegir proveedor al crear una
+    // Orden de Compra) antes de que esta sección tuviera checkPermiso real.
+    // Este default preserva solo esa lectura, sin crear/editar/eliminar
+    // (prompt-checkpermiso-proveedores.md).
+    if (!porSeccion.proveedores) {
+      const filaProveedores = {
+        seccion: 'proveedores', puede_ver: true, puede_crear: false,
+        puede_editar: false, puede_editar_precios: false, puede_eliminar: false,
+      };
+      filas.push(filaProveedores);
+      porSeccion.proveedores = filaProveedores;
+    }
+  }
   if (puesto === 'residente') {
     if (porSeccion.nominas) { porSeccion.nominas.puede_crear = true; }
     // puede_eliminar=true (a diferencia del resto de secciones, donde eliminar
@@ -172,6 +188,11 @@ function defaultPermisosParaRol(puesto) {
     // rol plano (a diferencia de residente/cabo, sin restricción de dueño —
     // ver requisicionAjena() en server/app.js, que solo acota a residente/cabo).
     if (porSeccion.requisiciones) { porSeccion.requisiciones.puede_crear = true; porSeccion.requisiciones.puede_editar = true; porSeccion.requisiciones.puede_eliminar = true; }
+    // auth.allow('compras') ya le permitía crear/editar proveedores y dar de
+    // baja/reactivar (PUT .../estado, mapeado a puede_eliminar) sin
+    // restricción adicional — este default preserva esa capacidad
+    // (prompt-checkpermiso-proveedores.md).
+    if (porSeccion.proveedores) { porSeccion.proveedores.puede_crear = true; porSeccion.proveedores.puede_editar = true; porSeccion.proveedores.puede_eliminar = true; }
   }
   if (puesto === 'logistica') {
     // logistica no crea/edita el contenido de una requisición, pero sí podía

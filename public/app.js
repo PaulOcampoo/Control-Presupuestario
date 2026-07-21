@@ -6516,6 +6516,11 @@ const SECCIONES_CON_ENFORCEMENT = ['nominas', 'avance', 'maquinaria', 'maquinari
 // la sección completa mostraría puede_crear/editar/eliminar/editar_precios
 // como "reales" en la matriz cuando en realidad son inertes todavía. Agregar
 // 'presupuestos' aquí solo cuando esas acciones también tengan enforcement.
+// 'finanzas' NO se agrega aquí tampoco (prompt-checkpermiso-finanzas.md), mismo
+// motivo exacto: Finanzas es 100% lectura agregada (resumen + export, ambos
+// puede_ver) — no existe ninguna acción de crear/editar/eliminar en este
+// módulo, así que agregar la sección completa mostraría esas 3 casillas como
+// "reales" en la matriz cuando el módulo ni siquiera tiene esas operaciones.
 // Agrupa las secciones de permisos igual que SECTION_DEFS agrupa las pestañas
 // en la pantalla de inicio (Obra / Compras / Tesorería / Administración) —
 // mismo criterio de negocio, para que la matriz se lea en el mismo orden que

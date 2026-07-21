@@ -1975,8 +1975,20 @@ app.put('/api/projects/:id/fin-obra', h(auth.allow()), h(requireProject), h(auth
 const CONTRATO_PREVIEW_LIMIT = 10; // máx extracciones por usuario por hora
 const EXPORT_RATE_LIMIT = 20; // máx exports Excel por usuario por hora
 
+// checkPermiso('contrato', accion) — nombre de sección singular 'contrato',
+// no 'contratos' (así está registrado en SECCIONES_PERMISOS). Va justo
+// después de auth.allow() y ANTES del rate limiting, para que una petición
+// sin permiso no consuma cupo de CONTRATO_PREVIEW_LIMIT. El rate limiting
+// en sí no se toca, sigue aplicando igual para quien sí pasa el gate.
+// Nota: auth.allow() aquí ya es vacío (solo admin/desarrollador) en las 3
+// rutas de Contrato, igual que pasó con Mapeo — este checkPermiso queda
+// como infraestructura preparada, sin efecto práctico hoy para otros roles,
+// aunque el tab 'contrato' sí es visible en frontend para tesorería/
+// administración (gap preexistente entre nav y auth.allow(), no introducido
+// aquí, fuera de scope de este cambio).
 app.post('/api/projects/contrato-preview',
   h(auth.allow()),
+  h(auth.checkPermiso('contrato', 'puede_crear')),
   h(async (req, res, next) => {
     // Rate limiting serverless-safe: cuenta en Postgres, no en memoria de proceso.
     const { rows: rlRows } = await db.pool.query(
@@ -2022,7 +2034,14 @@ app.post('/api/projects/contrato-preview',
   })
 );
 
-app.post('/api/projects/contrato-confirm', h(auth.allow()), h(async (req, res) => {
+// Nota: este endpoint puede CREAR una obra nueva (cuando body.project_id
+// está ausente, solo viene cliente_id) además de persistir el contrato de
+// una obra existente — dos alcances distintos en un mismo handler. Se trata
+// como 'puede_crear' de 'contrato' en ambos casos: ya es admin/desarrollador
+// -only vía auth.allow() vacío (sin cambio de comportamiento real hoy), y
+// checkPermiso cae de vuelta a la fila global (proyecto_id IS NULL) cuando
+// no hay req.project todavía — mismo mecanismo ya usado en Mapeo.
+app.post('/api/projects/contrato-confirm', h(auth.allow()), h(auth.checkPermiso('contrato', 'puede_crear')), h(async (req, res) => {
   const body = req.body || {};
   const upsertMeta = `
     INSERT INTO meta (project_id, clave, valor) VALUES ($1, $2, $3)
@@ -2080,7 +2099,10 @@ app.post('/api/projects/contrato-confirm', h(auth.allow()), h(async (req, res) =
 }));
 
 // Proxy del PDF de contrato (blob privado) — solo usuarios con acceso a la obra.
-app.get('/api/projects/:id/contrato/pdf', h(auth.allow()), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+// checkPermiso('contrato', 'puede_ver') va DESPUÉS de verificarAccesoObra
+// (fix de IDOR preexistente: ownership de la obra antes de servir el
+// archivo) — capa adicional, no lo reemplaza ni lo reordena.
+app.get('/api/projects/:id/contrato/pdf', h(auth.allow()), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('contrato', 'puede_ver')), h(async (req, res) => {
   const { rows } = await db.pool.query('SELECT blob_url, nombre_archivo FROM contratos WHERE project_id = $1', [req.project.id]);
   if (!rows[0]) return res.status(404).json({ error: 'No hay PDF de contrato para esta obra' });
   const blobResult = await get(rows[0].blob_url, { access: 'private' });

@@ -47,6 +47,16 @@ const SCHEMA = `
   );
   CREATE INDEX IF NOT EXISTS idx_conceptos_project ON conceptos(project_id);
 
+  -- Actualización de presupuesto preservando avance (DISEÑO-ACTUALIZACION-
+  -- PRESUPUESTO.md): un concepto que ya no aparece en una carga nueva del
+  -- Excel se marca activo=0 en vez de borrarse — preserva su avance
+  -- histórico (avance_conceptos) y su mapeo de insumos (concepto_insumos)
+  -- intactos vía ON DELETE CASCADE, que nunca se dispara porque nunca hay
+  -- DELETE. Las consultas de presupuesto activo deben filtrar activo=1; el
+  -- historial de avance de un concepto desactivado sigue siendo consultable
+  -- sin filtrar por esta columna.
+  ALTER TABLE conceptos ADD COLUMN IF NOT EXISTS activo INTEGER DEFAULT 1;
+
   CREATE TABLE IF NOT EXISTS insumos (
     id SERIAL PRIMARY KEY,
     project_id INTEGER NOT NULL REFERENCES proyectos(id) ON DELETE CASCADE,
@@ -452,6 +462,12 @@ const SCHEMA = `
   -- historial de auditoría no desaparece con él.
   ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS project_id INTEGER REFERENCES proyectos(id) ON DELETE SET NULL;
   CREATE INDEX IF NOT EXISTS idx_audit_log_project ON audit_log(project_id, creado_en DESC);
+
+  -- detalle: JSON en texto con contexto extra para acciones donde vale la
+  -- pena guardar más que actor/target (ej. actualización de presupuesto:
+  -- conteos de nuevos/emparejados/históricos y qué conceptos cambiaron de
+  -- precio o cantidad). NULL para todas las acciones que no lo necesitan.
+  ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS detalle TEXT;
 
   -- Última visita por usuario+cliente para navegación inteligente: cuando el
   -- usuario selecciona un cliente, la app navega automáticamente al último

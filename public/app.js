@@ -3993,6 +3993,13 @@ async function renderMapeo(view) {
     <p class="muted">Vincula cada concepto del presupuesto con los insumos (materiales/equipo) que lo componen. Esto es solo la captura del mapeo — todavía no afecta la captura de Avance.</p>
     <div class="card">
       <div class="row between">
+        <strong>Presupuesto</strong>
+        <button class="btn" id="btnActualizarPresupuesto">Actualizar presupuesto (preservando avance)</button>
+      </div>
+      <p class="muted fs-08 mt-4">Recarga un Excel de presupuesto nuevo sobre esta obra sin perder el avance ya capturado — empareja conceptos por código/descripción, revalúa el avance de los que emparejan, agrega los nuevos, y marca como históricos los que ya no aparezcan.</p>
+    </div>
+    <div class="card">
+      <div class="row between">
         <strong>Progreso de mapeo</strong>
         <span class="badge ${resumen.conceptos_mapeados === resumen.total_conceptos ? 'green' : 'yellow'}">${resumen.conceptos_mapeados}/${resumen.total_conceptos} conceptos mapeados</span>
       </div>
@@ -4020,6 +4027,8 @@ async function renderMapeo(view) {
   `;
 
   { const fill = $('.progress-bar > span[data-pct]', view); if (fill) fill.style.width = fill.dataset.pct + '%'; }
+
+  $('#btnActualizarPresupuesto').addEventListener('click', () => abrirModalActualizarPresupuesto());
 
   if (!conceptosReales.length) {
     $('#mapeoLinkedList').innerHTML = '<div class="empty-state">Este presupuesto no tiene conceptos.</div>';
@@ -4076,6 +4085,103 @@ async function renderMapeo(view) {
       } catch (err) { toast(err.message, 'danger'); }
     }));
   }
+}
+
+// =========================================================================
+// Actualización de presupuesto preservando avance (DISEÑO-ACTUALIZACION-
+// PRESUPUESTO.md, aprobado por Paul 2026-07-21). Flujo de dos pasos: sube el
+// Excel nuevo → preview (nada se guarda) → confirmar explícito. Reutiliza el
+// mismo endpoint de subida a Blob que la carga inicial de presupuesto
+// (/api/projects/upload-token).
+// =========================================================================
+async function abrirModalActualizarPresupuesto() {
+  openModal(`
+    <h3>Actualizar presupuesto</h3>
+    <p class="muted">Sube el Excel de presupuesto nuevo para esta obra. No se borra ni se aplica nada todavía — primero verás un preview de los cambios.</p>
+    <input type="file" id="actualizarPresupuestoFile" accept=".xlsx" />
+    <div class="modal-actions">
+      <button class="btn btn-outline" id="btnCancelarActualizarPresupuesto">Cancelar</button>
+    </div>
+  `);
+  $('#btnCancelarActualizarPresupuesto').addEventListener('click', closeModal);
+  $('#actualizarPresupuestoFile').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    openModal(`<h3>Subiendo y analizando…</h3><div class="spinner"></div>`);
+    try {
+      const blob = await VercelBlobClient.upload(file.name, file, {
+        access: 'private',
+        handleUploadUrl: '/api/projects/upload-token',
+        headers: state.token ? { Authorization: `Bearer ${state.token}` } : {},
+      });
+      const preview = await api(`/projects/${state.projectId}/presupuesto/actualizar/preview`, {
+        method: 'POST',
+        body: { archivo_url: blob.url },
+      });
+      pintarPreviewActualizacionPresupuesto(preview, blob.url);
+    } catch (err) {
+      closeModal();
+      toast(err.message, 'danger');
+    }
+  });
+}
+
+function pintarPreviewActualizacionPresupuesto(preview, archivoUrl) {
+  const cambiosPrecio = preview.emparejados.filter((m) => m.cambia_precio).length;
+  const cambiosCantidad = preview.emparejados.filter((m) => m.cambia_cantidad).length;
+  const hayConflictos = preview.conflictos && preview.conflictos.length > 0;
+
+  openModal(`
+    <h3>Preview de actualización</h3>
+    <p class="muted">Nada se ha guardado todavía. Revisa el resumen antes de confirmar.</p>
+    <div class="card">
+      <div class="row between"><span>Conceptos nuevos</span><strong>${preview.nuevos.length}</strong></div>
+      <div class="row between"><span>Conceptos emparejados</span><strong>${preview.emparejados.length}</strong></div>
+      <div class="row between fs-08"><span>&nbsp;&nbsp;con cambio de precio</span><span>${cambiosPrecio}</span></div>
+      <div class="row between fs-08"><span>&nbsp;&nbsp;con cambio de cantidad</span><span>${cambiosCantidad}</span></div>
+      <div class="row between"><span>Conceptos que pasan a históricos</span><strong>${preview.historicos.length}</strong></div>
+      <div class="row between"><span>Total presupuesto actual</span><span>${fmtMoney(preview.total_actual)}</span></div>
+      <div class="row between"><span>Total presupuesto nuevo</span><span>${fmtMoney(preview.total_nuevo)}</span></div>
+    </div>
+    ${hayConflictos ? `
+      <div class="alert-box danger">
+        <strong>⚠️ ${preview.conflictos.length} conflicto(s) de emparejamiento sin resolver.</strong>
+        <p class="fs-08 mt-4">Hay conceptos ambiguos (mismo nombre repetido en varios lados). Corrige el Excel — por ejemplo agregando un código único a cada concepto — y vuelve a intentar. No se puede confirmar mientras existan conflictos.</p>
+        <ul class="fs-08">
+          ${preview.conflictos.map((c) => `<li>"${esc(c.descripcion)}" — ${c.nuevos.length} en el Excel nuevo vs. ${c.existentes.length} ya existente(s)</li>`).join('')}
+        </ul>
+      </div>
+    ` : ''}
+    ${preview.historicos.length ? `
+      <details class="mt-8">
+        <summary>Ver conceptos que pasarán a históricos (${preview.historicos.length})</summary>
+        <ul class="fs-08">${preview.historicos.map((h) => `<li>${esc(h.codigo || '')} — ${esc(h.concepto)}</li>`).join('')}</ul>
+      </details>
+    ` : ''}
+    <div class="modal-actions">
+      <button class="btn btn-outline" id="btnCancelarConfirmarActualizacion">Cancelar</button>
+      <button class="btn btn-primary" id="btnConfirmarActualizacion" ${hayConflictos ? 'disabled' : ''}>Confirmar actualización</button>
+    </div>
+  `);
+
+  $('#btnCancelarConfirmarActualizacion').addEventListener('click', closeModal);
+  $('#btnConfirmarActualizacion')?.addEventListener('click', async () => {
+    openModal(`<h3>Aplicando actualización…</h3><div class="spinner"></div>`);
+    try {
+      const result = await api(`/projects/${state.projectId}/presupuesto/actualizar/confirmar`, {
+        method: 'POST',
+        body: { archivo_url: archivoUrl, confirmado: true },
+      });
+      closeModal();
+      toast(`Presupuesto actualizado: ${result.nuevos} nuevos, ${result.emparejados} emparejados, ${result.historicos} históricos`, 'success');
+      invalidate('conceptos');
+      const view = $('#view');
+      if (view) renderMapeo(view);
+    } catch (err) {
+      closeModal();
+      toast(err.message, 'danger');
+    }
+  });
 }
 
 // =========================================================================

@@ -2118,6 +2118,97 @@ function closeModal() {
 // está abierto, un click fuera no debe poder cerrarlo (perdería la única vista).
 let blockOverlayDismiss = false;
 $('#modalOverlay').addEventListener('click', () => { if (!blockOverlayDismiss) closeModal(); });
+// Tecla Escape cierra el modal abierto (mismo criterio que el click en el
+// overlay: respeta blockOverlayDismiss) — aplica a todos los modales de la
+// app por igual, no solo a los nuevos, al vivir aquí junto a openModal/closeModal.
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !blockOverlayDismiss && $('#modal').classList.contains('show')) closeModal();
+});
+
+// ---------------------------------------------------------------------------
+// Ayuda contextual (botón "?" + modal de pasos)
+// ---------------------------------------------------------------------------
+// Diccionario clave_pantalla -> { titulo, pasos: [...] }. Para agregar ayuda
+// a una pantalla nueva: (1) agrega una entrada aquí, (2) coloca
+// renderHelpBtn('tu_clave') junto al título/botón de esa pantalla en su
+// función renderX() — nada más, el modal y el listener ya son genéricos.
+const AYUDA_CONTENIDO = {
+  actualizarPresupuesto: {
+    titulo: 'Actualizar presupuesto',
+    pasos: [
+      'Sube el Excel de presupuesto actualizado. Esto solo genera una vista previa — todavía no se guarda nada.',
+      'Revisa las 4 categorías de la vista previa: Sin cambio (conceptos iguales), Modificados (cambió precio y/o cantidad), Nuevos (no existían antes) y Desaparecen (ya no están en el Excel nuevo).',
+      'Si un concepto que esperabas ver "sin cambio" aparece como "nuevo", probablemente cambió su código o descripción en el Excel — cancela y corrígelo antes de confirmar, para no perder la continuidad de su avance.',
+      'Al confirmar: los conceptos modificados actualizan su precio/cantidad sin perder el avance ya capturado (se revalúa solo, al precio nuevo). Los que desaparecen no se borran — quedan marcados como históricos y su avance sigue disponible. Los nuevos se agregan al catálogo.',
+      'El presupuesto total y los porcentajes de avance financiero se recalculan automáticamente — no hace falta hacer nada más después de confirmar.',
+    ],
+  },
+  nominaCaptura: {
+    titulo: 'Captura de nómina',
+    pasos: [
+      'El residente crea la nómina del periodo — el sistema junta automáticamente los días de asistencia y el avance de destajo capturados en ese rango de fechas.',
+      'Si un trabajador tiene tipo de pago "destajo" o "mixto", su monto de destajo se calcula solo (avance de destajo capturado × precio de destajo del concepto) — no se captura a mano.',
+      'El residente envía la nómina a revisión. Desde ahí, solo un administrador puede aprobarla o rechazarla.',
+      'Si se rechaza, regresa a borrador para corregirse y reenviarse. Una vez aprobada, ya no se puede modificar ni recalcular.',
+    ],
+  },
+  requisiciones: {
+    titulo: 'Requisiciones',
+    pasos: [
+      'Agrega los insumos que necesitas desde el catálogo de la obra — se van juntando en un borrador.',
+      'Cuando el borrador esté completo, créalo como requisición.',
+      'Estatus del flujo: Borrador (aún editable) → Enviada (esperando autorización) → Autorizada o Rechazada.',
+      'Solo una requisición en estatus "Autorizada" puede usarse para generar una Orden de Compra.',
+    ],
+  },
+  ordenesCompra: {
+    titulo: 'Órdenes de compra',
+    pasos: [
+      'Una Orden de Compra se genera a partir de una requisición ya Autorizada — no se crean sueltas.',
+      'Elige el proveedor y revisa que las cantidades e importes por insumo sean correctos antes de confirmar.',
+      'Indica si el precio capturado ya incluye IVA o no (por default se asume que no lo incluye) — esto cambia cómo se calcula el total de la orden.',
+      'Da seguimiento a su estatus hasta que se confirme la recepción de la mercancía.',
+    ],
+  },
+  destajo: {
+    titulo: 'Destajo',
+    pasos: [
+      'precio_unitario es el precio del presupuesto general de ese concepto. precio_destajo es lo que se le paga al destajista por unidad — son independientes, cambiar uno no afecta al otro.',
+      'Solo el residente puede capturar destajo. Editar el precio de destajo requiere además el permiso específico de "editar precios" — si no lo ves editable, pídeselo a un administrador.',
+      'El avance de destajo se captura por semana, igual que el avance general de obra.',
+      'El pago de destajo se calcula con la cantidad ejecutada × el precio de destajo — nunca con el precio del presupuesto general.',
+    ],
+  },
+};
+
+// Botón "?" reutilizable — colócalo junto al título/acción de cualquier
+// pantalla, pasándole la clave correspondiente de AYUDA_CONTENIDO.
+function renderHelpBtn(clave) {
+  return `<button class="help-btn" data-ayuda="${esc(clave)}" title="Ayuda" aria-label="Ayuda">?</button>`;
+}
+
+function openAyudaModal(clave) {
+  const contenido = AYUDA_CONTENIDO[clave];
+  if (!contenido) return;
+  openModal(`
+    <div class="modal-header-row">
+      <h3 class="modal-title">${esc(contenido.titulo)}</h3>
+      <button class="icon-btn modal-close-btn" id="btnCloseAyuda" aria-label="Cerrar">✕</button>
+    </div>
+    <ol class="ayuda-pasos">
+      ${contenido.pasos.map((p) => `<li>${esc(p)}</li>`).join('')}
+    </ol>
+  `);
+  $('#btnCloseAyuda').addEventListener('click', closeModal);
+}
+
+// Delegación única para cualquier botón [data-ayuda] presente en la app —
+// una pantalla nueva no necesita registrar su propio listener, solo usar
+// renderHelpBtn() en su HTML.
+document.addEventListener('click', (e) => {
+  const btn = e.target.closest('[data-ayuda]');
+  if (btn) openAyudaModal(btn.dataset.ayuda);
+});
 
 // Diálogo de confirmación con el mismo estilo visual del resto de la app
 // (reutiliza openModal/closeModal, mismas clases .modal-actions/.btn que
@@ -3993,7 +4084,7 @@ async function renderMapeo(view) {
     <p class="muted">Vincula cada concepto del presupuesto con los insumos (materiales/equipo) que lo componen. Esto es solo la captura del mapeo — todavía no afecta la captura de Avance.</p>
     <div class="card">
       <div class="row between">
-        <strong>Presupuesto</strong>
+        <strong>Presupuesto ${renderHelpBtn('actualizarPresupuesto')}</strong>
         <button class="btn" id="btnActualizarPresupuesto">Actualizar presupuesto (preservando avance)</button>
       </div>
       <p class="muted fs-08 mt-4">Recarga un Excel de presupuesto nuevo sobre esta obra sin perder el avance ya capturado — empareja conceptos por código/descripción, revalúa el avance de los que emparejan, agrega los nuevos, y marca como históricos los que ya no aparezcan.</p>
@@ -4212,7 +4303,7 @@ async function renderRequisiciones(view) {
   const draft = getDraft();
 
   view.innerHTML = `
-    <h2 class="section-title">Requisiciones de compra</h2>
+    <h2 class="section-title">Requisiciones de compra ${renderHelpBtn('requisiciones')}</h2>
     ${draft.length ? `
       <div class="card">
         <div class="row between"><strong>Borrador en curso</strong><span class="badge muted">${draft.length} insumo${draft.length === 1 ? '' : 's'}</span></div>
@@ -4770,7 +4861,7 @@ async function renderOrdenes(view) {
   const ordenes = await api(`/projects/${state.projectId}/ordenes`);
 
   view.innerHTML = `
-    <h2 class="section-title">Órdenes de Compra</h2>
+    <h2 class="section-title">Órdenes de Compra ${renderHelpBtn('ordenesCompra')}</h2>
     <p class="muted">Generadas a partir de requisiciones ya autorizadas. Una requisición puede tener varias órdenes (compra dividida entre proveedores o en distintos momentos).</p>
     <div class="section-actions">
       <button class="btn" id="btnExportOrdenes">⭳ Exportar a Excel</button>
@@ -5504,7 +5595,7 @@ async function renderDestajo(view) {
   const puedeEditarPrecios = !!permisos?.destajo?.puede_editar_precios;
 
   view.innerHTML = `
-    <h2 class="section-title">Control de Destajo</h2>
+    <h2 class="section-title">Control de Destajo ${renderHelpBtn('destajo')}</h2>
     <p class="muted">El avance de cada destajista se captura por semana, usando los mismos periodos del programa de obra — igual que en la pestaña Avance.</p>
     ${destajistas.length ? `
     <div class="kpi-grid mb-4">
@@ -9874,7 +9965,7 @@ async function renderNominas(view) {
   async function showNominas() {
     subView = 'nominas';
     view.innerHTML = `
-      <h2 class="section-title">Personal</h2>
+      <h2 class="section-title">Personal ${renderHelpBtn('nominaCaptura')}</h2>
       ${renderSubNav()}
       <div class="section-actions mt-12">
         ${puedeCapturarAsistencia() ? `<button class="btn btn-primary" id="btnNuevaNomina">+ Nueva nómina</button>` : ''}

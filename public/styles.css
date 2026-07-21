@@ -261,6 +261,23 @@ button, a, select, label,
 }
 .icon-btn-inline:hover { color: var(--text-primary); background: color-mix(in srgb, var(--text-primary) 10%, transparent); }
 
+/* Botón "?" de ayuda contextual (ver renderHelpBtn/openAyudaModal en
+   app.js) — círculo chico junto a un título, sin transform en :hover para
+   no necesitar excepción en el bloque prefers-reduced-motion. */
+.help-btn {
+  display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;
+  width: 22px; height: 22px; margin-left: 8px; vertical-align: middle;
+  border-radius: 50%; border: 1px solid var(--border-color);
+  background: var(--bg-surface-2); color: var(--text-secondary);
+  font-size: 0.72rem; font-weight: 700; line-height: 1; cursor: pointer;
+  transition: color 0.15s var(--ease-out), background 0.15s var(--ease-out), border-color 0.15s var(--ease-out);
+}
+.help-btn:hover { color: var(--accent-gold); border-color: var(--accent-gold); }
+
+/* Pasos numerados dentro del modal de ayuda (openAyudaModal). */
+.ayuda-pasos { margin: 0; padding-left: 22px; display: flex; flex-direction: column; gap: 10px; }
+.ayuda-pasos li { font-size: 0.9rem; line-height: 1.45; }
+
 /* Campana de notificaciones (topbar) */
 .notif-wrap { position: relative; }
 .notif-badge {

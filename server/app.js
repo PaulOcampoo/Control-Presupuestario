@@ -1603,7 +1603,7 @@ app.get('/api/bienvenida', h(auth.allow('residente', 'cabo', 'compras', 'tesorer
     ]);
     return {
       ...p,
-      presupuesto_total: req.user.puesto === 'residente'
+      presupuesto_total: ['residente', 'cabo'].includes(req.user.puesto)
         ? null
         : (metaRows[0] ? Number(metaRows[0].valor) : 0),
       avance_financiero_ejecutado: avRows[0] ? Number(avRows[0].avance_financiero_real) : 0,

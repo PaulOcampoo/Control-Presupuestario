@@ -6667,6 +6667,19 @@ const SECCIONES_CON_ENFORCEMENT = ['nominas', 'avance', 'maquinaria', 'maquinari
 // scope. No existe 'puede_editar'/'puede_eliminar' para este módulo: no hay
 // endpoint de editar campos ya guardados (se resube el PDF completo) ni de
 // eliminar contrato.
+// 'insumos' NO se agrega aquí tampoco (prompt-checkpermiso-insumos.md):
+// 'puede_ver' SÍ tiene enforcement real y activo (checkPermiso cableado en
+// listar/export/categorías, alcanzables por residente/cabo/compras/
+// logística vía auth.allow()). 'puede_editar' (tasa de IVA por insumo)
+// tiene checkPermiso cableado también, pero el endpoint sigue detrás de
+// auth.allow() sin argumentos — solo admin/desarrollador lo alcanzan, y
+// ambos bypasean checkPermiso por diseño, así que hoy es inerte en la
+// práctica (mismo patrón que Mapeo/Impuestos/Contrato). 'puede_crear' y
+// 'puede_eliminar' no corresponden a ningún endpoint: el catálogo de
+// insumos se crea únicamente vía la carga inicial del contrato/.xlsx
+// (fuera del alcance de checkPermiso) y no existe borrado individual.
+// Agregar la sección completa mostraría 3 de las 4 casillas como "reales"
+// sin serlo.
 // Agrupa las secciones de permisos igual que SECTION_DEFS agrupa las pestañas
 // en la pantalla de inicio (Obra / Compras / Tesorería / Administración) —
 // mismo criterio de negocio, para que la matriz se lea en el mismo orden que

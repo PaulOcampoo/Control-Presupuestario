@@ -6536,6 +6536,19 @@ const SECCIONES_CON_ENFORCEMENT = ['nominas', 'avance', 'maquinaria', 'maquinari
 // desvincula y vuelve a vincular en vez de editarse), así que 'puede_editar'
 // seguiría siendo inerte. Agregar la sección completa mostraría esa casilla
 // como "real" cuando no lo es — mismo motivo, acción puntual distinta.
+// 'impuestos' NO se agrega aquí tampoco (prompt-checkpermiso-impuestos.md):
+// 'puede_ver' SÍ tiene enforcement real y activo (tesorería/administración
+// llegan al checkPermiso vía auth.allow('tesoreria','administracion')).
+// 'puede_editar' (cargar comprobantes de un periodo) tiene checkPermiso
+// cableado también, pero el endpoint sigue detrás de auth.allow() sin
+// argumentos — solo admin/desarrollador lo alcanzan, y ambos bypasean
+// checkPermiso por diseño, así que hoy es inerte en la práctica (mismo
+// patrón que Mapeo). 'puede_crear'/'puede_eliminar'/'puede_editar_precios'
+// no corresponden a ningún endpoint: los periodos los crea únicamente el
+// cron mensual (POST /api/cron/recordatorio-impuestos, fuera del alcance de
+// checkPermiso por diseño — no tiene sesión de usuario) y no existe borrado.
+// Agregar la sección completa mostraría 4 de las 5 casillas como "reales"
+// sin serlo.
 // Agrupa las secciones de permisos igual que SECTION_DEFS agrupa las pestañas
 // en la pantalla de inicio (Obra / Compras / Tesorería / Administración) —
 // mismo criterio de negocio, para que la matriz se lea en el mismo orden que

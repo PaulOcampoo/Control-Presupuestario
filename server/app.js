@@ -3297,11 +3297,14 @@ app.delete('/api/projects/:id/gastos/:gastoId', h(auth.allow()), h(requireProjec
   res.json({ ok: true });
 }));
 
-app.get('/api/projects/:id/finanzas/resumen', h(auth.allow('tesoreria')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+app.get('/api/projects/:id/finanzas/resumen', h(auth.allow('tesoreria')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('finanzas', 'puede_ver')), h(async (req, res) => {
   res.json(await getFinanzasResumenData(req.project.id));
 }));
 
-app.get('/api/projects/:id/finanzas/export', h(auth.allow('tesoreria')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+// /export reutiliza el mismo permiso 'puede_ver' que /resumen — es la misma
+// data agregada en formato Excel, no una acción distinta (mismo criterio que
+// export en Presupuestos/Proveedores).
+app.get('/api/projects/:id/finanzas/export', h(auth.allow('tesoreria')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('finanzas', 'puede_ver')), h(async (req, res) => {
   const [resumen, gastos] = await Promise.all([
     getFinanzasResumenData(req.project.id),
     getGastosData(req.project.id, req.query),

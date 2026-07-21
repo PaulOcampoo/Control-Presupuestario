@@ -2097,7 +2097,7 @@ app.get('/api/projects/:id/contrato/pdf', h(auth.allow()), h(requireProject), h(
 // POST /api/cron/recordatorio-impuestos, registrado antes del middleware de
 // sesión); aquí solo se consultan y se marcan como 'cargado'.
 // ---------------------------------------------------------------------------
-app.get('/api/projects/:id/impuestos', h(auth.allow('tesoreria', 'administracion')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+app.get('/api/projects/:id/impuestos', h(auth.allow('tesoreria', 'administracion')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('impuestos', 'puede_ver')), h(async (req, res) => {
   const { rows } = await db.pool.query(
     'SELECT * FROM pagos_impuestos_obra WHERE project_id = $1 ORDER BY periodo_anio DESC, periodo_mes DESC',
     [req.project.id]
@@ -2105,7 +2105,7 @@ app.get('/api/projects/:id/impuestos', h(auth.allow('tesoreria', 'administracion
   res.json(rows);
 }));
 
-app.get('/api/projects/:id/impuestos/resumen', h(auth.allow('tesoreria', 'administracion')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+app.get('/api/projects/:id/impuestos/resumen', h(auth.allow('tesoreria', 'administracion')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('impuestos', 'puede_ver')), h(async (req, res) => {
   const { rows } = await db.pool.query(
     'SELECT * FROM pagos_impuestos_obra WHERE project_id = $1', [req.project.id]
   );
@@ -2127,7 +2127,7 @@ app.get('/api/projects/:id/impuestos/resumen', h(auth.allow('tesoreria', 'admini
   });
 }));
 
-app.post('/api/projects/:id/impuestos/:periodoId/cargar', h(auth.allow()), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+app.post('/api/projects/:id/impuestos/:periodoId/cargar', h(auth.allow()), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('impuestos', 'puede_editar')), h(async (req, res) => {
   const periodoId = Number(req.params.periodoId);
   const { imss_monto, imss_referencia, sat_monto, sat_referencia, infonavit_monto, infonavit_referencia } = req.body || {};
 

@@ -6549,6 +6549,18 @@ const SECCIONES_CON_ENFORCEMENT = ['nominas', 'avance', 'maquinaria', 'maquinari
 // checkPermiso por diseño — no tiene sesión de usuario) y no existe borrado.
 // Agregar la sección completa mostraría 4 de las 5 casillas como "reales"
 // sin serlo.
+// 'contrato' NO se agrega aquí tampoco (prompt-checkpermiso-contratos.md):
+// checkPermiso está cableado en las 3 rutas (contrato-preview, contrato-
+// confirm → puede_crear; GET .../contrato/pdf → puede_ver), pero las 3
+// siguen detrás de auth.allow() sin argumentos — solo admin/desarrollador
+// las alcanzan, y ambos bypasean checkPermiso por diseño, así que hoy es
+// 100% inerte en la práctica (mismo patrón que Mapeo/Impuestos). Nota: el
+// tab 'contrato' sí es visible en frontend para tesorería/administración
+// (PERMISSIONS.tabs en server/auth.js), un gap preexistente entre nav y
+// auth.allow() que no se introdujo ni se corrigió en este cambio — fuera de
+// scope. No existe 'puede_editar'/'puede_eliminar' para este módulo: no hay
+// endpoint de editar campos ya guardados (se resube el PDF completo) ni de
+// eliminar contrato.
 // Agrupa las secciones de permisos igual que SECTION_DEFS agrupa las pestañas
 // en la pantalla de inicio (Obra / Compras / Tesorería / Administración) —
 // mismo criterio de negocio, para que la matriz se lea en el mismo orden que

@@ -14,8 +14,8 @@ const PUESTO_LABELS = {
 // Mirror de PERMISSIONS en server/auth.js — para calcular allowedTabs en vista simulada.
 // Actualizar aquí si se agregan roles o pestañas en auth.js.
 const ROLE_TABS = {
-  admin:          ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'finanzas', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', 'maquinaria', 'cotizador', 'costos', 'avance_clientes'],
-  desarrollador:  ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'finanzas', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', 'maquinaria', 'cotizador', 'costos', 'avance_clientes'],
+  admin:          ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'finanzas', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', 'maquinaria', 'cotizador', 'costos', 'avance_clientes', 'composicion_costos'],
+  desarrollador:  ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'finanzas', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', 'maquinaria', 'cotizador', 'costos', 'avance_clientes', 'composicion_costos'],
   residente:      ['programa', 'avance', 'destajo', 'requisiciones', 'insumos', 'ordenes', 'nominas', 'trabajadores', 'estimaciones'],
   cabo:           ['destajo', 'insumos', 'avance', 'requisiciones', 'maquinaria'],
   compras:        ['programa', 'requisiciones', 'insumos', 'ordenes', 'proveedores', 'cotizador'],
@@ -1012,7 +1012,7 @@ const SECTION_DEFS = {
   obra:          { label: 'Obra',           icon: 'obra',           emoji: '🏗️',  tabs: ['programa', 'avance', 'destajo', 'estimaciones'],     proximamente: [] },
   compras:       { label: 'Compras',        icon: 'compras',        emoji: '🛒',   tabs: ['requisiciones', 'insumos', 'proveedores', 'ordenes', 'cotizador'], proximamente: ['Subcontratos'] },
   tesoreria:     { label: 'Tesorería',      icon: 'tesoreria',      emoji: '💰',   tabs: ['finanzas', 'estadoResultados', 'estadoResultadosGlobal', 'impuestos'], proximamente: [] },
-  administracion:{ label: 'Administración', icon: 'administracion', emoji: '📂',  tabs: ['mapeo', 'contrato', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'costos', 'avance_clientes', 'usuarios'], proximamente: ['Almacenes'] },
+  administracion:{ label: 'Administración', icon: 'administracion', emoji: '📂',  tabs: ['mapeo', 'contrato', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'costos', 'avance_clientes', 'composicion_costos', 'usuarios'], proximamente: ['Almacenes'] },
   maquinaria:    { label: 'Maquinaria',     icon: 'maquinaria',     emoji: '🚜',   tabs: ['maquinaria'],                                        proximamente: [] },
 };
 
@@ -1021,7 +1021,7 @@ const TAB_ICONS = {
   proveedores: '🏭', ordenes: '🛒', programa: '🗓️', avance: '📈', destajo: '👷',
   finanzas: '💰', mapeo: '🔗', usuarios: '👤', trabajadores: '👷', nominas: '💵', estimaciones: '🧮',
   maquinaria: '🚜', nominas_global: '💵', trabajadores_global: '👷', cotizador: '🔍',
-  estadoResultados: '📈', estadoResultadosGlobal: '📈', costos: '💲', avance_clientes: '📈',
+  estadoResultados: '📈', estadoResultadosGlobal: '📈', costos: '💲', avance_clientes: '📈', composicion_costos: '🧮',
 };
 const TAB_LABELS = {
   resumen: 'Resumen', contrato: 'Contrato', impuestos: 'Impuestos', insumos: 'Insumos', requisiciones: 'Requisiciones',
@@ -1029,7 +1029,7 @@ const TAB_LABELS = {
   finanzas: 'Finanzas', mapeo: 'Mapeo', usuarios: 'Usuarios', trabajadores: 'Trabajadores', nominas: 'Nóminas', estimaciones: 'Estimaciones',
   maquinaria: 'Maquinaria', nominas_global: 'Nómina (todas las obras)', trabajadores_global: 'Trabajadores (todas las obras)',
   cotizador: 'Cotizador', estadoResultados: 'Estado de Resultados', estadoResultadosGlobal: 'Estado de Resultados (todas las obras)',
-  costos: 'Costos', avance_clientes: 'Avance por cliente',
+  costos: 'Costos', avance_clientes: 'Avance por cliente', composicion_costos: 'Composición de costos',
 };
 
 const VIEW_TO_SECTION = {};
@@ -3182,7 +3182,7 @@ function destroyCharts() {
 async function renderView() {
   destroyCharts();
   const view = $('#view');
-  if (state.view === 'usuarios' || state.view === 'proveedores' || state.view === 'maquinaria' || state.view === 'nominas_global' || state.view === 'trabajadores_global' || state.view === 'cotizador' || state.view === 'estadoResultadosGlobal' || state.view === 'costos' || state.view === 'avance_clientes') {
+  if (state.view === 'usuarios' || state.view === 'proveedores' || state.view === 'maquinaria' || state.view === 'nominas_global' || state.view === 'trabajadores_global' || state.view === 'cotizador' || state.view === 'estadoResultadosGlobal' || state.view === 'costos' || state.view === 'avance_clientes' || state.view === 'composicion_costos') {
     try {
       if (state.view === 'usuarios') { await renderUsuarios(view, state.usuariosSubView); state.usuariosSubView = null; }
       else if (state.view === 'proveedores') await renderProveedores(view);
@@ -3192,6 +3192,7 @@ async function renderView() {
       else if (state.view === 'estadoResultadosGlobal') await renderEstadoResultadosGlobal(view);
       else if (state.view === 'costos') await renderCostos(view);
       else if (state.view === 'avance_clientes') await renderAvanceClientes(view);
+      else if (state.view === 'composicion_costos') await renderComposicionCostos(view);
       else await renderMaquinaria(view);
     } catch (err) { view.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`; }
     syncFab();
@@ -3795,8 +3796,37 @@ function openContratoFormModal(preview, ctx) {
   });
 }
 
+// Sección "Composición vs. Presupuesto real" (docs/diseno-desglose-
+// presupuesto-categorias) — se agrega al final de Contrato tanto si la obra
+// tiene cédula cargada (base = subtotales del Contrato) como si no (base =
+// % estándar de referencia, editable en la vista Composición de costos).
+// Comparación ESTÁTICA del presupuesto total, no de avance/ejecución.
+function composicionCostosSectionHtml(composicion) {
+  if (!composicion) return '';
+  const baseEsContrato = composicion.categorias[0]?.base_fuente === 'contrato';
+  return `
+    <h3 class="section-title mt-16">Composición vs. Presupuesto real</h3>
+    <p class="muted">Base: <strong>${baseEsContrato ? 'Contrato cargado' : 'Referencia estándar (sin contrato cargado en esta obra)'}</strong> — comparación estática del presupuesto total por categoría, no de avance/ejecución.</p>
+    <div class="card">
+      ${composicion.categorias.map((c) => `
+        <div class="card-row">
+          <span class="k">${esc(c.label)}</span>
+          <span class="v">
+            ${c.pct_base != null ? fmtPct(c.pct_base) : '—'} base ·
+            ${c.pct_real != null ? fmtPct(c.pct_real) : 'No disponible'} real
+            ${c.diferencia_pp != null ? ` <span class="badge ${c.significativa ? 'red' : 'green'}">${c.diferencia_pp > 0 ? '+' : ''}${c.diferencia_pp}pp</span>` : ''}
+          </span>
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
+
 async function renderContrato(view) {
-  const resumen = await cached('resumen', () => api(`/projects/${state.projectId}/resumen`));
+  const [resumen, composicion] = await Promise.all([
+    cached('resumen', () => api(`/projects/${state.projectId}/resumen`)),
+    cached('composicionCostos', () => api(`/projects/${state.projectId}/composicion-costos`)).catch(() => null),
+  ]);
   const meta = resumen.meta || {};
   const tienePdf = !!resumen.tiene_contrato_pdf;
 
@@ -3808,6 +3838,7 @@ async function renderContrato(view) {
         <p>Esta obra aún no tiene un contrato cargado.</p>
         ${isAdmin() ? '<button class="btn btn-primary" id="btnCargarContratoTab">Cargar PDF de contrato</button>' : ''}
       </div>
+      ${composicionCostosSectionHtml(composicion)}
     `;
     $('#btnCargarContratoTab')?.addEventListener('click', promptAttachContrato);
     return;
@@ -3836,6 +3867,7 @@ async function renderContrato(view) {
       }).join('')}
     </div>
     ${isAdmin() ? '<div class="row end mt-10"><button class="btn" id="btnEditarContrato">Editar datos</button></div>' : ''}
+    ${composicionCostosSectionHtml(composicion)}
   `;
   $('#btnEditarContrato')?.addEventListener('click', () => {
     openContratoFormModal({ escaneado: false, campos }, { mode: 'attach', projectId: state.projectId });
@@ -9030,6 +9062,121 @@ async function renderAvanceClientes(view) {
   `;
   $$('.apc-fill', list).forEach((fill) => { fill.style.width = fill.dataset.pct + '%'; });
   $$('.apc-toggle', list).forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const item = btn.closest('.apc-item-full');
+      item.querySelector('.apc-obras').classList.toggle('hidden-initial');
+      item.classList.toggle('apc-expanded');
+    });
+  });
+}
+
+// Composición de costos por cliente/global (docs/diseno-desglose-presupuesto-
+// categorias) — hermana de "Avance por cliente" (mismo patrón visual .apc-*,
+// misma sección Administración, admin/desarrollador únicamente vía
+// auth.allow() en backend). Métrica distinta a Avance: composición de costo
+// por categoría en un momento dado (estático), no % de ejecución.
+const COMPOSICION_LABELS = {
+  materiales: 'Materiales', mano_obra: 'Mano de Obra', carga_social: 'Carga Social',
+  herramienta_equipo: 'Herramienta y Equipo', indirecto_utilidad: 'Indirecto y Utilidad',
+};
+
+function composicionCategoriasHtml(categorias) {
+  return `
+    <div class="card">
+      ${categorias.map((c) => {
+        const diff = c.pct_real != null && c.pct_base != null ? Number((c.pct_real - c.pct_base).toFixed(1)) : null;
+        const significativa = diff != null && Math.abs(diff) > 5;
+        return `
+        <div class="card-row">
+          <span class="k">${esc(c.label)}</span>
+          <span class="v">
+            ${c.pct_base != null ? fmtPct(c.pct_base) : '—'} base ·
+            ${c.pct_real != null ? fmtPct(c.pct_real) : 'No disponible'} real
+            ${diff != null ? ` <span class="badge ${significativa ? 'red' : 'green'}">${diff > 0 ? '+' : ''}${diff}pp</span>` : ''}
+          </span>
+        </div>`;
+      }).join('')}
+    </div>
+  `;
+}
+
+async function renderComposicionCostos(view) {
+  view.innerHTML = `
+    <h2 class="section-title">Composición de costos</h2>
+    <p class="muted">% de cada categoría sobre el presupuesto total — comparación estática (Base: Contrato o % de referencia estándar) contra el % Real calculado desde insumos. Ponderado por presupuesto igual que "Avance por cliente".</p>
+    <h3 class="section-title">Global (todos los clientes)</h3>
+    <div id="composicionGlobalCard"><div class="spinner"></div></div>
+    <h3 class="section-title mt-16">% estándar de referencia</h3>
+    <p class="muted">Se usa como "Base" para obras sin contrato/cédula cargado. Debe sumar 100%.</p>
+    <div id="composicionReferenciaForm"><div class="spinner"></div></div>
+    <h3 class="section-title mt-16">Por cliente</h3>
+    <div id="composicionClientesList"><div class="spinner"></div></div>
+  `;
+
+  const [{ clientes, global }, referencia] = await Promise.all([
+    api('/composicion-costos/completo'),
+    api('/porcentajes-referencia'),
+  ]);
+
+  $('#composicionGlobalCard').innerHTML = composicionCategoriasHtml(global.categorias);
+
+  const refForm = $('#composicionReferenciaForm');
+  refForm.innerHTML = `
+    <div class="card">
+      ${referencia.map((r) => `
+        <div class="card-row">
+          <span class="k">${esc(COMPOSICION_LABELS[r.categoria] || r.categoria)}</span>
+          <span class="v"><input type="number" step="any" class="composicion-ref-input" data-categoria="${esc(r.categoria)}" value="${r.porcentaje}" /> %</span>
+        </div>
+      `).join('')}
+    </div>
+    <div id="composicionRefAdvertencia" class="alert-box danger hidden-initial mt-8"></div>
+    <div class="row end mt-10"><button class="btn btn-primary" id="btnGuardarReferencia">Guardar</button></div>
+  `;
+  // Ancho fijo por JS, no por atributo style="" (CSP bloquea estilos inline
+  // en HTML — mismo patrón ya usado en .apc-fill/.progress-bar para % de ancho).
+  $$('.composicion-ref-input', refForm).forEach((inp) => { inp.style.width = '90px'; inp.style.textAlign = 'right'; });
+  $('#btnGuardarReferencia').addEventListener('click', async () => {
+    const btn = $('#btnGuardarReferencia');
+    const body = {};
+    $$('.composicion-ref-input', refForm).forEach((inp) => { body[inp.dataset.categoria] = Number(inp.value); });
+    btn.disabled = true; btn.textContent = 'Guardando…';
+    try {
+      const result = await api('/porcentajes-referencia', { method: 'PUT', body });
+      const advertencia = $('#composicionRefAdvertencia');
+      if (result.advertencia) {
+        advertencia.textContent = result.advertencia;
+        advertencia.classList.remove('hidden-initial');
+      } else {
+        advertencia.classList.add('hidden-initial');
+      }
+      toast('% de referencia guardado', 'success');
+    } catch (err) {
+      toast(err.message, 'danger');
+    } finally {
+      btn.disabled = false; btn.textContent = 'Guardar';
+    }
+  });
+
+  const clientesList = $('#composicionClientesList');
+  if (!clientes.length) {
+    clientesList.innerHTML = `<div class="empty-state">Sin obras registradas todavía.</div>`;
+    return;
+  }
+  clientesList.innerHTML = `
+    <div class="apc-list apc-list-full">
+      ${clientes.map((c) => `
+        <div class="apc-item apc-item-full" data-cliente="${c.cliente_id}">
+          <button class="apc-row-top apc-toggle" type="button">
+            <span class="apc-nombre">${esc(c.cliente_nombre)}</span>
+            <span class="apc-chevron">▾</span>
+          </button>
+          <div class="apc-obras hidden-initial">${composicionCategoriasHtml(c.categorias)}</div>
+        </div>
+      `).join('')}
+    </div>
+  `;
+  $$('.apc-toggle', clientesList).forEach((btn) => {
     btn.addEventListener('click', () => {
       const item = btn.closest('.apc-item-full');
       item.querySelector('.apc-obras').classList.toggle('hidden-initial');

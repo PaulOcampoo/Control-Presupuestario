@@ -1588,6 +1588,66 @@ app.get('/api/avance-por-cliente', h(auth.allow()), h(async (req, res) => {
   res.json(resultado);
 }));
 
+// Avance por cliente COMPLETO (todos los clientes, no solo top-4) + desglose
+// por obra — vista dedicada 'avance_clientes' (prompt-avance-acumulado-
+// cliente-global.md). Misma query/fórmula de ponderación que el endpoint
+// top-4 de arriba (Σ presupuesto_i × avance_i/100 / Σ presupuesto_i), sin
+// tocarlo, para no alterar el widget del dashboard que ya lo consume. Mismo
+// alcance de acceso (auth.allow() = admin/desarrollador) que ese widget —
+// el avance global (cruzando TODOS los clientes) ya existe como
+// avance_ponderado_pct en GET /api/resumen-global, así que no se duplica
+// aquí ese cálculo.
+app.get('/api/avance-por-cliente/completo', h(auth.allow()), h(async (req, res) => {
+  const { rows } = await db.pool.query(`
+    SELECT
+      c.id AS cliente_id,
+      c.nombre AS cliente_nombre,
+      p.id AS project_id,
+      p.nombre AS obra_nombre,
+      COALESCE(
+        (SELECT valor::DOUBLE PRECISION FROM meta
+         WHERE project_id = p.id AND clave = 'total_sin_iva' LIMIT 1),
+        (SELECT importe FROM conceptos
+         WHERE project_id = p.id AND es_total = 1 AND grupo IS NULL ORDER BY orden DESC LIMIT 1),
+        0
+      ) AS presupuesto_total,
+      COALESCE(
+        (SELECT avance_financiero_real FROM avances_semanales
+         WHERE project_id = p.id AND avance_financiero_real IS NOT NULL
+         ORDER BY semana DESC LIMIT 1),
+        0
+      ) AS avance_ejecutado_pct
+    FROM proyectos p
+    JOIN clientes c ON c.id = p.cliente_id
+    ORDER BY c.nombre, p.nombre
+  `);
+
+  const porCliente = new Map();
+  for (const r of rows) {
+    if (!porCliente.has(r.cliente_id)) {
+      porCliente.set(r.cliente_id, { cliente_id: r.cliente_id, cliente_nombre: r.cliente_nombre, totalPresupuesto: 0, importeEjecutado: 0, obras: [] });
+    }
+    const acc = porCliente.get(r.cliente_id);
+    const presupuesto = Number(r.presupuesto_total);
+    const avancePct = Number(r.avance_ejecutado_pct);
+    acc.totalPresupuesto += presupuesto;
+    acc.importeEjecutado += presupuesto * avancePct / 100;
+    acc.obras.push({ project_id: r.project_id, obra_nombre: r.obra_nombre, presupuesto_total: presupuesto, avance_pct: avancePct });
+  }
+
+  const resultado = [...porCliente.values()]
+    .map((c) => ({
+      cliente_id: c.cliente_id,
+      cliente_nombre: c.cliente_nombre,
+      presupuesto_total: Number(c.totalPresupuesto.toFixed(2)),
+      avance_ponderado_pct: c.totalPresupuesto > 0 ? Number(((c.importeEjecutado / c.totalPresupuesto) * 100).toFixed(1)) : 0,
+      obras: c.obras.sort((a, b) => b.presupuesto_total - a.presupuesto_total),
+    }))
+    .sort((a, b) => b.avance_ponderado_pct - a.avance_ponderado_pct);
+
+  res.json(resultado);
+}));
+
 // ---------------------------------------------------------------------------
 // Costos — catálogo de precios agregado desde insumos ya cargados (prompt-
 // modulo-costos.md). Sin auth.allow() a propósito, igual que /api/trabajadores

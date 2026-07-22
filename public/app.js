@@ -3604,6 +3604,7 @@ const CONTRATO_FIELDS = [
   { key: 'fondo_garantia_monto', label: 'Fondo de garantía', inputType: 'number', format: 'money' },
   { key: 'volumen_contratado', label: 'Volumen contratado', inputType: 'number', format: 'number' },
   { key: 'volumen_unidad', label: 'Unidad de volumen', inputType: 'text', format: 'text' },
+  { key: 'personal_ejecuta', label: 'Personal que ejecuta', inputType: 'text', format: 'text' },
 ];
 
 // fecha_inicio/fecha_termino viven en las claves ya existentes inicio_obra/
@@ -3822,7 +3823,15 @@ async function renderContrato(view) {
     <div class="card">
       ${CONTRATO_FIELDS.map((f) => {
         const badge = f.key === 'fecha_termino' ? vencimientoBadgeHtml(campos.fecha_termino) : '';
-        return `<div class="card-row"><span class="k">${esc(f.label)}</span><span class="v">${formatContratoValor(f, campos[f.key])}${badge}</span></div>`;
+        const row = `<div class="card-row"><span class="k">${esc(f.label)}</span><span class="v">${formatContratoValor(f, campos[f.key])}${badge}</span></div>`;
+        // Subtotal M.O.+C.S.: derivado por el backend al vuelo (nunca un
+        // campo extraído/editable), se inserta aquí para respetar el orden
+        // de la cédula sin agregarlo a CONTRATO_FIELDS (eso lo volvería
+        // editable en el formulario de confirmación).
+        if (f.key === 'subtotal_carga_social') {
+          return row + `<div class="card-row"><span class="k">Subtotal M.O. + C.S.</span><span class="v">${meta.subtotal_mo_cs != null ? fmtMoney(meta.subtotal_mo_cs) : '—'}</span></div>`;
+        }
+        return row;
       }).join('')}
     </div>
     ${isAdmin() ? '<div class="row end mt-10"><button class="btn" id="btnEditarContrato">Editar datos</button></div>' : ''}

@@ -18,7 +18,7 @@ const CAMPOS_CONTRATO = [
   'fecha_documento', 'fecha_inicio', 'fecha_termino', 'tipo_contrato',
   'subtotal_materiales', 'subtotal_mano_obra', 'subtotal_carga_social', 'subtotal_herramienta_equipo',
   'subtotal_costo_directo', 'indirecto_utilidad', 'importe_contratado', 'iva_monto', 'total_contratado',
-  'anticipo_monto', 'fondo_garantia_monto', 'volumen_contratado', 'volumen_unidad',
+  'anticipo_monto', 'fondo_garantia_monto', 'volumen_contratado', 'volumen_unidad', 'personal_ejecuta',
 ];
 
 const SYSTEM_PROMPT = `Eres un asistente que extrae datos estructurados de contratos de construcción/obra en México.
@@ -26,7 +26,8 @@ Devuelve ÚNICAMENTE un objeto JSON (sin markdown, sin bloques de código, sin t
 ${CAMPOS_CONTRATO.join(', ')}.
 Usa null en cualquier clave cuyo dato no aparezca en el documento.
 Si el documento usa términos distintos para conceptos equivalentes, mapea al campo semánticamente más cercano; todos los montos como número, sin "$" ni comas.
-Las fechas deben devolverse en formato ISO (YYYY-MM-DD).`;
+Las fechas deben devolverse en formato ISO (YYYY-MM-DD).
+personal_ejecuta es texto libre describiendo el personal que ejecuta el trabajo tal como aparece en el documento (ej. conteo de Oficiales/Ayudantes, nombres, o cualquier otro formato que use el documento); no inventes una estructura fija, transcribe el dato tal cual.`;
 
 function getClient() {
   const apiKey = process.env.ANTHROPIC_API_KEY;

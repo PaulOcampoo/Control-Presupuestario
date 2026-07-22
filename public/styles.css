@@ -1237,6 +1237,24 @@ body.modal-open { overflow: hidden; }
 .apc-bar { background: var(--border-color); border-radius: 4px; height: 8px; overflow: hidden; }
 .apc-fill { height: 100%; background: var(--accent-gold); border-radius: 4px; transition: width 0.6s ease; }
 
+/* ── Vista "Avance por cliente" completa (prompt-avance-acumulado-cliente-
+   global.md) — mismo lenguaje visual de .apc-* de arriba, extendido con
+   fila clicable (expand/collapse) y desglose de obras por cliente. ────── */
+.apc-list-full { gap: 16px; }
+.apc-item-full { padding: 12px; border: 1px solid var(--border-color); border-radius: 8px; }
+.apc-toggle {
+  width: 100%; background: none; border: none; padding: 0; margin: 0;
+  font: inherit; color: inherit; cursor: pointer; text-align: left;
+}
+.apc-row-right { display: flex; align-items: center; gap: 8px; }
+.apc-chevron { font-size: 0.75rem; color: var(--text-secondary); transition: transform 0.2s ease; }
+.apc-item-full.apc-expanded .apc-chevron { transform: rotate(180deg); }
+.apc-obras { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--border-color); }
+.apc-obra-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 0.8rem; }
+.apc-obra-nombre { color: var(--text-primary); flex: 1; }
+.apc-obra-presupuesto { color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+.apc-obra-pct { color: var(--accent-gold); font-weight: 600; font-variant-numeric: tabular-nums; min-width: 3.5em; text-align: right; }
+
 /* Sección colapsable (avance semanal por destajista) */
 .collapse-toggle {
   display: flex; align-items: center; justify-content: space-between; gap: 8px;
@@ -1277,6 +1295,10 @@ body.modal-open { overflow: hidden; }
   /* Card rows: valor puede romper línea si es muy largo */
   .card-row { flex-wrap: wrap; }
   .card-row .v { word-break: break-word; }
+
+  /* Avance por cliente (vista completa): desglose de obras envuelve en móvil */
+  .apc-obra-row { flex-wrap: wrap; }
+  .apc-obra-nombre { flex-basis: 100%; word-break: break-word; }
 
   /* Botones de requisición más grandes para touch */
   .btn.small { padding: 9px 14px; font-size: 0.86rem; }

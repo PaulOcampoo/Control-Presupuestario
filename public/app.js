@@ -14,8 +14,8 @@ const PUESTO_LABELS = {
 // Mirror de PERMISSIONS en server/auth.js — para calcular allowedTabs en vista simulada.
 // Actualizar aquí si se agregan roles o pestañas en auth.js.
 const ROLE_TABS = {
-  admin:          ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'finanzas', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', 'maquinaria', 'cotizador', 'costos'],
-  desarrollador:  ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'finanzas', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', 'maquinaria', 'cotizador', 'costos'],
+  admin:          ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'finanzas', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', 'maquinaria', 'cotizador', 'costos', 'avance_clientes'],
+  desarrollador:  ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'finanzas', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', 'maquinaria', 'cotizador', 'costos', 'avance_clientes'],
   residente:      ['programa', 'avance', 'destajo', 'requisiciones', 'insumos', 'ordenes', 'nominas', 'trabajadores', 'estimaciones'],
   cabo:           ['destajo', 'insumos', 'avance', 'requisiciones', 'maquinaria'],
   compras:        ['programa', 'requisiciones', 'insumos', 'ordenes', 'proveedores', 'cotizador'],
@@ -1012,7 +1012,7 @@ const SECTION_DEFS = {
   obra:          { label: 'Obra',           icon: 'obra',           emoji: '🏗️',  tabs: ['programa', 'avance', 'destajo', 'estimaciones'],     proximamente: [] },
   compras:       { label: 'Compras',        icon: 'compras',        emoji: '🛒',   tabs: ['requisiciones', 'insumos', 'proveedores', 'ordenes', 'cotizador'], proximamente: ['Subcontratos'] },
   tesoreria:     { label: 'Tesorería',      icon: 'tesoreria',      emoji: '💰',   tabs: ['finanzas', 'estadoResultados', 'estadoResultadosGlobal', 'impuestos'], proximamente: [] },
-  administracion:{ label: 'Administración', icon: 'administracion', emoji: '📂',  tabs: ['mapeo', 'contrato', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'costos', 'usuarios'], proximamente: ['Almacenes'] },
+  administracion:{ label: 'Administración', icon: 'administracion', emoji: '📂',  tabs: ['mapeo', 'contrato', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'costos', 'avance_clientes', 'usuarios'], proximamente: ['Almacenes'] },
   maquinaria:    { label: 'Maquinaria',     icon: 'maquinaria',     emoji: '🚜',   tabs: ['maquinaria'],                                        proximamente: [] },
 };
 
@@ -1021,7 +1021,7 @@ const TAB_ICONS = {
   proveedores: '🏭', ordenes: '🛒', programa: '🗓️', avance: '📈', destajo: '👷',
   finanzas: '💰', mapeo: '🔗', usuarios: '👤', trabajadores: '👷', nominas: '💵', estimaciones: '🧮',
   maquinaria: '🚜', nominas_global: '💵', trabajadores_global: '👷', cotizador: '🔍',
-  estadoResultados: '📈', estadoResultadosGlobal: '📈', costos: '💲',
+  estadoResultados: '📈', estadoResultadosGlobal: '📈', costos: '💲', avance_clientes: '📈',
 };
 const TAB_LABELS = {
   resumen: 'Resumen', contrato: 'Contrato', impuestos: 'Impuestos', insumos: 'Insumos', requisiciones: 'Requisiciones',
@@ -1029,7 +1029,7 @@ const TAB_LABELS = {
   finanzas: 'Finanzas', mapeo: 'Mapeo', usuarios: 'Usuarios', trabajadores: 'Trabajadores', nominas: 'Nóminas', estimaciones: 'Estimaciones',
   maquinaria: 'Maquinaria', nominas_global: 'Nómina (todas las obras)', trabajadores_global: 'Trabajadores (todas las obras)',
   cotizador: 'Cotizador', estadoResultados: 'Estado de Resultados', estadoResultadosGlobal: 'Estado de Resultados (todas las obras)',
-  costos: 'Costos',
+  costos: 'Costos', avance_clientes: 'Avance por cliente',
 };
 
 const VIEW_TO_SECTION = {};
@@ -3182,7 +3182,7 @@ function destroyCharts() {
 async function renderView() {
   destroyCharts();
   const view = $('#view');
-  if (state.view === 'usuarios' || state.view === 'proveedores' || state.view === 'maquinaria' || state.view === 'nominas_global' || state.view === 'trabajadores_global' || state.view === 'cotizador' || state.view === 'estadoResultadosGlobal' || state.view === 'costos') {
+  if (state.view === 'usuarios' || state.view === 'proveedores' || state.view === 'maquinaria' || state.view === 'nominas_global' || state.view === 'trabajadores_global' || state.view === 'cotizador' || state.view === 'estadoResultadosGlobal' || state.view === 'costos' || state.view === 'avance_clientes') {
     try {
       if (state.view === 'usuarios') { await renderUsuarios(view, state.usuariosSubView); state.usuariosSubView = null; }
       else if (state.view === 'proveedores') await renderProveedores(view);
@@ -3191,6 +3191,7 @@ async function renderView() {
       else if (state.view === 'cotizador') await renderCotizador(view);
       else if (state.view === 'estadoResultadosGlobal') await renderEstadoResultadosGlobal(view);
       else if (state.view === 'costos') await renderCostos(view);
+      else if (state.view === 'avance_clientes') await renderAvanceClientes(view);
       else await renderMaquinaria(view);
     } catch (err) { view.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`; }
     syncFab();
@@ -8964,6 +8965,77 @@ async function renderCostos(view) {
   }
 
   if (subView === 'porCliente') await showPorCliente();
+}
+
+// Avance por cliente COMPLETO + Avance global (prompt-avance-acumulado-
+// cliente-global.md) — extiende el widget top-4 del dashboard
+// (renderAvancePorCliente, arriba) a TODOS los clientes, con desglose de
+// obras al expandir cada uno. El avance global reutiliza tal cual
+// avance_ponderado_pct de GET /api/resumen-global (misma fórmula ya
+// calculada ahí) — no se duplica ese cálculo. Mismo alcance de acceso que
+// el widget top-4 (admin/desarrollador vía auth.allow() en backend).
+async function renderAvanceClientes(view) {
+  view.innerHTML = `
+    <h2 class="section-title">Avance por cliente</h2>
+    <p class="muted">Avance ponderado por presupuesto — las obras con presupuesto más grande pesan más en el promedio de cada cliente, mismo criterio que "Resumen Global".</p>
+    <div id="avanceClientesGlobalCard"><div class="spinner"></div></div>
+    <div id="avanceClientesList" class="mt-12"></div>
+  `;
+
+  const [clientes, global] = await Promise.all([
+    api('/avance-por-cliente/completo'),
+    api('/resumen-global'),
+  ]);
+
+  $('#avanceClientesGlobalCard').innerHTML = `
+    <div class="kpi-grid">
+      <div class="kpi green"><div class="label">Avance global ponderado (todos los clientes)</div><div class="value">${fmtPct(global.avance_ponderado_pct)}</div></div>
+    </div>
+  `;
+
+  const list = $('#avanceClientesList');
+  if (!clientes.length) {
+    list.innerHTML = `<div class="empty-state">Sin obras registradas todavía.</div>`;
+    return;
+  }
+
+  list.innerHTML = `
+    <div class="apc-list apc-list-full">
+      ${clientes.map((c) => {
+        const pct = Math.min(100, Math.max(0, Number(c.avance_ponderado_pct) || 0));
+        return `
+        <div class="apc-item apc-item-full" data-cliente="${c.cliente_id}">
+          <button class="apc-row-top apc-toggle" type="button">
+            <span class="apc-nombre">${esc(c.cliente_nombre)}</span>
+            <span class="apc-row-right">
+              <span class="apc-pct">${pct.toFixed(1)}%</span>
+              <span class="apc-chevron">▾</span>
+            </span>
+          </button>
+          <div class="apc-bar"><div class="apc-fill" data-pct="${pct}"></div></div>
+          <div class="apc-obras hidden-initial">
+            ${c.obras.map((o) => {
+              const opct = Math.min(100, Math.max(0, Number(o.avance_pct) || 0));
+              return `
+              <div class="apc-obra-row">
+                <span class="apc-obra-nombre">${esc(o.obra_nombre)}</span>
+                <span class="apc-obra-presupuesto">${fmtMoney(o.presupuesto_total)}</span>
+                <span class="apc-obra-pct">${opct.toFixed(1)}%</span>
+              </div>`;
+            }).join('')}
+          </div>
+        </div>`;
+      }).join('')}
+    </div>
+  `;
+  $$('.apc-fill', list).forEach((fill) => { fill.style.width = fill.dataset.pct + '%'; });
+  $$('.apc-toggle', list).forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const item = btn.closest('.apc-item-full');
+      item.querySelector('.apc-obras').classList.toggle('hidden-initial');
+      item.classList.toggle('apc-expanded');
+    });
+  });
 }
 
 // Modal de revisión/edición antes de crear un presupuesto nuevo desde el

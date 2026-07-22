@@ -892,6 +892,29 @@ const SCHEMA = `
   ALTER TABLE reportes_horas_maquinaria ADD COLUMN IF NOT EXISTS revisado_por INTEGER REFERENCES usuarios(id);
   ALTER TABLE reportes_horas_maquinaria ADD COLUMN IF NOT EXISTS revisado_en TIMESTAMPTZ;
 
+  -- Bitácora de taller para jefe_maquinaria (prompt-4-bitacora-taller-jefe-
+  -- maquinaria.md): mantenimientos_maquinaria se reutiliza como bitácora
+  -- general — decisión confirmada con Paul tras diagnosticar que
+  -- combustible_maquinaria NO encaja (litros y equipo_id NOT NULL son
+  -- específicos de combustible por equipo; no aplican a comprar una
+  -- herramienta o consumible general de taller). combustible_maquinaria
+  -- queda intacta, sin cambios.
+  -- - equipo_id pasa a NULLABLE: NULL = entrada general de taller
+  --   (consumible/herramienta no atada a un equipo); con valor = mantenimiento
+  --   de ESE equipo (preventivo/correctivo), igual que antes.
+  -- - 'tipo' se amplía con 'consumible'/'herramienta' — la regla de que
+  --   preventivo/correctivo SÍ exigen equipo_id (y consumible/herramienta
+  --   NO) se valida en código (server/app.js), no aquí.
+  -- - refaccion_descripcion/refaccion_costo: desglose OPCIONAL de la
+  --   refacción usada en un mantenimiento — nullable, no rompe registros
+  --   históricos que solo tenían 'costo' total sin desglose.
+  ALTER TABLE mantenimientos_maquinaria ALTER COLUMN equipo_id DROP NOT NULL;
+  ALTER TABLE mantenimientos_maquinaria DROP CONSTRAINT IF EXISTS mantenimientos_maquinaria_tipo_check;
+  ALTER TABLE mantenimientos_maquinaria ADD CONSTRAINT mantenimientos_maquinaria_tipo_check
+    CHECK (tipo IN ('preventivo', 'correctivo', 'consumible', 'herramienta'));
+  ALTER TABLE mantenimientos_maquinaria ADD COLUMN IF NOT EXISTS refaccion_descripcion TEXT;
+  ALTER TABLE mantenimientos_maquinaria ADD COLUMN IF NOT EXISTS refaccion_costo DOUBLE PRECISION;
+
   -- ASUNCIÓN sin confirmar con Paul (ver prompt-modulo-maquinaria.md): un solo
   -- monto total sin periodo (no mensual/anual) — fila única forzada por el
   -- CHECK (id = 1), patrón "singleton row".

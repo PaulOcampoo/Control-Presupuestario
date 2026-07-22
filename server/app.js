@@ -422,7 +422,7 @@ app.get('/api/cron/recordatorio-impuestos', requireCronSecret, h(async (req, res
 // (sin modificarla) y notifica a los 30/15/7 días de vencer o al vencer,
 // sin repetir la misma alerta (alertas_contrato_enviadas, UNIQUE por
 // project_id+umbral). Ver server/alertasContrato.js para el cálculo.
-app.post('/api/cron/alertas-vencimiento', requireCronSecret, h(async (req, res) => {
+app.get('/api/cron/alertas-vencimiento', requireCronSecret, h(async (req, res) => {
   const { rows: proyectos } = await db.pool.query('SELECT id, nombre FROM proyectos');
   const alertasEnviadas = [];
   const omitidas = [];

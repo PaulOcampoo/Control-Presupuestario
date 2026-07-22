@@ -879,6 +879,19 @@ const SCHEMA = `
   -- endpoint de captura sí lo exige para reportes nuevos.
   ALTER TABLE reportes_horas_maquinaria ADD COLUMN IF NOT EXISTS actividad TEXT;
 
+  -- Flujo de aprobación operador (captura) -> cabo (autoriza/rechaza)
+  -- (prompt-3-flujo-aprobacion-cabo-operador.md). 'pendiente' es el estado
+  -- inicial que fija el endpoint de captura para reportes NUEVOS (server/
+  -- maquinaria.js createHoras, hardcoded — no lo decide el llamador). El
+  -- DEFAULT 'autorizado' de esta columna solo aplica retroactivamente a los
+  -- reportes ya existentes al momento de esta migración (capturados antes de
+  -- que existiera este flujo) — no bloquear datos históricos ya en uso.
+  -- Sin CHECK constraint, mismo patrón que 'actividad' arriba: validación
+  -- 100% en código (server/app.js, PUT /api/maquinaria/horas/:id/estado).
+  ALTER TABLE reportes_horas_maquinaria ADD COLUMN IF NOT EXISTS estado TEXT NOT NULL DEFAULT 'autorizado';
+  ALTER TABLE reportes_horas_maquinaria ADD COLUMN IF NOT EXISTS revisado_por INTEGER REFERENCES usuarios(id);
+  ALTER TABLE reportes_horas_maquinaria ADD COLUMN IF NOT EXISTS revisado_en TIMESTAMPTZ;
+
   -- ASUNCIÓN sin confirmar con Paul (ver prompt-modulo-maquinaria.md): un solo
   -- monto total sin periodo (no mensual/anual) — fila única forzada por el
   -- CHECK (id = 1), patrón "singleton row".
@@ -993,6 +1006,17 @@ const SCHEMA = `
   -- Idempotente: sin filas con puesto='taller' que migrar en corridas
   -- subsecuentes, este UPDATE es un no-op.
   UPDATE usuarios SET puesto = 'jefe_maquinaria' WHERE puesto = 'taller';
+
+  -- prompt-3-flujo-aprobacion-cabo-operador.md: cabo deja de capturar horas
+  -- directamente y pasa a solo autorizar/rechazar — defaultPermisosParaRol
+  -- (server/auth.js) ya refleja esto para altas NUEVAS, pero solo se evalúa
+  -- al crear un usuario, así que los cabo ya existentes conservarían
+  -- puede_crear=true en 'maquinaria_captura' sin este backfill (mismo criterio
+  -- ya usado arriba para el rename taller->jefe_maquinaria). Idempotente: sin
+  -- filas que coincidan en corridas subsecuentes, es un no-op.
+  UPDATE permisos_usuario SET puede_crear = false, puede_editar = true
+  WHERE seccion = 'maquinaria_captura'
+    AND usuario_id IN (SELECT id FROM usuarios WHERE puesto = 'cabo');
 `;
 
 // prompt-fix-error-permiso-trabajadores.md → el diagnóstico de ese prompt no

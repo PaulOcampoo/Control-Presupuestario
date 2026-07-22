@@ -192,12 +192,14 @@ function defaultPermisosParaRol(puesto) {
     // 'maquinaria' (equipos) queda como estaba — /api/maquinaria/equipos no
     // es parte de este fix (CN-002), solo se separa captura de horas.
     if (porSeccion.maquinaria) { porSeccion.maquinaria.puede_crear = true; }
-    // CN-002: sección propia de captura de horas — cabo ya NO recibe
-    // puede_crear en 'maquinaria_combustible' (antes lo tenía implícito al
-    // compartir 'maquinaria' con jefe_maquinaria).
+    // prompt-3-flujo-aprobacion-cabo-operador.md: cabo ya NO captura horas
+    // directamente (ese rol pasó a 'operador') — ahora solo autoriza o
+    // rechaza los reportes que operador deja en 'pendiente' (puede_editar,
+    // no puede_crear). Backfill para cabo ya existentes en server/db.js
+    // (esta función solo aplica a altas nuevas).
     filas.push({
-      seccion: 'maquinaria_captura', puede_ver: true, puede_crear: true,
-      puede_editar: false, puede_editar_precios: false, puede_eliminar: false,
+      seccion: 'maquinaria_captura', puede_ver: true, puede_crear: false,
+      puede_editar: true, puede_editar_precios: false, puede_eliminar: false,
     });
     // Mismo criterio que residente arriba — cabo también podía crear/editar/
     // eliminar requisiciones por rol plano.

@@ -6735,7 +6735,7 @@ const PERMISOS_SECCION_LABELS = {
   estado_resultados: 'Estado de Resultados',
   insumos: 'Insumos', mapeo: 'Mapeo', usuarios: 'Usuarios', contrato: 'Contrato', impuestos: 'Impuestos',
   nominas: 'Nóminas', sugerencias: 'Sugerencias', programa: 'Programa', estimaciones: 'Estimaciones',
-  maquinaria: 'Maquinaria (equipos)', maquinaria_captura: 'Maquinaria (captura de horas)',
+  maquinaria: 'Maquinaria (equipos)', maquinaria_captura: 'Maquinaria (horas: captura/autorización)',
   maquinaria_combustible: 'Maquinaria (combustible/mantenimiento)', trabajadores: 'Trabajadores',
   trabajadores_global: 'Trabajadores (Todas las Obras)', nominas_global: 'Nóminas (Todas las Obras)',
   costos: 'Costos (catálogo de precios)',
@@ -6882,9 +6882,12 @@ function defaultPermisosParaRolFrontend(puesto) {
     if (porSeccion.destajo) porSeccion.destajo.puede_editar = true;
     if (porSeccion.avance)  porSeccion.avance.puede_crear = true;
     if (porSeccion.maquinaria) porSeccion.maquinaria.puede_crear = true;
+    // prompt-3-flujo-aprobacion-cabo-operador.md: cabo ya no captura horas,
+    // solo autoriza/rechaza (puede_editar, no puede_crear) — mirror del
+    // cambio en server/auth.js defaultPermisosParaRol.
     porSeccion.maquinaria_captura = {
-      seccion: 'maquinaria_captura', puede_ver: true, puede_crear: true,
-      puede_editar: false, puede_editar_precios: false, puede_eliminar: false,
+      seccion: 'maquinaria_captura', puede_ver: true, puede_crear: false,
+      puede_editar: true, puede_editar_precios: false, puede_eliminar: false,
     };
   }
   if (puesto === 'jefe_maquinaria' || puesto === 'admin' || puesto === 'desarrollador') {
@@ -7780,8 +7783,26 @@ const MAQUINARIA_TIPOS = ['retroexcavadora'];
 const ACTIVIDADES_MAQUINARIA = ['Excavaciones', 'Cepas', 'Rellenos', 'Acarreos', 'Carga de material', 'Limpiezas'];
 let maquinariaEquiposCache = [];
 
+// Bug encontrado en revisión de dispositivo real (prompt-fix-cabo-operador-
+// permisos-simulacion.md): un admin/desarrollador usando "vista simulada"
+// (state.simulatedPuesto) veía los botones Autorizar/Rechazar/+Capturar
+// horas aunque el rol simulado no debiera tenerlos — NO es un bug de
+// permisos (confirmado con Postgres efímero + HTTP real: cuentas operador/
+// cabo genuinas SÍ reciben 403 correctamente en backend), es que estos 2
+// botones nuevos solo leían el permiso crudo del backend (que para admin/
+// desarrollador siempre es bypass=true, ver checkPermiso en server/auth.js),
+// sin considerar que ese bypass es de la identidad REAL, no de la simulada
+// — misma limitación ya documentada arriba en updateSimBanner() para toda
+// la app ("puramente visual... el backend sigue usando el JWT real").
+// Estas 2 listas acotan la visibilidad de MIS botones nuevos al rol
+// EFECTIVO (real o simulado), sin tocar el permiso crudo del backend ni el
+// resto de módulos de la app (que conservan el comportamiento de
+// simulación de siempre) — un cambio deliberadamente angosto a este flujo.
+const ROLES_AUTORIZAN_HORAS_MAQ = ['cabo', 'admin', 'desarrollador'];
+const ROLES_CAPTURAN_HORAS_MAQ = ['operador', 'admin', 'desarrollador'];
+
 async function renderMaquinaria(view) {
-  const [equipos, resumen, misPermisos, misPermisosCaptura, misPermisosCombustible, proyectos, reporteClientes] = await Promise.all([
+  const [equipos, resumen, misPermisos, misPermisosCaptura, misPermisosCombustible, proyectos, reporteClientes, horasMaq] = await Promise.all([
     api('/maquinaria/equipos'),
     api('/maquinaria/resumen'),
     api('/mis-permisos/maquinaria'),
@@ -7789,6 +7810,12 @@ async function renderMaquinaria(view) {
     api('/mis-permisos/maquinaria_combustible'),
     api('/projects').catch(() => []),
     api('/maquinaria/reporte-clientes').catch(() => null),
+    // 403 esperado para roles sin puede_ver en 'maquinaria_captura' (ej.
+    // jefe_maquinaria) — GET /api/maquinaria/horas exige checkPermiso
+    // ('maquinaria', 'puede_ver'), que sí tienen todos los roles de este tab,
+    // pero igual protegemos con .catch por si acaso (mismo patrón que
+    // reporte-clientes arriba).
+    api('/maquinaria/horas').catch(() => []),
   ]);
   maquinariaEquiposCache = equipos;
   const puedeCrear = !!misPermisos.puede_crear; // equipos — sección 'maquinaria', sin cambio (CN-002)
@@ -7798,7 +7825,15 @@ async function renderMaquinaria(view) {
   // 'maquinaria' (que antes obligaba a excluir a cabo a mano con !esCabo,
   // y nunca excluía a jefe_maquinaria de horas) — cada botón usa su propia sección.
   const puedeCrearCombustible = !!misPermisosCombustible.puede_crear;
-  const puedeCrearHoras = !!misPermisosCaptura.puede_crear;
+  // AND con ROLES_CAPTURAN_HORAS_MAQ/ROLES_AUTORIZAN_HORAS_MAQ (ver comentario
+  // junto a esas constantes) — el permiso crudo del backend no distingue rol
+  // simulado de rol real para admin/desarrollador (bypass siempre true).
+  const puedeCrearHoras = !!misPermisosCaptura.puede_crear && ROLES_CAPTURAN_HORAS_MAQ.includes(effectivePuesto());
+  // prompt-3-flujo-aprobacion-cabo-operador.md: puede_editar en
+  // 'maquinaria_captura' ahora es "puede autorizar/rechazar reportes de
+  // horas" (cabo, y admin/desarrollador vía bypass).
+  const puedeAutorizarHoras = !!misPermisosCaptura.puede_editar && ROLES_AUTORIZAN_HORAS_MAQ.includes(effectivePuesto());
+  const esOperador = effectivePuesto() === 'operador';
 
   // Cifras de presupuesto (total/gastado/%/sugerido por cliente) — solo
   // admin/desarrollador; backend ya las envía null para el resto de roles,
@@ -7826,6 +7861,7 @@ async function renderMaquinaria(view) {
       ${puedeCrearCombustible ? '<button class="btn" id="btnMantenimientoMaq">+ Mantenimiento</button>' : ''}
       ${puedeCrearHoras ? '<button class="btn" id="btnHorasMaq">+ Capturar horas</button>' : ''}
     </div>
+    <div id="reportesHorasMaqSection"></div>
     <div id="equiposMaqList"></div>
   `;
 
@@ -7834,9 +7870,103 @@ async function renderMaquinaria(view) {
   $('#btnCombustibleMaq')?.addEventListener('click', () => openCombustibleMaqModal(equipos));
   $('#btnMantenimientoMaq')?.addEventListener('click', () => openMantenimientoMaqModal(equipos));
   $('#btnHorasMaq')?.addEventListener('click', () => openHorasMaqModal(equipos, proyectos));
+  paintReportesHorasMaq(horasMaq, { puedeAutorizarHoras, esOperador });
   { const fill = $('.progress-bar > span[data-pct]', view); if (fill) fill.style.width = fill.dataset.pct + '%'; }
 
   paintEquiposMaqList(equipos, proyectos, { puedeEditar, puedeEliminar });
+}
+
+const ESTADO_HORAS_MAQ_BADGE = { pendiente: 'yellow', autorizado: 'green', rechazado: 'red' };
+const ESTADO_HORAS_MAQ_LABEL = { pendiente: 'Pendiente', autorizado: 'Autorizado', rechazado: 'Rechazado' };
+
+// Flujo de aprobación operador (captura) -> cabo (autoriza/rechaza)
+// (prompt-3-flujo-aprobacion-cabo-operador.md), mismo patrón visual que ya
+// usan Avance/Destajo para su propia autorización (badge + botones
+// Autorizar/Rechazar con data-accion). Sin scoping por obra: el módulo
+// Maquinaria no tiene asignación cabo<->obra hoy (ver diagnóstico del
+// prompt), así que cabo ve TODOS los reportes pendientes, no solo los de
+// "su" obra.
+function paintReportesHorasMaq(horas, { puedeAutorizarHoras, esOperador }) {
+  const el = $('#reportesHorasMaqSection');
+  if (!el || (!puedeAutorizarHoras && !esOperador)) { if (el) el.innerHTML = ''; return; }
+
+  let html = '';
+  if (puedeAutorizarHoras) {
+    const pendientes = horas.filter((h) => h.estado === 'pendiente');
+    html += `
+      <h3 class="section-title mt-16">Reportes de horas pendientes de autorizar${pendientes.length ? ` (${pendientes.length})` : ''}</h3>
+      ${!pendientes.length ? '<p class="muted">Sin reportes pendientes.</p>' : `
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Fecha</th><th>Operador</th><th>Equipo</th><th class="num">Horas</th><th>Actividad</th><th>Obra</th><th></th></tr></thead>
+          <tbody>
+            ${pendientes.map((h) => `
+              <tr>
+                <td>${fmtDate(h.fecha)}</td>
+                <td>${esc(h.operador_nombre || '—')}</td>
+                <td>${esc(h.equipo_nombre)}</td>
+                <td class="num">${fmtNum(h.horas, 1)}</td>
+                <td>${esc(h.actividad || '—')}</td>
+                <td>${esc(h.obra_nombre || '—')}</td>
+                <td>
+                  <div class="row row-nowrap-gap6">
+                    <button class="btn small btn-auth" data-autorizar-horas="${h.id}" data-accion="autorizado">Autorizar</button>
+                    <button class="btn small btn-danger btn-auth" data-autorizar-horas="${h.id}" data-accion="rechazado">Rechazar</button>
+                  </div>
+                </td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+      `}
+    `;
+  }
+
+  if (esOperador) {
+    const misReportes = horas.filter((h) => h.operador_id === state.user.id);
+    html += `
+      <h3 class="section-title mt-16">Mis reportes de horas</h3>
+      ${!misReportes.length ? '<p class="muted">Aún no has capturado ningún reporte.</p>' : `
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Fecha</th><th>Equipo</th><th class="num">Horas</th><th>Actividad</th><th>Obra</th><th>Estado</th></tr></thead>
+          <tbody>
+            ${misReportes.map((h) => `
+              <tr>
+                <td>${fmtDate(h.fecha)}</td>
+                <td>${esc(h.equipo_nombre)}</td>
+                <td class="num">${fmtNum(h.horas, 1)}</td>
+                <td>${esc(h.actividad || '—')}</td>
+                <td>${esc(h.obra_nombre || '—')}</td>
+                <td><span class="badge ${ESTADO_HORAS_MAQ_BADGE[h.estado] || 'muted'}" title="${h.revisado_por_nombre ? `Revisado por ${esc(h.revisado_por_nombre)}` : ''}">${ESTADO_HORAS_MAQ_LABEL[h.estado] || esc(h.estado)}</span></td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+      `}
+    `;
+  }
+
+  el.innerHTML = html;
+
+  $$('[data-autorizar-horas]', el).forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const id = Number(btn.dataset.autorizarHoras);
+      const accion = btn.dataset.accion;
+      if (accion === 'rechazado' && !confirm('¿Rechazar este reporte de horas?')) return;
+      btn.disabled = true;
+      try {
+        await api(`/maquinaria/horas/${id}/estado`, { method: 'PUT', body: { estado: accion } });
+        toast(accion === 'autorizado' ? 'Reporte autorizado' : 'Reporte rechazado', 'success');
+        renderView();
+      } catch (err) {
+        toast(err.message, 'danger');
+        btn.disabled = false;
+      }
+    });
+  });
 }
 
 // Reporte por cliente (Fase 2, prompt-maquinaria-presupuesto-automatico):

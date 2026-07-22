@@ -117,21 +117,26 @@ async function softDeleteMantenimiento(id) {
 
 async function listHoras(equipoId) {
   const { rows } = await db.pool.query(`
-    SELECT h.*, e.nombre AS equipo_nombre, u.nombre AS operador_nombre, p.nombre AS obra_nombre
+    SELECT h.*, e.nombre AS equipo_nombre, u.nombre AS operador_nombre, p.nombre AS obra_nombre,
+      ur.nombre AS revisado_por_nombre
     FROM reportes_horas_maquinaria h
     JOIN equipos_maquinaria e ON e.id = h.equipo_id
     LEFT JOIN usuarios u ON u.id = h.operador_id
     LEFT JOIN proyectos p ON p.id = h.obra_id
+    LEFT JOIN usuarios ur ON ur.id = h.revisado_por
     WHERE h.activo = true ${equipoId ? 'AND h.equipo_id = $1' : ''}
     ORDER BY h.fecha DESC, h.id DESC
   `, equipoId ? [equipoId] : []);
   return rows;
 }
 
+// Todo reporte nuevo entra en 'pendiente' — el estado inicial no lo decide
+// el llamador (prompt-3-flujo-aprobacion-cabo-operador.md: operador captura,
+// cabo autoriza/rechaza vía updateEstadoHoras más abajo).
 async function createHoras({ equipo_id, operador_id, fecha, horas, obra_id, actividad }) {
   const { rows } = await db.pool.query(
-    `INSERT INTO reportes_horas_maquinaria (equipo_id, operador_id, fecha, horas, obra_id, actividad)
-     VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+    `INSERT INTO reportes_horas_maquinaria (equipo_id, operador_id, fecha, horas, obra_id, actividad, estado)
+     VALUES ($1, $2, $3, $4, $5, $6, 'pendiente') RETURNING *`,
     [equipo_id, operador_id, fecha, horas, obra_id || null, actividad || null]
   );
   return rows[0];
@@ -142,6 +147,22 @@ async function softDeleteHoras(id) {
     'UPDATE reportes_horas_maquinaria SET activo = false WHERE id = $1', [id]
   );
   return rowCount > 0;
+}
+
+// Transición pendiente -> autorizado/rechazado. El WHERE estado='pendiente'
+// hace la transición atómica (evita que dos cabos autoricen/rechacen el
+// mismo reporte en una carrera) y a la vez sirve de candado "solo se revisa
+// una vez" — devuelve undefined si el reporte no existe, ya no está activo,
+// o ya fue revisado antes.
+async function updateEstadoHoras(id, estado, revisadoPor) {
+  const { rows } = await db.pool.query(
+    `UPDATE reportes_horas_maquinaria
+     SET estado = $1, revisado_por = $2, revisado_en = NOW()
+     WHERE id = $3 AND activo = true AND estado = 'pendiente'
+     RETURNING *`,
+    [estado, revisadoPor, id]
+  );
+  return rows[0];
 }
 
 async function getResumen() {
@@ -314,7 +335,7 @@ module.exports = {
   listEquipos, createEquipo, updateEquipo, softDeleteEquipo,
   listCombustible, createCombustible, softDeleteCombustible,
   listMantenimientos, createMantenimiento, softDeleteMantenimiento,
-  listHoras, createHoras, softDeleteHoras,
+  listHoras, createHoras, softDeleteHoras, updateEstadoHoras,
   getResumen, updatePresupuesto,
   getPresupuestoSugerido, getReportePorCliente,
 };

@@ -278,6 +278,16 @@ button, a, select, label,
 .ayuda-pasos { margin: 0; padding-left: 22px; display: flex; flex-direction: column; gap: 10px; }
 .ayuda-pasos li { font-size: 0.9rem; line-height: 1.45; }
 
+/* Tabla de revisión dentro del modal "Crear presupuesto desde catálogo"
+   (ver openCrearPresupuestoModal en app.js) — limita altura para que el
+   modal no se salga de pantalla con catálogos largos. */
+.costos-review-scroll { max-height: 38vh; }
+/* Sin min-width los inputs de cantidad/precio se comprimen ilegibles en
+   mobile (el número se corta) en vez de que la tabla desborde y aparezca el
+   scroll horizontal ya provisto por .table-scroll — con min-width, el ancho
+   total de la tabla crece y el overflow-x:auto hace lo suyo. */
+.cp-cantidad, .cp-precio { width: 100%; min-width: 70px; }
+
 /* Campana de notificaciones (topbar) */
 .notif-wrap { position: relative; }
 .notif-badge {

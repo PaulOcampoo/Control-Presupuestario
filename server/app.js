@@ -1589,6 +1589,162 @@ app.get('/api/avance-por-cliente', h(auth.allow()), h(async (req, res) => {
 }));
 
 // ---------------------------------------------------------------------------
+// Costos — catálogo de precios agregado desde insumos ya cargados (prompt-
+// modulo-costos.md). Sin auth.allow() a propósito, igual que /api/trabajadores
+// y /api/nominas (vistas globales): checkPermiso('costos', accion) es el
+// único gate — admin/desarrollador bypasean por diseño (interno a
+// checkPermiso), cualquier otro rol necesita una fila explícita en
+// permisos_usuario, sin default (ver SECCIONES_PERMISOS en server/auth.js,
+// 'costos' no tiene entrada en TAB_A_SECCION).
+//
+// "Más reciente" se determina con proyectos.creado_en, NO con una columna
+// nueva en insumos — el precio de un insumo es inmutable después de ingest()
+// (confirmado: el único otro UPDATE a insumos solo toca iva_tasa), así que
+// creado_en del proyecto es un proxy 100% confiable de cuándo se capturó ese
+// precio. Insumos con codigo NULL quedan fuera del catálogo (sin clave
+// estable no hay forma de agruparlos entre obras sin adivinar por
+// descripción, que Paul pidió explícitamente no usar como fallback aquí) —
+// limitación conocida, no un bug.
+async function costosCatalogoQuery(clienteId) {
+  const { rows } = await db.pool.query(`
+    SELECT DISTINCT ON (i.codigo)
+      i.codigo, i.concepto, i.categoria, i.unidad,
+      i.precio_presupuesto, i.cantidad_presupuesto, i.iva_tasa,
+      p.id AS obra_origen_id, p.nombre AS obra_origen, p.creado_en AS fecha_origen,
+      c.id AS cliente_id, c.nombre AS cliente_nombre
+    FROM insumos i
+    JOIN proyectos p ON p.id = i.project_id
+    JOIN clientes c ON c.id = p.cliente_id
+    WHERE i.codigo IS NOT NULL ${clienteId ? 'AND p.cliente_id = $1' : ''}
+    ORDER BY i.codigo, p.creado_en DESC, i.id DESC
+  `, clienteId ? [clienteId] : []);
+  return rows;
+}
+
+function costosCatalogoExportSheet(rows, sheetName) {
+  return {
+    sheetName,
+    columns: [
+      { header: 'Código', key: 'codigo', width: 14 },
+      { header: 'Concepto', key: 'concepto', width: 40 },
+      { header: 'Categoría', key: 'categoria', width: 18 },
+      { header: 'Unidad', key: 'unidad', width: 10 },
+      { header: 'Precio (más reciente)', key: 'precio_presupuesto', width: 20, format: 'money' },
+      { header: 'IVA (%)', key: 'iva_tasa', width: 10, format: 'int' },
+      { header: 'Cliente', key: 'cliente_nombre', width: 24 },
+      { header: 'Obra de origen', key: 'obra_origen', width: 30 },
+      { header: 'Fecha de origen', key: 'fecha_origen', width: 16 },
+    ],
+    rows: rows.map((r) => ({
+      codigo: r.codigo,
+      concepto: r.concepto,
+      categoria: r.categoria,
+      unidad: r.unidad,
+      precio_presupuesto: Number(r.precio_presupuesto),
+      iva_tasa: Number(r.iva_tasa),
+      cliente_nombre: r.cliente_nombre,
+      obra_origen: r.obra_origen,
+      fecha_origen: r.fecha_origen,
+    })),
+  };
+}
+
+app.get('/api/costos/catalogo/:clienteId', h(auth.checkPermiso('costos', 'puede_ver')), h(async (req, res) => {
+  const clienteId = Number(req.params.clienteId);
+  const { rows: clienteRows } = await db.pool.query('SELECT id, nombre FROM clientes WHERE id = $1', [clienteId]);
+  if (!clienteRows[0]) return res.status(404).json({ error: 'Cliente no encontrado' });
+  const rows = await costosCatalogoQuery(clienteId);
+  res.json({ cliente: clienteRows[0], catalogo: rows });
+}));
+
+app.get('/api/costos/catalogo/:clienteId/export', h(auth.checkPermiso('costos', 'puede_ver')), h(async (req, res) => {
+  const clienteId = Number(req.params.clienteId);
+  const { rows: clienteRows } = await db.pool.query('SELECT id, nombre FROM clientes WHERE id = $1', [clienteId]);
+  if (!clienteRows[0]) return res.status(404).json({ error: 'Cliente no encontrado' });
+  const rows = await costosCatalogoQuery(clienteId);
+  await sendXlsxExport(res, {
+    filename: buildExportFilename('Catalogo-Costos', clienteRows[0].nombre),
+    sheets: [costosCatalogoExportSheet(rows, 'Catálogo')],
+  });
+}));
+
+app.get('/api/costos/catalogo-global', h(auth.checkPermiso('costos', 'puede_ver')), h(async (req, res) => {
+  const rows = await costosCatalogoQuery(null);
+  res.json({ catalogo: rows });
+}));
+
+app.get('/api/costos/catalogo-global/export', h(auth.checkPermiso('costos', 'puede_ver')), h(async (req, res) => {
+  const rows = await costosCatalogoQuery(null);
+  await sendXlsxExport(res, {
+    filename: buildExportFilename('Catalogo-Costos', 'Global'),
+    sheets: [costosCatalogoExportSheet(rows, 'Catálogo global')],
+  });
+}));
+
+// Crea un proyecto nuevo directo desde el catálogo agregado (ya revisado/
+// editado por el usuario en el frontend — items llega con lo que el usuario
+// confirmó, no se vuelve a consultar el catálogo aquí). Reutiliza ingest()
+// real (mismo código que usa toda carga de Excel) en vez de duplicar lógica
+// de inserción — sin pasar por Blob/parseWorkbook, ya viene como JSON.
+app.post('/api/costos/crear-presupuesto', h(auth.checkPermiso('costos', 'puede_crear')), h(async (req, res) => {
+  const { nombre, cliente_id, items } = req.body || {};
+  if (!nombre?.trim()) return res.status(400).json({ error: 'Indica el nombre de la obra' });
+  const clienteId = Number(cliente_id);
+  if (!Number.isFinite(clienteId)) return res.status(400).json({ error: 'Indica a qué cliente pertenece este presupuesto' });
+  if (!Array.isArray(items) || !items.length) return res.status(400).json({ error: 'El presupuesto debe incluir al menos un concepto' });
+  for (const it of items) {
+    if (!it.codigo?.trim() || !it.concepto?.trim()) return res.status(400).json({ error: 'Cada concepto necesita código y descripción' });
+    if (!(Number(it.cantidad) >= 0) || !(Number(it.precio_unitario) >= 0)) {
+      return res.status(400).json({ error: `Cantidad/precio inválidos para el concepto "${it.concepto}"` });
+    }
+  }
+  const { rows: clienteRows } = await db.pool.query('SELECT id FROM clientes WHERE id = $1', [clienteId]);
+  if (!clienteRows[0]) return res.status(400).json({ error: 'El cliente indicado no existe' });
+
+  const parsed = {
+    meta: {},
+    conceptos: items.map((it, idx) => {
+      const cantidad = Number(it.cantidad);
+      const precio = Number(it.precio_unitario);
+      return {
+        codigo: it.codigo.trim(), concepto: it.concepto.trim(), unidad: it.unidad || null,
+        cantidad, precio_unitario: precio, importe: cantidad * precio,
+        grupo: it.categoria || null, es_total: 0, orden: idx + 1,
+      };
+    }),
+    insumos: items.map((it, idx) => {
+      const cantidad = Number(it.cantidad);
+      const precio = Number(it.precio_unitario);
+      return {
+        codigo: it.codigo.trim(), concepto: it.concepto.trim(), categoria: it.categoria || null, unidad: it.unidad || null,
+        cantidad_presupuesto: cantidad, precio_presupuesto: precio, importe_presupuesto: cantidad * precio,
+        orden: idx + 1,
+      };
+    }),
+  };
+  const totalSinIva = parsed.conceptos.reduce((s, c) => s + c.importe, 0);
+  parsed.meta.total_sin_iva = totalSinIva;
+
+  // record se crea fuera de la transacción (mismo patrón que POST /api/projects,
+  // server/app.js) — createProjectRecord usa pool.query, no el client de la
+  // transacción, así que da igual anidarlo o no: se commitea de inmediato de
+  // cualquier forma. Se deja fuera para que quede explícito.
+  const record = await db.createProjectRecord(nombre.trim(), null, clienteId);
+  await db.withTransaction(async (client) => {
+    await ingest(client, record.id, parsed);
+    const ip = auth.getIp(req);
+    await client.query(
+      `INSERT INTO audit_log (actor_id, actor_usuario, accion, target_id, project_id, ip, detalle)
+       VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+      [req.user.id, req.user.usuario, 'crear_presupuesto_desde_costos', record.id, record.id, ip,
+        JSON.stringify({ cliente_id: clienteId, num_conceptos: items.length, total_sin_iva: totalSinIva })]
+    );
+  });
+
+  res.status(201).json({ id: record.id, nombre: record.nombre, num_conceptos: items.length, total_sin_iva: totalSinIva });
+}));
+
+// ---------------------------------------------------------------------------
 // Bienvenida — resumen ligero por proyecto para la pantalla de bienvenida
 // ---------------------------------------------------------------------------
 app.get('/api/bienvenida', h(auth.allow('residente', 'cabo', 'compras', 'tesoreria', 'administracion', 'logistica')), h(async (req, res) => {

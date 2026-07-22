@@ -14,8 +14,8 @@ const PUESTO_LABELS = {
 // Mirror de PERMISSIONS en server/auth.js — para calcular allowedTabs en vista simulada.
 // Actualizar aquí si se agregan roles o pestañas en auth.js.
 const ROLE_TABS = {
-  admin:          ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'finanzas', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', 'maquinaria', 'cotizador'],
-  desarrollador:  ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'finanzas', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', 'maquinaria', 'cotizador'],
+  admin:          ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'finanzas', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', 'maquinaria', 'cotizador', 'costos'],
+  desarrollador:  ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'finanzas', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', 'maquinaria', 'cotizador', 'costos'],
   residente:      ['programa', 'avance', 'destajo', 'requisiciones', 'insumos', 'ordenes', 'nominas', 'trabajadores', 'estimaciones'],
   cabo:           ['destajo', 'insumos', 'avance', 'requisiciones', 'maquinaria'],
   compras:        ['programa', 'requisiciones', 'insumos', 'ordenes', 'proveedores', 'cotizador'],
@@ -1012,7 +1012,7 @@ const SECTION_DEFS = {
   obra:          { label: 'Obra',           icon: 'obra',           emoji: '🏗️',  tabs: ['programa', 'avance', 'destajo', 'estimaciones'],     proximamente: [] },
   compras:       { label: 'Compras',        icon: 'compras',        emoji: '🛒',   tabs: ['requisiciones', 'insumos', 'proveedores', 'ordenes', 'cotizador'], proximamente: ['Subcontratos'] },
   tesoreria:     { label: 'Tesorería',      icon: 'tesoreria',      emoji: '💰',   tabs: ['finanzas', 'estadoResultados', 'estadoResultadosGlobal', 'impuestos'], proximamente: [] },
-  administracion:{ label: 'Administración', icon: 'administracion', emoji: '📂',  tabs: ['mapeo', 'contrato', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'usuarios'], proximamente: ['Almacenes'] },
+  administracion:{ label: 'Administración', icon: 'administracion', emoji: '📂',  tabs: ['mapeo', 'contrato', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'costos', 'usuarios'], proximamente: ['Almacenes'] },
   maquinaria:    { label: 'Maquinaria',     icon: 'maquinaria',     emoji: '🚜',   tabs: ['maquinaria'],                                        proximamente: [] },
 };
 
@@ -1021,7 +1021,7 @@ const TAB_ICONS = {
   proveedores: '🏭', ordenes: '🛒', programa: '🗓️', avance: '📈', destajo: '👷',
   finanzas: '💰', mapeo: '🔗', usuarios: '👤', trabajadores: '👷', nominas: '💵', estimaciones: '🧮',
   maquinaria: '🚜', nominas_global: '💵', trabajadores_global: '👷', cotizador: '🔍',
-  estadoResultados: '📈', estadoResultadosGlobal: '📈',
+  estadoResultados: '📈', estadoResultadosGlobal: '📈', costos: '💲',
 };
 const TAB_LABELS = {
   resumen: 'Resumen', contrato: 'Contrato', impuestos: 'Impuestos', insumos: 'Insumos', requisiciones: 'Requisiciones',
@@ -1029,6 +1029,7 @@ const TAB_LABELS = {
   finanzas: 'Finanzas', mapeo: 'Mapeo', usuarios: 'Usuarios', trabajadores: 'Trabajadores', nominas: 'Nóminas', estimaciones: 'Estimaciones',
   maquinaria: 'Maquinaria', nominas_global: 'Nómina (todas las obras)', trabajadores_global: 'Trabajadores (todas las obras)',
   cotizador: 'Cotizador', estadoResultados: 'Estado de Resultados', estadoResultadosGlobal: 'Estado de Resultados (todas las obras)',
+  costos: 'Costos',
 };
 
 const VIEW_TO_SECTION = {};
@@ -2179,6 +2180,15 @@ const AYUDA_CONTENIDO = {
       'El pago de destajo se calcula con la cantidad ejecutada × el precio de destajo — nunca con el precio del presupuesto general.',
     ],
   },
+  costos: {
+    titulo: 'Costos',
+    pasos: [
+      '"Por cliente" arma un catálogo con el precio más reciente de cada insumo (por código) entre todas las obras de ese cliente — si el precio de un insumo cambió entre obras, se usa el de la obra más nueva.',
+      'Un insumo sin código no se puede emparejar de forma confiable entre obras, así que queda fuera del catálogo — es una limitación conocida, no un error.',
+      '"Generar presupuesto (global)" cruza todas las obras de todos los clientes con el mismo criterio de precio más reciente, y sirve como base para exportar a Excel o para armar un presupuesto nuevo.',
+      'Al generar un presupuesto nuevo desde el catálogo, puedes editar cantidad y precio de cada concepto (o quitarlo) antes de confirmar — nada se crea en la app hasta que confirmes.',
+    ],
+  },
 };
 
 // Botón "?" reutilizable — colócalo junto al título/acción de cualquier
@@ -3172,7 +3182,7 @@ function destroyCharts() {
 async function renderView() {
   destroyCharts();
   const view = $('#view');
-  if (state.view === 'usuarios' || state.view === 'proveedores' || state.view === 'maquinaria' || state.view === 'nominas_global' || state.view === 'trabajadores_global' || state.view === 'cotizador' || state.view === 'estadoResultadosGlobal') {
+  if (state.view === 'usuarios' || state.view === 'proveedores' || state.view === 'maquinaria' || state.view === 'nominas_global' || state.view === 'trabajadores_global' || state.view === 'cotizador' || state.view === 'estadoResultadosGlobal' || state.view === 'costos') {
     try {
       if (state.view === 'usuarios') { await renderUsuarios(view, state.usuariosSubView); state.usuariosSubView = null; }
       else if (state.view === 'proveedores') await renderProveedores(view);
@@ -3180,6 +3190,7 @@ async function renderView() {
       else if (state.view === 'trabajadores_global') await renderTrabajadoresGlobal(view);
       else if (state.view === 'cotizador') await renderCotizador(view);
       else if (state.view === 'estadoResultadosGlobal') await renderEstadoResultadosGlobal(view);
+      else if (state.view === 'costos') await renderCostos(view);
       else await renderMaquinaria(view);
     } catch (err) { view.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`; }
     syncFab();
@@ -6684,6 +6695,7 @@ const PERMISOS_SECCION_LABELS = {
   maquinaria: 'Maquinaria (equipos)', maquinaria_captura: 'Maquinaria (captura de horas)',
   maquinaria_combustible: 'Maquinaria (combustible/mantenimiento)', trabajadores: 'Trabajadores',
   trabajadores_global: 'Trabajadores (Todas las Obras)', nominas_global: 'Nóminas (Todas las Obras)',
+  costos: 'Costos (catálogo de precios)',
 };
 // Secciones que NUNCA son por-obra — no existe (ni tiene sentido) una versión
 // "para la obra X" de una vista que ya de por sí es cross-obra/cross-cliente.
@@ -6691,7 +6703,7 @@ const PERMISOS_SECCION_LABELS = {
 // esté seleccionada en el dropdown de la matriz (ver permisosParaProyecto y
 // el handler de #btnGuardarPermisos más abajo). Mismo criterio que
 // server/auth.js SECCIONES_PERMISOS.
-const SECCIONES_SIEMPRE_GLOBAL = ['trabajadores_global', 'nominas_global'];
+const SECCIONES_SIEMPRE_GLOBAL = ['trabajadores_global', 'nominas_global', 'costos'];
 const PERMISOS_SECCIONES = Object.keys(PERMISOS_SECCION_LABELS);
 const PERMISOS_ACCIONES = [
   { key: 'puede_ver', label: 'Ver' },
@@ -6771,6 +6783,15 @@ const SECCIONES_CON_ENFORCEMENT = ['nominas', 'avance', 'maquinaria', 'maquinari
 // (fuera del alcance de checkPermiso) y no existe borrado individual.
 // Agregar la sección completa mostraría 3 de las 4 casillas como "reales"
 // sin serlo.
+// 'costos' NO se agrega aquí tampoco (prompt-modulo-costos.md): 'puede_ver'
+// (catálogo por cliente/global) y 'puede_crear' (crear presupuesto desde el
+// catálogo) SÍ tienen enforcement real y alcanzable — sin auth.allow(),
+// checkPermiso es el único gate, igual que trabajadores_global/nominas_global.
+// 'puede_editar'/'puede_editar_precios'/'puede_eliminar' no corresponden a
+// ningún endpoint: el catálogo se arma solo-lectura desde insumos ya
+// cargados, no hay nada que editar ni eliminar en 'costos' en sí (mismo
+// motivo que Finanzas — "100% lectura", aquí "lectura + creación"). Agregar
+// la sección completa mostraría 3 de las 5 casillas como "reales" sin serlo.
 // Agrupa las secciones de permisos igual que SECTION_DEFS agrupa las pestañas
 // en la pantalla de inicio (Obra / Compras / Tesorería / Administración) —
 // mismo criterio de negocio, para que la matriz se lea en el mismo orden que
@@ -6779,7 +6800,7 @@ const PERMISOS_GRUPOS = [
   { label: 'Obra',           secciones: ['presupuestos', 'programa', 'avance', 'destajo', 'estimaciones'] },
   { label: 'Compras',        secciones: ['requisiciones', 'insumos', 'proveedores', 'ordenes_compra'] },
   { label: 'Tesorería',      secciones: ['finanzas', 'estado_resultados', 'impuestos'] },
-  { label: 'Administración', secciones: ['mapeo', 'contrato', 'nominas', 'usuarios', 'trabajadores', 'trabajadores_global', 'nominas_global'] },
+  { label: 'Administración', secciones: ['mapeo', 'contrato', 'nominas', 'usuarios', 'trabajadores', 'trabajadores_global', 'nominas_global', 'costos'] },
   { label: 'Maquinaria',     secciones: ['maquinaria', 'maquinaria_captura', 'maquinaria_combustible'] },
   { label: 'General',        secciones: ['sugerencias'] },
 ];
@@ -8802,6 +8823,228 @@ async function renderTrabajadoresGlobal(view) {
     await repaint();
   });
   await repaint();
+}
+
+// Costos (prompt-modulo-costos.md) — catálogo de precios agregado desde
+// insumos con código de todas las obras, por cliente o global, más "generar
+// presupuesto" con revisión/edición antes de crear el proyecto nuevo.
+// Mismo criterio de acceso que Maquinaria/Trabajadores(todas las obras): sin
+// auth.allow() en el backend, checkPermiso('costos', ...) es el único gate,
+// sin default para roles no-admin (ver server/auth.js SECCIONES_PERMISOS).
+function costosFilaHtml(r) {
+  return `
+    <tr>
+      <td>${esc(r.codigo)}</td>
+      <td>${esc(r.concepto)}</td>
+      <td>${esc(r.categoria || '—')}</td>
+      <td>${esc(r.unidad || '—')}</td>
+      <td class="num">${fmtMoney(r.precio_presupuesto)}</td>
+      <td class="muted fs-08">${esc(r.obra_origen)}${r.cliente_nombre ? ` · ${esc(r.cliente_nombre)}` : ''}</td>
+      <td class="muted fs-08">${fmtDate(r.fecha_origen)}</td>
+    </tr>
+  `;
+}
+function costosTablaHtml(catalogo) {
+  if (!catalogo.length) {
+    return `<div class="empty-state">Sin insumos con código para agregar todavía — un insumo sin código no se puede emparejar de forma confiable entre obras, así que queda fuera del catálogo.</div>`;
+  }
+  return `
+    <div class="table-scroll">
+      <table>
+        <thead><tr>
+          <th>Código</th><th>Concepto</th><th>Categoría</th><th>Unidad</th>
+          <th class="num">Precio (más reciente)</th><th>Obra de origen</th><th>Fecha</th>
+        </tr></thead>
+        <tbody>${catalogo.map(costosFilaHtml).join('')}</tbody>
+      </table>
+    </div>
+  `;
+}
+
+async function renderCostos(view) {
+  let subView = 'porCliente'; // 'porCliente' | 'global'
+  let clienteSeleccionado = null;
+  let catalogoGlobalCache = null;
+
+  function renderSubNav() {
+    return `
+      <div class="nominas-subnav">
+        <button class="btn ${subView === 'porCliente' ? 'btn-primary' : ''}" id="btnCostosSubCliente">Por cliente</button>
+        <button class="btn ${subView === 'global' ? 'btn-primary' : ''}" id="btnCostosSubGlobal">Generar presupuesto (global)</button>
+      </div>
+    `;
+  }
+  function bindSubNav() {
+    $('#btnCostosSubCliente').addEventListener('click', showPorCliente);
+    $('#btnCostosSubGlobal').addEventListener('click', showGlobal);
+  }
+
+  async function showPorCliente() {
+    subView = 'porCliente';
+    view.innerHTML = `
+      <h2 class="section-title">Costos ${renderHelpBtn('costos')}</h2>
+      <p class="muted">Catálogo de precios armado a partir del precio más reciente de cada insumo (por código) entre todas las obras del cliente.</p>
+      ${renderSubNav()}
+      <div class="card mt-12">
+        <label>Cliente</label>
+        <select id="costosClienteSelect">
+          <option value="">Selecciona un cliente…</option>
+          ${state.clientes.map((c) => `<option value="${c.id}" ${c.id === clienteSeleccionado ? 'selected' : ''}>${esc(c.nombre)}</option>`).join('')}
+        </select>
+      </div>
+      <div class="section-actions hidden-initial" id="costosClienteActions">
+        <button class="btn" id="btnCostosClienteExport">⭳ Exportar a Excel</button>
+      </div>
+      <div id="costosClienteResult" class="mt-12"></div>
+    `;
+    bindSubNav();
+    const select = $('#costosClienteSelect');
+    const result = $('#costosClienteResult');
+    const actions = $('#costosClienteActions');
+    async function cargar(id) {
+      if (!id) { result.innerHTML = ''; actions.style.display = 'none'; return; }
+      result.innerHTML = '<div class="spinner"></div>';
+      try {
+        const data = await api(`/costos/catalogo/${id}`);
+        result.innerHTML = `<p class="muted fs-08">${data.catalogo.length} insumo${data.catalogo.length === 1 ? '' : 's'} con código.</p>${costosTablaHtml(data.catalogo)}`;
+        actions.style.display = data.catalogo.length ? 'flex' : 'none';
+      } catch (err) {
+        result.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+      }
+    }
+    select.addEventListener('change', (e) => {
+      clienteSeleccionado = e.target.value ? Number(e.target.value) : null;
+      cargar(clienteSeleccionado);
+    });
+    $('#btnCostosClienteExport').addEventListener('click', async () => {
+      if (!clienteSeleccionado) return;
+      try { await downloadExport(`/costos/catalogo/${clienteSeleccionado}/export`); }
+      catch (err) { toast(err.message, 'danger'); }
+    });
+    if (clienteSeleccionado) cargar(clienteSeleccionado);
+  }
+
+  async function showGlobal() {
+    subView = 'global';
+    view.innerHTML = `
+      <h2 class="section-title">Costos ${renderHelpBtn('costos')}</h2>
+      <p class="muted">Catálogo de precios más recientes cruzando todas las obras de todos los clientes — úsalo para exportar una base de precios o para armar un presupuesto nuevo desde cero.</p>
+      ${renderSubNav()}
+      <div class="section-actions mt-12">
+        <button class="btn" id="btnCostosGlobalExport">⭳ Exportar a Excel</button>
+        <button class="btn btn-primary" id="btnCostosGenerarPresupuesto">+ Generar presupuesto con este catálogo</button>
+      </div>
+      <div id="costosGlobalResult" class="mt-12"><div class="spinner"></div></div>
+    `;
+    bindSubNav();
+    $('#btnCostosGlobalExport').addEventListener('click', async () => {
+      try { await downloadExport('/costos/catalogo-global/export'); }
+      catch (err) { toast(err.message, 'danger'); }
+    });
+    try {
+      const data = await api('/costos/catalogo-global');
+      catalogoGlobalCache = data.catalogo;
+      $('#costosGlobalResult').innerHTML = `<p class="muted fs-08">${data.catalogo.length} insumo${data.catalogo.length === 1 ? '' : 's'} con código, de todos los clientes.</p>${costosTablaHtml(data.catalogo)}`;
+    } catch (err) {
+      $('#costosGlobalResult').innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+    }
+    $('#btnCostosGenerarPresupuesto').addEventListener('click', () => {
+      if (!catalogoGlobalCache?.length) { toast('No hay insumos con código para armar un presupuesto todavía', ''); return; }
+      openCrearPresupuestoModal(catalogoGlobalCache);
+    });
+  }
+
+  if (subView === 'porCliente') await showPorCliente();
+}
+
+// Modal de revisión/edición antes de crear un presupuesto nuevo desde el
+// catálogo agregado — nunca se crea nada sin que el usuario confirme aquí
+// primero (prompt-modulo-costos.md, regla dura: no crear sin revisión).
+function openCrearPresupuestoModal(catalogoOriginal) {
+  let items = catalogoOriginal.map((r) => ({
+    codigo: r.codigo, concepto: r.concepto, categoria: r.categoria, unidad: r.unidad,
+    cantidad: r.cantidad_presupuesto || 1, precio_unitario: r.precio_presupuesto,
+  }));
+
+  function renderRows() {
+    return items.map((it, idx) => `
+      <tr data-idx="${idx}">
+        <td>${esc(it.codigo)}</td>
+        <td>${esc(it.concepto)}</td>
+        <td class="num"><input type="number" class="cp-cantidad" data-idx="${idx}" value="${it.cantidad}" min="0" step="any" /></td>
+        <td class="num"><input type="number" class="cp-precio" data-idx="${idx}" value="${it.precio_unitario}" min="0" step="any" /></td>
+        <td><button class="icon-btn-inline" data-quitar="${idx}" title="Quitar" aria-label="Quitar">✕</button></td>
+      </tr>
+    `).join('');
+  }
+
+  function repintarTbody() {
+    const tbody = $('#cpTbody');
+    if (tbody) tbody.innerHTML = renderRows();
+    const contador = $('#cpContador');
+    if (contador) contador.textContent = `${items.length} concepto${items.length === 1 ? '' : 's'}`;
+  }
+
+  openModal(`
+    <div class="modal-header-row">
+      <h3 class="modal-title">Crear presupuesto desde catálogo</h3>
+      <button class="icon-btn modal-close-btn" id="btnCloseCrearPresupuesto" aria-label="Cerrar">✕</button>
+    </div>
+    <div class="field"><label>Nombre de la obra</label><input type="text" id="cpNombre" placeholder="Ej. Residencial Fase 2" /></div>
+    <div class="field"><label>Cliente</label>
+      <select id="cpCliente">
+        <option value="">Selecciona un cliente…</option>
+        ${state.clientes.map((c) => `<option value="${c.id}">${esc(c.nombre)}</option>`).join('')}
+      </select>
+    </div>
+    <p class="muted fs-08 mt-8">Revisa/edita cantidad y precio antes de confirmar — nada se crea todavía. Quita las filas que no quieras incluir. <span id="cpContador">${items.length} concepto${items.length === 1 ? '' : 's'}</span></p>
+    <div class="table-scroll costos-review-scroll">
+      <table>
+        <thead><tr><th>Código</th><th>Concepto</th><th class="num">Cantidad</th><th class="num">Precio</th><th></th></tr></thead>
+        <tbody id="cpTbody">${renderRows()}</tbody>
+      </table>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" id="btnCancelCrearPresupuesto">Cancelar</button>
+      <button class="btn btn-primary" id="btnConfirmCrearPresupuesto">Crear presupuesto</button>
+    </div>
+  `);
+  $('#modal').classList.add('modal-wide');
+
+  $('#cpTbody').addEventListener('input', (e) => {
+    const idx = Number(e.target.dataset.idx);
+    if (Number.isNaN(idx)) return;
+    if (e.target.classList.contains('cp-cantidad')) items[idx].cantidad = Number(e.target.value) || 0;
+    else if (e.target.classList.contains('cp-precio')) items[idx].precio_unitario = Number(e.target.value) || 0;
+  });
+  $('#cpTbody').addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-quitar]');
+    if (!btn) return;
+    items.splice(Number(btn.dataset.quitar), 1);
+    repintarTbody();
+  });
+  $('#btnCloseCrearPresupuesto').addEventListener('click', closeModal);
+  $('#btnCancelCrearPresupuesto').addEventListener('click', closeModal);
+  $('#btnConfirmCrearPresupuesto').addEventListener('click', async () => {
+    const nombre = $('#cpNombre').value.trim();
+    const clienteId = $('#cpCliente').value ? Number($('#cpCliente').value) : null;
+    if (!nombre) { toast('Indica el nombre de la obra', ''); return; }
+    if (!clienteId) { toast('Selecciona un cliente', ''); return; }
+    if (!items.length) { toast('Agrega al menos un concepto', ''); return; }
+    const btn = $('#btnConfirmCrearPresupuesto');
+    btn.disabled = true; btn.textContent = 'Creando…';
+    try {
+      const resultado = await api('/costos/crear-presupuesto', {
+        method: 'POST',
+        body: { nombre, cliente_id: clienteId, items },
+      });
+      closeModal();
+      toast(`Presupuesto "${resultado.nombre}" creado con ${resultado.num_conceptos} conceptos`, 'success');
+    } catch (err) {
+      toast(err.message, 'danger');
+      btn.disabled = false; btn.textContent = 'Crear presupuesto';
+    }
+  });
 }
 
 async function renderTrabajadores(view) {

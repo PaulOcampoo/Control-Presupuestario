@@ -10278,12 +10278,27 @@ async function renderNominas(view) {
       const hoy = new Date();
       const esMesActual = asist.year === hoy.getFullYear() && asist.month === hoy.getMonth();
       const diaHoy = esMesActual ? hoy.getDate() : null;
+      // Marcado masivo (prompt-marcado-masivo-asistencia.md) — SIEMPRE aplica
+      // a la fecha real de hoy, nunca al mes que se esté navegando; por eso
+      // el label del botón siempre muestra "Hoy <fecha>" en vez de depender
+      // de qué mes esté visible. Se calcula en America/Mexico_City (no la
+      // zona horaria local del navegador) para que el label coincida
+      // exactamente con la fecha que aplicará el backend (mismo criterio
+      // que marcadoMasivoAsistencia en server/app.js) — un dispositivo con
+      // reloj/zona mal configurada no debe ver una fecha distinta a la real.
+      const hoyMx = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Mexico_City' }).format(new Date());
+      const hoyLabelCorto = new Date(`${hoyMx}T00:00:00`).toLocaleDateString('es-MX', { day: '2-digit', month: 'short' });
       panel.innerHTML = `
         <div class="asist-mes-nav">
           <button class="icon-btn" id="btnAsistMesPrev" aria-label="Mes anterior">‹</button>
           <strong>${mesLabel()}</strong>
           <button class="icon-btn" id="btnAsistMesNext" aria-label="Mes siguiente">›</button>
         </div>
+        ${canEdit ? `
+        <div class="section-actions">
+          <button class="btn btn-primary btn-icon-inline" id="btnAsistMarcarTodos">${icon('check', 15)} Marcar todos — Hoy ${hoyLabelCorto}</button>
+          <button class="btn" id="btnAsistDesmarcarTodos">Desmarcar todos — Hoy ${hoyLabelCorto}</button>
+        </div>` : ''}
         <div class="asist-grid-wrap">
           <div class="asist-fixed-col">
             <div class="asist-fixed-th">Trabajador</div>
@@ -10326,6 +10341,8 @@ async function renderNominas(view) {
       });
       if (canEdit) {
         $$('.asist-cell', panel).forEach((cell) => cell.addEventListener('click', () => toggleCelda(cell, Number(cell.dataset.tid), cell.dataset.fecha, null)));
+        $('#btnAsistMarcarTodos').addEventListener('click', () => confirmarMarcadoMasivo('marcar-todos', `¿Marcar a todos como presente hoy (${hoyLabelCorto})? Esto sobreescribirá cualquier marca existente para hoy.`));
+        $('#btnAsistDesmarcarTodos').addEventListener('click', () => confirmarMarcadoMasivo('desmarcar-todos', `¿Quitar la marca de asistencia de todos para hoy (${hoyLabelCorto})? Los regresa a "Sin registro".`));
       }
     }
 
@@ -10352,6 +10369,36 @@ async function renderNominas(view) {
         if (actual) asist.mapa[key] = actual; else delete asist.mapa[key];
         toast(err.message, 'danger');
       }
+    }
+
+    // Marcado masivo — confirmación ligera antes de sobreescribir sin
+    // distinción (prompt-marcado-masivo-asistencia.md). El endpoint ignora
+    // cualquier fecha (siempre usa la de hoy en el servidor); tras guardar,
+    // se refresca el mes completo para reflejar el estado real, no un
+    // parche optimista (acción poco frecuente, prioriza exactitud).
+    function confirmarMarcadoMasivo(accion, mensaje) {
+      openModal(`
+        <h3>${accion === 'marcar-todos' ? 'Marcar todos como presente' : 'Desmarcar todos'}</h3>
+        <p class="muted">${esc(mensaje)}</p>
+        <div class="modal-actions">
+          <button class="btn" id="btnCancelMarcadoMasivo">Cancelar</button>
+          <button class="btn btn-primary" id="btnConfirmMarcadoMasivo">Confirmar</button>
+        </div>
+      `);
+      $('#btnCancelMarcadoMasivo').addEventListener('click', closeModal);
+      $('#btnConfirmMarcadoMasivo').addEventListener('click', async () => {
+        const btn = $('#btnConfirmMarcadoMasivo');
+        btn.disabled = true; btn.textContent = 'Guardando…';
+        try {
+          const result = await api(`/projects/${state.projectId}/asistencia/${accion}`, { method: 'POST' });
+          closeModal();
+          await refrescar();
+          toast(`${result.afectados} trabajador${result.afectados === 1 ? '' : 'es'} actualizado${result.afectados === 1 ? '' : 's'}`, 'success');
+        } catch (err) {
+          toast(err.message, 'danger');
+          btn.disabled = false; btn.textContent = 'Confirmar';
+        }
+      });
     }
 
     function renderDetalle(panel) {

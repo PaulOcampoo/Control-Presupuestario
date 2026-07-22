@@ -5403,6 +5403,56 @@ app.put('/api/projects/:id/asistencia', h(auth.allow('residente')), h(requirePro
   res.json({ ok: true, fecha, guardados: asistencia.length });
 }));
 
+// Marcado masivo de asistencia (prompt-marcado-masivo-asistencia.md) —
+// "Marcar todos" / "Desmarcar todos" del calendario de asistencia diaria.
+// Deliberadamente SIN parámetro de fecha en el body: la fecha SIEMPRE es la
+// de hoy calculada en el servidor, para que sea imposible que el cliente
+// aplique el marcado masivo a otro día (aunque lo intente). Se calcula en
+// zona horaria America/Mexico_City (no new Date().toISOString(), que es UTC
+// crudo) para que coincida con el "hoy" del navegador del usuario (frontend
+// usa hora local vía toLocaleDateString) — encontrado durante verificación:
+// cerca de medianoche, UTC ya es un día distinto al de México (UTC-6),
+// desincronizando el label del botón del día real que aplicaría el backend.
+// Reutiliza el mismo criterio de "trabajadores activos" que /asistencia-rango
+// (activo = true) y el mismo bloqueo por nómina aprobada que el PUT de
+// arriba, por consistencia — no se duplica la lógica de ESTADOS_ASIST/UPSERT
+// del PUT existente porque ese endpoint no se toca (Forbidden Actions).
+async function marcadoMasivoAsistencia(req, res, estado) {
+  const hoy = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Mexico_City' }).format(new Date());
+  const { rows: bloqRows } = await db.pool.query(
+    `SELECT id FROM nominas WHERE project_id=$1 AND estado='aprobada' AND fecha_inicio<=$2 AND fecha_fin>=$2`,
+    [req.project.id, hoy]
+  );
+  if (bloqRows.length) return res.status(409).json({ error: 'Esta fecha está cubierta por una nómina aprobada y no puede modificarse' });
+
+  const { rows: trabajadores } = await db.pool.query(
+    'SELECT id FROM trabajadores WHERE project_id = $1 AND activo = true',
+    [req.project.id]
+  );
+  const presente = estado === 'presente';
+  await db.withTransaction(async (client) => {
+    for (const t of trabajadores) {
+      await client.query(`
+        INSERT INTO asistencia_diaria (project_id, trabajador_id, fecha, presente, estado, capturado_por, actualizado_en)
+        VALUES ($1,$2,$3,$4,$5,$6,NOW())
+        ON CONFLICT (project_id, trabajador_id, fecha)
+        DO UPDATE SET presente=EXCLUDED.presente, estado=EXCLUDED.estado,
+                      capturado_por=EXCLUDED.capturado_por, actualizado_en=NOW()`,
+        [req.project.id, t.id, hoy, presente, estado, req.user.id]
+      );
+    }
+  });
+  res.json({ ok: true, fecha: hoy, estado, afectados: trabajadores.length });
+}
+
+app.post('/api/projects/:id/asistencia/marcar-todos', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  await marcadoMasivoAsistencia(req, res, 'presente');
+}));
+
+app.post('/api/projects/:id/asistencia/desmarcar-todos', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  await marcadoMasivoAsistencia(req, res, 'sin_registro');
+}));
+
 // ===========================================================================
 // NÓMINAS
 // ===========================================================================

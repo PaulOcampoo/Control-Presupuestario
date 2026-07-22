@@ -2230,6 +2230,17 @@ body.modal-open { overflow: hidden; }
 .finanzas-filtros-row { gap: 8px; margin-bottom: 10px; }
 .finanzas-filtro-select { flex: 1; }
 
+/* Bitácora de taller (prompt-ajuste-filtros-bitacora-taller.md) — mismo
+   patrón que .finanzas-filtros-row/.finanzas-filtro-select arriba: input/
+   select/textarea tienen width:100% por default (regla genérica más arriba
+   en este archivo), lo que dentro de un .row con flex-wrap fuerza a cada
+   control a su propia línea. flex:1 con min-width acota ese width:100% al
+   espacio disponible en la fila y permite que los 4 controles compartan
+   una sola línea en desktop/tablet, haciendo wrap a 2x2 en mobile cuando
+   ya no caben (el flex-wrap de .row ya resuelve eso solo). */
+.bitacora-filtros-row { gap: 8px; margin-bottom: 10px; }
+.bitacora-filtro-control { flex: 1; min-width: 140px; }
+
 /* ── Barrido estáticas 5/6 — Ajustes + Dev panel ─────────────────────────── */
 /* openMobileAjustes */
 .ajustes-user-info { margin-bottom: 14px; line-height: 1.4; }

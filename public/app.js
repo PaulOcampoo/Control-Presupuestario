@@ -8040,18 +8040,18 @@ function paintBitacoraTaller(registros, equipos, { puedeVerBitacora }) {
   el.innerHTML = `
     <h3 class="section-title mt-16">Bitácora de taller</h3>
     <p class="muted fs-08">Mantenimientos (con refacciones), consumibles y herramientas — filtra por equipo, tipo o fecha.</p>
-    <div class="row mt-8">
-      <select id="bitEquipoFiltro">
+    <div class="row bitacora-filtros-row mt-8">
+      <select id="bitEquipoFiltro" class="bitacora-filtro-control">
         <option value="">Todos los equipos</option>
         <option value="__general__">Taller general (sin equipo)</option>
         ${equipos.map((e) => `<option value="${e.id}">${esc(e.nombre)}</option>`).join('')}
       </select>
-      <select id="bitTipoFiltro">
+      <select id="bitTipoFiltro" class="bitacora-filtro-control">
         <option value="">Todos los tipos</option>
         ${Object.entries(TIPOS_MANTENIMIENTO_LABELS).map(([v, l]) => `<option value="${v}">${l}</option>`).join('')}
       </select>
-      <input id="bitDesdeFiltro" type="date" title="Desde" />
-      <input id="bitHastaFiltro" type="date" title="Hasta" />
+      <input id="bitDesdeFiltro" type="date" title="Desde" class="bitacora-filtro-control" />
+      <input id="bitHastaFiltro" type="date" title="Hasta" class="bitacora-filtro-control" />
     </div>
     <div class="table-scroll mt-8">
       <table>

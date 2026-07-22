@@ -1147,7 +1147,7 @@ app.put('/api/proveedores/:id/estado', h(auth.allow('compras')), h(auth.checkPer
 // obra, igual que Proveedores). Código nuevo: usa checkPermiso desde el
 // inicio, sin auth.allow() legacy — el rol por sí solo no decide nada aquí,
 // solo la fila real en permisos_usuario (ver defaults en server/auth.js
-// defaultPermisosParaRol: taller/admin/desarrollador ya vienen con
+// defaultPermisosParaRol: jefe_maquinaria/admin/desarrollador ya vienen con
 // puede_crear+puede_editar, cabo con puede_crear, para no bloquearse el
 // mismo día que se activa el enforcement).
 // DISEÑO DE PRIMER BORRADOR, pendiente de revisión (ver server/maquinaria.js).

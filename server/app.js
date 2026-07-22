@@ -394,18 +394,21 @@ app.get('/api/cron/recordatorio-impuestos', requireCronSecret, h(async (req, res
     periodosCreados++;
 
     const mensaje = `Pendiente cargar pagos de IMSS/SAT/INFONAVIT de ${mes}/${anio} para ${p.nombre}`;
-    const admins = await notificarAdmins(p.id, 'recordatorio_impuestos', insertados[0].id, mensaje);
-    notificacionesEnviadas += admins.length;
-
-    // Obra huérfana (sin residentes en usuario_proyectos): se queda solo con
-    // la notificación a admins de arriba, no es un error.
-    const { rows: residentes } = await db.pool.query(`
-      SELECT u.id FROM usuarios u
-      JOIN usuario_proyectos up ON up.usuario_id = u.id
-      WHERE up.project_id = $1 AND u.puesto = 'residente' AND u.activo = true
-    `, [p.id]);
-    for (const r of residentes) {
-      await crearNotificacion(r.id, p.id, 'recordatorio_impuestos', insertados[0].id, mensaje);
+    // prompt-b-notificaciones-imss-solo-admin.md: este recordatorio debe
+    // llegar SOLO a admin/desarrollador, nunca a residente (bug confirmado
+    // con notificaciones reales en producción: 3 de 17 habían llegado a
+    // residente vía un loop explícito que consultaba usuario_proyectos —
+    // eliminado). No se usa notificarAdmins() aquí porque esa función es
+    // compartida con otros crons/flujos (requisición, OC, avance, destajo,
+    // estimación, vencimiento de contrato) y solo filtra 'admin' — tocarla
+    // habría afectado esos otros flujos y seguiría sin incluir
+    // desarrollador. Consulta acotada a este endpoint, reutilizando
+    // crearNotificacion (mismo patrón ya usado en Maquinaria, PR #53).
+    const { rows: destinatarios } = await db.pool.query(
+      "SELECT id FROM usuarios WHERE puesto IN ('admin', 'desarrollador') AND activo = true"
+    );
+    for (const d of destinatarios) {
+      await crearNotificacion(d.id, p.id, 'recordatorio_impuestos', insertados[0].id, mensaje);
       notificacionesEnviadas++;
     }
   }

@@ -1233,11 +1233,13 @@ app.get('/api/maquinaria/horas', h(auth.checkPermiso('maquinaria', 'puede_ver'))
 // esta lista, no escribe texto libre).
 const ACTIVIDADES_MAQUINARIA = ['Excavaciones', 'Cepas', 'Rellenos', 'Acarreos', 'Carga de material', 'Limpiezas'];
 
-// Cabo siempre captura sus propias horas (operador_id = quien está autenticado,
+// Operador captura sus propias horas (operador_id = quien está autenticado,
 // se ignora cualquier operador_id enviado); admin/desarrollador sí pueden
-// capturar a nombre de otro operador si lo indican explícitamente. El rol
-// 'operador' nuevo también captura vía este mismo endpoint (mismo permiso
-// 'maquinaria_captura' que ya usa cabo) — sin cambios de flujo para cabo.
+// capturar a nombre de otro operador si lo indican explícitamente. Desde
+// prompt-3-flujo-aprobacion-cabo-operador.md, cabo YA NO tiene puede_crear en
+// 'maquinaria_captura' (retirado en defaultPermisosParaRol + backfill en
+// server/db.js) — solo autoriza/rechaza vía el endpoint de abajo. Todo
+// reporte nuevo entra en 'pendiente' (fijado en maquinaria.createHoras).
 app.post('/api/maquinaria/horas', h(auth.checkPermiso('maquinaria_captura', 'puede_crear')), h(async (req, res) => {
   const { equipo_id, operador_id, fecha, horas, obra_id, actividad } = req.body || {};
   if (!equipo_id || !fecha || !(horas > 0)) {
@@ -1251,7 +1253,35 @@ app.post('/api/maquinaria/horas', h(auth.checkPermiso('maquinaria_captura', 'pue
   const registro = await maquinaria.createHoras({
     equipo_id: Number(equipo_id), operador_id: operadorFinal, fecha, horas: Number(horas), obra_id, actividad,
   });
+  // Avisa a todos los cabo activos (sin scoping por obra — mismo alcance sin
+  // asignación por-obra que el resto del módulo Maquinaria, ver diagnóstico
+  // en prompt-3-flujo-aprobacion-cabo-operador.md). Reutiliza crearNotificacion
+  // (mismo patrón que notificarAdmins en server/notificaciones.js) en vez de
+  // agregar una función nueva ahí — este endpoint ya era el 6to archivo
+  // permitido por el prompt, no hacía falta un 7mo.
+  const { rows: cabosActivos } = await db.pool.query("SELECT id FROM usuarios WHERE puesto = 'cabo' AND activo = true");
+  await Promise.all(cabosActivos.map((c) => crearNotificacion(
+    c.id, obra_id || null, 'maquinaria_horas_pendiente', registro.id,
+    `${req.user.nombre} capturó un reporte de horas (${actividad}) pendiente de autorización`
+  )));
   res.status(201).json(registro);
+}));
+
+// cabo (o admin/desarrollador vía bypass de checkPermiso) autoriza o rechaza
+// un reporte 'pendiente' — mismo criterio de checkPermiso('...', 'puede_editar')
+// que ya usan Nómina/Requisiciones para su transición de estado. La
+// transición atómica pendiente->estado vive en maquinaria.updateEstadoHoras
+// (WHERE estado='pendiente'); si no hay fila afectada (ya revisado, no
+// existe, o inactivo) devolvemos 409, no 404, porque no sabemos cuál de los
+// tres casos aplica sin una segunda consulta.
+app.put('/api/maquinaria/horas/:id/estado', h(auth.checkPermiso('maquinaria_captura', 'puede_editar')), h(async (req, res) => {
+  const { estado } = req.body || {};
+  if (!['autorizado', 'rechazado'].includes(estado)) {
+    return res.status(400).json({ error: "Estado inválido — usa 'autorizado' o 'rechazado'" });
+  }
+  const registro = await maquinaria.updateEstadoHoras(Number(req.params.id), estado, req.user.id);
+  if (!registro) return res.status(409).json({ error: 'El reporte no existe, ya fue revisado, o ya no está activo' });
+  res.json(registro);
 }));
 
 app.delete('/api/maquinaria/horas/:id', h(auth.checkPermiso('maquinaria', 'puede_eliminar')), h(async (req, res) => {

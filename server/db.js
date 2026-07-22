@@ -954,6 +954,28 @@ const SCHEMA = `
     creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW()
   );
   CREATE INDEX IF NOT EXISTS idx_cobros_factura ON cobros(factura_id);
+
+  -- % estándar de referencia para Composición de costos (docs/diseno-desglose-
+  -- presupuesto-categorias) — usado como "base" de comparación contra el %
+  -- real (insumos.categoria) cuando una obra NO tiene contrato/cédula cargado.
+  -- Set único global (no por cliente) — confirmado con Paul, no hay noción
+  -- previa de estándar por cliente en el código. Sembrado con los valores de
+  -- la cédula de Vinte (OE-671-CCLUB.pdf): Materiales+M.O.+Carga Social+
+  -- Herramienta = 90% de Costo Directo, Indirecto = 10% adicional.
+  CREATE TABLE IF NOT EXISTS porcentajes_referencia_costo (
+    id SERIAL PRIMARY KEY,
+    categoria TEXT NOT NULL UNIQUE,
+    porcentaje DOUBLE PRECISION NOT NULL,
+    actualizado_por INTEGER REFERENCES usuarios(id),
+    actualizado_en TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
+  INSERT INTO porcentajes_referencia_costo (categoria, porcentaje) VALUES
+    ('materiales', 55.0000),
+    ('mano_obra', 17.7778),
+    ('carga_social', 6.2222),
+    ('herramienta_equipo', 11.0000),
+    ('indirecto_utilidad', 10.0000)
+  ON CONFLICT (categoria) DO NOTHING;
 `;
 
 // prompt-fix-error-permiso-trabajadores.md → el diagnóstico de ese prompt no

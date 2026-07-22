@@ -1649,6 +1649,194 @@ app.get('/api/avance-por-cliente/completo', h(auth.allow()), h(async (req, res) 
 }));
 
 // ---------------------------------------------------------------------------
+// Composición de costos por categoría (docs/diseno-desglose-presupuesto-
+// categorias, diseño aprobado por Paul commit 795c993) — compara, por cada
+// una de las 5 categorías de la cédula (Materiales/Mano de Obra/Carga
+// Social/Herramienta y Equipo/Indirecto y Utilidad), el % "base" (subtotales
+// del Contrato si la obra los tiene, o si no el % estándar de referencia
+// configurable) contra el % real calculado desde insumos.categoria. Es una
+// comparación ESTÁTICA del presupuesto total — no involucra avance/ejecución.
+// Carga Social e Indirecto NO existen del lado insumos (gap confirmado en el
+// diagnóstico, con evidencia real: 0 filas con esas categorías en ~2500
+// insumos) — su pct_real siempre es null, nunca 0.
+// ---------------------------------------------------------------------------
+const COMPOSICION_CATS = [
+  { key: 'materiales', label: 'Materiales', insumoCat: 'MATERIALES', metaKey: 'subtotal_materiales' },
+  { key: 'mano_obra', label: 'Mano de Obra', insumoCat: 'MANO DE OBRA', metaKey: 'subtotal_mano_obra' },
+  { key: 'carga_social', label: 'Carga Social', insumoCat: null, metaKey: 'subtotal_carga_social' },
+  // insumos.categoria guarda 'EQUIPO Y HERRAMIENTA' (viene del Excel, mismo
+  // string que ya usa server/maquinaria.js#getPresupuestoSugerido) — no se
+  // toca ese valor en BD, solo se unifica la etiqueta de display aquí.
+  { key: 'herramienta_equipo', label: 'Herramienta y Equipo', insumoCat: 'EQUIPO Y HERRAMIENTA', metaKey: 'subtotal_herramienta_equipo' },
+  { key: 'indirecto_utilidad', label: 'Indirecto y Utilidad', insumoCat: null, metaKey: 'indirecto_utilidad' },
+];
+const COMPOSICION_UMBRAL_PP = 5;
+
+// meta: {clave: valor} de una obra. insumosPorCategoria: {'MATERIALES': suma, ...}.
+// referencia: {materiales: pct, mano_obra: pct, ...} de porcentajes_referencia_costo.
+function calcularComposicionObra(meta, insumosPorCategoria, referencia) {
+  const totalReal = Object.values(insumosPorCategoria).reduce((s, v) => s + v, 0);
+  // "Tiene contrato" = tiene los 2 valores que hacen falta para calcular las
+  // 5 bases (costo_directo para las primeras 4, importe_contratado para
+  // Indirecto) — mismo criterio en toda la función, no por categoría suelta.
+  const tieneContrato = meta.subtotal_costo_directo != null && meta.importe_contratado != null;
+  const costoDirecto = tieneContrato ? Number(meta.subtotal_costo_directo) : null;
+  const importeContratado = tieneContrato ? Number(meta.importe_contratado) : null;
+
+  return COMPOSICION_CATS.map((c) => {
+    const sumaReal = c.insumoCat ? insumosPorCategoria[c.insumoCat] : undefined;
+    const pctReal = (sumaReal != null && totalReal > 0)
+      ? Number(((sumaReal / totalReal) * 100).toFixed(1))
+      : null;
+
+    let pctBase = null;
+    const baseFuente = tieneContrato ? 'contrato' : 'referencia_estandar';
+    if (tieneContrato) {
+      const valorMeta = meta[c.metaKey] != null ? Number(meta[c.metaKey]) : null;
+      if (valorMeta != null) {
+        pctBase = c.key === 'indirecto_utilidad'
+          ? (importeContratado > 0 ? Number(((valorMeta / importeContratado) * 100).toFixed(2)) : null)
+          : (costoDirecto > 0 ? Number(((valorMeta / costoDirecto) * 100).toFixed(2)) : null);
+      }
+    } else {
+      pctBase = referencia[c.key] != null ? Number(referencia[c.key]) : null;
+    }
+
+    const diferencia = (pctReal != null && pctBase != null) ? Number((pctReal - pctBase).toFixed(1)) : null;
+    return {
+      categoria: c.key, label: c.label,
+      pct_real: pctReal, pct_base: pctBase, base_fuente: baseFuente,
+      diferencia_pp: diferencia,
+      significativa: diferencia != null && Math.abs(diferencia) > COMPOSICION_UMBRAL_PP,
+    };
+  });
+}
+
+// Pondera por presupuesto — mismo criterio matemático que GET /api/avance-por-
+// cliente/completo (PR #47): peso_obra = presupuesto_obra / Σ presupuesto.
+// Aquí se aplica por separado a cada categoría/serie, usando SOLO las obras
+// que tienen dato (campo != null) para esa categoría específica — un "sin
+// dato" nunca se trata como 0, ni en el numerador ni en el denominador.
+function ponderarSerie(obras, campo) {
+  let sumaPresupuestoConDato = 0;
+  let sumaPonderada = 0;
+  for (const o of obras) {
+    const valor = o[campo];
+    if (valor == null) continue;
+    sumaPresupuestoConDato += o.presupuesto;
+    sumaPonderada += valor * o.presupuesto;
+  }
+  return sumaPresupuestoConDato > 0 ? Number((sumaPonderada / sumaPresupuestoConDato).toFixed(1)) : null;
+}
+
+app.get('/api/porcentajes-referencia', h(auth.allow()), h(async (req, res) => {
+  const { rows } = await db.pool.query('SELECT categoria, porcentaje FROM porcentajes_referencia_costo ORDER BY id');
+  res.json(rows);
+}));
+
+app.put('/api/porcentajes-referencia', h(auth.allow()), h(async (req, res) => {
+  const body = req.body || {};
+  await db.withTransaction(async (client) => {
+    for (const c of COMPOSICION_CATS) {
+      if (body[c.key] == null) continue;
+      await client.query(
+        'UPDATE porcentajes_referencia_costo SET porcentaje = $1, actualizado_por = $2, actualizado_en = NOW() WHERE categoria = $3',
+        [Number(body[c.key]), req.user.id, c.key]
+      );
+    }
+  });
+  const { rows } = await db.pool.query('SELECT categoria, porcentaje FROM porcentajes_referencia_costo ORDER BY id');
+  const suma = rows.reduce((s, r) => s + Number(r.porcentaje), 0);
+  res.json({
+    porcentajes: rows,
+    suma: Number(suma.toFixed(4)),
+    advertencia: Math.abs(suma - 100) > 0.01 ? `Los 5 porcentajes suman ${suma.toFixed(2)}%, no 100%.` : null,
+  });
+}));
+
+app.get('/api/projects/:id/composicion-costos', h(auth.allow()), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  const pid = req.project.id;
+  const [{ rows: insumoRows }, { rows: metaRows }, { rows: refRows }] = await Promise.all([
+    db.pool.query(
+      `SELECT categoria, SUM(importe_presupuesto) AS suma FROM insumos
+       WHERE project_id = $1 AND categoria IN ('MATERIALES','MANO DE OBRA','EQUIPO Y HERRAMIENTA')
+       GROUP BY categoria`,
+      [pid]
+    ),
+    db.pool.query('SELECT clave, valor FROM meta WHERE project_id = $1', [pid]),
+    db.pool.query('SELECT categoria, porcentaje FROM porcentajes_referencia_costo'),
+  ]);
+  const insumosPorCategoria = {}; for (const r of insumoRows) insumosPorCategoria[r.categoria] = Number(r.suma);
+  const meta = {}; for (const r of metaRows) meta[r.clave] = r.valor;
+  const referencia = {}; for (const r of refRows) referencia[r.categoria] = Number(r.porcentaje);
+
+  res.json({ categorias: calcularComposicionObra(meta, insumosPorCategoria, referencia) });
+}));
+
+app.get('/api/composicion-costos/completo', h(auth.allow()), h(async (req, res) => {
+  const [{ rows: proyectoRows }, { rows: insumoRows }, { rows: metaRows }, { rows: totalRows }, { rows: refRows }] = await Promise.all([
+    db.pool.query(`SELECT p.id AS project_id, p.cliente_id, c.nombre AS cliente_nombre FROM proyectos p JOIN clientes c ON c.id = p.cliente_id`),
+    db.pool.query(
+      `SELECT project_id, categoria, SUM(importe_presupuesto) AS suma FROM insumos
+       WHERE categoria IN ('MATERIALES','MANO DE OBRA','EQUIPO Y HERRAMIENTA')
+       GROUP BY project_id, categoria`
+    ),
+    db.pool.query('SELECT project_id, clave, valor FROM meta'),
+    db.pool.query(`SELECT DISTINCT ON (project_id) project_id, importe FROM conceptos WHERE es_total = 1 AND grupo IS NULL ORDER BY project_id, orden DESC`),
+    db.pool.query('SELECT categoria, porcentaje FROM porcentajes_referencia_costo'),
+  ]);
+
+  const referencia = {}; for (const r of refRows) referencia[r.categoria] = Number(r.porcentaje);
+  const insumosPorObra = {};
+  for (const r of insumoRows) {
+    insumosPorObra[r.project_id] = insumosPorObra[r.project_id] || {};
+    insumosPorObra[r.project_id][r.categoria] = Number(r.suma);
+  }
+  const metaPorObra = {};
+  for (const r of metaRows) {
+    metaPorObra[r.project_id] = metaPorObra[r.project_id] || {};
+    metaPorObra[r.project_id][r.clave] = r.valor;
+  }
+  const totalConceptosPorObra = {};
+  for (const r of totalRows) totalConceptosPorObra[r.project_id] = Number(r.importe);
+
+  const obras = proyectoRows.map((p) => {
+    const meta = metaPorObra[p.project_id] || {};
+    const insumosCat = insumosPorObra[p.project_id] || {};
+    const presupuesto = meta.total_sin_iva != null ? Number(meta.total_sin_iva) : (totalConceptosPorObra[p.project_id] || 0);
+    return {
+      project_id: p.project_id, cliente_id: p.cliente_id, cliente_nombre: p.cliente_nombre,
+      presupuesto, categorias: calcularComposicionObra(meta, insumosCat, referencia),
+    };
+  });
+
+  function agregarCategorias(obrasDelGrupo) {
+    return COMPOSICION_CATS.map((c) => {
+      const items = obrasDelGrupo.map((o) => {
+        const fila = o.categorias.find((x) => x.categoria === c.key);
+        return { presupuesto: o.presupuesto, real: fila.pct_real, base: fila.pct_base };
+      });
+      return {
+        categoria: c.key, label: c.label,
+        pct_real: ponderarSerie(items, 'real'),
+        pct_base: ponderarSerie(items, 'base'),
+      };
+    });
+  }
+
+  const porCliente = new Map();
+  for (const o of obras) {
+    if (!porCliente.has(o.cliente_id)) porCliente.set(o.cliente_id, { cliente_id: o.cliente_id, cliente_nombre: o.cliente_nombre, obras: [] });
+    porCliente.get(o.cliente_id).obras.push(o);
+  }
+  const clientes = [...porCliente.values()]
+    .map((g) => ({ cliente_id: g.cliente_id, cliente_nombre: g.cliente_nombre, categorias: agregarCategorias(g.obras) }))
+    .sort((a, b) => a.cliente_nombre.localeCompare(b.cliente_nombre));
+
+  res.json({ clientes, global: { categorias: agregarCategorias(obras) } });
+}));
+
+// ---------------------------------------------------------------------------
 // Costos — catálogo de precios agregado desde insumos ya cargados (prompt-
 // modulo-costos.md). Sin auth.allow() a propósito, igual que /api/trabajadores
 // y /api/nominas (vistas globales): checkPermiso('costos', accion) es el

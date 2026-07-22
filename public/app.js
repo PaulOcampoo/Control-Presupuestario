@@ -8,7 +8,7 @@ const TOKEN_KEY = 'cp_token';
 const PUESTO_LABELS = {
   admin: 'Administrador', desarrollador: 'Desarrollador', residente: 'Residente', cabo: 'Cabo',
   compras: 'Compras', tesoreria: 'Tesorería', administracion: 'Administración', logistica: 'Logística',
-  taller: 'Taller',
+  jefe_maquinaria: 'Jefe de Maquinaria',
 };
 
 // Mirror de PERMISSIONS en server/auth.js — para calcular allowedTabs en vista simulada.
@@ -22,7 +22,7 @@ const ROLE_TABS = {
   tesoreria:      ['resumen', 'finanzas', 'ordenes', 'contrato', 'impuestos', 'proveedores'],
   administracion: ['resumen', 'programa', 'destajo', 'ordenes', 'proveedores', 'contrato', 'impuestos', 'mapeo'],
   logistica:      ['programa', 'avance', 'requisiciones', 'insumos', 'ordenes'],
-  taller:         ['maquinaria'],
+  jefe_maquinaria: ['maquinaria'],
 };
 
 const state = {
@@ -6886,10 +6886,10 @@ function defaultPermisosParaRolFrontend(puesto) {
       puede_editar: false, puede_editar_precios: false, puede_eliminar: false,
     };
   }
-  if (puesto === 'taller' || puesto === 'admin' || puesto === 'desarrollador') {
+  if (puesto === 'jefe_maquinaria' || puesto === 'admin' || puesto === 'desarrollador') {
     if (porSeccion.maquinaria) { porSeccion.maquinaria.puede_crear = true; porSeccion.maquinaria.puede_editar = true; }
   }
-  if (puesto === 'taller') {
+  if (puesto === 'jefe_maquinaria') {
     porSeccion.maquinaria_combustible = {
       seccion: 'maquinaria_combustible', puede_ver: true, puede_crear: true,
       puede_editar: false, puede_editar_precios: false, puede_eliminar: false,
@@ -7762,7 +7762,7 @@ async function renderCotizador(view) {
 // =========================================================================
 // VISTA: Maquinaria propia (prompt-modulo-maquinaria) — catálogo global de
 // equipos (no por obra, igual que Proveedores), combustible/mantenimiento
-// (taller/admin/desarrollador) y horas de uso (cabo, hoy solo
+// (jefe_maquinaria/admin/desarrollador) y horas de uso (cabo, hoy solo
 // retroexcavadoras). DISEÑO DE PRIMER BORRADOR, pendiente de revisión.
 // =========================================================================
 const MAQUINARIA_TIPOS = ['retroexcavadora'];
@@ -7784,7 +7784,7 @@ async function renderMaquinaria(view) {
   const puedeEliminar = !!misPermisos.puede_eliminar;
   // CN-002: combustible/mantenimiento y horas ya no comparten el permiso de
   // 'maquinaria' (que antes obligaba a excluir a cabo a mano con !esCabo,
-  // y nunca excluía a taller de horas) — cada botón usa su propia sección.
+  // y nunca excluía a jefe_maquinaria de horas) — cada botón usa su propia sección.
   const puedeCrearCombustible = !!misPermisosCombustible.puede_crear;
   const puedeCrearHoras = !!misPermisosCaptura.puede_crear;
 

@@ -42,8 +42,11 @@ const PERMISSIONS = {
   administracion: { label: 'Administración',tabs: ['resumen', 'programa', 'destajo', 'ordenes', 'proveedores', 'contrato', 'impuestos', 'mapeo'] },
   logistica:      { label: 'Logística',     tabs: ['programa', 'avance', 'requisiciones', 'insumos', 'ordenes'] },
   // Rol nuevo (prompt-modulo-maquinaria) — diseño de primer borrador, pendiente
-  // de revisión: taller captura combustible/mantenimiento, cabo captura horas.
-  taller:         { label: 'Taller',        tabs: ['maquinaria'] },
+  // de revisión: jefe_maquinaria captura combustible/mantenimiento, cabo
+  // captura horas. Renombrado desde 'taller' (prompt-1-rename-operador-jefe-
+  // maquinaria.md) para liberar un nombre corto y dejar sitio al rol nuevo de
+  // horas/actividad en campo que se agregará después.
+  jefe_maquinaria: { label: 'Jefe de Maquinaria', tabs: ['maquinaria'] },
 };
 const PUESTOS = Object.keys(PERMISSIONS);
 
@@ -62,7 +65,7 @@ function isValidPuesto(p) {
 // prompt-modulo-maquinaria.md y server/maquinaria.js): la sección
 // 'maquinaria' es UNA sola fila de permisos para equipos + combustible +
 // mantenimiento + horas + presupuesto. El diseño de primer borrador quiere
-// que cabo capture horas y taller capture combustible/mantenimiento, pero
+// que cabo capture horas y jefe_maquinaria capture combustible/mantenimiento, pero
 // como ambos roles reciben puede_crear=true en la MISMA sección (ver
 // defaultPermisosParaRol), cualquiera de los dos puede llamar por API
 // cualquiera de esos 4 endpoints de creación — el frontend solo oculta los
@@ -77,7 +80,7 @@ const SECCIONES_PERMISOS = [
   'destajo', 'finanzas', 'estado_resultados', 'insumos', 'mapeo', 'usuarios', 'contrato', 'impuestos',
   'nominas', 'sugerencias', 'programa', 'estimaciones', 'maquinaria',
   // CN-002: 'maquinaria' quedaba como una sola sección compartida entre
-  // captura de horas (cabo) y combustible/mantenimiento (taller), así que
+  // captura de horas (cabo) y combustible/mantenimiento (jefe_maquinaria), así que
   // cualquiera de los dos roles podía POSTear a los endpoints del otro
   // (confirmado en vivo). Separadas para que cada rol solo tenga
   // puede_crear en la suya — ver defaultPermisosParaRol más abajo.
@@ -186,7 +189,7 @@ function defaultPermisosParaRol(puesto) {
     if (porSeccion.maquinaria) { porSeccion.maquinaria.puede_crear = true; }
     // CN-002: sección propia de captura de horas — cabo ya NO recibe
     // puede_crear en 'maquinaria_combustible' (antes lo tenía implícito al
-    // compartir 'maquinaria' con taller).
+    // compartir 'maquinaria' con jefe_maquinaria).
     filas.push({
       seccion: 'maquinaria_captura', puede_ver: true, puede_crear: true,
       puede_editar: false, puede_editar_precios: false, puede_eliminar: false,
@@ -238,14 +241,14 @@ function defaultPermisosParaRol(puesto) {
     // propio handler, eso no cambia aquí.
     if (porSeccion.requisiciones) { porSeccion.requisiciones.puede_editar = true; }
   }
-  if (puesto === 'taller' || puesto === 'admin' || puesto === 'desarrollador') {
+  if (puesto === 'jefe_maquinaria' || puesto === 'admin' || puesto === 'desarrollador') {
     // Registro de combustible/mantenimiento (mismo diseño de primer borrador).
     if (porSeccion.maquinaria) { porSeccion.maquinaria.puede_crear = true; porSeccion.maquinaria.puede_editar = true; }
   }
-  if (puesto === 'taller') {
-    // CN-002: sección propia de combustible/mantenimiento — taller ya NO
-    // recibe puede_crear en 'maquinaria_captura' (antes lo tenía implícito
-    // al compartir 'maquinaria' con cabo).
+  if (puesto === 'jefe_maquinaria') {
+    // CN-002: sección propia de combustible/mantenimiento — jefe_maquinaria
+    // ya NO recibe puede_crear en 'maquinaria_captura' (antes lo tenía
+    // implícito al compartir 'maquinaria' con cabo).
     filas.push({
       seccion: 'maquinaria_combustible', puede_ver: true, puede_crear: true,
       puede_editar: false, puede_editar_precios: false, puede_eliminar: false,

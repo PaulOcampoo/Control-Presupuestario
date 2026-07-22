@@ -976,6 +976,14 @@ const SCHEMA = `
     ('herramienta_equipo', 11.0000),
     ('indirecto_utilidad', 10.0000)
   ON CONFLICT (categoria) DO NOTHING;
+
+  -- Rename de rol taller -> jefe_maquinaria (prompt-1-rename-operador-jefe-
+  -- maquinaria.md). usuarios.puesto es TEXT NOT NULL sin CHECK constraint —
+  -- la validación de valores aceptados vive 100% en código (isValidPuesto,
+  -- server/auth.js), así que este rename es solo el UPDATE de datos.
+  -- Idempotente: sin filas con puesto='taller' que migrar en corridas
+  -- subsecuentes, este UPDATE es un no-op.
+  UPDATE usuarios SET puesto = 'jefe_maquinaria' WHERE puesto = 'taller';
 `;
 
 // prompt-fix-error-permiso-trabajadores.md → el diagnóstico de ese prompt no

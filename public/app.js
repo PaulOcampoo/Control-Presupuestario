@@ -7783,6 +7783,24 @@ const MAQUINARIA_TIPOS = ['retroexcavadora'];
 const ACTIVIDADES_MAQUINARIA = ['Excavaciones', 'Cepas', 'Rellenos', 'Acarreos', 'Carga de material', 'Limpiezas'];
 let maquinariaEquiposCache = [];
 
+// Bug encontrado en revisión de dispositivo real (prompt-fix-cabo-operador-
+// permisos-simulacion.md): un admin/desarrollador usando "vista simulada"
+// (state.simulatedPuesto) veía los botones Autorizar/Rechazar/+Capturar
+// horas aunque el rol simulado no debiera tenerlos — NO es un bug de
+// permisos (confirmado con Postgres efímero + HTTP real: cuentas operador/
+// cabo genuinas SÍ reciben 403 correctamente en backend), es que estos 2
+// botones nuevos solo leían el permiso crudo del backend (que para admin/
+// desarrollador siempre es bypass=true, ver checkPermiso en server/auth.js),
+// sin considerar que ese bypass es de la identidad REAL, no de la simulada
+// — misma limitación ya documentada arriba en updateSimBanner() para toda
+// la app ("puramente visual... el backend sigue usando el JWT real").
+// Estas 2 listas acotan la visibilidad de MIS botones nuevos al rol
+// EFECTIVO (real o simulado), sin tocar el permiso crudo del backend ni el
+// resto de módulos de la app (que conservan el comportamiento de
+// simulación de siempre) — un cambio deliberadamente angosto a este flujo.
+const ROLES_AUTORIZAN_HORAS_MAQ = ['cabo', 'admin', 'desarrollador'];
+const ROLES_CAPTURAN_HORAS_MAQ = ['operador', 'admin', 'desarrollador'];
+
 async function renderMaquinaria(view) {
   const [equipos, resumen, misPermisos, misPermisosCaptura, misPermisosCombustible, proyectos, reporteClientes, horasMaq] = await Promise.all([
     api('/maquinaria/equipos'),
@@ -7807,11 +7825,14 @@ async function renderMaquinaria(view) {
   // 'maquinaria' (que antes obligaba a excluir a cabo a mano con !esCabo,
   // y nunca excluía a jefe_maquinaria de horas) — cada botón usa su propia sección.
   const puedeCrearCombustible = !!misPermisosCombustible.puede_crear;
-  const puedeCrearHoras = !!misPermisosCaptura.puede_crear;
+  // AND con ROLES_CAPTURAN_HORAS_MAQ/ROLES_AUTORIZAN_HORAS_MAQ (ver comentario
+  // junto a esas constantes) — el permiso crudo del backend no distingue rol
+  // simulado de rol real para admin/desarrollador (bypass siempre true).
+  const puedeCrearHoras = !!misPermisosCaptura.puede_crear && ROLES_CAPTURAN_HORAS_MAQ.includes(effectivePuesto());
   // prompt-3-flujo-aprobacion-cabo-operador.md: puede_editar en
   // 'maquinaria_captura' ahora es "puede autorizar/rechazar reportes de
   // horas" (cabo, y admin/desarrollador vía bypass).
-  const puedeAutorizarHoras = !!misPermisosCaptura.puede_editar;
+  const puedeAutorizarHoras = !!misPermisosCaptura.puede_editar && ROLES_AUTORIZAN_HORAS_MAQ.includes(effectivePuesto());
   const esOperador = effectivePuesto() === 'operador';
 
   // Cifras de presupuesto (total/gastado/%/sugerido por cliente) — solo

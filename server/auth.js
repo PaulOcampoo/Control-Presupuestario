@@ -26,8 +26,8 @@ const TOTP_ISSUER = 'Grupo Roforb — Control Presupuestal';
 // Puestos y qué pestañas puede ver cada uno. 'admin' tiene acceso total
 // (se resuelve aparte en allow(), no necesita listarse en cada pestaña).
 const PERMISSIONS = {
-  admin:          { label: 'Administrador', tabs: ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'finanzas', 'estadoResultados', 'estadoResultadosGlobal', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', 'maquinaria', 'cotizador'] },
-  desarrollador:  { label: 'Desarrollador', tabs: ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'finanzas', 'estadoResultados', 'estadoResultadosGlobal', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', 'maquinaria', 'cotizador'] },
+  admin:          { label: 'Administrador', tabs: ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'finanzas', 'estadoResultados', 'estadoResultadosGlobal', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', 'maquinaria', 'cotizador', 'costos'] },
+  desarrollador:  { label: 'Desarrollador', tabs: ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'finanzas', 'estadoResultados', 'estadoResultadosGlobal', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', 'maquinaria', 'cotizador', 'costos'] },
   // 'trabajadores' agregado aquí (prompts-cotizador-sidebar-permisos-
   // estimaciones.md, Prompt 3) para que el residente reciba la pestaña al
   // hacer login — el acceso REAL a los datos de cada obra lo sigue
@@ -101,6 +101,18 @@ const SECCIONES_PERMISOS = [
   // admin-only por ahora (auth.allow() sin argumentos) — mismo alcance parcial
   // que 'nominas' ya tiene hoy (solo ver/crear con checkPermiso real).
   'trabajadores',
+  // 'costos' (prompt-modulo-costos.md) — catálogo de precios agregado por
+  // cliente y global, cross-obra/cross-cliente por diseño (igual que
+  // trabajadores_global/nominas_global, ver SECCIONES_SIEMPRE_GLOBAL en
+  // public/app.js). A propósito SIN entrada en TAB_A_SECCION: Paul pidió
+  // default-deny real para todos los roles no-admin — sin mapeo tab→sección
+  // no se genera ninguna fila de permiso al crear un usuario, así que
+  // tienePermiso() devuelve false hasta que un admin lo conceda manualmente
+  // desde la matriz. 'costos' solo está en PERMISSIONS.admin/desarrollador.tabs
+  // (visibilidad en nav) — si más adelante se le da el permiso a otro rol vía
+  // la matriz, ese rol necesita además 'costos' en su lista de tabs para ver
+  // el tile (mismo gap ya documentado para trabajadores_global/nominas_global).
+  'costos',
 ];
 const ACCIONES_PERMISOS = ['puede_ver', 'puede_crear', 'puede_editar', 'puede_editar_precios', 'puede_eliminar'];
 

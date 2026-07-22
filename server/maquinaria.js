@@ -87,11 +87,14 @@ async function softDeleteCombustible(id) {
   return rowCount > 0;
 }
 
+// LEFT JOIN (no JOIN): prompt-4-bitacora-taller-jefe-maquinaria.md —
+// equipo_id ahora es nullable (entradas generales de taller, sin equipo),
+// un INNER JOIN las excluiría por completo del resultado.
 async function listMantenimientos(equipoId) {
   const { rows } = await db.pool.query(`
     SELECT m.*, e.nombre AS equipo_nombre, u.nombre AS registrado_por_nombre
     FROM mantenimientos_maquinaria m
-    JOIN equipos_maquinaria e ON e.id = m.equipo_id
+    LEFT JOIN equipos_maquinaria e ON e.id = m.equipo_id
     LEFT JOIN usuarios u ON u.id = m.registrado_por
     WHERE m.activo = true ${equipoId ? 'AND m.equipo_id = $1' : ''}
     ORDER BY m.fecha DESC, m.id DESC
@@ -99,11 +102,13 @@ async function listMantenimientos(equipoId) {
   return rows;
 }
 
-async function createMantenimiento({ equipo_id, fecha, tipo, descripcion, costo, proveedor, registrado_por }) {
+async function createMantenimiento({ equipo_id, fecha, tipo, descripcion, costo, proveedor, registrado_por, refaccion_descripcion, refaccion_costo }) {
   const { rows } = await db.pool.query(
-    `INSERT INTO mantenimientos_maquinaria (equipo_id, fecha, tipo, descripcion, costo, proveedor, registrado_por)
-     VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
-    [equipo_id, fecha, tipo, descripcion || null, costo, proveedor || null, registrado_por]
+    `INSERT INTO mantenimientos_maquinaria
+       (equipo_id, fecha, tipo, descripcion, costo, proveedor, registrado_por, refaccion_descripcion, refaccion_costo)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
+    [equipo_id || null, fecha, tipo, descripcion || null, costo, proveedor || null, registrado_por,
+      refaccion_descripcion || null, refaccion_costo ?? null]
   );
   return rows[0];
 }

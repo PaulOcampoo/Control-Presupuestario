@@ -1205,14 +1205,32 @@ app.get('/api/maquinaria/mantenimientos', h(auth.checkPermiso('maquinaria', 'pue
   res.json(await maquinaria.listMantenimientos(req.query.equipo_id ? Number(req.query.equipo_id) : null));
 }));
 
+// prompt-4-bitacora-taller-jefe-maquinaria.md: 'preventivo'/'correctivo' son
+// mantenimiento de UN equipo (equipo_id obligatorio, igual que antes);
+// 'consumible'/'herramienta' son entradas generales de taller, sin equipo
+// (equipo_id debe venir vacío — si se manda igual, se ignora explícitamente,
+// no se guarda por error un consumible "atado" a un equipo al azar).
+const TIPOS_MANTENIMIENTO = ['preventivo', 'correctivo', 'consumible', 'herramienta'];
+const TIPOS_MANTENIMIENTO_REQUIEREN_EQUIPO = ['preventivo', 'correctivo'];
+
 app.post('/api/maquinaria/mantenimientos', h(auth.checkPermiso('maquinaria_combustible', 'puede_crear')), h(async (req, res) => {
-  const { equipo_id, fecha, tipo, descripcion, costo, proveedor } = req.body || {};
-  if (!equipo_id || !fecha || !['preventivo', 'correctivo'].includes(tipo) || !(costo >= 0)) {
-    return res.status(400).json({ error: "Indica equipo, fecha, tipo ('preventivo'/'correctivo') y costo válidos" });
+  const { equipo_id, fecha, tipo, descripcion, costo, proveedor, refaccion_descripcion, refaccion_costo } = req.body || {};
+  if (!fecha || !TIPOS_MANTENIMIENTO.includes(tipo) || !(costo >= 0)) {
+    return res.status(400).json({ error: `Indica fecha, tipo (${TIPOS_MANTENIMIENTO.join('/')}) y costo válidos` });
+  }
+  const requiereEquipo = TIPOS_MANTENIMIENTO_REQUIEREN_EQUIPO.includes(tipo);
+  if (requiereEquipo && !equipo_id) {
+    return res.status(400).json({ error: 'Indica el equipo para un mantenimiento preventivo/correctivo' });
+  }
+  if (refaccion_costo != null && !(Number(refaccion_costo) >= 0)) {
+    return res.status(400).json({ error: 'El costo de la refacción debe ser un número válido' });
   }
   const registro = await maquinaria.createMantenimiento({
-    equipo_id: Number(equipo_id), fecha, tipo, descripcion: descripcion?.trim(), costo: Number(costo),
+    equipo_id: requiereEquipo ? Number(equipo_id) : null,
+    fecha, tipo, descripcion: descripcion?.trim(), costo: Number(costo),
     proveedor: proveedor?.trim(), registrado_por: req.user.id,
+    refaccion_descripcion: requiereEquipo ? refaccion_descripcion?.trim() : null,
+    refaccion_costo: requiereEquipo && refaccion_costo != null ? Number(refaccion_costo) : null,
   });
   res.status(201).json(registro);
 }));
@@ -1221,6 +1239,21 @@ app.delete('/api/maquinaria/mantenimientos/:id', h(auth.checkPermiso('maquinaria
   const ok = await maquinaria.softDeleteMantenimiento(Number(req.params.id));
   if (!ok) return res.status(404).json({ error: 'Registro no encontrado' });
   res.json({ ok: true });
+}));
+
+// Bitácora de taller (prompt-4-bitacora-taller-jefe-maquinaria.md) — sirve
+// tanto el historial por equipo (?equipo_id=X, con desglose de refacciones)
+// como la bitácora general (sin equipo_id, todos los tipos incluyendo
+// consumibles/herramientas). Deliberadamente un endpoint NUEVO y separado
+// de GET /api/maquinaria/mantenimientos de arriba (que sigue abierto a
+// cualquier rol con acceso a Maquinaria vía 'maquinaria'/puede_ver, y
+// alimenta el historial combinado combustible+mantenimiento+horas que ya
+// existía por equipo) — checkPermiso('maquinaria_combustible', 'puede_ver')
+// aquí es más estricto a propósito: solo jefe_maquinaria (y admin/
+// desarrollador vía bypass) deben poder ver la bitácora dedicada, operador/
+// cabo no tienen fila en esa sección → 403.
+app.get('/api/maquinaria/bitacora-taller', h(auth.checkPermiso('maquinaria_combustible', 'puede_ver')), h(async (req, res) => {
+  res.json(await maquinaria.listMantenimientos(req.query.equipo_id ? Number(req.query.equipo_id) : null));
 }));
 
 app.get('/api/maquinaria/horas', h(auth.checkPermiso('maquinaria', 'puede_ver')), h(async (req, res) => {

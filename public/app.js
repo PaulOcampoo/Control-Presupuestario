@@ -7800,9 +7800,14 @@ let maquinariaEquiposCache = [];
 // simulación de siempre) — un cambio deliberadamente angosto a este flujo.
 const ROLES_AUTORIZAN_HORAS_MAQ = ['cabo', 'admin', 'desarrollador'];
 const ROLES_CAPTURAN_HORAS_MAQ = ['operador', 'admin', 'desarrollador'];
+// prompt-4-bitacora-taller-jefe-maquinaria.md — mismo criterio que las 2
+// constantes de arriba: la bitácora de taller (mantenimiento + refacciones +
+// consumibles + herramientas) es exclusiva de jefe_maquinaria (y admin/
+// desarrollador vía bypass real, no simulado).
+const ROLES_BITACORA_TALLER_MAQ = ['jefe_maquinaria', 'admin', 'desarrollador'];
 
 async function renderMaquinaria(view) {
-  const [equipos, resumen, misPermisos, misPermisosCaptura, misPermisosCombustible, proyectos, reporteClientes, horasMaq] = await Promise.all([
+  const [equipos, resumen, misPermisos, misPermisosCaptura, misPermisosCombustible, proyectos, reporteClientes, horasMaq, bitacoraTaller] = await Promise.all([
     api('/maquinaria/equipos'),
     api('/maquinaria/resumen'),
     api('/mis-permisos/maquinaria'),
@@ -7816,6 +7821,10 @@ async function renderMaquinaria(view) {
     // pero igual protegemos con .catch por si acaso (mismo patrón que
     // reporte-clientes arriba).
     api('/maquinaria/horas').catch(() => []),
+    // prompt-4-bitacora-taller-jefe-maquinaria.md: 403 esperado para
+    // operador/cabo (sin fila en 'maquinaria_combustible') — el .catch
+    // evita que ese 403 tumbe el resto de la pantalla.
+    api('/maquinaria/bitacora-taller').catch(() => []),
   ]);
   maquinariaEquiposCache = equipos;
   const puedeCrear = !!misPermisos.puede_crear; // equipos — sección 'maquinaria', sin cambio (CN-002)
@@ -7825,6 +7834,15 @@ async function renderMaquinaria(view) {
   // 'maquinaria' (que antes obligaba a excluir a cabo a mano con !esCabo,
   // y nunca excluía a jefe_maquinaria de horas) — cada botón usa su propia sección.
   const puedeCrearCombustible = !!misPermisosCombustible.puede_crear;
+  // prompt-4-bitacora-taller-jefe-maquinaria.md — AND con
+  // ROLES_BITACORA_TALLER_MAQ (mismo criterio ya aplicado en prompt-3 a los
+  // botones de horas): el permiso crudo no distingue rol simulado de rol
+  // real para admin/desarrollador (bypass siempre true). Deliberadamente
+  // separado de puedeCrearCombustible de arriba (botón +Combustible, fuera
+  // de este flujo, sin cambios) — solo la bitácora de mantenimiento/
+  // consumibles/herramientas es nueva en este prompt.
+  const puedeCrearBitacora = !!misPermisosCombustible.puede_crear && ROLES_BITACORA_TALLER_MAQ.includes(effectivePuesto());
+  const puedeVerBitacora = !!misPermisosCombustible.puede_ver && ROLES_BITACORA_TALLER_MAQ.includes(effectivePuesto());
   // AND con ROLES_CAPTURAN_HORAS_MAQ/ROLES_AUTORIZAN_HORAS_MAQ (ver comentario
   // junto a esas constantes) — el permiso crudo del backend no distingue rol
   // simulado de rol real para admin/desarrollador (bypass siempre true).
@@ -7858,10 +7876,11 @@ async function renderMaquinaria(view) {
     <div class="section-actions mt-12">
       ${puedeCrear ? '<button class="btn btn-primary" id="btnNuevoEquipoMaq">+ Nuevo equipo</button>' : ''}
       ${puedeCrearCombustible ? '<button class="btn" id="btnCombustibleMaq">+ Combustible</button>' : ''}
-      ${puedeCrearCombustible ? '<button class="btn" id="btnMantenimientoMaq">+ Mantenimiento</button>' : ''}
+      ${puedeCrearBitacora ? '<button class="btn" id="btnMantenimientoMaq">+ Registrar en bitácora</button>' : ''}
       ${puedeCrearHoras ? '<button class="btn" id="btnHorasMaq">+ Capturar horas</button>' : ''}
     </div>
     <div id="reportesHorasMaqSection"></div>
+    <div id="bitacoraTallerSection"></div>
     <div id="equiposMaqList"></div>
   `;
 
@@ -7871,6 +7890,7 @@ async function renderMaquinaria(view) {
   $('#btnMantenimientoMaq')?.addEventListener('click', () => openMantenimientoMaqModal(equipos));
   $('#btnHorasMaq')?.addEventListener('click', () => openHorasMaqModal(equipos, proyectos));
   paintReportesHorasMaq(horasMaq, { puedeAutorizarHoras, esOperador });
+  paintBitacoraTaller(bitacoraTaller, equipos, { puedeVerBitacora });
   { const fill = $('.progress-bar > span[data-pct]', view); if (fill) fill.style.width = fill.dataset.pct + '%'; }
 
   paintEquiposMaqList(equipos, proyectos, { puedeEditar, puedeEliminar });
@@ -7967,6 +7987,85 @@ function paintReportesHorasMaq(horas, { puedeAutorizarHoras, esOperador }) {
       }
     });
   });
+}
+
+const TIPOS_MANTENIMIENTO_BADGE = { preventivo: 'green', correctivo: 'yellow', consumible: 'muted', herramienta: 'muted' };
+
+// Bitácora de taller (prompt-4-bitacora-taller-jefe-maquinaria.md) — una
+// sola tabla filtrable cubre tanto "historial por equipo" (filtro Equipo)
+// como "bitácora general" (sin filtrar, o filtro "Taller general" para las
+// entradas sin equipo_id) — evita duplicar la lista completa en 2 vistas
+// separadas para el mismo dato. Filtros 100% client-side (mismo criterio ya
+// usado en "Mis reportes de horas" arriba — volumen bajo, sin necesidad de
+// ida y vuelta al backend por cada cambio de filtro).
+function paintBitacoraTaller(registros, equipos, { puedeVerBitacora }) {
+  const el = $('#bitacoraTallerSection');
+  if (!el) return;
+  if (!puedeVerBitacora) { el.innerHTML = ''; return; }
+
+  const filtro = { equipoId: '', tipo: '', desde: '', hasta: '' };
+
+  function aplicarFiltros() {
+    return registros.filter((r) => {
+      if (filtro.equipoId === '__general__' && r.equipo_id != null) return false;
+      if (filtro.equipoId && filtro.equipoId !== '__general__' && String(r.equipo_id || '') !== filtro.equipoId) return false;
+      if (filtro.tipo && r.tipo !== filtro.tipo) return false;
+      if (filtro.desde && r.fecha < filtro.desde) return false;
+      if (filtro.hasta && r.fecha > filtro.hasta) return false;
+      return true;
+    });
+  }
+
+  function renderTabla() {
+    const filtrados = aplicarFiltros();
+    const tbody = $('#bitacoraTallerTbody');
+    if (!tbody) return;
+    if (!filtrados.length) {
+      tbody.innerHTML = `<tr><td colspan="7" class="muted">Sin registros para este filtro.</td></tr>`;
+      return;
+    }
+    tbody.innerHTML = filtrados.map((r) => `
+      <tr>
+        <td>${fmtDate(r.fecha)}</td>
+        <td>${esc(r.equipo_nombre || 'Taller general')}</td>
+        <td><span class="badge ${TIPOS_MANTENIMIENTO_BADGE[r.tipo] || 'muted'}">${esc(TIPOS_MANTENIMIENTO_LABELS[r.tipo] || r.tipo)}</span></td>
+        <td>${esc(r.descripcion || '—')}${r.refaccion_descripcion ? `<div class="muted fs-07">Refacción: ${esc(r.refaccion_descripcion)}</div>` : ''}</td>
+        <td class="num">${fmtMoney(r.costo)}${r.refaccion_costo != null ? `<div class="muted fs-07">(refacción: ${fmtMoney(r.refaccion_costo)})</div>` : ''}</td>
+        <td>${esc(r.proveedor || '—')}</td>
+        <td class="muted fs-08">${esc(r.registrado_por_nombre || '—')}</td>
+      </tr>
+    `).join('');
+  }
+
+  el.innerHTML = `
+    <h3 class="section-title mt-16">Bitácora de taller</h3>
+    <p class="muted fs-08">Mantenimientos (con refacciones), consumibles y herramientas — filtra por equipo, tipo o fecha.</p>
+    <div class="row bitacora-filtros-row mt-8">
+      <select id="bitEquipoFiltro" class="bitacora-filtro-control">
+        <option value="">Todos los equipos</option>
+        <option value="__general__">Taller general (sin equipo)</option>
+        ${equipos.map((e) => `<option value="${e.id}">${esc(e.nombre)}</option>`).join('')}
+      </select>
+      <select id="bitTipoFiltro" class="bitacora-filtro-control">
+        <option value="">Todos los tipos</option>
+        ${Object.entries(TIPOS_MANTENIMIENTO_LABELS).map(([v, l]) => `<option value="${v}">${l}</option>`).join('')}
+      </select>
+      <input id="bitDesdeFiltro" type="date" title="Desde" class="bitacora-filtro-control" />
+      <input id="bitHastaFiltro" type="date" title="Hasta" class="bitacora-filtro-control" />
+    </div>
+    <div class="table-scroll mt-8">
+      <table>
+        <thead><tr><th>Fecha</th><th>Equipo</th><th>Tipo</th><th>Descripción</th><th class="num">Costo</th><th>Proveedor</th><th>Registró</th></tr></thead>
+        <tbody id="bitacoraTallerTbody"></tbody>
+      </table>
+    </div>
+  `;
+  renderTabla();
+
+  $('#bitEquipoFiltro').addEventListener('change', (e) => { filtro.equipoId = e.target.value; renderTabla(); });
+  $('#bitTipoFiltro').addEventListener('change', (e) => { filtro.tipo = e.target.value; renderTabla(); });
+  $('#bitDesdeFiltro').addEventListener('change', (e) => { filtro.desde = e.target.value; renderTabla(); });
+  $('#bitHastaFiltro').addEventListener('change', (e) => { filtro.hasta = e.target.value; renderTabla(); });
 }
 
 // Reporte por cliente (Fase 2, prompt-maquinaria-presupuesto-automatico):
@@ -8235,37 +8334,63 @@ function openCombustibleMaqModal(equipos) {
   });
 }
 
+// prompt-4-bitacora-taller-jefe-maquinaria.md: este modal ahora cubre los 4
+// tipos de la bitácora de taller, no solo mantenimiento — 'preventivo'/
+// 'correctivo' exigen equipo + admiten desglose de refacción (igual que
+// antes, solo se agrega el desglose); 'consumible'/'herramienta' son
+// entradas generales de taller SIN equipo (compra de guantes, una
+// herramienta nueva, etc.), el campo Equipo y el desglose de refacción se
+// ocultan para esos 2 tipos.
+const TIPOS_MANTENIMIENTO_REQUIEREN_EQUIPO = ['preventivo', 'correctivo'];
+const TIPOS_MANTENIMIENTO_LABELS = { preventivo: 'Preventivo', correctivo: 'Correctivo', consumible: 'Consumible', herramienta: 'Herramienta' };
+
 function openMantenimientoMaqModal(equipos) {
   openModal(`
-    <h3>Registrar mantenimiento</h3>
-    <div class="field"><label>Equipo *</label><select id="mtEquipo">${equipoSelectOptions(equipos, false)}</select></div>
-    <div class="field"><label>Fecha *</label><input id="mtFecha" type="date" value="${new Date().toISOString().slice(0, 10)}" /></div>
+    <h3>Registrar en bitácora de taller</h3>
     <div class="field"><label>Tipo *</label>
-      <select id="mtTipo"><option value="preventivo">Preventivo</option><option value="correctivo">Correctivo</option></select>
+      <select id="mtTipo">${Object.entries(TIPOS_MANTENIMIENTO_LABELS).map(([v, l]) => `<option value="${v}">${l}</option>`).join('')}</select>
     </div>
+    <div class="field" id="mtEquipoField"><label>Equipo *</label><select id="mtEquipo">${equipoSelectOptions(equipos, false)}</select></div>
+    <div class="field"><label>Fecha *</label><input id="mtFecha" type="date" value="${new Date().toISOString().slice(0, 10)}" /></div>
     <div class="field"><label>Descripción</label><input id="mtDescripcion" /></div>
     <div class="field"><label>Costo *</label><input id="mtCosto" type="number" min="0" step="0.01" /></div>
     <div class="field"><label>Proveedor</label><input id="mtProveedor" /></div>
+    <div id="mtRefaccionFields">
+      <div class="field"><label>Refacción usada (descripción)</label><input id="mtRefaccionDescripcion" /></div>
+      <div class="field"><label>Costo de la refacción</label><input id="mtRefaccionCosto" type="number" min="0" step="0.01" /></div>
+    </div>
     <div class="modal-actions">
       <button class="btn" id="btnCancelMt">Cerrar</button>
       <button class="btn btn-primary" id="btnSaveMt">Guardar</button>
     </div>
   `);
+  function syncTipoFields() {
+    const requiereEquipo = TIPOS_MANTENIMIENTO_REQUIEREN_EQUIPO.includes($('#mtTipo').value);
+    $('#mtEquipoField').style.display = requiereEquipo ? '' : 'none';
+    $('#mtRefaccionFields').style.display = requiereEquipo ? '' : 'none';
+  }
+  $('#mtTipo').addEventListener('change', syncTipoFields);
+  syncTipoFields();
   $('#btnCancelMt').addEventListener('click', closeModal);
   $('#btnSaveMt').addEventListener('click', async () => {
+    const tipo = $('#mtTipo').value;
+    const requiereEquipo = TIPOS_MANTENIMIENTO_REQUIEREN_EQUIPO.includes(tipo);
     const body = {
-      equipo_id: Number($('#mtEquipo').value), fecha: $('#mtFecha').value, tipo: $('#mtTipo').value,
+      tipo, fecha: $('#mtFecha').value,
+      equipo_id: requiereEquipo ? Number($('#mtEquipo').value) : null,
       descripcion: $('#mtDescripcion').value.trim() || null, costo: Number($('#mtCosto').value),
       proveedor: $('#mtProveedor').value.trim() || null,
+      refaccion_descripcion: requiereEquipo ? ($('#mtRefaccionDescripcion').value.trim() || null) : null,
+      refaccion_costo: requiereEquipo && $('#mtRefaccionCosto').value ? Number($('#mtRefaccionCosto').value) : null,
     };
-    if (!body.equipo_id || !body.fecha || !(body.costo >= 0)) {
-      toast('Completa equipo, fecha y costo', 'danger'); return;
+    if (!body.fecha || !(body.costo >= 0) || (requiereEquipo && !body.equipo_id)) {
+      toast(requiereEquipo ? 'Completa equipo, fecha y costo' : 'Completa fecha y costo', 'danger'); return;
     }
     const btn = $('#btnSaveMt');
     btn.disabled = true;
     try {
       await api('/maquinaria/mantenimientos', { method: 'POST', body });
-      toast('Mantenimiento registrado', 'success');
+      toast('Registrado en la bitácora de taller', 'success');
       closeModal();
       renderView();
     } catch (err) {

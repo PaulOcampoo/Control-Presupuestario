@@ -8,7 +8,7 @@ const TOKEN_KEY = 'cp_token';
 const PUESTO_LABELS = {
   admin: 'Administrador', desarrollador: 'Desarrollador', residente: 'Residente', cabo: 'Cabo',
   compras: 'Compras', tesoreria: 'Tesorería', administracion: 'Administración', logistica: 'Logística',
-  jefe_maquinaria: 'Jefe de Maquinaria',
+  jefe_maquinaria: 'Jefe de Maquinaria', operador: 'Operador',
 };
 
 // Mirror de PERMISSIONS en server/auth.js — para calcular allowedTabs en vista simulada.
@@ -23,6 +23,7 @@ const ROLE_TABS = {
   administracion: ['resumen', 'programa', 'destajo', 'ordenes', 'proveedores', 'contrato', 'impuestos', 'mapeo'],
   logistica:      ['programa', 'avance', 'requisiciones', 'insumos', 'ordenes'],
   jefe_maquinaria: ['maquinaria'],
+  operador: ['maquinaria'],
 };
 
 const state = {
@@ -6895,6 +6896,12 @@ function defaultPermisosParaRolFrontend(puesto) {
       puede_editar: false, puede_editar_precios: false, puede_eliminar: false,
     };
   }
+  if (puesto === 'operador') {
+    porSeccion.maquinaria_captura = {
+      seccion: 'maquinaria_captura', puede_ver: true, puede_crear: true,
+      puede_editar: false, puede_editar_precios: false, puede_eliminar: false,
+    };
+  }
   return porSeccion;
 }
 
@@ -7766,6 +7773,11 @@ async function renderCotizador(view) {
 // retroexcavadoras). DISEÑO DE PRIMER BORRADOR, pendiente de revisión.
 // =========================================================================
 const MAQUINARIA_TIPOS = ['retroexcavadora'];
+// Catálogo fijo de actividad (prompt-2-rol-operador-actividades.md) — el
+// operador elige de esta lista (auto-llenado), no escribe texto libre.
+// Espejo exacto de ACTIVIDADES_MAQUINARIA en server/app.js, que es quien
+// valida de verdad (esto es solo para pintar el <select>).
+const ACTIVIDADES_MAQUINARIA = ['Excavaciones', 'Cepas', 'Rellenos', 'Acarreos', 'Carga de material', 'Limpiezas'];
 let maquinariaEquiposCache = [];
 
 async function renderMaquinaria(view) {
@@ -7937,7 +7949,7 @@ async function toggleHistorialMaq(btn) {
     const filas = [
       ...combustible.map((c) => ({ fecha: c.fecha, tipo: 'Combustible', detalle: `${fmtNum(c.litros, 1)} L`, monto: c.costo, quien: c.registrado_por_nombre })),
       ...mantenimientos.map((m) => ({ fecha: m.fecha, tipo: `Mantenimiento (${m.tipo})`, detalle: m.descripcion || '—', monto: m.costo, quien: m.registrado_por_nombre })),
-      ...horas.map((h) => ({ fecha: h.fecha, tipo: 'Horas de uso', detalle: `${fmtNum(h.horas, 1)} h${h.obra_nombre ? ` · ${h.obra_nombre}` : ''}`, monto: null, quien: h.operador_nombre })),
+      ...horas.map((h) => ({ fecha: h.fecha, tipo: 'Horas de uso', detalle: `${fmtNum(h.horas, 1)} h${h.actividad ? ` · ${h.actividad}` : ''}${h.obra_nombre ? ` · ${h.obra_nombre}` : ''}`, monto: null, quien: h.operador_nombre })),
     ].sort((a, b) => (a.fecha < b.fecha ? 1 : -1));
     if (!filas.length) {
       body.innerHTML = '<p class="muted fs-08 py10-px4">Sin registros todavía.</p>';
@@ -8140,7 +8152,10 @@ function openHorasMaqModal(equipos, proyectos) {
     <div class="field"><label>Equipo *</label><select id="hrEquipo">${equipoSelectOptions(equipos, true)}</select></div>
     <div class="field"><label>Fecha *</label><input id="hrFecha" type="date" value="${new Date().toISOString().slice(0, 10)}" /></div>
     <div class="field"><label>Horas *</label><input id="hrHoras" type="number" min="0" step="0.1" /></div>
-    <div class="field"><label>Obra / actividad</label>
+    <div class="field"><label>Actividad *</label>
+      <select id="hrActividad"><option value="">Selecciona…</option>${ACTIVIDADES_MAQUINARIA.map((a) => `<option value="${esc(a)}">${esc(a)}</option>`).join('')}</select>
+    </div>
+    <div class="field"><label>Obra</label>
       <select id="hrObra"><option value="">Sin especificar</option>${proyectos.map((p) => `<option value="${p.id}">${esc(p.nombre)}</option>`).join('')}</select>
     </div>
     <div class="modal-actions">
@@ -8153,9 +8168,13 @@ function openHorasMaqModal(equipos, proyectos) {
     const body = {
       equipo_id: Number($('#hrEquipo').value), fecha: $('#hrFecha').value,
       horas: Number($('#hrHoras').value), obra_id: $('#hrObra').value ? Number($('#hrObra').value) : null,
+      actividad: $('#hrActividad').value || null,
     };
     if (!body.equipo_id || !body.fecha || !(body.horas > 0)) {
       toast('Completa equipo, fecha y horas', 'danger'); return;
+    }
+    if (!body.actividad) {
+      toast('Selecciona una actividad', 'danger'); return;
     }
     const btn = $('#btnSaveHr');
     btn.disabled = true;

@@ -128,11 +128,11 @@ async function listHoras(equipoId) {
   return rows;
 }
 
-async function createHoras({ equipo_id, operador_id, fecha, horas, obra_id }) {
+async function createHoras({ equipo_id, operador_id, fecha, horas, obra_id, actividad }) {
   const { rows } = await db.pool.query(
-    `INSERT INTO reportes_horas_maquinaria (equipo_id, operador_id, fecha, horas, obra_id)
-     VALUES ($1, $2, $3, $4, $5) RETURNING *`,
-    [equipo_id, operador_id, fecha, horas, obra_id || null]
+    `INSERT INTO reportes_horas_maquinaria (equipo_id, operador_id, fecha, horas, obra_id, actividad)
+     VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+    [equipo_id, operador_id, fecha, horas, obra_id || null, actividad || null]
   );
   return rows[0];
 }

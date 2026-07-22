@@ -870,6 +870,15 @@ const SCHEMA = `
   );
   CREATE INDEX IF NOT EXISTS idx_reportes_horas_maquinaria_equipo ON reportes_horas_maquinaria(equipo_id);
 
+  -- Catálogo fijo de actividad (prompt-2-rol-operador-actividades.md):
+  -- Excavaciones/Cepas/Rellenos/Acarreos/Carga de material/Limpiezas.
+  -- Validado en código (server/app.js ACTIVIDADES_MAQUINARIA), no con CHECK
+  -- constraint — mismo patrón ya confirmado para usuarios.puesto en el
+  -- Prompt 1 (isValidPuesto, sin restricción a nivel BD). Nullable: los
+  -- reportes históricos ya guardados sin este campo no se rompen; el
+  -- endpoint de captura sí lo exige para reportes nuevos.
+  ALTER TABLE reportes_horas_maquinaria ADD COLUMN IF NOT EXISTS actividad TEXT;
+
   -- ASUNCIÓN sin confirmar con Paul (ver prompt-modulo-maquinaria.md): un solo
   -- monto total sin periodo (no mensual/anual) — fila única forzada por el
   -- CHECK (id = 1), patrón "singleton row".

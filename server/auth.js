@@ -47,6 +47,11 @@ const PERMISSIONS = {
   // maquinaria.md) para liberar un nombre corto y dejar sitio al rol nuevo de
   // horas/actividad en campo que se agregará después.
   jefe_maquinaria: { label: 'Jefe de Maquinaria', tabs: ['maquinaria'] },
+  // Rol nuevo (prompt-2-rol-operador-actividades.md) — el trabajador de
+  // campo que llena reportes de horas/actividad de maquinaria. Distinto de
+  // jefe_maquinaria (combustible/mantenimiento, PR #49) y de cabo (también
+  // captura horas hoy, sin cambios en este prompt — eso es el Prompt 3).
+  operador: { label: 'Operador', tabs: ['maquinaria'] },
 };
 const PUESTOS = Object.keys(PERMISSIONS);
 
@@ -251,6 +256,16 @@ function defaultPermisosParaRol(puesto) {
     // implícito al compartir 'maquinaria' con cabo).
     filas.push({
       seccion: 'maquinaria_combustible', puede_ver: true, puede_crear: true,
+      puede_editar: false, puede_editar_precios: false, puede_eliminar: false,
+    });
+  }
+  if (puesto === 'operador') {
+    // Solo captura de horas/actividad (prompt-2-rol-operador-actividades.md)
+    // — a diferencia de cabo, NO recibe puede_crear en 'maquinaria' (equipos)
+    // ni en 'maquinaria_combustible'; a diferencia de jefe_maquinaria, no
+    // toca combustible/mantenimiento. Ningún permiso de aprobar/autorizar.
+    filas.push({
+      seccion: 'maquinaria_captura', puede_ver: true, puede_crear: true,
       puede_editar: false, puede_editar_precios: false, puede_eliminar: false,
     });
   }

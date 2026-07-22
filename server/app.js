@@ -1227,18 +1227,29 @@ app.get('/api/maquinaria/horas', h(auth.checkPermiso('maquinaria', 'puede_ver'))
   res.json(await maquinaria.listHoras(req.query.equipo_id ? Number(req.query.equipo_id) : null));
 }));
 
+// Catálogo fijo de actividad (prompt-2-rol-operador-actividades.md) —
+// validado aquí en el backend, nunca solo en el frontend (mismo criterio de
+// "auto-llenado" que ya usa el resto de la app: el rol 'operador' elige de
+// esta lista, no escribe texto libre).
+const ACTIVIDADES_MAQUINARIA = ['Excavaciones', 'Cepas', 'Rellenos', 'Acarreos', 'Carga de material', 'Limpiezas'];
+
 // Cabo siempre captura sus propias horas (operador_id = quien está autenticado,
 // se ignora cualquier operador_id enviado); admin/desarrollador sí pueden
-// capturar a nombre de otro operador si lo indican explícitamente.
+// capturar a nombre de otro operador si lo indican explícitamente. El rol
+// 'operador' nuevo también captura vía este mismo endpoint (mismo permiso
+// 'maquinaria_captura' que ya usa cabo) — sin cambios de flujo para cabo.
 app.post('/api/maquinaria/horas', h(auth.checkPermiso('maquinaria_captura', 'puede_crear')), h(async (req, res) => {
-  const { equipo_id, operador_id, fecha, horas, obra_id } = req.body || {};
+  const { equipo_id, operador_id, fecha, horas, obra_id, actividad } = req.body || {};
   if (!equipo_id || !fecha || !(horas > 0)) {
     return res.status(400).json({ error: 'Indica equipo, fecha y horas válidas' });
+  }
+  if (!ACTIVIDADES_MAQUINARIA.includes(actividad)) {
+    return res.status(400).json({ error: `Indica una actividad válida: ${ACTIVIDADES_MAQUINARIA.join(', ')}` });
   }
   const esAdmin = req.user.puesto === 'admin' || req.user.puesto === 'desarrollador';
   const operadorFinal = esAdmin && operador_id ? Number(operador_id) : req.user.id;
   const registro = await maquinaria.createHoras({
-    equipo_id: Number(equipo_id), operador_id: operadorFinal, fecha, horas: Number(horas), obra_id,
+    equipo_id: Number(equipo_id), operador_id: operadorFinal, fecha, horas: Number(horas), obra_id, actividad,
   });
   res.status(201).json(registro);
 }));
@@ -1348,20 +1359,17 @@ app.get('/api/cron/cotizador-refresh', requireCronSecret, h(async (req, res) => 
 // del último guardado) quedan con posicion NULL y se van al final por nombre
 // — así un cliente nuevo siempre aparece (al final) sin romper el orden ya
 // guardado de los demás.
-// HOTFIX URGENTE (fix/jefe-maquinaria-bootstrap-403): 'jefe_maquinaria'
-// agregado aquí, en /api/bienvenida y en /api/projects — este endpoint y
-// esos otros dos son parte del arranque base de la app (bootApp()), sin
-// los cuales CUALQUIER usuario con este rol recibía 403 en los 3 y nunca
-// podía cargar la app (confirmado con Postgres efímero + HTTP real: el
-// gap existía desde ANTES de PR #49, 'taller' tampoco estaba en esta
-// lista desde que /api/bienvenida se creó — no es algo que introdujo el
-// rename, es un bug de arranque desde el origen del rol Maquinaria). NO
-// se agrega a los demás endpoints con este mismo allow() literal (ordenes,
-// programa, conceptos, etc.) — jefe_maquinaria solo tiene el tab
-// 'maquinaria' (vista global, no por-obra), mismo criterio ya usado para
-// 'operador' (prompt-2-rol-operador-actividades.md, donde se detectó este
-// gap por primera vez).
-app.get('/api/clientes', h(auth.allow('residente', 'cabo', 'compras', 'tesoreria', 'administracion', 'logistica', 'jefe_maquinaria')), h(async (req, res) => {
+// 'jefe_maquinaria' (fix/jefe-maquinaria-bootstrap-403, PR #51) y 'operador'
+// (prompt-2-rol-operador-actividades.md) agregados aquí, en /api/bienvenida
+// y en /api/projects — este endpoint y esos otros dos son parte del
+// arranque base de la app (bootApp()), sin los cuales CUALQUIER usuario
+// con alguno de estos 2 roles recibía 403 en los 3 y nunca podía cargar la
+// app (el gap existía desde ANTES de PR #49 — 'taller' tampoco estaba en
+// esta lista desde que /api/bienvenida se creó, no es algo que introdujo
+// ningún rename). NO se agrega a los demás endpoints con este mismo
+// allow() literal (ordenes, programa, conceptos, etc.) — ambos roles solo
+// tienen el tab 'maquinaria' (vista global, no por-obra).
+app.get('/api/clientes', h(auth.allow('residente', 'cabo', 'compras', 'tesoreria', 'administracion', 'logistica', 'jefe_maquinaria', 'operador')), h(async (req, res) => {
   if (req.user.puesto === 'admin') {
     const { rows } = await db.pool.query(`
       SELECT c.id, c.nombre, COUNT(p.id)::int AS num_proyectos
@@ -2008,7 +2016,7 @@ app.post('/api/costos/crear-presupuesto', h(auth.checkPermiso('costos', 'puede_c
 // ---------------------------------------------------------------------------
 // Bienvenida — resumen ligero por proyecto para la pantalla de bienvenida
 // ---------------------------------------------------------------------------
-app.get('/api/bienvenida', h(auth.allow('residente', 'cabo', 'compras', 'tesoreria', 'administracion', 'logistica', 'jefe_maquinaria')), h(async (req, res) => {
+app.get('/api/bienvenida', h(auth.allow('residente', 'cabo', 'compras', 'tesoreria', 'administracion', 'logistica', 'jefe_maquinaria', 'operador')), h(async (req, res) => {
   const isAdminUser = req.user.puesto === 'admin';
   const { rows: projects } = isAdminUser
     ? await db.pool.query(`
@@ -2161,7 +2169,7 @@ app.put('/api/favoritos/orden', h(async (req, res) => {
 // ---------------------------------------------------------------------------
 // Proyectos
 // ---------------------------------------------------------------------------
-app.get('/api/projects', h(auth.allow('residente', 'cabo', 'compras', 'tesoreria', 'administracion', 'logistica', 'jefe_maquinaria')), h(async (req, res) => {
+app.get('/api/projects', h(auth.allow('residente', 'cabo', 'compras', 'tesoreria', 'administracion', 'logistica', 'jefe_maquinaria', 'operador')), h(async (req, res) => {
   const projects = req.user.puesto === 'admin'
     ? await db.listProjects()
     : (await db.pool.query(`

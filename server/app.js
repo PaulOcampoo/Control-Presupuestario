@@ -4201,6 +4201,12 @@ app.get('/api/projects/:id/resumen', h(auth.allow('tesoreria', 'administracion')
     db.pool.query('SELECT id FROM contratos WHERE project_id = $1', [pid]),
   ]);
   const meta = metaToObject(metaRows);
+  // Subtotal M.O.+C.S. de la cédula de contrato: derivado al vuelo desde los
+  // 2 campos ya extraídos, nunca persistido en `meta` (evita desincronizar
+  // un valor calculado con sus 2 fuentes).
+  if (meta.subtotal_mano_obra != null && meta.subtotal_carga_social != null) {
+    meta.subtotal_mo_cs = Number((Number(meta.subtotal_mano_obra) + Number(meta.subtotal_carga_social)).toFixed(2));
+  }
   const { rows: totalRows } = await db.pool.query(
     "SELECT importe FROM conceptos WHERE project_id = $1 AND es_total = 1 AND grupo IS NULL ORDER BY orden DESC LIMIT 1",
     [pid]

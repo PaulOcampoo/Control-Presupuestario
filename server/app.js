@@ -1348,7 +1348,20 @@ app.get('/api/cron/cotizador-refresh', requireCronSecret, h(async (req, res) => 
 // del último guardado) quedan con posicion NULL y se van al final por nombre
 // — así un cliente nuevo siempre aparece (al final) sin romper el orden ya
 // guardado de los demás.
-app.get('/api/clientes', h(auth.allow('residente', 'cabo', 'compras', 'tesoreria', 'administracion', 'logistica')), h(async (req, res) => {
+// HOTFIX URGENTE (fix/jefe-maquinaria-bootstrap-403): 'jefe_maquinaria'
+// agregado aquí, en /api/bienvenida y en /api/projects — este endpoint y
+// esos otros dos son parte del arranque base de la app (bootApp()), sin
+// los cuales CUALQUIER usuario con este rol recibía 403 en los 3 y nunca
+// podía cargar la app (confirmado con Postgres efímero + HTTP real: el
+// gap existía desde ANTES de PR #49, 'taller' tampoco estaba en esta
+// lista desde que /api/bienvenida se creó — no es algo que introdujo el
+// rename, es un bug de arranque desde el origen del rol Maquinaria). NO
+// se agrega a los demás endpoints con este mismo allow() literal (ordenes,
+// programa, conceptos, etc.) — jefe_maquinaria solo tiene el tab
+// 'maquinaria' (vista global, no por-obra), mismo criterio ya usado para
+// 'operador' (prompt-2-rol-operador-actividades.md, donde se detectó este
+// gap por primera vez).
+app.get('/api/clientes', h(auth.allow('residente', 'cabo', 'compras', 'tesoreria', 'administracion', 'logistica', 'jefe_maquinaria')), h(async (req, res) => {
   if (req.user.puesto === 'admin') {
     const { rows } = await db.pool.query(`
       SELECT c.id, c.nombre, COUNT(p.id)::int AS num_proyectos
@@ -1995,7 +2008,7 @@ app.post('/api/costos/crear-presupuesto', h(auth.checkPermiso('costos', 'puede_c
 // ---------------------------------------------------------------------------
 // Bienvenida — resumen ligero por proyecto para la pantalla de bienvenida
 // ---------------------------------------------------------------------------
-app.get('/api/bienvenida', h(auth.allow('residente', 'cabo', 'compras', 'tesoreria', 'administracion', 'logistica')), h(async (req, res) => {
+app.get('/api/bienvenida', h(auth.allow('residente', 'cabo', 'compras', 'tesoreria', 'administracion', 'logistica', 'jefe_maquinaria')), h(async (req, res) => {
   const isAdminUser = req.user.puesto === 'admin';
   const { rows: projects } = isAdminUser
     ? await db.pool.query(`
@@ -2148,7 +2161,7 @@ app.put('/api/favoritos/orden', h(async (req, res) => {
 // ---------------------------------------------------------------------------
 // Proyectos
 // ---------------------------------------------------------------------------
-app.get('/api/projects', h(auth.allow('residente', 'cabo', 'compras', 'tesoreria', 'administracion', 'logistica')), h(async (req, res) => {
+app.get('/api/projects', h(auth.allow('residente', 'cabo', 'compras', 'tesoreria', 'administracion', 'logistica', 'jefe_maquinaria')), h(async (req, res) => {
   const projects = req.user.puesto === 'admin'
     ? await db.listProjects()
     : (await db.pool.query(`

@@ -185,6 +185,17 @@ function defaultPermisosParaRol(puesto) {
     // borrador) antes de que esta sección tuviera checkPermiso real — este
     // default preserva exactamente esa capacidad (prompt-requisiciones-permisos.md).
     if (porSeccion.requisiciones) { porSeccion.requisiciones.puede_crear = true; porSeccion.requisiciones.puede_editar = true; porSeccion.requisiciones.puede_eliminar = true; }
+    // prompt-c-checkpermiso-trabajadores.md: mismo criterio que destajo/
+    // requisiciones arriba — antes de este prompt, editar/eliminar/
+    // documentos/contratos/EPP de trabajadores eran admin-only en código
+    // (auth.allow() sin argumentos), PERO residente igual tenía acceso
+    // porque auth.allow('residente') ya cubría ver/crear y el resto pasaba
+    // por endpoints que en la práctica solo residente/admin usaban desde la
+    // UI. Con checkPermiso real en todos los endpoints, este default
+    // preserva exactamente la capacidad completa que residente ya tenía —
+    // Forbidden Action explícita de este prompt: no debe requerir que Paul
+    // reconfigure nada para residente.
+    if (porSeccion.trabajadores) { porSeccion.trabajadores.puede_crear = true; porSeccion.trabajadores.puede_editar = true; porSeccion.trabajadores.puede_eliminar = true; }
   }
   if (puesto === 'cabo') {
     if (porSeccion.destajo) { porSeccion.destajo.puede_editar = true; }

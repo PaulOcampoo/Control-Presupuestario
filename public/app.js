@@ -7265,14 +7265,16 @@ async function openUsuarioModal(usuario) {
     api('/clientes'),
     isEdit ? api(`/usuarios/${usuario.id}/proyectos`) : Promise.resolve([]),
   ]);
-  // selectedProjectIds sobrevive al cambiar de cliente en el selector (abajo
-  // solo se muestran las obras del cliente activo, pero la selección de
-  // otros clientes ya elegidos antes no se pierde).
+  // selectedProjectIds no se limpia al marcar/desmarcar clientes en el
+  // checklist de abajo — solo cambia qué grupos de obras se muestran, la
+  // selección de obras ya hecha en otros clientes no se pierde.
   const selectedProjectIds = new Set(assigned.map((p) => p.id));
 
-  // Agrupa las obras por cliente: el admin debe elegir cliente primero, y
+  // Agrupa las obras por cliente: el admin debe marcar cliente(s) primero, y
   // solo entonces se habilita/muestra el checklist de sus obras — evita
-  // asignar una obra "a ciegas" sin saber a qué cliente pertenece.
+  // asignar una obra "a ciegas" sin saber a qué cliente pertenece. Permite
+  // marcar más de un cliente a la vez, para asignar obras de varios clientes
+  // a un mismo usuario sin tener que crear cuentas duplicadas.
   const SIN_CLIENTE = 'Sin cliente asignado';
   const clienteNombrePorId = new Map(clientes.map((c) => [c.id, c.nombre]));
   const proyectosPorCliente = new Map();
@@ -7284,8 +7286,21 @@ async function openUsuarioModal(usuario) {
   const gruposObras = [...proyectosPorCliente.entries()]
     .sort(([a], [b]) => (a === SIN_CLIENTE ? 1 : b === SIN_CLIENTE ? -1 : a.localeCompare(b)));
   gruposObras.forEach(([, proyectos]) => proyectos.sort((a, b) => a.nombre.localeCompare(b.nombre)));
-  const clienteOptionsHtml = gruposObras
-    .map(([nombreCliente]) => `<option value="${esc(nombreCliente)}">${esc(nombreCliente)}</option>`)
+  // selectedClientes: qué grupos de cliente están "abiertos" (mostrando su
+  // checklist de obras). En edición, se preseleccionan los clientes que ya
+  // tienen alguna obra asignada, para que el admin vea de entrada el estado
+  // real de un usuario con obras de varios clientes.
+  const selectedClientes = new Set();
+  if (isEdit) {
+    gruposObras.forEach(([nombreCliente, proyectos]) => {
+      if (proyectos.some((p) => selectedProjectIds.has(p.id))) selectedClientes.add(nombreCliente);
+    });
+  }
+  const clientesChecklistHtml = gruposObras
+    .map(([nombreCliente]) => `
+      <label class="checkbox-row-fw400 checkbox-row-indent">
+        <input type="checkbox" value="${esc(nombreCliente)}" class="w-auto" ${selectedClientes.has(nombreCliente) ? 'checked' : ''} /> ${esc(nombreCliente)}
+      </label>`)
     .join('');
 
   const puestoOptions = Object.keys(PUESTO_LABELS)
@@ -7317,14 +7332,12 @@ async function openUsuarioModal(usuario) {
       <p class="muted fs076-m006">Solo verá y podrá operar en las obras marcadas aquí.</p>
       ${allProjects.length ? `
       <div class="field">
-        <label>Cliente *</label>
-        <select id="uClienteSelect">
-          <option value="">Selecciona un cliente…</option>
-          ${clienteOptionsHtml}
-        </select>
+        <label>Cliente(s) *</label>
+        <p class="muted fs076-m006">Selecciona uno o más clientes para ver y marcar sus obras.</p>
+        <div id="uClientesChecklist" class="checkbox-list-col">${clientesChecklistHtml}</div>
       </div>
       <div id="uProyectosList" class="checkbox-list-col">
-        <p class="muted">Selecciona un cliente para ver y marcar sus obras.</p>
+        <p class="muted">Selecciona uno o más clientes para ver y marcar sus obras.</p>
       </div>
       <p class="muted fs-08" id="uProyectosResumen"></p>
       ` : '<p class="muted">No hay obras cargadas todavía.</p>'}
@@ -7341,10 +7354,11 @@ async function openUsuarioModal(usuario) {
     field.style.display = isAdminSel ? 'none' : '';
   });
 
-  // Checklist de obras acotado al cliente elegido en uClienteSelect — no se
-  // puede marcar una obra sin haber seleccionado antes su cliente. Cambiar
-  // de cliente no pierde lo ya marcado en otros clientes (selectedProjectIds
-  // vive fuera del DOM re-renderizado).
+  // Checklist de obras acotado a los clientes marcados en uClientesChecklist
+  // (multi-check) — no se puede marcar una obra sin haber marcado antes su
+  // cliente. Marcar/desmarcar un cliente solo cambia qué grupos se ven; no
+  // toca selectedProjectIds, así que desmarcar un cliente no borra obras ya
+  // elegidas de ese cliente (quedan asignadas aunque el grupo esté oculto).
   function renderProyectosResumen() {
     const el = $('#uProyectosResumen');
     if (!el) return;
@@ -7352,18 +7366,23 @@ async function openUsuarioModal(usuario) {
       ? `${selectedProjectIds.size} obra(s) asignada(s) en total (puede abarcar más de un cliente).`
       : '';
   }
-  function renderProyectosDeCliente(nombreCliente) {
+  function renderProyectosList() {
     const list = $('#uProyectosList');
-    if (!nombreCliente) {
-      list.innerHTML = '<p class="muted">Selecciona un cliente para ver y marcar sus obras.</p>';
+    if (!selectedClientes.size) {
+      list.innerHTML = '<p class="muted">Selecciona uno o más clientes para ver y marcar sus obras.</p>';
       return;
     }
-    const grupo = gruposObras.find(([nc]) => nc === nombreCliente);
-    const proyectos = grupo ? grupo[1] : [];
-    list.innerHTML = proyectos.map((p) => `
-      <label class="checkbox-row-fw400 checkbox-row-indent">
-        <input type="checkbox" value="${p.id}" class="w-auto" ${selectedProjectIds.has(p.id) ? 'checked' : ''} /> ${esc(p.nombre)}
-      </label>`).join('');
+    list.innerHTML = gruposObras
+      .filter(([nombreCliente]) => selectedClientes.has(nombreCliente))
+      .map(([nombreCliente, proyectos]) => `
+        <div class="uproyectos-grupo">
+          <p class="checkbox-list-group-title">${esc(nombreCliente)}</p>
+          ${proyectos.map((p) => `
+            <label class="checkbox-row-fw400 checkbox-row-indent">
+              <input type="checkbox" value="${p.id}" class="w-auto" ${selectedProjectIds.has(p.id) ? 'checked' : ''} /> ${esc(p.nombre)}
+            </label>`).join('')}
+        </div>`)
+      .join('');
     $$('#uProyectosList input[type="checkbox"]', list).forEach((cb) => {
       cb.addEventListener('change', () => {
         const id = Number(cb.value);
@@ -7372,7 +7391,13 @@ async function openUsuarioModal(usuario) {
       });
     });
   }
-  $('#uClienteSelect')?.addEventListener('change', (e) => renderProyectosDeCliente(e.target.value));
+  $$('#uClientesChecklist input[type="checkbox"]').forEach((cb) => {
+    cb.addEventListener('change', () => {
+      if (cb.checked) selectedClientes.add(cb.value); else selectedClientes.delete(cb.value);
+      renderProyectosList();
+    });
+  });
+  renderProyectosList();
   renderProyectosResumen();
 
   $('#btnCancelUsuario').addEventListener('click', closeModal);

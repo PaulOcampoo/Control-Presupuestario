@@ -506,6 +506,50 @@ input, select, textarea {
    qué esquema de color pintarse. */
 input[type="date"] { color-scheme: dark; cursor: pointer; }
 [data-theme="light"] input[type="date"] { color-scheme: light; }
+
+/* Selector estilizado reusable (customSelect, prompt-selector-estilizado-
+   piloto.md) — reemplaza el <select> nativo con un trigger + listbox
+   flotante propios. El <select> real queda oculto dentro de .custom-select
+   (sigue siendo la fuente de verdad de valor/eventos), solo se le quita la
+   representación visual. Mismo radio/borde/fondo que el resto de inputs
+   (arriba) y mismo patrón de dropdown flotante que .notif-dropdown (opacity
+   + transform + var(--ease-out), clase .show para animar apertura/cierre). */
+.custom-select { position: relative; }
+.custom-select select {
+  position: absolute; opacity: 0; pointer-events: none; width: 1px; height: 1px; overflow: hidden;
+}
+.custom-select-trigger {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%;
+  background: var(--bg-surface-2); color: var(--text-primary); border: 1px solid var(--border-color);
+  border-radius: 10px; padding: 10px 12px; font-size: 0.92rem; text-align: left; cursor: pointer;
+  transition: border-color 0.15s var(--ease-out), box-shadow 0.15s var(--ease-out);
+}
+.custom-select-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.custom-select-chevron { flex: none; display: flex; color: var(--text-secondary); transition: transform 0.15s var(--ease-out); }
+.custom-select-trigger[aria-expanded="true"] .custom-select-chevron { transform: rotate(180deg); }
+.custom-select-trigger:focus-visible {
+  outline: none; border-color: var(--accent-gold);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-gold) 30%, transparent);
+}
+@media (hover: hover) and (pointer: fine) {
+  .custom-select-trigger:hover { border-color: var(--accent-gold); }
+}
+.custom-select-list {
+  position: absolute; top: calc(100% + 6px); left: 0; right: 0; max-height: 220px; overflow-y: auto;
+  background: var(--bg-surface); border: 1px solid var(--border-color); border-radius: 10px;
+  box-shadow: 0 12px 30px rgba(0,0,0,0.35); z-index: 5; padding: 4px;
+  opacity: 0; pointer-events: none; transform: translateY(-6px);
+  transition: opacity 0.15s var(--ease-out), transform 0.15s var(--ease-out);
+}
+.custom-select-list.show { opacity: 1; pointer-events: auto; transform: translateY(0); }
+.custom-select-option {
+  padding: 9px 10px; border-radius: 8px; font-size: 0.88rem; color: var(--text-primary); cursor: pointer;
+}
+@media (hover: hover) and (pointer: fine) {
+  .custom-select-option:hover { background: var(--bg-surface-2); }
+}
+.custom-select-option.highlighted { background: var(--bg-surface-2); }
+.custom-select-option.selected { color: var(--accent-gold); font-weight: 600; }
 label { display: block; font-size: 0.8rem; color: var(--text-secondary); margin: 10px 0 4px; }
 .field { margin-bottom: 6px; }
 .field-null input, .field-null select { border-color: var(--yellow); }
@@ -2556,7 +2600,8 @@ body.modal-open { overflow: hidden; }
   .modal, .toast, .notif-dropdown, .drawer, .overlay,
   #proximamenteTooltip, .gantt-bar-inner, .collapse-body,
   #loginScreen, #clientGalleryScreen, #welcomeScreen, #app,
-  #totpReminderBanner, #installBanner {
+  #totpReminderBanner, #installBanner,
+  .custom-select-list, .custom-select-chevron, .custom-select-trigger {
     transition: none;
   }
 

@@ -36,7 +36,18 @@ const PERMISSIONS = {
   // permiso por sí sola, un admin debe concederlo explícitamente en la
   // matriz por cada obra.
   residente:      { label: 'Residente',     tabs: ['programa', 'avance', 'destajo', 'requisiciones', 'insumos', 'ordenes', 'nominas', 'trabajadores', 'estimaciones'] },
-  cabo:           { label: 'Cabo',          tabs: ['destajo', 'insumos', 'avance', 'requisiciones', 'maquinaria'] },
+  // 'trabajadores' agregado aquí (prompt-c-checkpermiso-trabajadores.md,
+  // fix de visibilidad en nav): mismo gap ya documentado para 'costos' más
+  // abajo — el permiso puede_ver otorgado vía la matriz a UN cabo específico
+  // no bastaba, porque la visibilidad de la pestaña en nav es por ROL (esta
+  // lista), no por usuario individual. Agregar el tab lo hace visible para
+  // TODOS los cabo (no solo el que recibió el permiso) — cualquier cabo sin
+  // el puede_ver real ve la pestaña pero renderTrabajadores() ya maneja esto
+  // con gracia ("No tienes permiso para ver esta sección", mismo patrón que
+  // trabajadores_global/costos), sin exponer ningún dato — el backend sigue
+  // siendo la única barrera de seguridad real (checkPermiso, PR previo de
+  // este mismo branch).
+  cabo:           { label: 'Cabo',          tabs: ['destajo', 'insumos', 'avance', 'requisiciones', 'maquinaria', 'trabajadores'] },
   compras:        { label: 'Compras',       tabs: ['programa', 'requisiciones', 'insumos', 'ordenes', 'proveedores', 'cotizador'] },
   tesoreria:      { label: 'Tesorería',     tabs: ['resumen', 'finanzas', 'estadoResultados', 'estadoResultadosGlobal', 'ordenes', 'contrato', 'impuestos', 'proveedores'] },
   administracion: { label: 'Administración',tabs: ['resumen', 'programa', 'destajo', 'ordenes', 'proveedores', 'contrato', 'impuestos', 'mapeo'] },
@@ -185,6 +196,17 @@ function defaultPermisosParaRol(puesto) {
     // borrador) antes de que esta sección tuviera checkPermiso real — este
     // default preserva exactamente esa capacidad (prompt-requisiciones-permisos.md).
     if (porSeccion.requisiciones) { porSeccion.requisiciones.puede_crear = true; porSeccion.requisiciones.puede_editar = true; porSeccion.requisiciones.puede_eliminar = true; }
+    // prompt-c-checkpermiso-trabajadores.md: mismo criterio que destajo/
+    // requisiciones arriba — antes de este prompt, editar/eliminar/
+    // documentos/contratos/EPP de trabajadores eran admin-only en código
+    // (auth.allow() sin argumentos), PERO residente igual tenía acceso
+    // porque auth.allow('residente') ya cubría ver/crear y el resto pasaba
+    // por endpoints que en la práctica solo residente/admin usaban desde la
+    // UI. Con checkPermiso real en todos los endpoints, este default
+    // preserva exactamente la capacidad completa que residente ya tenía —
+    // Forbidden Action explícita de este prompt: no debe requerir que Paul
+    // reconfigure nada para residente.
+    if (porSeccion.trabajadores) { porSeccion.trabajadores.puede_crear = true; porSeccion.trabajadores.puede_editar = true; porSeccion.trabajadores.puede_eliminar = true; }
   }
   if (puesto === 'cabo') {
     if (porSeccion.destajo) { porSeccion.destajo.puede_editar = true; }
@@ -217,6 +239,19 @@ function defaultPermisosParaRol(puesto) {
       filas.push(filaOrdenes);
       porSeccion.ordenes_compra = filaOrdenes;
     }
+    // prompt-c-checkpermiso-trabajadores.md (fix de nav): agregar
+    // 'trabajadores' a PERMISSIONS.cabo.tabs (arriba) hace que el loop base
+    // de esta función también le genere puede_ver=true por default — porque
+    // 'trabajadores' SÍ está en TAB_A_SECCION (a diferencia de 'costos', que
+    // se dejó fuera de ese mapeo a propósito para lograr default-deny real).
+    // Eso anularía por completo el punto de que Paul otorgue el permiso a UN
+    // cabo específico desde la matriz — CUALQUIER cabo nuevo lo tendría ya
+    // de entrada. Override explícito: cabo parte en puede_ver=false para
+    // 'trabajadores' (residente NO se toca, sigue con su default de
+    // puede_ver=true de siempre) — el tab aparece en su nav (para que sepan
+    // que la sección existe y pueden pedir acceso), pero sin el permiso
+    // real hasta que un admin se lo conceda explícitamente por la matriz.
+    if (porSeccion.trabajadores) { porSeccion.trabajadores.puede_ver = false; }
   }
   if (puesto === 'compras') {
     // compras podía crear/editar/eliminar requisiciones de cualquier obra por

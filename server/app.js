@@ -85,7 +85,7 @@ app.use((_req, res, next) => {
       "script-src 'self'",
       "style-src 'self'",
       "img-src 'self' data:", // data: para <img> de firma digital EPP (base64 inline, no un archivo)
-      "connect-src 'self' https://*.vercel-storage.com",
+      "connect-src 'self' https://*.vercel-storage.com https://vercel.com",
       "worker-src 'self'",
       "manifest-src 'self'",
       "frame-ancestors 'none'",
@@ -2306,6 +2306,34 @@ app.post('/api/projects/upload-token', h(auth.allow()), h(async (req, res) => {
   }
 }));
 
+// prompt-diagnostico-y-fix-jszip-actualizar-presupuesto.md: descarga
+// compartida por las 3 rutas que bajan un .xlsx de Vercel Blob para
+// parsearlo con exceljs (carga inicial + preview/confirmar de "Actualizar
+// presupuesto"). Diagnóstico: get()+pipeline() reprodujeron íntegros
+// (hash idéntico) en pruebas directas contra Vercel Blob real, y también
+// end-to-end vía el upload real del navegador — no se logró reproducir el
+// "Can't find end of central directory" reportado. Como no se pudo aislar
+// una causa determinística, esta validación convierte cualquier descarga
+// truncada (red intermitente, propagación de Vercel Blob) en un error
+// claro y accionable ANTES de llegar a exceljs/jszip, en vez del mensaje
+// críptico de jszip — comparando el tamaño descargado contra el
+// Content-Length real que reportó el blob, con un reintento automático por
+// si fue un corte transitorio.
+async function descargarBlobXlsxATmp(archivo_url, tmpPath) {
+  for (let intento = 1; intento <= 2; intento++) {
+    const blobResult = await get(archivo_url, { access: 'private' });
+    if (!blobResult) throw new Error('No se pudo descargar el archivo subido');
+    await pipeline(Readable.fromWeb(blobResult.stream), fs.createWriteStream(tmpPath));
+    const tamanoEsperado = blobResult.blob?.size;
+    const tamanoReal = (await fs.promises.stat(tmpPath)).size;
+    if (tamanoEsperado && tamanoReal !== tamanoEsperado) {
+      if (intento < 2) continue;
+      throw new Error(`El archivo se descargó incompleto (esperados ${tamanoEsperado} bytes, se recibieron ${tamanoReal}). Vuelve a subirlo — puede ser un problema de conexión momentáneo.`);
+    }
+    return;
+  }
+}
+
 app.post('/api/projects', h(auth.allow()), h(async (req, res) => {
   const { cliente_id, archivo_url, archivo_nombre } = req.body || {};
   if (!archivo_url) return res.status(400).json({ error: 'Sube un archivo .xlsx de presupuesto' });
@@ -2321,9 +2349,7 @@ app.post('/api/projects', h(auth.allow()), h(async (req, res) => {
   }
   const tmpPath = path.join(os.tmpdir(), `presupuesto-${Date.now()}-${Math.round(Math.random() * 1e9)}.xlsx`);
   try {
-    const blobResult = await get(archivo_url, { access: 'private' });
-    if (!blobResult) throw new Error('No se pudo descargar el archivo subido');
-    await pipeline(Readable.fromWeb(blobResult.stream), fs.createWriteStream(tmpPath));
+    await descargarBlobXlsxATmp(archivo_url, tmpPath);
     const parsed = await parseWorkbook(tmpPath);
     if (!parsed.conceptos.length && !parsed.insumos.length) {
       throw new Error('No se reconoció una hoja de presupuesto ni de listado de insumos en el archivo. Verifica que tenga el formato esperado (columnas Código, Concepto, Unidad, Cantidad, Precio, Importe).');
@@ -2715,9 +2741,7 @@ app.post('/api/projects/:id/presupuesto/actualizar/preview', h(auth.allow()), h(
   const pid = req.project.id;
   const tmpPath = path.join(os.tmpdir(), `presupuesto-actualizar-${Date.now()}-${Math.round(Math.random() * 1e9)}.xlsx`);
   try {
-    const blobResult = await get(archivo_url, { access: 'private' });
-    if (!blobResult) throw new Error('No se pudo descargar el archivo subido');
-    await pipeline(Readable.fromWeb(blobResult.stream), fs.createWriteStream(tmpPath));
+    await descargarBlobXlsxATmp(archivo_url, tmpPath);
     const parsed = await parseWorkbook(tmpPath);
     if (!parsed.conceptos.length) {
       throw new Error('No se reconoció una hoja de presupuesto en el archivo. Verifica que tenga el formato esperado (columnas Código, Concepto, Unidad, Cantidad, Precio, Importe).');
@@ -2766,9 +2790,7 @@ app.post('/api/projects/:id/presupuesto/actualizar/confirmar', h(auth.allow()), 
   const pid = req.project.id;
   const tmpPath = path.join(os.tmpdir(), `presupuesto-actualizar-${Date.now()}-${Math.round(Math.random() * 1e9)}.xlsx`);
   try {
-    const blobResult = await get(archivo_url, { access: 'private' });
-    if (!blobResult) throw new Error('No se pudo descargar el archivo subido');
-    await pipeline(Readable.fromWeb(blobResult.stream), fs.createWriteStream(tmpPath));
+    await descargarBlobXlsxATmp(archivo_url, tmpPath);
     const parsed = await parseWorkbook(tmpPath);
     if (!parsed.conceptos.length) {
       throw new Error('No se reconoció una hoja de presupuesto en el archivo.');

@@ -2118,7 +2118,11 @@ app.get('/api/bienvenida', h(auth.allow('residente', 'cabo', 'compras', 'tesorer
     ]);
     return {
       ...p,
-      presupuesto_total: ['residente', 'cabo'].includes(req.user.puesto)
+      // Widget "Mayor Avance" de Inicio: el monto se oculta para todos los
+      // roles salvo admin/desarrollador (reemplaza la lista puntual
+      // ['residente', 'cabo'] de PR #40 — Paul confirmó con captura que
+      // otros roles como compras/tesorería seguían viendo el monto).
+      presupuesto_total: !['admin', 'desarrollador'].includes(req.user.puesto)
         ? null
         : (metaRows[0] ? Number(metaRows[0].valor) : 0),
       avance_financiero_ejecutado: avRows[0] ? Number(avRows[0].avance_financiero_real) : 0,

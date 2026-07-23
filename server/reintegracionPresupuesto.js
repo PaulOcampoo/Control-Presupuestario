@@ -2,9 +2,11 @@
 
 // Emparejamiento de conceptos para la actualización de presupuesto
 // preservando avance (ver DISEÑO-ACTUALIZACION-PRESUPUESTO.md, aprobado por
-// Paul 2026-07-21). Compartido entre el endpoint de preview y el de
-// confirmar para que ambos produzcan exactamente el mismo resultado dado el
-// mismo Excel y el mismo estado de la DB — nunca se duplica esta lógica.
+// Paul 2026-07-21, y prompt-conflictos-emparejamiento-presupuesto.md para el
+// caso de duplicados legítimos). Compartido entre el endpoint de preview y
+// el de confirmar para que ambos produzcan exactamente el mismo resultado
+// dado el mismo Excel y el mismo estado de la DB — nunca se duplica esta
+// lógica.
 
 function normalizarDescripcion(s) {
   return (s || '').toString().trim().toLowerCase().replace(/\s+/g, ' ');
@@ -17,7 +19,7 @@ function normalizarDescripcion(s) {
 // itemsExcelNuevo: conceptos parseados del Excel nuevo (server/parser.js).
 //
 // Devuelve { emparejados, nuevos, historicos, conflictos }:
-// - emparejados: [{ existente, nuevo, via: 'codigo'|'descripcion' }]
+// - emparejados: [{ existente, nuevo, via: 'codigo'|'codigo-duplicado'|'descripcion' }]
 // - nuevos: [itemExcel, ...] sin match
 // - historicos: [existente, ...] sin match en el Excel nuevo
 // - conflictos: ambigüedades que NO se resuelven automáticamente (múltiples
@@ -55,9 +57,41 @@ function emparejarConceptos(itemsExcelNuevo, existentesDB) {
   const nuevos = [];
   const conflictos = [];
 
-  // Paso 1: emparejar por código, solo cuando es único en ambos lados.
+  // Paso 0: duplicados LEGÍTIMOS en el Excel nuevo (misma partida repetida
+  // en distintas zonas/áreas — caso real confirmado por Paul, ver
+  // prompt-conflictos-emparejamiento-presupuesto.md). Un código con 2+ filas
+  // en el Excel nuevo ya no es un conflicto bloqueante: la primera fila
+  // empareja normalmente contra el existente (preserva concepto_id/avance/
+  // destajo/finanzas), las filas adicionales se agregan como conceptos
+  // nuevos. Solo aplica cuando el código NO está también duplicado del lado
+  // de la DB — si lo está, es una ambigüedad real de datos preexistente y
+  // se deja caer al fallback por descripción de siempre (comportamiento ya
+  // confirmado por Paul en el diseño original, sin tocar).
+  const codigosDuplicadosExcel = new Set();
+  for (const item of nuevosFiltrados) {
+    if (!item.codigo) continue;
+    if ((excelCountByCode.get(item.codigo) || 0) <= 1) continue;
+    if ((countByCode.get(item.codigo) || 0) > 1) continue;
+    codigosDuplicadosExcel.add(item.codigo);
+  }
+  for (const codigo of codigosDuplicadosExcel) {
+    const itemsDelCodigo = nuevosFiltrados.filter((i) => i.codigo === codigo);
+    const candidatos = existentesByCode.get(codigo) || [];
+    itemsDelCodigo.forEach((item, i) => {
+      if (i < candidatos.length) {
+        usedExistenteIds.add(candidatos[i].id);
+        emparejados.push({ existente: candidatos[i], nuevo: item, via: 'codigo-duplicado' });
+      } else {
+        nuevos.push(item);
+      }
+    });
+  }
+
+  // Paso 1: emparejar por código, solo cuando es único en ambos lados (los
+  // duplicados legítimos del Paso 0 ya quedaron resueltos y se excluyen aquí).
   const sinMatchCodigo = [];
   for (const item of nuevosFiltrados) {
+    if (item.codigo && codigosDuplicadosExcel.has(item.codigo)) continue;
     if (item.codigo && countByCode.get(item.codigo) === 1 && excelCountByCode.get(item.codigo) === 1) {
       const existente = existentesByCode.get(item.codigo)[0];
       usedExistenteIds.add(existente.id);
@@ -84,8 +118,9 @@ function emparejarConceptos(itemsExcelNuevo, existentesDB) {
       emparejados.push({ existente: candidatos[0], nuevo: itemsExcel[0], via: 'descripcion' });
     } else if (candidatos.length > 1 || (itemsExcel.length > 1 && candidatos.length >= 1)) {
       // Ambigüedad real (2 existentes con el mismo nombre, o 2+ conceptos
-      // nuevos compitiendo por el mismo concepto viejo) — se reporta, no se
-      // resuelve tomando el primero.
+      // nuevos compitiendo por el mismo concepto viejo, sin que se trate del
+      // caso de duplicados legítimos por código ya resuelto en el Paso 0) —
+      // se reporta, no se resuelve tomando el primero.
       candidatos.forEach((e) => enConflictoIds.add(e.id));
       conflictos.push({
         descripcion: key,
@@ -102,4 +137,22 @@ function emparejarConceptos(itemsExcelNuevo, existentesDB) {
   return { emparejados, nuevos, historicos, conflictos };
 }
 
-module.exports = { emparejarConceptos, normalizarDescripcion };
+// Determina si un concepto emparejado tiene un cambio de precio/cantidad
+// ambiguo que requiere confirmación explícita de Paul (selector precio /
+// cantidad / ambos) en vez de aplicarse en silencio:
+// - Cambian precio Y cantidad a la vez en un emparejamiento 1:1 normal: no
+//   es claro si es cambio de precio, de volumen, o ambos genuinamente.
+// - El emparejamiento vino de un código duplicado legítimo (Paso 0) y la
+//   fila que quedó pegada al concepto existente trae precio o cantidad
+//   distintos: afecta a varias filas del mismo código, así que tampoco es
+//   mecánicamente claro que ese cambio aplique al concepto existente.
+// Un solo campo distinto (precio O cantidad, no ambos) en un match 1:1
+// normal sigue sin ser ambiguo — se aplica igual que hoy, solo informativo.
+function calcularCambios(m) {
+  const cambiaPrecio = Number(m.existente.precio_unitario) !== Number(m.nuevo.precio_unitario);
+  const cambiaCantidad = Number(m.existente.cantidad) !== Number(m.nuevo.cantidad);
+  const ambiguo = (cambiaPrecio && cambiaCantidad) || (m.via === 'codigo-duplicado' && (cambiaPrecio || cambiaCantidad));
+  return { cambiaPrecio, cambiaCantidad, ambiguo };
+}
+
+module.exports = { emparejarConceptos, normalizarDescripcion, calcularCambios };

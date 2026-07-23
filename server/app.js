@@ -52,7 +52,7 @@ const cotizador = require('./cotizador');
 const { metaToObject, presupuestoTotalDe, getFinanzasResumenData } = require('./finanzas');
 const { calcularJornal, calcularDestajo } = require('./calculos');
 const estadoResultados = require('./estadoResultados');
-const { emparejarConceptos } = require('./reintegracionPresupuesto');
+const { emparejarConceptos, calcularCambios } = require('./reintegracionPresupuesto');
 
 // CN-007: nombre_archivo/pdf_filename vienen del cliente (upload); una comilla
 // doble en el valor rompe fuera del filename="..." y permite inyectar
@@ -2762,19 +2762,23 @@ app.post('/api/projects/:id/presupuesto/actualizar/preview', h(auth.allow()), h(
 
     res.json({
       nuevos: nuevos.map((c) => ({ codigo: c.codigo || null, concepto: c.concepto, unidad: c.unidad, cantidad: c.cantidad, precio_unitario: c.precio_unitario })),
-      emparejados: emparejados.map((m) => ({
-        concepto_id: m.existente.id,
-        codigo: m.nuevo.codigo || m.existente.codigo,
-        concepto: m.nuevo.concepto,
-        via: m.via,
-        precio_anterior: m.existente.precio_unitario,
-        precio_nuevo: m.nuevo.precio_unitario,
-        cambia_precio: Number(m.existente.precio_unitario) !== Number(m.nuevo.precio_unitario),
-        cantidad_anterior: m.existente.cantidad,
-        cantidad_nueva: m.nuevo.cantidad,
-        cambia_cantidad: Number(m.existente.cantidad) !== Number(m.nuevo.cantidad),
-        regresa: Number(m.existente.activo) === 0,
-      })),
+      emparejados: emparejados.map((m) => {
+        const { cambiaPrecio, cambiaCantidad, ambiguo } = calcularCambios(m);
+        return {
+          concepto_id: m.existente.id,
+          codigo: m.nuevo.codigo || m.existente.codigo,
+          concepto: m.nuevo.concepto,
+          via: m.via,
+          precio_anterior: m.existente.precio_unitario,
+          precio_nuevo: m.nuevo.precio_unitario,
+          cambia_precio: cambiaPrecio,
+          cantidad_anterior: m.existente.cantidad,
+          cantidad_nueva: m.nuevo.cantidad,
+          cambia_cantidad: cambiaCantidad,
+          ambiguo_precio_cantidad: ambiguo,
+          regresa: Number(m.existente.activo) === 0,
+        };
+      }),
       historicos: historicos.map((e) => ({ concepto_id: e.id, codigo: e.codigo, concepto: e.concepto })),
       conflictos,
       total_nuevo: Number(totalNuevo.toFixed(2)),
@@ -2788,7 +2792,7 @@ app.post('/api/projects/:id/presupuesto/actualizar/preview', h(auth.allow()), h(
 }));
 
 app.post('/api/projects/:id/presupuesto/actualizar/confirmar', h(auth.allow()), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('presupuestos', 'puede_editar')), h(async (req, res) => {
-  const { archivo_url, confirmado } = req.body || {};
+  const { archivo_url, confirmado, resoluciones_precio_cantidad } = req.body || {};
   if (!archivo_url) return res.status(400).json({ error: 'Sube un archivo .xlsx de presupuesto' });
   if (confirmado !== true) return res.status(400).json({ error: 'Falta confirmar explícitamente la actualización' });
   const pid = req.project.id;
@@ -2817,6 +2821,24 @@ app.post('/api/projects/:id/presupuesto/actualizar/confirmar', h(auth.allow()), 
       });
     }
 
+    // Cambios de precio/cantidad ambiguos (ambos cambian a la vez, o el
+    // match viene de un código duplicado legítimo) requieren que Paul elija
+    // explícitamente cómo aplicarlos antes de tocar la DB — nunca se adivina.
+    const resoluciones = resoluciones_precio_cantidad || {};
+    const pendientes = [];
+    for (const m of emparejados) {
+      const { ambiguo } = calcularCambios(m);
+      if (ambiguo && !['precio', 'cantidad', 'ambos'].includes(resoluciones[m.existente.id])) {
+        pendientes.push({ concepto_id: m.existente.id, codigo: m.existente.codigo, concepto: m.existente.concepto });
+      }
+    }
+    if (pendientes.length > 0) {
+      return res.status(400).json({
+        error: 'Hay conceptos con cambio de precio y cantidad ambiguo — elige cómo aplicar cada uno antes de confirmar.',
+        requiere_resolucion_precio_cantidad: pendientes,
+      });
+    }
+
     const totalAntes = await presupuestoTotalDe(pid);
     const { rows: maxOrdenRows } = await db.pool.query(
       'SELECT COALESCE(MAX(orden), 0) AS max_orden FROM conceptos WHERE project_id = $1', [pid]
@@ -2824,14 +2846,33 @@ app.post('/api/projects/:id/presupuesto/actualizar/confirmar', h(auth.allow()), 
     const maxOrdenExistente = Number(maxOrdenRows[0].max_orden);
 
     let totalFinal = 0;
+    const aplicados = [];
 
     await db.withTransaction(async (client) => {
-      for (const { existente, nuevo } of emparejados) {
-        const importe = Number(nuevo.cantidad) * Number(nuevo.precio_unitario);
+      for (const m of emparejados) {
+        const { existente, nuevo } = m;
+        const { ambiguo } = calcularCambios(m);
+        let cantidadFinal = Number(nuevo.cantidad);
+        let precioFinal = Number(nuevo.precio_unitario);
+        if (ambiguo) {
+          const eleccion = resoluciones[existente.id];
+          if (eleccion === 'precio') cantidadFinal = Number(existente.cantidad);
+          else if (eleccion === 'cantidad') precioFinal = Number(existente.precio_unitario);
+          // 'ambos' deja cantidadFinal/precioFinal tal cual vienen del Excel.
+        }
+        const importe = cantidadFinal * precioFinal;
+        aplicados.push({
+          concepto_id: existente.id,
+          codigo: existente.codigo,
+          precio_anterior: existente.precio_unitario,
+          precio_nuevo: precioFinal,
+          cantidad_anterior: existente.cantidad,
+          cantidad_nueva: cantidadFinal,
+        });
         await client.query(
           `UPDATE conceptos SET codigo=$1, concepto=$2, unidad=$3, cantidad=$4, precio_unitario=$5, importe=$6, grupo=$7, activo=1
            WHERE id=$8`,
-          [nuevo.codigo || null, nuevo.concepto, nuevo.unidad, nuevo.cantidad, nuevo.precio_unitario, importe, nuevo.grupo, existente.id]
+          [nuevo.codigo || null, nuevo.concepto, nuevo.unidad, cantidadFinal, precioFinal, importe, nuevo.grupo, existente.id]
         );
       }
 
@@ -2894,12 +2935,12 @@ app.post('/api/projects/:id/presupuesto/actualizar/confirmar', h(auth.allow()), 
         nuevos: nuevos.length,
         emparejados: emparejados.length,
         historicos: historicos.length,
-        cambios_precio: emparejados
-          .filter((m) => Number(m.existente.precio_unitario) !== Number(m.nuevo.precio_unitario))
-          .map((m) => ({ concepto_id: m.existente.id, codigo: m.existente.codigo, precio_anterior: m.existente.precio_unitario, precio_nuevo: m.nuevo.precio_unitario })),
-        cambios_cantidad: emparejados
-          .filter((m) => Number(m.existente.cantidad) !== Number(m.nuevo.cantidad))
-          .map((m) => ({ concepto_id: m.existente.id, codigo: m.existente.codigo, cantidad_anterior: m.existente.cantidad, cantidad_nueva: m.nuevo.cantidad })),
+        cambios_precio: aplicados
+          .filter((a) => Number(a.precio_anterior) !== Number(a.precio_nuevo))
+          .map((a) => ({ concepto_id: a.concepto_id, codigo: a.codigo, precio_anterior: a.precio_anterior, precio_nuevo: a.precio_nuevo })),
+        cambios_cantidad: aplicados
+          .filter((a) => Number(a.cantidad_anterior) !== Number(a.cantidad_nueva))
+          .map((a) => ({ concepto_id: a.concepto_id, codigo: a.codigo, cantidad_anterior: a.cantidad_anterior, cantidad_nueva: a.cantidad_nueva })),
         total_antes: totalAntes,
         total_despues: totalFinal,
       });

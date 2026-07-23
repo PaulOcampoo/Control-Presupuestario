@@ -4305,6 +4305,7 @@ function pintarPreviewActualizacionPresupuesto(preview, archivoUrl) {
   const cambiosPrecio = preview.emparejados.filter((m) => m.cambia_precio).length;
   const cambiosCantidad = preview.emparejados.filter((m) => m.cambia_cantidad).length;
   const hayConflictos = preview.conflictos && preview.conflictos.length > 0;
+  const ambiguos = preview.emparejados.filter((m) => m.ambiguo_precio_cantidad);
 
   openModal(`
     <h3>Preview de actualización</h3>
@@ -4327,6 +4328,26 @@ function pintarPreviewActualizacionPresupuesto(preview, archivoUrl) {
         </ul>
       </div>
     ` : ''}
+    ${ambiguos.length ? `
+      <div class="alert-box warn">
+        <strong>⚠️ ${ambiguos.length} concepto(s) con cambio de precio Y cantidad al mismo tiempo.</strong>
+        <p class="fs-08 mt-4">No es claro si el cambio real es de precio, de cantidad, o ambos. Elige cómo aplicar cada uno antes de poder confirmar.</p>
+        <ul class="fs-08" style="list-style:none;padding:0;">
+          ${ambiguos.map((m) => `
+            <li class="mt-8">
+              <div>${esc(m.codigo || '')} — ${esc(m.concepto)}</div>
+              <div class="fs-08 muted">Precio: ${fmtMoney(m.precio_anterior)} → ${fmtMoney(m.precio_nuevo)} · Cantidad: ${m.cantidad_anterior} → ${m.cantidad_nueva}</div>
+              <select class="select-resolucion-precio-cantidad" data-concepto-id="${m.concepto_id}">
+                <option value="">Elige una opción…</option>
+                <option value="precio">Solo actualizar precio (mantener cantidad)</option>
+                <option value="cantidad">Solo actualizar cantidad (mantener precio)</option>
+                <option value="ambos">Actualizar ambos</option>
+              </select>
+            </li>
+          `).join('')}
+        </ul>
+      </div>
+    ` : ''}
     ${preview.historicos.length ? `
       <details class="mt-8">
         <summary>Ver conceptos que pasarán a históricos (${preview.historicos.length})</summary>
@@ -4335,17 +4356,28 @@ function pintarPreviewActualizacionPresupuesto(preview, archivoUrl) {
     ` : ''}
     <div class="modal-actions">
       <button class="btn btn-outline" id="btnCancelarConfirmarActualizacion">Cancelar</button>
-      <button class="btn btn-primary" id="btnConfirmarActualizacion" ${hayConflictos ? 'disabled' : ''}>Confirmar actualización</button>
+      <button class="btn btn-primary" id="btnConfirmarActualizacion" ${(hayConflictos || ambiguos.length) ? 'disabled' : ''}>Confirmar actualización</button>
     </div>
   `);
 
+  const btnConfirmar = $('#btnConfirmarActualizacion');
+  const selectsResolucion = () => Array.from(document.querySelectorAll('.select-resolucion-precio-cantidad'));
+  function actualizarEstadoBotonConfirmar() {
+    if (!btnConfirmar) return;
+    const faltanSelecciones = selectsResolucion().some((s) => !s.value);
+    btnConfirmar.disabled = hayConflictos || faltanSelecciones;
+  }
+  selectsResolucion().forEach((s) => s.addEventListener('change', actualizarEstadoBotonConfirmar));
+
   $('#btnCancelarConfirmarActualizacion').addEventListener('click', closeModal);
-  $('#btnConfirmarActualizacion')?.addEventListener('click', async () => {
+  btnConfirmar?.addEventListener('click', async () => {
+    const resoluciones_precio_cantidad = {};
+    selectsResolucion().forEach((s) => { resoluciones_precio_cantidad[s.dataset.conceptoId] = s.value; });
     openModal(`<h3>Aplicando actualización…</h3><div class="spinner"></div>`);
     try {
       const result = await api(`/projects/${state.projectId}/presupuesto/actualizar/confirmar`, {
         method: 'POST',
-        body: { archivo_url: archivoUrl, confirmado: true },
+        body: { archivo_url: archivoUrl, confirmado: true, resoluciones_precio_cantidad },
       });
       closeModal();
       toast(`Presupuesto actualizado: ${result.nuevos} nuevos, ${result.emparejados} emparejados, ${result.historicos} históricos`, 'success');

@@ -832,6 +832,18 @@ const SCHEMA = `
   );
   CREATE INDEX IF NOT EXISTS idx_equipos_maquinaria_obra ON equipos_maquinaria(obra_id);
 
+  -- Asignación de equipo a cliente (prompt-a-maquinaria-por-cliente.md):
+  -- concepto deliberadamente independiente de obra_id (que sigue usándose
+  -- solo para atribuir combustible/mantenimiento a una obra concreta, ver
+  -- getReportePorCliente en server/maquinaria.js). cliente_asignado_id
+  -- responde "¿de qué cliente es este equipo hoy?" en abstracto, sin
+  -- ligarlo a una obra específica de ese cliente — decisión explícita de
+  -- Paul tras confirmar que quería un campo nuevo y no reutilizar obra_id.
+  -- Nullable: "sin asignar" (disponible/en taller) es un estado válido. Un
+  -- solo valor por equipo (no tabla puente) porque nunca está asignado a
+  -- dos clientes a la vez; reasignar simplemente sobreescribe.
+  ALTER TABLE equipos_maquinaria ADD COLUMN IF NOT EXISTS cliente_asignado_id INTEGER REFERENCES clientes(id) ON DELETE SET NULL;
+
   CREATE TABLE IF NOT EXISTS combustible_maquinaria (
     id SERIAL PRIMARY KEY,
     equipo_id INTEGER NOT NULL REFERENCES equipos_maquinaria(id) ON DELETE CASCADE,

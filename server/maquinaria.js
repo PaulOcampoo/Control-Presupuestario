@@ -20,13 +20,26 @@ const ALERTA_PRESUPUESTO_PCT = 90;
 
 async function listEquipos() {
   const { rows } = await db.pool.query(`
-    SELECT e.*, p.nombre AS obra_nombre
+    SELECT e.*, p.nombre AS obra_nombre, c.nombre AS cliente_asignado_nombre
     FROM equipos_maquinaria e
     LEFT JOIN proyectos p ON p.id = e.obra_id
+    LEFT JOIN clientes c ON c.id = e.cliente_asignado_id
     WHERE e.activo = true
     ORDER BY e.nombre
   `);
   return rows;
+}
+
+// Reasignación de cliente (prompt-a-maquinaria-por-cliente.md): un solo
+// UPDATE alcanza para "quitar del cliente anterior" porque es un único
+// valor por equipo, nunca una relación muchos-a-muchos.
+async function asignarClienteEquipo(id, cliente_id) {
+  const { rows } = await db.pool.query(
+    `UPDATE equipos_maquinaria SET cliente_asignado_id = $1
+     WHERE id = $2 AND activo = true RETURNING *`,
+    [cliente_id ?? null, id]
+  );
+  return rows[0];
 }
 
 async function createEquipo({ nombre, tipo, identificador, estado, obra_id }) {
@@ -337,7 +350,7 @@ async function getReportePorCliente() {
 }
 
 module.exports = {
-  listEquipos, createEquipo, updateEquipo, softDeleteEquipo,
+  listEquipos, createEquipo, updateEquipo, softDeleteEquipo, asignarClienteEquipo,
   listCombustible, createCombustible, softDeleteCombustible,
   listMantenimientos, createMantenimiento, softDeleteMantenimiento,
   listHoras, createHoras, softDeleteHoras, updateEstadoHoras,

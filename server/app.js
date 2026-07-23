@@ -1183,6 +1183,16 @@ app.delete('/api/maquinaria/equipos/:id', h(auth.checkPermiso('maquinaria', 'pue
   res.json({ ok: true });
 }));
 
+// prompt-a-maquinaria-por-cliente.md: cliente_id null = "quitar asignación"
+// (equipo disponible/sin cliente). Mismo permiso que editar el catálogo de
+// equipos (jefe_maquinaria/admin/desarrollador ya tienen puede_editar ahí).
+app.put('/api/maquinaria/equipos/:id/asignar-cliente', h(auth.checkPermiso('maquinaria', 'puede_editar')), h(async (req, res) => {
+  const { cliente_id } = req.body || {};
+  const equipo = await maquinaria.asignarClienteEquipo(Number(req.params.id), cliente_id ?? null);
+  if (!equipo) return res.status(404).json({ error: 'Equipo no encontrado' });
+  res.json(equipo);
+}));
+
 app.get('/api/maquinaria/combustible', h(auth.checkPermiso('maquinaria', 'puede_ver')), h(async (req, res) => {
   res.json(await maquinaria.listCombustible(req.query.equipo_id ? Number(req.query.equipo_id) : null));
 }));

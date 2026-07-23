@@ -7807,13 +7807,14 @@ const ROLES_CAPTURAN_HORAS_MAQ = ['operador', 'admin', 'desarrollador'];
 const ROLES_BITACORA_TALLER_MAQ = ['jefe_maquinaria', 'admin', 'desarrollador'];
 
 async function renderMaquinaria(view) {
-  const [equipos, resumen, misPermisos, misPermisosCaptura, misPermisosCombustible, proyectos, reporteClientes, horasMaq, bitacoraTaller] = await Promise.all([
+  const [equipos, resumen, misPermisos, misPermisosCaptura, misPermisosCombustible, proyectos, clientesMaq, reporteClientes, horasMaq, bitacoraTaller] = await Promise.all([
     api('/maquinaria/equipos'),
     api('/maquinaria/resumen'),
     api('/mis-permisos/maquinaria'),
     api('/mis-permisos/maquinaria_captura'),
     api('/mis-permisos/maquinaria_combustible'),
     api('/projects').catch(() => []),
+    api('/clientes').catch(() => []),
     api('/maquinaria/reporte-clientes').catch(() => null),
     // 403 esperado para roles sin puede_ver en 'maquinaria_captura' (ej.
     // jefe_maquinaria) — GET /api/maquinaria/horas exige checkPermiso
@@ -7881,6 +7882,19 @@ async function renderMaquinaria(view) {
     </div>
     <div id="reportesHorasMaqSection"></div>
     <div id="bitacoraTallerSection"></div>
+
+    <h3 class="section-title mt-16">Equipos por cliente</h3>
+    <div class="field">
+      <label>Cliente</label>
+      <select id="filtroClienteEquiposMaq">
+        <option value="">Todos</option>
+        <option value="sin_asignar">Sin asignar</option>
+        ${clientesMaq.map((c) => `<option value="${c.id}">${esc(c.nombre)}</option>`).join('')}
+      </select>
+    </div>
+    <div id="equiposPorClienteMaqList"></div>
+
+    <h3 class="section-title mt-16">Catálogo de equipos</h3>
     <div id="equiposMaqList"></div>
   `;
 
@@ -7893,7 +7907,73 @@ async function renderMaquinaria(view) {
   paintBitacoraTaller(bitacoraTaller, equipos, { puedeVerBitacora });
   { const fill = $('.progress-bar > span[data-pct]', view); if (fill) fill.style.width = fill.dataset.pct + '%'; }
 
+  paintEquiposPorCliente(equipos, clientesMaq, { puedeEditar });
   paintEquiposMaqList(equipos, proyectos, { puedeEditar, puedeEliminar });
+}
+
+// prompt-a-maquinaria-por-cliente.md: vista de asignación equipo↔cliente,
+// deliberadamente separada del "Reporte de Maquinaria por cliente" (arriba,
+// renderReporteClientesMaqHtml) que sigue atribuyendo gasto vía obra_id —
+// dos conceptos de "cliente" distintos que pueden divergir para un mismo
+// equipo (ver comentario en getReportePorCliente, server/maquinaria.js).
+function paintEquiposPorCliente(equipos, clientes, { puedeEditar }) {
+  const sel = $('#filtroClienteEquiposMaq');
+  const list = $('#equiposPorClienteMaqList');
+  if (!sel || !list) return;
+
+  const pintar = () => {
+    const val = sel.value;
+    let filtrados;
+    if (val === '') filtrados = equipos;
+    else if (val === 'sin_asignar') filtrados = equipos.filter((e) => !e.cliente_asignado_id);
+    else filtrados = equipos.filter((e) => e.cliente_asignado_id === Number(val));
+
+    if (!filtrados.length) {
+      list.innerHTML = '<p class="muted">No hay equipos en este filtro.</p>';
+      return;
+    }
+    list.innerHTML = `
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Equipo</th><th>Tipo</th><th>Cliente asignado</th></tr></thead>
+          <tbody>
+            ${filtrados.map((e) => `
+              <tr>
+                <td>${esc(e.nombre)}</td>
+                <td>${esc(e.tipo)}</td>
+                <td>
+                  ${puedeEditar ? `
+                    <select data-reasignar-cliente-maq="${e.id}">
+                      <option value="">Sin asignar</option>
+                      ${clientes.map((c) => `<option value="${c.id}" ${e.cliente_asignado_id === c.id ? 'selected' : ''}>${esc(c.nombre)}</option>`).join('')}
+                    </select>
+                  ` : esc(e.cliente_asignado_nombre || 'Sin asignar')}
+                </td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+    `;
+    $$('[data-reasignar-cliente-maq]', list).forEach((selEl) => {
+      selEl.addEventListener('change', async () => {
+        const equipoId = Number(selEl.dataset.reasignarClienteMaq);
+        const cliente_id = selEl.value ? Number(selEl.value) : null;
+        selEl.disabled = true;
+        try {
+          await api(`/maquinaria/equipos/${equipoId}/asignar-cliente`, { method: 'PUT', body: { cliente_id } });
+          toast('Cliente reasignado', 'success');
+          renderView();
+        } catch (err) {
+          toast(err.message, 'danger');
+          selEl.disabled = false;
+        }
+      });
+    });
+  };
+
+  sel.addEventListener('change', pintar);
+  pintar();
 }
 
 const ESTADO_HORAS_MAQ_BADGE = { pendiente: 'yellow', autorizado: 'green', rechazado: 'red' };
@@ -8124,6 +8204,7 @@ function paintEquiposMaqList(equipos, proyectos, { puedeEditar, puedeEliminar })
           <strong>${esc(e.nombre)}</strong>
           <div class="muted fs-08">${esc(e.tipo)}${e.identificador ? ` · ${esc(e.identificador)}` : ''}</div>
           ${e.obra_nombre ? `<div class="muted fs-08">🏗️ ${esc(e.obra_nombre)}</div>` : '<div class="muted fs-08">Sin obra asignada</div>'}
+          ${e.cliente_asignado_nombre ? `<div class="muted fs-08">🏢 ${esc(e.cliente_asignado_nombre)}</div>` : ''}
         </div>
         <span class="badge ${ESTADO_BADGE[e.estado] || 'muted'}">${esc(e.estado)}</span>
       </div>

@@ -7853,6 +7853,15 @@ async function renderMaquinaria(view) {
   // horas" (cabo, y admin/desarrollador vía bypass).
   const puedeAutorizarHoras = !!misPermisosCaptura.puede_editar && ROLES_AUTORIZAN_HORAS_MAQ.includes(effectivePuesto());
   const esOperador = effectivePuesto() === 'operador';
+  // Bug reportado en revisión de dispositivo real (feat/maquinaria-por-
+  // cliente, commit 3fa8d9d): mismo patrón que puedeAutorizarHoras/
+  // puedeCrearBitacora arriba — puedeEditar (crudo) no distingue rol
+  // simulado del real para admin/desarrollador (bypass siempre true), así
+  // que "Vista como: Cabo" mostraba el dropdown de reasignar cliente como
+  // editable. ROLES_BITACORA_TALLER_MAQ ya es exactamente el mismo set de
+  // roles con puede_editar por default en la sección 'maquinaria' (server/
+  // auth.js), se reutiliza en vez de crear una constante nueva.
+  const puedeReasignarClienteMaq = !!misPermisos.puede_editar && ROLES_BITACORA_TALLER_MAQ.includes(effectivePuesto());
 
   // Cifras de presupuesto (total/gastado/%/sugerido por cliente) — solo
   // admin/desarrollador; backend ya las envía null para el resto de roles,
@@ -7907,7 +7916,7 @@ async function renderMaquinaria(view) {
   paintBitacoraTaller(bitacoraTaller, equipos, { puedeVerBitacora });
   { const fill = $('.progress-bar > span[data-pct]', view); if (fill) fill.style.width = fill.dataset.pct + '%'; }
 
-  paintEquiposPorCliente(equipos, clientesMaq, { puedeEditar });
+  paintEquiposPorCliente(equipos, clientesMaq, { puedeEditar: puedeReasignarClienteMaq });
   paintEquiposMaqList(equipos, proyectos, { puedeEditar, puedeEliminar });
 }
 

@@ -3031,6 +3031,32 @@ $('#btnWelcomeContinuar').addEventListener('click', () => {
 // ---------------------------------------------------------------------------
 // Upload flow
 // ---------------------------------------------------------------------------
+// prompt-diagnostico-y-fix-jszip-actualizar-presupuesto.md: causa raíz real
+// del "Can't find end of central directory: is this a zip file?" reportado
+// por Paul — confirmado con evidencia en Vercel Blob real de producción:
+// 3 intentos subieron "~$C 715 PCRNAURBA  Ajustado Vinte 22072026.xlsx" (165
+// bytes cada uno), el archivo de bloqueo temporal que Excel crea junto al
+// original mientras sigue abierto (normalmente oculto, prefijo "~$") — no el
+// archivo real de 60 KB. El backend/transporte (get()+pipeline()+exceljs)
+// se probó íntegro byte a byte contra Vercel Blob real; el problema nunca
+// fue corrupción de transporte. Esta validación corta ANTES de subir nada:
+// detecta el patrón de archivo de bloqueo por nombre (mensaje específico) y,
+// como red de seguridad general, cualquier archivo sin la firma ZIP local
+// (PK\x03\x04) al inicio — así el usuario ve un error accionable en vez del
+// mensaje críptico de jszip. Compartida entre "carga inicial" y "Actualizar
+// presupuesto" (mismo riesgo en ambos flujos).
+async function validarArchivoXlsxCliente(file) {
+  if (/^~\$/.test(file.name)) {
+    return 'Este archivo parece ser un archivo temporal de Excel (su nombre empieza con "~$"), no el archivo real — probablemente el Excel original sigue abierto en tu computadora. Ciérralo y vuelve a intentar subiendo el archivo real.';
+  }
+  const header = new Uint8Array(await file.slice(0, 4).arrayBuffer());
+  const esZip = header[0] === 0x50 && header[1] === 0x4b && (header[2] === 0x03 || header[2] === 0x05 || header[2] === 0x07);
+  if (!esZip) {
+    return 'Este archivo no parece ser un .xlsx válido (no tiene la firma de un archivo ZIP). Verifica que sea el archivo correcto y que no esté dañado o incompleto.';
+  }
+  return null;
+}
+
 function promptUpload() {
   const options = state.clientes.map((c) => `<option value="${c.id}" ${c.id === state.clienteId ? 'selected' : ''}>${esc(c.nombre)}</option>`).join('');
   openModal(`
@@ -3101,6 +3127,8 @@ $('#fileInput').addEventListener('change', async (ev) => {
   ev.target.value = '';
   if (!file) return;
   if (!/\.xlsx$/i.test(file.name)) { toast('Solo se admiten archivos .xlsx', 'danger'); return; }
+  const errorArchivo = await validarArchivoXlsxCliente(file);
+  if (errorArchivo) { toast(errorArchivo, 'danger'); return; }
   const clienteId = state.pendingUploadClienteId;
   state.pendingUploadClienteId = null;
   if (!clienteId) { toast('Selecciona un cliente antes de subir el archivo', 'danger'); return; }
@@ -4252,6 +4280,8 @@ async function abrirModalActualizarPresupuesto() {
   $('#actualizarPresupuestoFile').addEventListener('change', async (e) => {
     const file = e.target.files[0];
     if (!file) return;
+    const errorArchivo = await validarArchivoXlsxCliente(file);
+    if (errorArchivo) { toast(errorArchivo, 'danger'); return; }
     openModal(`<h3>Subiendo y analizando…</h3><div class="spinner"></div>`);
     try {
       const blob = await VercelBlobClient.upload(file.name, file, {

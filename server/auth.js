@@ -47,7 +47,12 @@ const PERMISSIONS = {
   // trabajadores_global/costos), sin exponer ningún dato — el backend sigue
   // siendo la única barrera de seguridad real (checkPermiso, PR previo de
   // este mismo branch).
-  cabo:           { label: 'Cabo',          tabs: ['destajo', 'insumos', 'avance', 'requisiciones', 'maquinaria', 'trabajadores'] },
+  // 'nominas' agregado aquí (prompt-fix-permisos-nomina-cabo.md, mismo patrón
+  // que 'trabajadores' arriba): el acceso real por-obra lo sigue decidiendo
+  // checkPermiso('nominas', ...) vía permisos_usuario — agregar el tab no
+  // otorga el permiso por sí solo, solo lo hace posible cuando un admin lo
+  // conceda explícitamente en la matriz.
+  cabo:           { label: 'Cabo',          tabs: ['destajo', 'insumos', 'avance', 'requisiciones', 'maquinaria', 'trabajadores', 'nominas'] },
   compras:        { label: 'Compras',       tabs: ['programa', 'requisiciones', 'insumos', 'ordenes', 'proveedores', 'cotizador'] },
   tesoreria:      { label: 'Tesorería',     tabs: ['resumen', 'finanzas', 'estadoResultados', 'estadoResultadosGlobal', 'ordenes', 'contrato', 'impuestos', 'proveedores'] },
   administracion: { label: 'Administración',tabs: ['resumen', 'programa', 'destajo', 'ordenes', 'proveedores', 'contrato', 'impuestos', 'mapeo'] },

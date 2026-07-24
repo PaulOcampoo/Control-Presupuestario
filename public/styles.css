@@ -506,6 +506,80 @@ input, select, textarea {
    qué esquema de color pintarse. */
 input[type="date"] { color-scheme: dark; cursor: pointer; }
 [data-theme="light"] input[type="date"] { color-scheme: light; }
+
+/* Selector estilizado — rollout completo (prompt-selectores-rollout-completo.md,
+   piloto original en prompt-selector-estilizado-piloto.md, revertido en
+   commit 8f30c06 por un bug de overlap — ver enhanceSelect() en app.js para
+   el fix de posicionamiento).
+   Fix 4 temas (prompt-fix-selector-4-temas.md): --csel-bg/border/text/
+   option-sep siguen fijos por dark/light (mockup aprobado por Paul, no
+   correlacionan con ninguna paleta — igual que antes). El COLOR DE ACENTO
+   (chevron, borde de foco, resaltado de opción) usa var(--accent-gold), que
+   YA es la misma variable que consumen los 4 temas/paletas de la app
+   ([data-palette="morada|verde|naranja"] en la cabecera de este archivo) —
+   así el componente hereda el acento correcto en cualquier tema sin tocar
+   el sistema de paletas. El texto sobre fondo de acento usa #04212f, el
+   mismo valor fijo que ya usan .btn-primary/.chip.active/etc. en TODA la
+   app para texto-sobre-acento en los 4 temas (nunca se sobreescribe por
+   tema/paleta ahí tampoco) — no existe una variable --text-on-accent
+   dedicada, esta es la convención real ya establecida, se replica igual. */
+:root {
+  --csel-bg: #121B2E;
+  --csel-border: #263352;
+  --csel-text: #E7EBF3;
+  --csel-option-sep: #1B2438;
+}
+[data-theme="light"] {
+  --csel-bg: #FFFFFF;
+  --csel-border: #CBD2E0;
+  --csel-text: #1B2438;
+  --csel-option-sep: #E4E8EF;
+}
+
+.custom-select { position: relative; display: block; width: 100%; }
+.custom-select select {
+  position: absolute; opacity: 0; pointer-events: none; width: 1px; height: 1px; overflow: hidden;
+}
+.custom-select-trigger {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%;
+  background: var(--csel-bg); color: var(--csel-text); border: 1px solid var(--csel-border);
+  border-radius: 8px; padding: 10px 12px; font-size: 0.92rem; font-family: inherit; text-align: left; cursor: pointer;
+  transition: border-color 0.15s var(--ease-out), box-shadow 0.15s var(--ease-out);
+}
+.custom-select-trigger[disabled] { opacity: 0.5; cursor: not-allowed; }
+.custom-select-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.custom-select-chevron { flex: none; display: flex; color: var(--accent-gold); transition: transform 0.15s var(--ease-out); }
+.custom-select-trigger[aria-expanded="true"] .custom-select-chevron { transform: rotate(180deg); }
+.custom-select-trigger:focus-visible, .custom-select-trigger[aria-expanded="true"] { outline: none; border-color: var(--accent-gold); }
+.custom-select-trigger:focus-visible { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-gold) 30%, transparent); }
+
+/* Listbox "portado" a document.body (enhanceSelect() lo appendea ahí, no
+   dentro de .custom-select) y posicionado con JS via getBoundingClientRect()
+   del trigger — position:fixed, nunca position:absolute heredando el flujo
+   de un padre (esa fue la causa raíz del bug de overlap sobre "históricos"
+   del intento anterior, ver revert 8f30c06). z-index 175: por encima de
+   .modal (170)/#modalOverlay (160), por debajo de .toast (180) — nunca un
+   valor global que compita con otros overlays (ver CUSTOM_SELECT_Z en
+   app.js y la auditoría de z-index existentes antes de elegir este valor). */
+.custom-select-list {
+  position: fixed; max-height: 260px; overflow-y: auto;
+  background: var(--csel-bg); border: 1px solid var(--csel-border); border-radius: 8px;
+  box-shadow: 0 12px 30px rgba(0,0,0,0.35); padding: 4px 0;
+  opacity: 0; pointer-events: none; transform: translateY(-6px);
+  transition: opacity 0.15s var(--ease-out), transform 0.15s var(--ease-out);
+}
+.custom-select-list.show { opacity: 1; pointer-events: auto; transform: translateY(0); }
+.custom-select-option {
+  padding: 9px 12px; font-size: 0.88rem; color: var(--csel-text); cursor: pointer;
+  border-top: 1px solid var(--csel-option-sep);
+}
+.custom-select-option:first-child { border-top: none; }
+.custom-select-option.selected { font-weight: 700; }
+@media (hover: hover) and (pointer: fine) {
+  .custom-select-option:hover { background: var(--accent-gold); color: #04212f; }
+}
+.custom-select-option.highlighted { background: var(--accent-gold); color: #04212f; }
+
 label { display: block; font-size: 0.8rem; color: var(--text-secondary); margin: 10px 0 4px; }
 .field { margin-bottom: 6px; }
 .field-null input, .field-null select { border-color: var(--yellow); }
@@ -2556,7 +2630,8 @@ body.modal-open { overflow: hidden; }
   .modal, .toast, .notif-dropdown, .drawer, .overlay,
   #proximamenteTooltip, .gantt-bar-inner, .collapse-body,
   #loginScreen, #clientGalleryScreen, #welcomeScreen, #app,
-  #totpReminderBanner, #installBanner {
+  #totpReminderBanner, #installBanner,
+  .custom-select-list, .custom-select-chevron, .custom-select-trigger {
     transition: none;
   }
 

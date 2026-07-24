@@ -2128,6 +2128,259 @@ document.addEventListener('keydown', (e) => {
 });
 
 // ---------------------------------------------------------------------------
+// Selector estilizado — rollout completo (prompt-selectores-rollout-completo.md)
+// Reemplaza TODOS los <select> nativos de la app por un trigger + listbox
+// propios. El <select> real se queda oculto en el DOM (misma fuente de
+// verdad de value/'change', mismo id/name) — drop-in, no rompe el código que
+// ya lee ese <select>.
+//
+// Diferencias clave contra el piloto revertido (commit 9deaa4c, revertido en
+// 8f30c06):
+// - El listbox se "porta" a document.body (nunca queda anidado dentro de un
+//   .modal, que tiene su propio transform/overflow — ver .modal en
+//   styles.css) y se posiciona con getBoundingClientRect() del trigger vía
+//   JS (position:fixed + top/left/width calculados), NUNCA position:absolute
+//   heredando el flujo del padre. Esa fue la causa raíz del overlap sobre
+//   "históricos" del intento anterior.
+// - Se abre hacia arriba si no cabe hacia abajo en el viewport.
+// - Se cierra al hacer scroll (de su modal o de la pantalla) en vez de
+//   perseguir al trigger con recálculo continuo — igual de simple y evita
+//   quedar desalineado.
+// - Un único MutationObserver global (más abajo) escanea automáticamente
+//   cualquier <select> nuevo en cualquier parte del DOM — cubre tanto los
+//   renders centralizados (renderView()/openModal()) como repintados
+//   parciales de sub-contenedores que no pasan por ninguno de los dos (ej.
+//   la tabla "Equipos por cliente" en Maquinaria, que repinta con
+//   list.innerHTML directamente) — no hace falta llamar enhanceSelect()
+//   módulo por módulo ni enumerar cada punto de render a mano.
+// ---------------------------------------------------------------------------
+const CUSTOM_SELECT_Z = 175; // sobre .modal(170)/#modalOverlay(160); bajo .toast(180) — ver auditoría de z-index en styles.css
+
+function enhanceSelect(select) {
+  if (select.dataset.customSelectReady) return; // evita doble-enhance si se repinta el modal/pantalla
+  if (select.multiple) return; // fuera de alcance del rollout (ninguno en la app hoy, ver diagnóstico del prompt)
+  select.dataset.customSelectReady = '1';
+
+  const wrap = document.createElement('div');
+  // Copia las clases del <select> original (ej. .finanzas-filtro-select,
+  // .bitacora-filtro-control, .sug-estado-select) al wrapper — así el CSS de
+  // layout existente (flex/min-width/width:auto de cada módulo) le sigue
+  // aplicando al elemento que ahora es visible, en vez de quedarse pegado al
+  // <select> oculto sin efecto.
+  wrap.className = `custom-select ${select.className}`.trim();
+  select.parentNode.insertBefore(wrap, select);
+  wrap.appendChild(select);
+  wrap._customSelectList = null; // se completa abajo, usado por el observer para limpiar al remover
+
+  const trigger = document.createElement('button');
+  trigger.type = 'button';
+  trigger.className = 'custom-select-trigger';
+  trigger.setAttribute('aria-haspopup', 'listbox');
+  trigger.setAttribute('aria-expanded', 'false');
+  trigger.disabled = select.disabled;
+  const label = document.createElement('span');
+  label.className = 'custom-select-label';
+  trigger.appendChild(label);
+  trigger.insertAdjacentHTML('beforeend', `<span class="custom-select-chevron">${icon('chevron-down', 16)}</span>`);
+  select._customSelectTrigger = trigger; // usado por el observer para reflejar select.disabled
+
+  const list = document.createElement('div');
+  list.className = 'custom-select-list';
+  list.setAttribute('role', 'listbox');
+  list.style.zIndex = String(CUSTOM_SELECT_Z);
+  list.hidden = true;
+  document.body.appendChild(list); // "portal" — nunca hereda overflow/transform de un modal ancestro
+  wrap._customSelectList = list;
+
+  let highlighted = -1;
+  let onScrollClose = null;
+  let onResizeClose = null;
+
+  function options() { return Array.from(select.options); }
+
+  function renderOptions() {
+    list.innerHTML = '';
+    options().forEach((opt, i) => {
+      const item = document.createElement('div');
+      item.className = 'custom-select-option';
+      item.setAttribute('role', 'option');
+      item.dataset.index = String(i);
+      item.textContent = opt.textContent;
+      if (opt.value === select.value) item.classList.add('selected');
+      list.appendChild(item);
+    });
+  }
+
+  function syncLabel() {
+    const sel = options()[select.selectedIndex];
+    label.textContent = sel ? sel.textContent : '';
+  }
+
+  function isOpen() { return !list.hidden && list.classList.contains('show'); }
+
+  function updateHighlight() {
+    Array.from(list.children).forEach((el, i) => el.classList.toggle('highlighted', i === highlighted));
+    const activeEl = list.children[highlighted];
+    if (activeEl) activeEl.scrollIntoView({ block: 'nearest' });
+  }
+
+  // Ancestro con scroll propio (ej. .modal, que tiene overflow-y:auto) — el
+  // espacio disponible para el listbox se mide contra SU borde, no solo el
+  // del viewport, para no invadir el resto del contenido de ese contenedor
+  // más de lo estrictamente necesario (ver Target State punto 3 del prompt:
+  // "dentro del contenedor con scroll o el viewport").
+  function scrollAncestorOf(el) {
+    let node = el.parentElement;
+    while (node && node !== document.body) {
+      if (/(auto|scroll)/.test(getComputedStyle(node).overflowY)) return node;
+      node = node.parentElement;
+    }
+    return null;
+  }
+
+  // Posiciona el listbox respecto al trigger REAL (getBoundingClientRect),
+  // nunca heredando la posición de un contenedor padre — así no importa si
+  // el trigger vive dentro de un .modal con transform, un .row con overflow,
+  // o directo en la pantalla. Decide arriba/abajo con el alto YA PINTADO del
+  // listbox (offsetHeight real, no una estimación) comparado contra el
+  // espacio real restante dentro de su contenedor con scroll (o el viewport
+  // completo si no hay uno).
+  function position() {
+    const r = trigger.getBoundingClientRect();
+    const margin = 6;
+    list.style.left = `${r.left}px`;
+    list.style.width = `${r.width}px`;
+    const container = scrollAncestorOf(trigger);
+    const containerRect = container ? container.getBoundingClientRect() : null;
+    const viewportBottom = containerRect ? Math.min(window.innerHeight, containerRect.bottom) : window.innerHeight;
+    const viewportTop = containerRect ? Math.max(0, containerRect.top) : 0;
+    const spaceBelow = viewportBottom - r.bottom;
+    const spaceAbove = r.top - viewportTop;
+    const listH = list.offsetHeight;
+    if (spaceBelow < listH + margin && spaceAbove > spaceBelow) {
+      list.style.top = 'auto';
+      list.style.bottom = `${window.innerHeight - r.top + margin}px`;
+      list.style.maxHeight = `${Math.max(120, spaceAbove - margin * 2)}px`;
+    } else {
+      list.style.bottom = 'auto';
+      list.style.top = `${r.bottom + margin}px`;
+      list.style.maxHeight = `${Math.max(120, spaceBelow - margin * 2)}px`;
+    }
+  }
+
+  function closeList() {
+    if (!isOpen()) { list.hidden = true; return; }
+    list.classList.remove('show');
+    trigger.setAttribute('aria-expanded', 'false');
+    document.removeEventListener('click', onDocClick, true);
+    if (onScrollClose) { window.removeEventListener('scroll', onScrollClose, true); onScrollClose = null; }
+    if (onResizeClose) { window.removeEventListener('resize', onResizeClose); onResizeClose = null; }
+    // Mismo patrón que .notif-dropdown: opacity/transform animan primero,
+    // hidden real llega después (con reduce motion la transición dura ~0,
+    // el timeout corto no se nota).
+    setTimeout(() => { if (!list.classList.contains('show')) list.hidden = true; }, 160);
+  }
+
+  function onDocClick(e) { if (!wrap.contains(e.target) && !list.contains(e.target)) closeList(); }
+
+  function openList() {
+    // Un solo listbox abierto a la vez en toda la app (mismo criterio que un
+    // <select> nativo).
+    document.querySelectorAll('.custom-select-list.show').forEach((other) => { if (other !== list) other.classList.remove('show'); });
+    renderOptions();
+    highlighted = options().findIndex((o) => o.value === select.value);
+    if (highlighted < 0) highlighted = 0;
+    list.hidden = false;
+    list.style.visibility = 'hidden'; // pinta oculto un frame para medir offsetHeight real antes de decidir arriba/abajo
+    position();
+    requestAnimationFrame(() => {
+      position();
+      list.style.visibility = '';
+      list.classList.add('show');
+      updateHighlight();
+    });
+    trigger.setAttribute('aria-expanded', 'true');
+    document.addEventListener('click', onDocClick, true);
+    // Cierra al hacer scroll (del modal o de la pantalla) en vez de
+    // recalcular posición en cada evento — evita que quede flotando
+    // desalineado de su trigger real.
+    onScrollClose = () => closeList();
+    window.addEventListener('scroll', onScrollClose, true);
+    onResizeClose = () => closeList();
+    window.addEventListener('resize', onResizeClose);
+  }
+
+  function choose(index) {
+    const opt = options()[index];
+    if (!opt) return;
+    select.value = opt.value;
+    syncLabel();
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+    closeList();
+    trigger.focus();
+  }
+
+  trigger.addEventListener('click', () => { if (isOpen()) closeList(); else openList(); });
+  trigger.addEventListener('keydown', (e) => {
+    if (!isOpen()) {
+      if (['ArrowDown', 'ArrowUp', 'Enter', ' '].includes(e.key)) { e.preventDefault(); openList(); }
+      return;
+    }
+    // stopPropagation en las teclas que maneja el listbox — sin esto, Escape
+    // también dispara el listener global de document que cierra TODO el
+    // modal (ver "Tecla Escape cierra el modal abierto" en Modal helpers).
+    if (e.key === 'ArrowDown') { e.preventDefault(); e.stopPropagation(); highlighted = Math.min(highlighted + 1, options().length - 1); updateHighlight(); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); e.stopPropagation(); highlighted = Math.max(highlighted - 1, 0); updateHighlight(); }
+    else if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); choose(highlighted); }
+    else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeList(); trigger.focus(); }
+    else if (e.key === 'Tab') { closeList(); }
+  });
+  list.addEventListener('click', (e) => {
+    const item = e.target.closest('.custom-select-option');
+    if (item) choose(Number(item.dataset.index));
+  });
+  list.addEventListener('mousemove', (e) => {
+    const item = e.target.closest('.custom-select-option');
+    if (item) { highlighted = Number(item.dataset.index); updateHighlight(); }
+  });
+  // Si el valor del <select> cambia por fuera (poco común, pero por si algún
+  // módulo lo hiciera vía evento 'change' sintético), refleja el label sin
+  // necesidad de re-enhance.
+  select.addEventListener('change', syncLabel);
+
+  wrap.appendChild(trigger);
+  syncLabel();
+}
+
+// Escaneo centralizado (ver comentario arriba de enhanceSelect): un único
+// observer detecta cualquier <select> agregado en cualquier parte del DOM y
+// lo mejora automáticamente, y limpia el listbox portado a document.body
+// cuando su <select> se quita (modal que cierra, vista que cambia, tab que
+// se repinta) — si no, quedaría huérfano. También refleja select.disabled
+// en el trigger cuando un módulo lo cambia dinámicamente (ej. mientras una
+// requisición de red está en curso).
+const customSelectObserver = new MutationObserver((mutations) => {
+  for (const m of mutations) {
+    if (m.type === 'attributes') {
+      const sel = m.target;
+      if (sel.tagName === 'SELECT' && sel._customSelectTrigger) sel._customSelectTrigger.disabled = sel.disabled;
+      continue;
+    }
+    m.addedNodes.forEach((node) => {
+      if (node.nodeType !== 1) return;
+      if (node.matches?.('select')) enhanceSelect(node);
+      node.querySelectorAll?.('select').forEach((s) => enhanceSelect(s));
+    });
+    m.removedNodes.forEach((node) => {
+      if (node.nodeType !== 1) return;
+      if (node.matches?.('.custom-select')) node._customSelectList?.remove();
+      node.querySelectorAll?.('.custom-select').forEach((w) => w._customSelectList?.remove());
+    });
+  }
+});
+customSelectObserver.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['disabled'] });
+
+// ---------------------------------------------------------------------------
 // Ayuda contextual (botón "?" + modal de pasos)
 // ---------------------------------------------------------------------------
 // Diccionario clave_pantalla -> { titulo, pasos: [...] }. Para agregar ayuda

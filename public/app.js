@@ -9987,17 +9987,24 @@ async function renderTrabajadores(view) {
     view.innerHTML = `<div class="alert-box danger">⚠️ No tienes permiso para ver esta sección.</div>`;
     return;
   }
-  // "Nuevo trabajador" es la única acción que un no-admin puede ganar vía el
-  // permiso granular (puede_crear) — editar/documentos/contratos/EPP/baja/
-  // eliminar se quedan admin-only (puedeGestionarTrabajadores()) porque sus
-  // endpoints siguen sin checkPermiso real, mismo alcance parcial que 'nominas'.
+  // Nuevo trabajador / Editar / Dar de baja / Reactivar ya tienen checkPermiso
+  // real en el backend (puede_crear / puede_editar) — el frontend debe leer
+  // esos mismos flags de misPermisos en vez de puedeGestionarTrabajadores()
+  // (que solo mira isAdmin()), mismo bug gemelo que Nómina/cabo (PR #63/#64):
+  // el permiso ya existía (matriz + default de residente), pero la UI seguía
+  // ciega a él. Documentos/Contrato/EPP y el Eliminar físico (data-del-trab)
+  // quedan fuera de este fix a propósito — no fueron parte del reporte de
+  // Paul y "Eliminar" físico nunca debe otorgarse solo por puede_eliminar
+  // granular (regla dura: dar de baja es soft-delete, el DELETE real se
+  // queda admin-only).
   const puedeCrear = isAdmin() || !!misPermisos.puede_crear;
+  const puedeEditar = isAdmin() || !!misPermisos.puede_editar;
   let mostrarInactivos = false;
   async function repaint() {
     const trabajadores = await api(`/projects/${state.projectId}/trabajadores${mostrarInactivos ? '' : '?activo=1'}`);
     const listEl = $('#trabajadoresList');
     if (!listEl) return;
-    paintTrabajadoresList(trabajadores, listEl, repaint);
+    paintTrabajadoresList(trabajadores, listEl, repaint, puedeEditar);
   }
 
   view.innerHTML = `
@@ -10022,7 +10029,7 @@ async function renderTrabajadores(view) {
   await repaint();
 }
 
-function paintTrabajadoresList(trabajadores, listEl, repaint) {
+function paintTrabajadoresList(trabajadores, listEl, repaint, puedeEditar) {
   if (!trabajadores.length) {
     listEl.innerHTML = '<div class="empty-state">No hay trabajadores registrados.</div>';
     return;
@@ -10041,15 +10048,20 @@ function paintTrabajadoresList(trabajadores, listEl, repaint) {
         </div>
         <div class="row row-nowrap-gap6-start">
           ${puedeGestionarTrabajadores() ? `
-            <button class="btn small" data-edit-trab="${t.id}">Editar</button>
             <button class="btn small" data-docs-trab="${t.id}" data-docs-nombre="${esc(t.nombre)}">Docs</button>
             <button class="btn small" data-contratos-trab="${t.id}" data-contratos-nombre="${esc(t.nombre)}">Contrato</button>
             <button class="btn small" data-epp-trab="${t.id}" data-epp-nombre="${esc(t.nombre)}">EPP</button>
+          ` : ''}
+          ${puedeEditar ? `
+            <button class="btn small" data-edit-trab="${t.id}">Editar</button>
             ${t.activo
               ? `<button class="btn small btn-danger" data-baja-trab="${t.id}" data-baja-nombre="${esc(t.nombre)}">Dar baja</button>`
-              : `<button class="btn small" data-reactiva-trab="${t.id}">Reactivar</button>
-                 <button class="btn small btn-danger" data-del-trab="${t.id}" data-del-nombre="${esc(t.nombre)}">Eliminar</button>`
-            }` : ''}
+              : `<button class="btn small" data-reactiva-trab="${t.id}">Reactivar</button>`
+            }
+          ` : ''}
+          ${(!t.activo && puedeGestionarTrabajadores())
+            ? `<button class="btn small btn-danger" data-del-trab="${t.id}" data-del-nombre="${esc(t.nombre)}">Eliminar</button>`
+            : ''}
         </div>
       </div>
       ${t.tipo_pago !== 'destajo' ? `

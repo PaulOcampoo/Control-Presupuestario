@@ -5789,7 +5789,7 @@ app.get('/api/clientes/:id/nominas-reporte-semanal/export-pdf', h(auth.allow()),
   res.send(pdfBuffer);
 }));
 
-app.get('/api/projects/:id/nominas', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('nominas', 'puede_ver')), h(async (req, res) => {
+app.get('/api/projects/:id/nominas', h(auth.allow('residente', 'cabo')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('nominas', 'puede_ver')), h(async (req, res) => {
   // Un residente solo ve las nóminas que él mismo creó — verificarAccesoObra ya
   // garantiza que está asignado a esta obra, pero varios residentes pueden
   // compartir la misma obra y no deben ver las nóminas del otro (admin/dev
@@ -5813,7 +5813,7 @@ app.get('/api/projects/:id/nominas', h(auth.allow('residente')), h(requireProjec
   res.json(rows);
 }));
 
-app.post('/api/projects/:id/nominas', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('nominas', 'puede_crear')), h(async (req, res) => {
+app.post('/api/projects/:id/nominas', h(auth.allow('residente', 'cabo')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('nominas', 'puede_crear')), h(async (req, res) => {
   const { fecha_inicio, fecha_fin } = req.body || {};
   if (!fecha_inicio || !fecha_fin) return res.status(400).json({ error: 'fecha_inicio y fecha_fin son requeridas' });
   if (fecha_inicio > fecha_fin) return res.status(400).json({ error: 'fecha_inicio debe ser anterior a fecha_fin' });
@@ -5830,7 +5830,7 @@ app.post('/api/projects/:id/nominas', h(auth.allow('residente')), h(requireProje
   res.status(201).json(rows[0]);
 }));
 
-app.get('/api/projects/:id/nominas/:nomId', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+app.get('/api/projects/:id/nominas/:nomId', h(auth.allow('residente', 'cabo')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('nominas', 'puede_ver')), h(async (req, res) => {
   const nomId = Number(req.params.nomId);
   // Mismo criterio que la lista: un residente no puede abrir por ID el detalle
   // de una nómina creada por otro residente de la misma obra.
@@ -5851,7 +5851,7 @@ app.get('/api/projects/:id/nominas/:nomId', h(auth.allow('residente')), h(requir
   res.json({ ...nomRows[0], items });
 }));
 
-app.post('/api/projects/:id/nominas/:nomId/calcular', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+app.post('/api/projects/:id/nominas/:nomId/calcular', h(auth.allow('residente', 'cabo')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('nominas', 'puede_editar')), h(async (req, res) => {
   const nomId = Number(req.params.nomId);
   const { rows: nomRows } = await db.pool.query(
     'SELECT * FROM nominas WHERE id=$1 AND project_id=$2',
@@ -5919,7 +5919,7 @@ app.post('/api/projects/:id/nominas/:nomId/calcular', h(auth.allow('residente'))
   res.json({ nomina: nomRows[0], items: updItems, total: updItems.reduce((s, i) => s + Number(i.monto_total), 0) });
 }));
 
-app.put('/api/projects/:id/nominas/:nomId/estado', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+app.put('/api/projects/:id/nominas/:nomId/estado', h(auth.allow('residente', 'cabo')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('nominas', 'puede_editar')), h(async (req, res) => {
   const nomId = Number(req.params.nomId);
   const { estado, nota_rechazo } = req.body || {};
   if (!ESTADOS_NOMINA.includes(estado)) return res.status(400).json({ error: 'Estado inválido' });
@@ -5928,20 +5928,23 @@ app.put('/api/projects/:id/nominas/:nomId/estado', h(auth.allow('residente')), h
   const nom = nomRows[0];
   const esAdmin = req.user.puesto === 'admin';
   const esResidente = req.user.puesto === 'residente';
+  const esCabo = req.user.puesto === 'cabo';
 
   // Máquina de estados y validación de rol
   const transicionesPermitidas = {
-    borrador:  { revision: true },                    // residente o admin
+    borrador:  { revision: true },                    // residente, cabo o admin
     revision:  { aprobada: esAdmin, rechazada: esAdmin, borrador: esAdmin },
-    rechazada: { borrador: true },                    // residente o admin
+    rechazada: { borrador: true },                    // residente, cabo o admin
     aprobada:  { borrador: esAdmin },                 // solo admin puede reabrir
   };
   if (!transicionesPermitidas[nom.estado]?.[estado]) {
     return res.status(403).json({ error: `No puedes cambiar de '${nom.estado}' a '${estado}'` });
   }
-  // Residente solo puede enviar a revisión o regresar de rechazada
-  if (esResidente && !['revision'].includes(estado)) {
-    return res.status(403).json({ error: 'Residente solo puede enviar la nómina a revisión' });
+  // Residente/cabo solo pueden enviar a revisión (mismo límite para ambos —
+  // ninguno de los dos puede aprobar/rechazar/reabrir, eso sigue siendo
+  // exclusivo de admin vía esAdmin arriba).
+  if ((esResidente || esCabo) && !['revision'].includes(estado)) {
+    return res.status(403).json({ error: 'Este rol solo puede enviar la nómina a revisión' });
   }
 
   const aprobadaPor = estado === 'aprobada' ? req.user.id : null;

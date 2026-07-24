@@ -848,8 +848,6 @@ function puedeVerImportesAvance() { return !!state.user && effectivePuesto() !==
 function puedeEditarAvance() { return !!state.user && (isAdmin() || ['residente', 'cabo'].includes(effectivePuesto())); }
 function puedeGestionarUsuarios() { return !!state.user && ['admin', 'desarrollador', 'administracion'].includes(effectivePuesto()); }
 function puedeGestionarTrabajadores() { return isAdmin(); }
-function puedeVerNominas() { return !!state.user && (isAdmin() || ['residente'].includes(effectivePuesto())); }
-function puedeCapturarAsistencia() { return !!state.user && (isAdmin() || ['residente'].includes(effectivePuesto())); }
 function puedeAprobarNomina() { return isAdmin(); }
 function puedeVerEstimaciones() { return !!state.user && (isAdmin() || ['residente'].includes(effectivePuesto())); }
 function puedeCapturarEstimacion() { return !!state.user && (isAdmin() || ['residente'].includes(effectivePuesto())); }
@@ -10883,10 +10881,27 @@ async function renderNominasGlobal(view) {
 }
 
 async function renderNominas(view) {
-  if (!puedeVerNominas()) {
+  // Antes hardcodeado a isAdmin()||residente (mismo bug que renderTrabajadores
+  // tenía antes de prompts-cotizador-sidebar-permisos-estimaciones.md) — cabo
+  // quedaba bloqueado aquí sin importar lo que dijera la matriz de permisos,
+  // aunque PERMISSIONS.cabo.tabs/ROLE_TABS.cabo (PR #63) ya incluyeran
+  // 'nominas' y los endpoints reales ya usaran checkPermiso. Mismo patrón que
+  // renderTrabajadores(): admin/desarrollador siguen viendo todo (mis-permisos
+  // les devuelve todo en true).
+  const misPermisos = await api(`/projects/${state.projectId}/mis-permisos/nominas`);
+  if (!misPermisos.puede_ver) {
     view.innerHTML = `<div class="alert-box danger">⚠️ No tienes permiso para ver esta sección.</div>`;
     return;
   }
+  // Capturar/editar asistencia, calcular y enviar a revisión comparten el
+  // mismo permiso 'puede_editar' de 'nominas' (no hay sección separada para
+  // asistencia — ver SECCIONES_PERMISOS en server/auth.js). "+ Nueva nómina"
+  // se gatea aparte con 'puede_crear' porque así lo exige el backend real
+  // (POST /projects/:id/nominas usa checkPermiso('nominas','puede_crear'),
+  // distinto de 'puede_editar') — igualarlos aquí sería el mismo tipo de
+  // desalineación frontend/backend que causó este diagnóstico.
+  const puedeEditarNom = isAdmin() || !!misPermisos.puede_editar;
+  const puedeCrearNom = isAdmin() || !!misPermisos.puede_crear;
 
   // Sub-view: 'asistencia' | 'nominas'
   let subView = 'asistencia';
@@ -10978,7 +10993,7 @@ async function renderNominas(view) {
     function renderGeneral(panel) {
       const totalDias = asistDiasEnMes(asist.year, asist.month);
       const dias = Array.from({ length: totalDias }, (_, i) => i + 1);
-      const canEdit = puedeCapturarAsistencia();
+      const canEdit = puedeEditarNom;
       const hoy = new Date();
       const esMesActual = asist.year === hoy.getFullYear() && asist.month === hoy.getMonth();
       const diaHoy = esMesActual ? hoy.getDate() : null;
@@ -11136,7 +11151,7 @@ async function renderNominas(view) {
         if (estado === 'presente') racha++; else break;
       }
 
-      const canEdit = puedeCapturarAsistencia();
+      const canEdit = puedeEditarNom;
       panel.innerHTML = `
         <button class="btn small" id="btnAsistVolver">‹ Volver a la obra</button>
         <div class="asist-detalle-card mt-8">
@@ -11190,7 +11205,7 @@ async function renderNominas(view) {
       <h2 class="section-title">Personal ${renderHelpBtn('nominaCaptura')}</h2>
       ${renderSubNav()}
       <div class="section-actions mt-12">
-        ${puedeCapturarAsistencia() ? `<button class="btn btn-primary" id="btnNuevaNomina">+ Nueva nómina</button>` : ''}
+        ${puedeCrearNom ? `<button class="btn btn-primary" id="btnNuevaNomina">+ Nueva nómina</button>` : ''}
       </div>
       <div id="nominasList"><div class="empty-state">Cargando…</div></div>
     `;
@@ -11219,8 +11234,8 @@ async function renderNominas(view) {
           ${n.nota_rechazo ? `<div class="muted fs-08 nomina-nota">Nota: ${esc(n.nota_rechazo)}</div>` : ''}
           <div class="row end nomina-actions-row">
             <button class="btn small" data-ver-nomina="${n.id}">Ver detalle</button>
-            ${n.estado === 'borrador' && puedeCapturarAsistencia() ? `<button class="btn small btn-primary" data-calcular-nomina="${n.id}">Calcular</button>` : ''}
-            ${n.estado === 'borrador' && puedeCapturarAsistencia() ? `<button class="btn small" data-enviar-nomina="${n.id}">Enviar a revisión</button>` : ''}
+            ${n.estado === 'borrador' && puedeEditarNom ? `<button class="btn small btn-primary" data-calcular-nomina="${n.id}">Calcular</button>` : ''}
+            ${n.estado === 'borrador' && puedeEditarNom ? `<button class="btn small" data-enviar-nomina="${n.id}">Enviar a revisión</button>` : ''}
             ${n.estado === 'revision' && puedeAprobarNomina() ? `
               <button class="btn small btn-primary" data-aprobar-nomina="${n.id}">Aprobar</button>
               <button class="btn small btn-danger" data-rechazar-nomina="${n.id}">Rechazar</button>` : ''}

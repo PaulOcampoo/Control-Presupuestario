@@ -5485,7 +5485,7 @@ app.delete('/api/projects/:id/trabajadores/:wId/epp-entregas/:entregaId', h(auth
 // trabajador) — a diferencia de GET /asistencia (un solo día), esta trae
 // todos los registros de un periodo en una sola llamada. Tope de 92 días
 // (~3 meses) para que nadie pida el historial completo de golpe por error.
-app.get('/api/projects/:id/asistencia-rango', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+app.get('/api/projects/:id/asistencia-rango', h(auth.allow('residente', 'cabo')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('nominas', 'puede_ver')), h(async (req, res) => {
   const { desde, hasta } = req.query;
   if (!desde || !/^\d{4}-\d{2}-\d{2}$/.test(desde)) return res.status(400).json({ error: 'desde requerido (YYYY-MM-DD)' });
   if (!hasta || !/^\d{4}-\d{2}-\d{2}$/.test(hasta)) return res.status(400).json({ error: 'hasta requerido (YYYY-MM-DD)' });
@@ -5509,7 +5509,7 @@ app.get('/api/projects/:id/asistencia-rango', h(auth.allow('residente')), h(requ
   res.json({ desde, hasta, trabajadores, asistencias });
 }));
 
-app.get('/api/projects/:id/asistencia', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+app.get('/api/projects/:id/asistencia', h(auth.allow('residente', 'cabo')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('nominas', 'puede_ver')), h(async (req, res) => {
   const { fecha } = req.query;
   if (!fecha || !/^\d{4}-\d{2}-\d{2}$/.test(fecha)) return res.status(400).json({ error: 'fecha requerida (YYYY-MM-DD)' });
   // Todos los trabajadores activos + su registro de asistencia para esa fecha
@@ -5526,7 +5526,7 @@ app.get('/api/projects/:id/asistencia', h(auth.allow('residente')), h(requirePro
   res.json({ fecha, trabajadores: rows });
 }));
 
-app.put('/api/projects/:id/asistencia', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+app.put('/api/projects/:id/asistencia', h(auth.allow('residente', 'cabo')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('nominas', 'puede_editar')), h(async (req, res) => {
   const { fecha, asistencia } = req.body || {};
   if (!fecha || !/^\d{4}-\d{2}-\d{2}$/.test(fecha)) return res.status(400).json({ error: 'fecha inválida' });
   if (!Array.isArray(asistencia)) return res.status(400).json({ error: 'asistencia debe ser un arreglo' });
@@ -5612,11 +5612,11 @@ async function marcadoMasivoAsistencia(req, res, estado) {
   res.json({ ok: true, fecha: hoy, estado, afectados: trabajadores.length });
 }
 
-app.post('/api/projects/:id/asistencia/marcar-todos', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+app.post('/api/projects/:id/asistencia/marcar-todos', h(auth.allow('residente', 'cabo')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('nominas', 'puede_editar')), h(async (req, res) => {
   await marcadoMasivoAsistencia(req, res, 'presente');
 }));
 
-app.post('/api/projects/:id/asistencia/desmarcar-todos', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+app.post('/api/projects/:id/asistencia/desmarcar-todos', h(auth.allow('residente', 'cabo')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('nominas', 'puede_editar')), h(async (req, res) => {
   await marcadoMasivoAsistencia(req, res, 'sin_registro');
 }));
 

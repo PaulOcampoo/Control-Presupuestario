@@ -511,30 +511,20 @@ input[type="date"] { color-scheme: dark; cursor: pointer; }
    piloto original en prompt-selector-estilizado-piloto.md, revertido en
    commit 8f30c06 por un bug de overlap — ver enhanceSelect() en app.js para
    el fix de posicionamiento).
-   Fix 4 temas (prompt-fix-selector-4-temas.md): --csel-bg/border/text/
-   option-sep siguen fijos por dark/light (mockup aprobado por Paul, no
-   correlacionan con ninguna paleta — igual que antes). El COLOR DE ACENTO
-   (chevron, borde de foco, resaltado de opción) usa var(--accent-gold), que
-   YA es la misma variable que consumen los 4 temas/paletas de la app
-   ([data-palette="morada|verde|naranja"] en la cabecera de este archivo) —
-   así el componente hereda el acento correcto en cualquier tema sin tocar
-   el sistema de paletas. El texto sobre fondo de acento usa #04212f, el
-   mismo valor fijo que ya usan .btn-primary/.chip.active/etc. en TODA la
-   app para texto-sobre-acento en los 4 temas (nunca se sobreescribe por
-   tema/paleta ahí tampoco) — no existe una variable --text-on-accent
-   dedicada, esta es la convención real ya establecida, se replica igual. */
-:root {
-  --csel-bg: #121B2E;
-  --csel-border: #263352;
-  --csel-text: #E7EBF3;
-  --csel-option-sep: #1B2438;
-}
-[data-theme="light"] {
-  --csel-bg: #FFFFFF;
-  --csel-border: #CBD2E0;
-  --csel-text: #1B2438;
-  --csel-option-sep: #E4E8EF;
-}
+   Fix fondo 4 temas (prompt-fix-fondo-selector-4-temas.md): revierte la
+   decisión de prompt-fix-selector-4-temas.md de dejar fondo/borde/texto
+   fijos por dark/light. Ahora el trigger/listbox usan las MISMAS variables
+   de superficie que ya usan .notif-dropdown/.cliente-menu-dropdown/.modal/
+   .drawer (var(--bg-surface)/var(--border-color)/var(--text-primary)), que
+   ya varían correctamente en los 4 temas/paletas — no se creó ninguna
+   variable nueva ni se tocó el sistema de paletas. El separador entre
+   opciones reutiliza var(--border-color), igual que el separador de
+   .notif-item. El COLOR DE ACENTO (chevron, borde de foco, resaltado de
+   opción) sigue con var(--accent-gold), sin cambios. El texto sobre fondo
+   de acento sigue en #04212f, el mismo valor fijo que ya usan
+   .btn-primary/.chip.active/etc. en TODA la app para texto-sobre-acento en
+   los 4 temas — no existe una variable --text-on-accent dedicada, esta es
+   la convención real ya establecida, se replica igual. */
 
 .custom-select { position: relative; display: block; width: 100%; }
 .custom-select select {
@@ -542,7 +532,7 @@ input[type="date"] { color-scheme: dark; cursor: pointer; }
 }
 .custom-select-trigger {
   display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%;
-  background: var(--csel-bg); color: var(--csel-text); border: 1px solid var(--csel-border);
+  background: var(--bg-surface); color: var(--text-primary); border: 1px solid var(--border-color);
   border-radius: 8px; padding: 10px 12px; font-size: 0.92rem; font-family: inherit; text-align: left; cursor: pointer;
   transition: border-color 0.15s var(--ease-out), box-shadow 0.15s var(--ease-out);
 }
@@ -563,15 +553,15 @@ input[type="date"] { color-scheme: dark; cursor: pointer; }
    app.js y la auditoría de z-index existentes antes de elegir este valor). */
 .custom-select-list {
   position: fixed; max-height: 260px; overflow-y: auto;
-  background: var(--csel-bg); border: 1px solid var(--csel-border); border-radius: 8px;
+  background: var(--bg-surface); border: 1px solid var(--border-color); border-radius: 8px;
   box-shadow: 0 12px 30px rgba(0,0,0,0.35); padding: 4px 0;
   opacity: 0; pointer-events: none; transform: translateY(-6px);
   transition: opacity 0.15s var(--ease-out), transform 0.15s var(--ease-out);
 }
 .custom-select-list.show { opacity: 1; pointer-events: auto; transform: translateY(0); }
 .custom-select-option {
-  padding: 9px 12px; font-size: 0.88rem; color: var(--csel-text); cursor: pointer;
-  border-top: 1px solid var(--csel-option-sep);
+  padding: 9px 12px; font-size: 0.88rem; color: var(--text-primary); cursor: pointer;
+  border-top: 1px solid var(--border-color);
 }
 .custom-select-option:first-child { border-top: none; }
 .custom-select-option.selected { font-weight: 700; }

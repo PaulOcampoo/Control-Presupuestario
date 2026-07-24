@@ -1529,6 +1529,28 @@ function closeQuickActionMenu() {
 // ---------------------------------------------------------------------------
 // Ajustes móvil (perfil, tema, mi cuenta, cerrar sesión)
 // ---------------------------------------------------------------------------
+// Borra las caches del Service Worker (ctrl-ppto-v*) y recarga — para cuando
+// la app se queda pegada en una versión vieja tras un deploy (el SW nuevo ya
+// se instaló pero el usuario no cerró/reabrió la pestaña). Acción destructiva
+// de CACHÉ LOCAL solamente (no borra datos de la cuenta ni cierra sesión),
+// pero igual pide confirmación porque recarga la página de inmediato.
+async function clearCacheAndReload() {
+  if (!confirm('Esto borra los archivos de la app guardados en caché en este dispositivo y recarga la página para traer la versión más reciente. No afecta tus datos ni tu sesión. ¿Continuar?')) return;
+  try {
+    const keys = await caches.keys();
+    await Promise.all(keys.filter((k) => k.startsWith('ctrl-ppto')).map((k) => caches.delete(k)));
+  } catch { /* best-effort: si falla el borrado, igual recargamos */ }
+  location.reload();
+}
+
+// Reorganizado en secciones (prompt-ajustes-reorganizacion-y-fixes.md):
+// Apariencia / Accesibilidad / Cuenta y sesión / Sistema — antes eran
+// bloques sueltos sin agrupación clara. Cada sección envuelve sus controles
+// en .ajustes-item (igual que antes, para que "Buscar en Ajustes" los siga
+// filtrando sin cambios) dentro de un .ajustes-section con su propio
+// .ajustes-section-title; el listener de búsqueda ahora también oculta la
+// sección completa si ninguno de sus items sobrevive el filtro, para no
+// dejar un título de sección flotando sobre una sección vacía.
 function openMobileAjustes() {
   const pref = getTheme();
   const pal = getPalette();
@@ -1544,75 +1566,98 @@ function openMobileAjustes() {
     </div>
     <input type="text" id="ajustesSearchInput" class="ajustes-search-input" placeholder="Buscar en Ajustes…" autocomplete="off" />
 
-    <div class="ajustes-item">
-      <label class="ajustes-tema-label">Tema</label>
-      <div class="theme-selector ajustes-theme-selector">
-        <button class="theme-opt ${pref==='light'?'active':''}" data-theme-set="light">${icon('sun',14)} Claro</button>
-        <button class="theme-opt ${pref==='dark'?'active':''}" data-theme-set="dark">${icon('moon',14)} Oscuro</button>
-        <button class="theme-opt ${pref==='system'?'active':''}" data-theme-set="system">${icon('monitor',14)} Sistema</button>
+    <div class="ajustes-section">
+      <div class="ajustes-section-title">Apariencia</div>
+      <div class="ajustes-item">
+        <label class="ajustes-tema-label">Tema</label>
+        <div class="theme-selector ajustes-theme-selector">
+          <button class="theme-opt ${pref==='light'?'active':''}" data-theme-set="light">${icon('sun',14)} Claro</button>
+          <button class="theme-opt ${pref==='dark'?'active':''}" data-theme-set="dark">${icon('moon',14)} Oscuro</button>
+          <button class="theme-opt ${pref==='system'?'active':''}" data-theme-set="system">${icon('monitor',14)} Sistema</button>
+        </div>
       </div>
-      <label class="ajustes-tema-label">Apariencia</label>
-      <div class="palette-selector">
-        <button class="palette-opt ${pal==='dorada'?'active':''}" data-palette-set="dorada">
-          <span class="palette-swatch palette-swatch-dorada"><span></span><span></span><span></span></span>
-          Tema GRUPO ROFORB
-        </button>
-        <button class="palette-opt ${pal==='morada'?'active':''}" data-palette-set="morada">
-          <span class="palette-swatch palette-swatch-morada"><span></span><span></span><span></span></span>
-          Tema NYRA
-        </button>
-        <button class="palette-opt ${pal==='verde'?'active':''}" data-palette-set="verde">
-          <span class="palette-swatch palette-swatch-verde"><span></span><span></span><span></span></span>
-          Tema JADE
-        </button>
-        <button class="palette-opt ${pal==='naranja'?'active':''}" data-palette-set="naranja">
-          <span class="palette-swatch palette-swatch-naranja"><span></span><span></span><span></span></span>
-          Tema TERRA
-        </button>
+      <div class="ajustes-item">
+        <label class="ajustes-tema-label">Paleta de colores</label>
+        <div class="palette-selector">
+          <button class="palette-opt ${pal==='dorada'?'active':''}" data-palette-set="dorada">
+            <span class="palette-swatch palette-swatch-dorada"><span></span><span></span><span></span></span>
+            Tema GRUPO ROFORB
+          </button>
+          <button class="palette-opt ${pal==='morada'?'active':''}" data-palette-set="morada">
+            <span class="palette-swatch palette-swatch-morada"><span></span><span></span><span></span></span>
+            Tema NYRA
+          </button>
+          <button class="palette-opt ${pal==='verde'?'active':''}" data-palette-set="verde">
+            <span class="palette-swatch palette-swatch-verde"><span></span><span></span><span></span></span>
+            Tema JADE
+          </button>
+          <button class="palette-opt ${pal==='naranja'?'active':''}" data-palette-set="naranja">
+            <span class="palette-swatch palette-swatch-naranja"><span></span><span></span><span></span></span>
+            Tema TERRA
+          </button>
+        </div>
+      </div>
+      <div class="ajustes-item">
+        <label class="ajustes-tema-label">Tamaño de fuente</label>
+        <div class="theme-selector ajustes-theme-selector" id="fontSizeSelector">
+          <button class="theme-opt ${fontSize==='normal'?'active':''}" data-fontsize-set="normal">Normal</button>
+          <button class="theme-opt ${fontSize==='large'?'active':''}" data-fontsize-set="large">Grande</button>
+          <button class="theme-opt ${fontSize==='xlarge'?'active':''}" data-fontsize-set="xlarge">Muy grande</button>
+        </div>
       </div>
     </div>
 
     <hr class="ajustes-divider">
-    <div class="ajustes-item">
-      <label class="ajustes-tema-label">Accesibilidad</label>
-      <div class="a11y-switch">
-        <span class="a11y-switch-label">Reducir movimiento</span>
-        <label>
-          <input type="checkbox" id="chkReduceMotion" ${getReduceMotion() ? 'checked' : ''} />
-          <span class="a11y-switch-track"><span class="a11y-switch-thumb"></span></span>
-        </label>
+    <div class="ajustes-section">
+      <div class="ajustes-section-title">Accesibilidad</div>
+      <div class="ajustes-item">
+        <div class="a11y-switch">
+          <span class="a11y-switch-label">Reducir movimiento</span>
+          <label class="a11y-switch-toggle">
+            <input type="checkbox" id="chkReduceMotion" ${getReduceMotion() ? 'checked' : ''} />
+            <span class="a11y-switch-track"><span class="a11y-switch-thumb"></span></span>
+          </label>
+        </div>
       </div>
-      <div class="a11y-switch">
-        <span class="a11y-switch-label">Alto contraste</span>
-        <label>
-          <input type="checkbox" id="chkHighContrast" ${getHighContrast() ? 'checked' : ''} />
-          <span class="a11y-switch-track"><span class="a11y-switch-thumb"></span></span>
-        </label>
-      </div>
-      <label class="ajustes-tema-label">Tamaño de fuente</label>
-      <div class="theme-selector ajustes-theme-selector" id="fontSizeSelector">
-        <button class="theme-opt ${fontSize==='normal'?'active':''}" data-fontsize-set="normal">Normal</button>
-        <button class="theme-opt ${fontSize==='large'?'active':''}" data-fontsize-set="large">Grande</button>
-        <button class="theme-opt ${fontSize==='xlarge'?'active':''}" data-fontsize-set="xlarge">Muy grande</button>
+      <div class="ajustes-item">
+        <div class="a11y-switch">
+          <span class="a11y-switch-label">Alto contraste</span>
+          <label class="a11y-switch-toggle">
+            <input type="checkbox" id="chkHighContrast" ${getHighContrast() ? 'checked' : ''} />
+            <span class="a11y-switch-track"><span class="a11y-switch-thumb"></span></span>
+          </label>
+        </div>
       </div>
     </div>
-    <hr class="ajustes-divider">
 
-    ${!isStandalone() ? `<div class="ajustes-item"><button class="btn full ajustes-btn-mb" id="btnInstallModal">📲 Instalar app</button></div>` : ''}
-    <div class="ajustes-item"><button class="btn full ajustes-btn-mb" id="btnMiCuentaModal">Mi cuenta</button></div>
-    <div class="ajustes-item"><button class="btn btn-danger full" id="btnLogoutModal">Cerrar sesión</button></div>
-    ${isAdmin() ? `
     <hr class="ajustes-divider">
-    <div class="ajustes-item">
-    <button id="__dbgToggle" class="dbg-toggle-btn">
-      <span id="__dbgChevron" class="dbg-chevron">▶</span> Información técnica
-    </button>
-    <div id="__dbgPanel" class="hidden-initial dbg-panel">
-      <div id="__dbgInline" class="dbg-inline-box">
-        <span class="muted fs-08">Cargando…</span>
-      </div>
+    <div class="ajustes-section">
+      <div class="ajustes-section-title">Cuenta y sesión</div>
+      <div class="ajustes-item"><button class="btn full ajustes-btn-mb" id="btnMiCuentaModal">Mi cuenta</button></div>
+      <div class="ajustes-item"><button class="btn btn-danger full" id="btnLogoutModal">Cerrar sesión</button></div>
     </div>
-    </div>` : ''}
+
+    <hr class="ajustes-divider">
+    <div class="ajustes-section">
+      <div class="ajustes-section-title">Sistema</div>
+      ${!isStandalone() ? `<div class="ajustes-item"><button class="btn full ajustes-btn-mb" id="btnInstallModal">📲 Instalar app</button></div>` : ''}
+      <div class="ajustes-item"><button class="btn full ajustes-btn-mb" id="btnClearCache">🧹 Borrar caché y actualizar</button></div>
+      <div class="ajustes-item">
+        <label class="ajustes-tema-label">Versión</label>
+        <div class="muted fs-08" id="ajustesVersionValue">Cargando…</div>
+      </div>
+      ${isAdmin() ? `
+      <div class="ajustes-item">
+        <button id="__dbgToggle" class="dbg-toggle-btn">
+          <span id="__dbgChevron" class="dbg-chevron">▶</span> Información técnica
+        </button>
+        <div id="__dbgPanel" class="hidden-initial dbg-panel">
+          <div id="__dbgInline" class="dbg-inline-box">
+            <span class="muted fs-08">Cargando…</span>
+          </div>
+        </div>
+      </div>` : ''}
+    </div>
   `);
   $$('.theme-opt[data-theme-set]', $('#modal')).forEach((btn) => {
     btn.addEventListener('click', () => {
@@ -1636,11 +1681,24 @@ function openMobileAjustes() {
     $$('.ajustes-item', $('#modal')).forEach((item) => {
       item.classList.toggle('ajustes-item-hidden', !!q && !item.textContent.toLowerCase().includes(q));
     });
+    $$('.ajustes-section', $('#modal')).forEach((section) => {
+      const algunoVisible = $$('.ajustes-item', section).some((item) => !item.classList.contains('ajustes-item-hidden'));
+      section.classList.toggle('ajustes-item-hidden', !algunoVisible);
+    });
+    // Los <hr> entre secciones no son .ajustes-item — sin esto, dos secciones
+    // vecinas ocultas por el filtro dejaban sus divisores visibles, dos
+    // líneas seguidas sin nada en medio.
+    $$('.ajustes-divider', $('#modal')).forEach((hr) => hr.classList.toggle('ajustes-item-hidden', !!q));
   });
   $('#btnInstallModal')?.addEventListener('click', () => { closeModal(); installApp(); });
+  $('#btnClearCache').addEventListener('click', clearCacheAndReload);
   $('#btnMiCuentaModal').addEventListener('click', () => { closeModal(); openMiCuentaModal(false); });
   $('#btnLogoutModal').addEventListener('click', () => { closeModal(); logout(); });
   $('#btnCloseProfile').addEventListener('click', closeModal);
+  _dbgSwInfo().then(({ version }) => {
+    const el = $('#ajustesVersionValue');
+    if (el) el.textContent = version;
+  });
   if (isAdmin()) {
     const toggleBtn = $('#__dbgToggle');
     const panel     = $('#__dbgPanel');

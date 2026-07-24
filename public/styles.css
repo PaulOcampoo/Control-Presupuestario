@@ -667,6 +667,24 @@ body.modal-open { overflow: hidden; }
 .modal {
   position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%) scale(0.96);
   width: min(94vw, 520px); max-height: 88dvh; overflow-y: auto;
+  /* overflow-x: clip (prompt-ajustes-reorganizacion-y-fixes.md) — mismo
+     criterio y misma razón ya documentada en `body` más arriba: overflow-y
+     no-visible eleva implícitamente overflow-x a `auto` por spec, así que
+     .modal ya era, sin quererlo, un scroll-container horizontal. En el
+     panel de Ajustes esto se notaba como scroll horizontal indebido en
+     mobile — un descendiente con position:absolute que se pasa por poco de
+     su ancestro posicionado (ver el bug de .a11y-switch-track corregido
+     arriba, que colapsaba a ~2px de ancho e insertaba el thumb fuera de su
+     caja) alcanza a computar dentro del scrollWidth de este contenedor. Con
+     ese bug ya corregido no se pudo reproducir overflow real (probado en
+     375px/320px, con "Muy grande" de tamaño de fuente y con Información
+     técnica expandida — scrollWidth === clientWidth en los 4 casos), pero
+     se aplica el mismo hardening que ya tiene `body` por consistencia y
+     para blindar contra el mismo patrón de bug si vuelve a aparecer en
+     otro hijo del modal. clip (no hidden) por la misma razón que body: no
+     convertir .modal en un scroll-container de eje X aparte del vertical
+     que ya tiene a propósito. */
+  overflow-x: clip;
   background: var(--bg-surface); border: 1px solid var(--border-color); border-radius: 16px;
   padding: 18px; z-index: 170; opacity: 0; pointer-events: none; transition: opacity 0.15s var(--ease-out), transform 0.15s var(--ease-out);
 }
@@ -2312,6 +2330,17 @@ body.modal-open { overflow: hidden; }
 .ajustes-theme-selector { margin-bottom: 16px; }
 .ajustes-btn-mb { margin-bottom: 6px; }
 .ajustes-divider { margin: 16px 0; border: none; border-top: 1px solid var(--border-color); }
+/* Reorganización en secciones (prompt-ajustes-reorganizacion-y-fixes.md) —
+   mismo lenguaje visual que .dbg-toggle-btn (mayúsculas, letter-spacing,
+   texto secundario) para que se lea como encabezado de grupo, no como un
+   control más. .ajustes-section reusa .ajustes-item-hidden (ya definida
+   más abajo) para ocultar la sección completa cuando el buscador filtra
+   todos sus .ajustes-item — evita un título de sección flotando sobre una
+   sección vacía. */
+.ajustes-section-title {
+  font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--text-secondary); margin: 4px 0 10px;
+}
 .dbg-toggle-btn {
   display: flex; align-items: center; gap: 6px; background: none; border: none; padding: 0;
   cursor: pointer; font-size: 0.78rem; font-weight: 700; color: var(--text-secondary);
@@ -2696,17 +2725,30 @@ body.a11y-reduce-motion *::after {
 /* Switch simple para los toggles de Accesibilidad — a diferencia de
    .perm-check-track/.perm-check-thumb (skin exclusivo de escritorio para la
    matriz de Permisos, ver @media arriba), este se ve igual en cualquier
-   breakpoint. */
+   breakpoint.
+   Fix visual (prompt-ajustes-reorganizacion-y-fixes.md): el <label> interno
+   que envuelve input+track no tenía clase propia, así que heredaba el
+   `label { display:block; margin:10px 0 4px }` global (ver arriba, cerca de
+   las reglas del selector estilizado) en vez de comportarse como el switch
+   inline que se veía. .a11y-switch-toggle neutraliza eso exactamente igual
+   que .perm-check ya lo hace para su propio <label> (display:inline-flex +
+   margin:0, misma receta). Además, .a11y-switch-track es un <span> (inline
+   por default) sin display:block explícito — width/height no aplican a
+   elementos inline no reemplazados, así que colapsaba a su tamaño de
+   contenido (~2px) y el thumb, con position:absolute, quedaba flotando
+   fuera de esa pista colapsada. .perm-check-track SÍ declara display:block
+   (ver @media arriba) — aquí se replica esa misma declaración. */
 .a11y-switch { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 0; }
 .a11y-switch-label { font-size: 0.85rem; }
+.a11y-switch-toggle { display: inline-flex; align-items: center; margin: 0; cursor: pointer; }
 .a11y-switch input[type="checkbox"] { position: absolute; opacity: 0; width: 1px; height: 1px; }
 .a11y-switch-track {
-  position: relative; flex: none; width: 40px; height: 22px; border-radius: 999px;
+  display: block; position: relative; flex: none; width: 40px; height: 22px; border-radius: 999px;
   background: var(--bg-surface-2); border: 1px solid var(--border-color); cursor: pointer;
   transition: background 0.15s var(--ease-out), border-color 0.15s var(--ease-out);
 }
 .a11y-switch-thumb {
-  position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%;
+  display: block; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%;
   background: var(--text-secondary); transition: transform 0.15s var(--ease-out), background 0.15s var(--ease-out);
 }
 .a11y-switch input:checked + .a11y-switch-track { background: var(--accent-gold); border-color: var(--accent-gold); }

@@ -7052,6 +7052,12 @@ const PERMISOS_SECCION_LABELS = {
   maquinaria_combustible: 'Maquinaria (combustible/mantenimiento)', trabajadores: 'Trabajadores',
   trabajadores_global: 'Trabajadores (Todas las Obras)', nominas_global: 'Nóminas (Todas las Obras)',
   costos: 'Costos (catálogo de precios)',
+  // Distintas de 'contrato' (el contrato de la OBRA) — estas son sobre el
+  // expediente de CADA trabajador: documentos de identidad y contratos
+  // laborales (incluye salario). Nombre explícito para no confundirlas en
+  // la matriz (prompt-implementar-permisos-docs-contrato-epp.md).
+  trabajadores_docs: 'Trabajadores — Documentos de identidad',
+  trabajadores_contrato: 'Trabajadores — Contratos laborales',
 };
 // Secciones que NUNCA son por-obra — no existe (ni tiene sentido) una versión
 // "para la obra X" de una vista que ya de por sí es cross-obra/cross-cliente.
@@ -7074,7 +7080,16 @@ const PERMISOS_ACCIONES = [
 // (auth.allow()), marcarla o no aquí todavía no cambia nada en el backend.
 // Actualizar esta lista cada vez que se le agregue checkPermiso a una
 // sección nueva (ver mismo patrón en server/auth.js SECCIONES_PERMISOS).
-const SECCIONES_CON_ENFORCEMENT = ['nominas', 'avance', 'maquinaria', 'maquinaria_captura', 'maquinaria_combustible', 'trabajadores_global', 'nominas_global', 'trabajadores', 'destajo', 'requisiciones', 'proveedores', 'ordenes_compra'];
+// 'trabajadores_docs' (ver/crear/eliminar reales, editar/editar_precios sin
+// endpoint — mismo patrón ya aceptado en 'trabajadores' con editar_precios)
+// y 'trabajadores_contrato' (ver/crear reales, editar/eliminar/editar_precios
+// sin endpoint — no existe esa acción, se resube el PDF completo) SÍ se
+// agregan completas aquí, a diferencia de Mapeo/Impuestos/Insumos más abajo:
+// a diferencia de esos casos (donde ninguna acción del rol no-admin es
+// alcanzable todavía), aquí SON la sección que este prompt expone para que
+// Paul las conceda de verdad — dejarlas fuera las mostraría como
+// "informativas: sin efecto real" cuando ver/crear/eliminar SÍ lo tienen.
+const SECCIONES_CON_ENFORCEMENT = ['nominas', 'avance', 'maquinaria', 'maquinaria_captura', 'maquinaria_combustible', 'trabajadores_global', 'nominas_global', 'trabajadores', 'destajo', 'requisiciones', 'proveedores', 'ordenes_compra', 'trabajadores_docs', 'trabajadores_contrato'];
 // 'ordenes_compra' SÍ se agrega completa (prompt-checkpermiso-ordenes-compra.md):
 // a diferencia de presupuestos/finanzas/mapeo, las 4 acciones (ver/crear/
 // editar/eliminar) tienen checkPermiso real — listar/detalle/export, generar
@@ -7156,7 +7171,7 @@ const PERMISOS_GRUPOS = [
   { label: 'Obra',           secciones: ['presupuestos', 'programa', 'avance', 'destajo', 'estimaciones'] },
   { label: 'Compras',        secciones: ['requisiciones', 'insumos', 'proveedores', 'ordenes_compra'] },
   { label: 'Tesorería',      secciones: ['finanzas', 'estado_resultados', 'impuestos'] },
-  { label: 'Administración', secciones: ['mapeo', 'contrato', 'nominas', 'usuarios', 'trabajadores', 'trabajadores_global', 'nominas_global', 'costos'] },
+  { label: 'Administración', secciones: ['mapeo', 'contrato', 'nominas', 'usuarios', 'trabajadores', 'trabajadores_docs', 'trabajadores_contrato', 'trabajadores_global', 'nominas_global', 'costos'] },
   { label: 'Maquinaria',     secciones: ['maquinaria', 'maquinaria_captura', 'maquinaria_combustible'] },
   { label: 'General',        secciones: ['sugerencias'] },
 ];
@@ -9982,22 +9997,53 @@ async function renderTrabajadores(view) {
   // (prompts-cotizador-sidebar-permisos-estimaciones.md, Prompt 3), mismo
   // patrón que renderAvance()/misPermisosAvance. admin/desarrollador siguen
   // viendo todo (el endpoint de mis-permisos les devuelve todo en true).
-  const misPermisos = await api(`/projects/${state.projectId}/mis-permisos/trabajadores`);
+  //
+  // Un solo GET /permisos/me trae las 3 secciones relevantes de una vez
+  // (evita 3 requests separados — prompt-implementar-permisos-docs-contrato-
+  // epp.md) en vez de N llamadas a /mis-permisos/:seccion: 'trabajadores'
+  // (roster/editar/baja + EPP y Catálogo EPP, que reusan este mismo permiso
+  // a propósito — no manejan datos tan sensibles como identidad/salario),
+  // 'trabajadores_docs' (documentos de identidad) y 'trabajadores_contrato'
+  // (contratos laborales, incluye salario) — estas dos separadas porque sí
+  // son datos sensibles y Paul quiere poder otorgarlas independientemente
+  // del roster básico.
+  const todosMisPermisos = await api(`/permisos/me?obra_id=${state.projectId}`);
+  const misPermisos = todosMisPermisos.trabajadores;
+  const misPermisosDocs = todosMisPermisos.trabajadores_docs;
+  const misPermisosContrato = todosMisPermisos.trabajadores_contrato;
   if (!misPermisos.puede_ver) {
     view.innerHTML = `<div class="alert-box danger">⚠️ No tienes permiso para ver esta sección.</div>`;
     return;
   }
-  // "Nuevo trabajador" es la única acción que un no-admin puede ganar vía el
-  // permiso granular (puede_crear) — editar/documentos/contratos/EPP/baja/
-  // eliminar se quedan admin-only (puedeGestionarTrabajadores()) porque sus
-  // endpoints siguen sin checkPermiso real, mismo alcance parcial que 'nominas'.
+  // Nuevo trabajador / Editar / Dar de baja / Reactivar / EPP / Catálogo EPP
+  // ya tienen checkPermiso real en el backend sobre 'trabajadores' — el
+  // frontend debe leer esos mismos flags en vez de puedeGestionarTrabajadores()
+  // (que solo mira isAdmin()), mismo bug gemelo que Nómina/cabo (PR #63/#64).
+  // Docs/Contrato usan sus propias secciones nuevas. El Eliminar físico
+  // (data-del-trab) y "EPP → eliminar entrega" quedan fuera a propósito —
+  // "Eliminar" físico nunca debe otorgarse solo por puede_eliminar granular
+  // (regla dura: dar de baja es soft-delete), y EPP-eliminar-entrega se queda
+  // admin-only estricto vía isAdminRealSinSimular(), sin excepción.
   const puedeCrear = isAdmin() || !!misPermisos.puede_crear;
+  const puedeEditar = isAdmin() || !!misPermisos.puede_editar;
+  const puedeVerEpp = isAdmin() || !!misPermisos.puede_ver;
+  const puedeCrearEpp = isAdmin() || !!misPermisos.puede_crear;
+  const puedeEditarEpp = isAdmin() || !!misPermisos.puede_editar;
+  const puedeVerDocs = isAdmin() || !!misPermisosDocs.puede_ver;
+  const puedeCrearDocs = isAdmin() || !!misPermisosDocs.puede_crear;
+  const puedeEliminarDocs = isAdmin() || !!misPermisosDocs.puede_eliminar;
+  const puedeVerContrato = isAdmin() || !!misPermisosContrato.puede_ver;
+  const puedeCrearContrato = isAdmin() || !!misPermisosContrato.puede_crear;
   let mostrarInactivos = false;
   async function repaint() {
     const trabajadores = await api(`/projects/${state.projectId}/trabajadores${mostrarInactivos ? '' : '?activo=1'}`);
     const listEl = $('#trabajadoresList');
     if (!listEl) return;
-    paintTrabajadoresList(trabajadores, listEl, repaint);
+    paintTrabajadoresList(trabajadores, listEl, repaint, {
+      puedeEditar, puedeVerEpp, puedeCrearEpp,
+      puedeVerDocs, puedeCrearDocs, puedeEliminarDocs,
+      puedeVerContrato, puedeCrearContrato,
+    });
   }
 
   view.innerHTML = `
@@ -10005,7 +10051,7 @@ async function renderTrabajadores(view) {
     <p class="muted">Expediente de personal asignado a esta obra.</p>
     <div class="section-actions section-actions-wrap">
       ${puedeCrear ? `<button class="btn btn-primary" id="btnNuevoTrabajador">+ Nuevo trabajador</button>` : ''}
-      ${puedeGestionarTrabajadores() ? `<button class="btn" id="btnCatalogoEpp">Catálogo EPP</button>` : ''}
+      ${(puedeCrearEpp || puedeEditarEpp) ? `<button class="btn" id="btnCatalogoEpp">Catálogo EPP</button>` : ''}
       <label class="checkbox-label-inline">
         <input type="checkbox" id="chkVerInactivos" class="w-auto"> Ver inactivos
       </label>
@@ -10014,7 +10060,7 @@ async function renderTrabajadores(view) {
   `;
 
   $('#btnNuevoTrabajador')?.addEventListener('click', () => openTrabajadorModal(null, repaint));
-  $('#btnCatalogoEpp')?.addEventListener('click', () => openCatalogoEppModal());
+  $('#btnCatalogoEpp')?.addEventListener('click', () => openCatalogoEppModal(puedeCrearEpp, puedeEditarEpp));
   $('#chkVerInactivos')?.addEventListener('change', async (e) => {
     mostrarInactivos = e.target.checked;
     await repaint();
@@ -10022,7 +10068,12 @@ async function renderTrabajadores(view) {
   await repaint();
 }
 
-function paintTrabajadoresList(trabajadores, listEl, repaint) {
+function paintTrabajadoresList(trabajadores, listEl, repaint, permisos) {
+  const {
+    puedeEditar, puedeVerEpp, puedeCrearEpp,
+    puedeVerDocs, puedeCrearDocs, puedeEliminarDocs,
+    puedeVerContrato, puedeCrearContrato,
+  } = permisos;
   if (!trabajadores.length) {
     listEl.innerHTML = '<div class="empty-state">No hay trabajadores registrados.</div>';
     return;
@@ -10040,16 +10091,19 @@ function paintTrabajadoresList(trabajadores, listEl, repaint) {
           </div>
         </div>
         <div class="row row-nowrap-gap6-start">
-          ${puedeGestionarTrabajadores() ? `
+          ${puedeVerDocs ? `<button class="btn small" data-docs-trab="${t.id}" data-docs-nombre="${esc(t.nombre)}">Docs</button>` : ''}
+          ${puedeVerContrato ? `<button class="btn small" data-contratos-trab="${t.id}" data-contratos-nombre="${esc(t.nombre)}">Contrato</button>` : ''}
+          ${puedeVerEpp ? `<button class="btn small" data-epp-trab="${t.id}" data-epp-nombre="${esc(t.nombre)}">EPP</button>` : ''}
+          ${puedeEditar ? `
             <button class="btn small" data-edit-trab="${t.id}">Editar</button>
-            <button class="btn small" data-docs-trab="${t.id}" data-docs-nombre="${esc(t.nombre)}">Docs</button>
-            <button class="btn small" data-contratos-trab="${t.id}" data-contratos-nombre="${esc(t.nombre)}">Contrato</button>
-            <button class="btn small" data-epp-trab="${t.id}" data-epp-nombre="${esc(t.nombre)}">EPP</button>
             ${t.activo
               ? `<button class="btn small btn-danger" data-baja-trab="${t.id}" data-baja-nombre="${esc(t.nombre)}">Dar baja</button>`
-              : `<button class="btn small" data-reactiva-trab="${t.id}">Reactivar</button>
-                 <button class="btn small btn-danger" data-del-trab="${t.id}" data-del-nombre="${esc(t.nombre)}">Eliminar</button>`
-            }` : ''}
+              : `<button class="btn small" data-reactiva-trab="${t.id}">Reactivar</button>`
+            }
+          ` : ''}
+          ${(!t.activo && puedeGestionarTrabajadores())
+            ? `<button class="btn small btn-danger" data-del-trab="${t.id}" data-del-nombre="${esc(t.nombre)}">Eliminar</button>`
+            : ''}
         </div>
       </div>
       ${t.tipo_pago !== 'destajo' ? `
@@ -10064,13 +10118,13 @@ function paintTrabajadoresList(trabajadores, listEl, repaint) {
     if (t) btn.addEventListener('click', () => openTrabajadorModal(t, repaint));
   });
   $$('[data-docs-trab]', listEl).forEach((btn) => {
-    btn.addEventListener('click', () => openDocumentosModal(Number(btn.dataset.docsTrab), btn.dataset.docsNombre));
+    btn.addEventListener('click', () => openDocumentosModal(Number(btn.dataset.docsTrab), btn.dataset.docsNombre, puedeCrearDocs, puedeEliminarDocs));
   });
   $$('[data-contratos-trab]', listEl).forEach((btn) => {
-    btn.addEventListener('click', () => openContratosModal(Number(btn.dataset.contratosTrab), btn.dataset.contratosNombre));
+    btn.addEventListener('click', () => openContratosModal(Number(btn.dataset.contratosTrab), btn.dataset.contratosNombre, puedeCrearContrato));
   });
   $$('[data-epp-trab]', listEl).forEach((btn) => {
-    btn.addEventListener('click', () => openEppModal(Number(btn.dataset.eppTrab), btn.dataset.eppNombre));
+    btn.addEventListener('click', () => openEppModal(Number(btn.dataset.eppTrab), btn.dataset.eppNombre, puedeCrearEpp));
   });
   $$('[data-baja-trab]', listEl).forEach((btn) => {
     btn.addEventListener('click', () => openBajaModal(Number(btn.dataset.bajaTrab), btn.dataset.bajaNombre, repaint));
@@ -10266,11 +10320,11 @@ async function openBajaModal(id, nombre, repaint) {
   });
 }
 
-async function openDocumentosModal(trabajadorId, nombreTrab) {
+async function openDocumentosModal(trabajadorId, nombreTrab, puedeCrear, puedeEliminar) {
   openModal(`
     <h3>Documentos — ${esc(nombreTrab)}</h3>
     <div id="docsListEl"><div class="empty-state">Cargando…</div></div>
-    ${puedeGestionarTrabajadores() ? `
+    ${puedeCrear ? `
     <div class="section-divider-12">
       <p class="muted fs085-m008">Subir nuevo documento (INE, CURP, comprobante de domicilio)</p>
       <div class="form-grid-mb8">
@@ -10297,7 +10351,7 @@ async function openDocumentosModal(trabajadorId, nombreTrab) {
         <span class="fs-085">${esc(TIPO_DOC_LABELS[d.tipo_doc] || d.tipo_doc)} — ${esc(d.nombre_original)}</span>
         <div class="row gap-6">
           <button class="btn small" data-dl-doc="${d.id}" data-dl-nombre="${esc(d.nombre_original)}">Descargar</button>
-          ${puedeGestionarTrabajadores() ? `<button class="btn small btn-danger" data-del-doc="${d.id}">Eliminar</button>` : ''}
+          ${puedeEliminar ? `<button class="btn small btn-danger" data-del-doc="${d.id}">Eliminar</button>` : ''}
         </div>
       </div>
     `).join('');
@@ -10359,13 +10413,14 @@ const TIPO_CONTRATO_LABELS = {
   tiempo_indeterminado: 'Tiempo indeterminado',
 };
 
-async function openContratosModal(trabajadorId, nombreTrab) {
+async function openContratosModal(trabajadorId, nombreTrab, puedeCrear) {
   openModal(`
     <div class="modal-header-row">
       <h3 class="modal-title">Contratos — ${esc(nombreTrab)}</h3>
       <button class="icon-btn modal-close-btn" id="btnCerrarContratos">✕</button>
     </div>
     <div id="contratosListEl"><div class="empty-state">Cargando…</div></div>
+    ${puedeCrear ? `
     <div class="modal-section-divider">
       <p class="muted modal-section-label">Registrar nuevo contrato</p>
       <div class="trab-form-grid">
@@ -10381,7 +10436,7 @@ async function openContratosModal(trabajadorId, nombreTrab) {
         <div class="field field-full"><label>PDF del contrato (opcional)</label><input id="cPdfFile" type="file" accept=".pdf" /></div>
       </div>
       <button class="btn btn-primary mt-8" id="btnGuardarContrato">Guardar contrato</button>
-    </div>
+    </div>` : ''}
   `);
   $('#btnCerrarContratos').addEventListener('click', closeModal);
   wireMoneyInput($('#cSalario'));
@@ -10417,7 +10472,7 @@ async function openContratosModal(trabajadorId, nombreTrab) {
   }
   await loadContratos();
 
-  $('#btnGuardarContrato').addEventListener('click', async () => {
+  $('#btnGuardarContrato')?.addEventListener('click', async () => {
     const tipo_contrato = $('#cTipo').value;
     const fecha_inicio = $('#cFechaInicio').value;
     if (!fecha_inicio) { toast('La fecha de inicio es requerida', 'danger'); return; }
@@ -10456,7 +10511,7 @@ async function openContratosModal(trabajadorId, nombreTrab) {
 // ---------------------------------------------------------------------------
 // EPP — historial de entregas por trabajador + registro con firma
 // ---------------------------------------------------------------------------
-async function openEppModal(trabajadorId, nombreTrab) {
+async function openEppModal(trabajadorId, nombreTrab, puedeCrear) {
   let catalogo = [];
   try { catalogo = await api(`/projects/${state.projectId}/epp-catalogo?soloActivos=1`); }
   catch (err) { toast(`No se pudo cargar el catálogo EPP: ${err.message}`, 'danger'); }
@@ -10467,6 +10522,7 @@ async function openEppModal(trabajadorId, nombreTrab) {
       <button class="icon-btn modal-close-btn" id="btnCerrarEpp">✕</button>
     </div>
     <div id="eppListEl"><div class="empty-state">Cargando…</div></div>
+    ${puedeCrear ? `
     <div class="modal-section-divider">
       <p class="muted modal-section-label">Registrar entrega</p>
       ${!catalogo.length ? `<p class="muted fs-085">No hay ítems en el catálogo EPP de esta obra. <br>El administrador debe configurarlo primero.</p>` : `
@@ -10490,7 +10546,7 @@ async function openEppModal(trabajadorId, nombreTrab) {
       </div>
       <button class="btn btn-primary mt-8" id="btnGuardarEpp">Guardar entrega</button>
       `}
-    </div>
+    </div>` : ''}
   `);
   $('#btnCerrarEpp').addEventListener('click', closeModal);
 
@@ -10541,7 +10597,7 @@ async function openEppModal(trabajadorId, nombreTrab) {
   }
   await loadEpp();
 
-  if (catalogo.length) {
+  if (puedeCrear && catalogo.length) {
     const canvas = $('#firmaCanvas');
     const ctx = canvas?.getContext('2d');
     let drawing = false;
@@ -10603,13 +10659,14 @@ async function openEppModal(trabajadorId, nombreTrab) {
 // ---------------------------------------------------------------------------
 // EPP — catálogo configurable por obra (Admin)
 // ---------------------------------------------------------------------------
-async function openCatalogoEppModal() {
+async function openCatalogoEppModal(puedeCrear, puedeEditar) {
   openModal(`
     <div class="modal-header-row">
       <h3 class="modal-title">Catálogo EPP — esta obra</h3>
       <button class="icon-btn modal-close-btn" id="btnCerrarCatEpp">✕</button>
     </div>
     <div id="catEppListEl"><div class="empty-state">Cargando…</div></div>
+    ${puedeCrear ? `
     <div class="modal-section-divider">
       <p class="muted catalogo-epp-label">Agregar ítem al catálogo</p>
       <div class="trab-form-grid">
@@ -10617,7 +10674,7 @@ async function openCatalogoEppModal() {
         <div class="field field-full"><label>Descripción (opcional)</label><input id="catEppDesc" placeholder="Norma, color, talla…" /></div>
       </div>
       <button class="btn btn-primary mt-8" id="btnAgregarCatEpp">Agregar</button>
-    </div>
+    </div>` : ''}
   `);
   $('#btnCerrarCatEpp').addEventListener('click', closeModal);
 
@@ -10632,9 +10689,9 @@ async function openCatalogoEppModal() {
           <span class="epp-item-nombre ${!it.activo ? 'epp-item-inactivo' : ''}">${esc(it.nombre_item)}</span>
           ${it.descripcion ? `<span class="muted fs-08"> — ${esc(it.descripcion)}</span>` : ''}
         </div>
-        <button class="btn small ${it.activo ? 'btn-danger' : ''}" data-toggle-epp="${it.id}" data-epp-activo="${it.activo}" data-epp-nombre="${esc(it.nombre_item)}" data-epp-desc="${esc(it.descripcion||'')}">
+        ${puedeEditar ? `<button class="btn small ${it.activo ? 'btn-danger' : ''}" data-toggle-epp="${it.id}" data-epp-activo="${it.activo}" data-epp-nombre="${esc(it.nombre_item)}" data-epp-desc="${esc(it.descripcion||'')}">
           ${it.activo ? 'Desactivar' : 'Activar'}
-        </button>
+        </button>` : ''}
       </div>
     `).join('');
     $$('[data-toggle-epp]', el).forEach((btn) => {
@@ -10653,7 +10710,7 @@ async function openCatalogoEppModal() {
   }
   await loadCatalogo();
 
-  $('#btnAgregarCatEpp').addEventListener('click', async () => {
+  $('#btnAgregarCatEpp')?.addEventListener('click', async () => {
     const nombre_item = $('#catEppNombre').value.trim();
     if (!nombre_item) { toast('El nombre del artículo es requerido', 'danger'); return; }
     const btn = $('#btnAgregarCatEpp');

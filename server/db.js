@@ -723,7 +723,7 @@ const SCHEMA = `
       'destajo','finanzas','insumos','mapeo','usuarios','contrato','impuestos',
       'nominas','sugerencias','programa','estimaciones','maquinaria',
       'trabajadores_global','nominas_global','trabajadores','estado_resultados','maquinaria_captura','maquinaria_combustible',
-      'costos'
+      'costos','trabajadores_docs','trabajadores_contrato'
     )),
     puede_ver BOOLEAN NOT NULL DEFAULT false,
     puede_crear BOOLEAN NOT NULL DEFAULT false,
@@ -740,13 +740,18 @@ const SCHEMA = `
   -- permisos-estimaciones.md Prompt 3 (permiso por-obra, distinto de
   -- trabajadores_global) — confirmado con prueba real que sin este ALTER
   -- INSERT INTO permisos_usuario con seccion='trabajadores' viola el CHECK.
+  -- 'trabajadores_docs'/'trabajadores_contrato' agregados en prompt-implementar-
+  -- permisos-docs-contrato-epp.md — mismo bug ya documentado con 'costos':
+  -- agregar la sección SOLO al CREATE TABLE de arriba no alcanza en Preview/
+  -- producción (tabla ya existente, el CREATE no vuelve a correr) — tiene que
+  -- ir también aquí.
   ALTER TABLE permisos_usuario DROP CONSTRAINT IF EXISTS permisos_usuario_seccion_check;
   ALTER TABLE permisos_usuario ADD CONSTRAINT permisos_usuario_seccion_check CHECK (seccion IN (
     'presupuestos','requisiciones','proveedores','ordenes_compra','avance',
     'destajo','finanzas','insumos','mapeo','usuarios','contrato','impuestos',
     'nominas','sugerencias','programa','estimaciones','maquinaria',
     'trabajadores_global','nominas_global','trabajadores','estado_resultados','maquinaria_captura','maquinaria_combustible',
-    'costos'
+    'costos','trabajadores_docs','trabajadores_contrato'
   ));
 
   -- Contador de folios por obra + tipo de documento. INSERT...ON CONFLICT DO

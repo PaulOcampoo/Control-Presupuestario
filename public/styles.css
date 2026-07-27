@@ -658,10 +658,11 @@ tr.row-pendiente { background: rgba(234,179,8,0.10); }
   border-radius: 4px; padding: 2px 6px; color: var(--text-primary);
 }
 
-/* Bloquea el scroll de fondo mientras un modal está abierto (ver
-   openModal/closeModal en app.js) — el propio .modal ya hace su scroll
-   interno vía overflow-y: auto arriba. */
-body.modal-open { overflow: hidden; }
+/* Bloquea el scroll de fondo mientras un modal o un drawer (sidebar,
+   gallery drawer, project drawer) está abierto — ver lockBodyScroll/
+   unlockBodyScroll en app.js. Cada overlay hace su propio scroll interno
+   vía overflow-y: auto en su propio contenedor, sin depender de esta clase. */
+body.body-scroll-locked { overflow: hidden; }
 
 /* Modal */
 .modal {

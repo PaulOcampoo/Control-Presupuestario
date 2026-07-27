@@ -43,7 +43,7 @@ const { generatePlanning } = require('./planning');
 const auth = require('./auth');
 const { sendXlsxExport, buildExportFilename } = require('./exportHelper');
 const { extraerDatosContrato, CAMPOS_CONTRATO } = require('./extraccionContrato');
-const { crearNotificacion, notificarAdmins } = require('./notificaciones');
+const { crearNotificacion, notificarAdmins, CATEGORIAS_NOTIFICACION, TODOS_LOS_TIPOS } = require('./notificaciones');
 const { buildEstimacionPdf } = require('./estimacionesPdf');
 const { buildNominaReporteSemanalPdf } = require('./nominaReporteSemanalPdf');
 const { calcularDiasRestantes, determinarUmbral, construirMensaje } = require('./alertasContrato');
@@ -752,6 +752,37 @@ app.put('/api/notificaciones/:id/leida', h(async (req, res) => {
 app.put('/api/notificaciones/leer-todas', h(async (req, res) => {
   await db.pool.query(
     'UPDATE notificaciones SET leida = true WHERE usuario_id = $1 AND leida = false', [req.user.id]
+  );
+  res.json({ ok: true });
+}));
+
+// Preferencias de notificaciones (prompt-fase2-notificaciones-sesiones.md) —
+// qué tipos quiere recibir el usuario. Sin fila = activado (ver
+// tipoHabilitado() en server/notificaciones.js); el GET devuelve el estado
+// resuelto (con default aplicado) para los 9 tipos, agrupado por categoría
+// para que el frontend solo tenga que pintar lo que recibe.
+app.get('/api/notificaciones/preferencias', h(async (req, res) => {
+  const { rows } = await db.pool.query(
+    'SELECT tipo, activo FROM notificacion_preferencias WHERE usuario_id = $1', [req.user.id]
+  );
+  const desactivados = new Set(rows.filter((r) => !r.activo).map((r) => r.tipo));
+  const categorias = Object.entries(CATEGORIAS_NOTIFICACION).map(([clave, cat]) => ({
+    clave, label: cat.label,
+    tipos: Object.entries(cat.tipos).map(([tipo, label]) => ({
+      tipo, label, activo: !desactivados.has(tipo),
+    })),
+  }));
+  res.json({ categorias });
+}));
+
+app.put('/api/notificaciones/preferencias', h(async (req, res) => {
+  const { tipo, activo } = req.body || {};
+  if (!TODOS_LOS_TIPOS.includes(tipo)) return res.status(400).json({ error: 'Tipo de notificación inválido' });
+  if (typeof activo !== 'boolean') return res.status(400).json({ error: 'activo debe ser true o false' });
+  await db.pool.query(
+    `INSERT INTO notificacion_preferencias (usuario_id, tipo, activo) VALUES ($1, $2, $3)
+     ON CONFLICT (usuario_id, tipo) DO UPDATE SET activo = $3`,
+    [req.user.id, tipo, activo]
   );
   res.json({ ok: true });
 }));

@@ -341,6 +341,25 @@ const SCHEMA = `
   CREATE INDEX IF NOT EXISTS idx_notificaciones_usuario ON notificaciones(usuario_id);
   CREATE INDEX IF NOT EXISTS idx_notificaciones_usuario_leida ON notificaciones(usuario_id, leida);
 
+  -- Preferencias de notificaciones por usuario/tipo (prompt-fase2-notificaciones-
+  -- sesiones.md) — sin fila para un (usuario_id, tipo) significa "activado" (ver
+  -- tipoHabilitado() en server/notificaciones.js), así que esta tabla solo
+  -- guarda las excepciones que el usuario desactivó explícitamente. Los 9
+  -- tipos son los mismos que ya usan crearNotificacion()/notificarAdmins() en
+  -- server/app.js — mantener en sync si se agrega un tipo nuevo.
+  CREATE TABLE IF NOT EXISTS notificacion_preferencias (
+    id SERIAL PRIMARY KEY,
+    usuario_id INTEGER NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+    tipo TEXT NOT NULL CHECK (tipo IN (
+      'recordatorio_impuestos','contrato_por_vencer','maquinaria_horas_pendiente',
+      'requisicion_pendiente','oc_pendiente','avance_pendiente','destajo_pendiente',
+      'estimacion_pendiente','estimacion_rechazada'
+    )),
+    activo BOOLEAN NOT NULL DEFAULT true,
+    UNIQUE (usuario_id, tipo)
+  );
+  CREATE INDEX IF NOT EXISTS idx_notificacion_preferencias_usuario ON notificacion_preferencias(usuario_id);
+
   -- Pagos de impuestos (IMSS/SAT/INFONAVIT) por obra y periodo — aplica a
   -- TODAS las obras por igual, sin relación con la pestaña Contrato. Un
   -- periodo por (project_id, año, mes); el cron mensual (ver

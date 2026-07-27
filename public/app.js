@@ -404,6 +404,17 @@ function setFontSize(size) { localStorage.setItem(A11Y_FONT_KEY, size); applyA11
 
 applyA11ySettings();
 
+// Selector de idioma — SOLO placeholder (addendum-selector-idioma-fase2.md):
+// la app no tiene infraestructura de i18n (100% strings en español, sin
+// externalizar), así que esto únicamente persiste la preferencia, igual que
+// el tema. 'en' no traduce nada todavía — seleccionar "English" solo muestra
+// showProximamenteTooltip() (mismo patrón ya usado para tabs sin implementar)
+// para que quede claro que no se rompió nada, no se implementó traducción
+// real hasta que Paul lo pida como proyecto aparte.
+const IDIOMA_KEY = 'cp_idioma';
+function getIdioma() { return localStorage.getItem(IDIOMA_KEY) || 'es'; }
+function setIdioma(idioma) { localStorage.setItem(IDIOMA_KEY, idioma); }
+
 // ---------------------------------------------------------------------------
 // Tamaño de tarjetas de cliente (Prompt B.3, prompts-animaciones-y-galeria-
 // clientes.md) — botones +/- en vez de slider, 4 pasos. Persistido en
@@ -1547,6 +1558,28 @@ async function clearCacheAndReload() {
   location.reload();
 }
 
+// Preferencias de notificaciones (prompt-fase2-notificaciones-sesiones.md) —
+// pinta las categorías/tipos que ya vienen agrupados desde el backend
+// (GET /notificaciones/preferencias, mismo agrupado que CATEGORIAS_NOTIFICACION
+// en server/notificaciones.js) como toggles .a11y-switch, mismo componente
+// que Reducir movimiento/Alto contraste.
+function renderNotifPrefsHtml(categorias) {
+  return categorias.map((cat) => `
+    <label class="ajustes-tema-label">${esc(cat.label)}</label>
+    ${cat.tipos.map((t) => `
+      <div class="ajustes-item">
+        <div class="a11y-switch">
+          <span class="a11y-switch-label">${esc(t.label)}</span>
+          <label class="a11y-switch-toggle">
+            <input type="checkbox" class="chkNotifTipo" data-tipo="${esc(t.tipo)}" ${t.activo ? 'checked' : ''} />
+            <span class="a11y-switch-track"><span class="a11y-switch-thumb"></span></span>
+          </label>
+        </div>
+      </div>
+    `).join('')}
+  `).join('');
+}
+
 // Reorganizado en secciones (prompt-ajustes-reorganizacion-y-fixes.md):
 // Apariencia / Accesibilidad / Cuenta y sesión / Sistema — antes eran
 // bloques sueltos sin agrupación clara. Cada sección envuelve sus controles
@@ -1559,6 +1592,7 @@ function openMobileAjustes() {
   const pref = getTheme();
   const pal = getPalette();
   const fontSize = getFontSize();
+  const idioma = getIdioma();
   openModal(`
     <div class="modal-header-row">
       <h3 class="modal-title">Ajustes</h3>
@@ -1609,6 +1643,13 @@ function openMobileAjustes() {
           <button class="theme-opt ${fontSize==='xlarge'?'active':''}" data-fontsize-set="xlarge">Muy grande</button>
         </div>
       </div>
+      <div class="ajustes-item">
+        <label class="ajustes-tema-label">Idioma</label>
+        <div class="theme-selector ajustes-theme-selector" id="idiomaSelector">
+          <button class="theme-opt ${idioma==='es'?'active':''}" data-idioma-set="es">Español</button>
+          <button class="theme-opt ${idioma==='en'?'active':''}" data-idioma-set="en">English</button>
+        </div>
+      </div>
     </div>
 
     <hr class="ajustes-divider">
@@ -1632,6 +1673,12 @@ function openMobileAjustes() {
           </label>
         </div>
       </div>
+    </div>
+
+    <hr class="ajustes-divider">
+    <div class="ajustes-section" id="ajustesNotifSection">
+      <div class="ajustes-section-title">Notificaciones</div>
+      <div class="ajustes-item"><span class="muted fs-08">Cargando…</span></div>
     </div>
 
     <hr class="ajustes-divider">
@@ -1678,6 +1725,13 @@ function openMobileAjustes() {
       $$('.theme-opt[data-fontsize-set]', $('#modal')).forEach((b) => b.classList.toggle('active', b.dataset.fontsizeSet === btn.dataset.fontsizeSet));
     });
   });
+  $$('.theme-opt[data-idioma-set]', $('#modal')).forEach((btn) => {
+    btn.addEventListener('click', () => {
+      setIdioma(btn.dataset.idiomaSet);
+      $$('.theme-opt[data-idioma-set]', $('#modal')).forEach((b) => b.classList.toggle('active', b.dataset.idiomaSet === btn.dataset.idiomaSet));
+      if (btn.dataset.idiomaSet === 'en') showProximamenteTooltip('English');
+    });
+  });
   $('#chkReduceMotion').addEventListener('change', (e) => setReduceMotion(e.target.checked));
   $('#chkHighContrast').addEventListener('change', (e) => setHighContrast(e.target.checked));
   $('#ajustesSearchInput').addEventListener('input', (e) => {
@@ -1702,6 +1756,29 @@ function openMobileAjustes() {
   _dbgSwInfo().then(({ version }) => {
     const el = $('#ajustesVersionValue');
     if (el) el.textContent = version;
+  });
+  api('/notificaciones/preferencias').then(({ categorias }) => {
+    const section = $('#ajustesNotifSection');
+    if (!section) return; // modal ya se cerró antes de que respondiera
+    section.innerHTML = `<div class="ajustes-section-title">Notificaciones</div>${renderNotifPrefsHtml(categorias)}`;
+    $$('.chkNotifTipo', section).forEach((chk) => {
+      chk.addEventListener('change', async (e) => {
+        const tipo = e.target.dataset.tipo;
+        const activo = e.target.checked;
+        e.target.disabled = true;
+        try {
+          await api('/notificaciones/preferencias', { method: 'PUT', body: { tipo, activo } });
+        } catch (err) {
+          e.target.checked = !activo; // revierte el toggle si el PUT falla
+          toast(err.message, 'danger');
+        } finally {
+          e.target.disabled = false;
+        }
+      });
+    });
+  }).catch(() => {
+    const section = $('#ajustesNotifSection');
+    if (section) section.innerHTML = '<div class="ajustes-section-title">Notificaciones</div><div class="ajustes-item"><span class="muted fs-08">No se pudieron cargar</span></div>';
   });
   if (isAdmin()) {
     const toggleBtn = $('#__dbgToggle');

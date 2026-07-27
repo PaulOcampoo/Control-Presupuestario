@@ -118,13 +118,24 @@ const SECCIONES_PERMISOS = [
   'trabajadores_global', 'nominas_global',
   // 'trabajadores' por-obra (prompts-cotizador-sidebar-permisos-estimaciones.md,
   // Prompt 3) — distinta de 'trabajadores_global' igual que 'nominas' lo es de
-  // 'nominas_global': gatea SOLO la lista/alta de trabajadores DE UNA obra
-  // específica (ver checkPermiso en GET/POST /api/projects/:id/trabajadores),
-  // no la vista global cross-obra. El resto de las acciones sobre un
-  // trabajador (editar, documentos, contratos, EPP, baja, eliminar) se quedan
-  // admin-only por ahora (auth.allow() sin argumentos) — mismo alcance parcial
-  // que 'nominas' ya tiene hoy (solo ver/crear con checkPermiso real).
+  // 'nominas_global': gatea lista/alta/editar/baja/reactivar/eliminar-físico
+  // de trabajadores DE UNA obra específica, y también EPP + Catálogo EPP
+  // (registrar entrega, ver historial, administrar el catálogo — prompt-
+  // implementar-permisos-docs-contrato-epp.md decidió NO separarlos en su
+  // propia sección: no manejan datos tan sensibles como identidad/salario).
+  // "EPP → eliminar entrega" es la única excepción: se queda admin-only
+  // estricto vía isAdminRealSinSimular() en frontend, a propósito, sin
+  // exponerse aquí ni en la matriz.
   'trabajadores',
+  // Documentos de identidad (INE/CURP/comprobante domicilio) y Contratos
+  // laborales (incluye salario) de un trabajador — separados de 'trabajadores'
+  // en secciones propias (prompt-implementar-permisos-docs-contrato-epp.md)
+  // porque son datos más sensibles que el roster/avance básico: Paul quiere
+  // poder dar acceso a Trabajadores sin exponer identidad/salario, o
+  // viceversa. Mismo patrón de columnas reutilizadas (ver/crear/eliminar con
+  // checkPermiso real; 'trabajadores_contrato' no tiene endpoint de editar ni
+  // eliminar individual — no existe esa acción, se resube el PDF completo).
+  'trabajadores_docs', 'trabajadores_contrato',
   // 'costos' (prompt-modulo-costos.md) — catálogo de precios agregado por
   // cliente y global, cross-obra/cross-cliente por diseño (igual que
   // trabajadores_global/nominas_global, ver SECCIONES_SIEMPRE_GLOBAL en
@@ -499,7 +510,13 @@ async function requireAuth(req, res, next) {
       [decoded.id]
     );
     if (!rows[0]) return res.status(401).json({ error: 'Sesión inválida' });
-    const validSinceMs = new Date(rows[0].token_valid_since).getTime();
+    // token_valid_since llega de server/db.js como 'YYYY-MM-DD HH:MM:SS' (el
+    // type parser global le quita la zona) pero el valor en sí SIEMPRE es
+    // UTC (así lo persiste Postgres para TIMESTAMPTZ) — sin el '+ Z', new
+    // Date() lo interpreta como hora LOCAL del proceso, no UTC. En un proceso
+    // corriendo en una zona detrás de UTC eso corre la comparación hacia
+    // adelante y revoca sesiones recién emitidas que no deberían estarlo.
+    const validSinceMs = new Date(`${rows[0].token_valid_since}Z`).getTime();
     // iat es en segundos; si fue emitido en el mismo instante o antes de la revocación, se rechaza
     if (decoded.iat * 1000 <= validSinceMs) {
       return res.status(401).json({ error: 'Sesión revocada, inicia sesión de nuevo' });

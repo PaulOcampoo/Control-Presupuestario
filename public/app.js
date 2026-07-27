@@ -1189,11 +1189,13 @@ function toggleSidebarCollapse() {
 function openSidebar() {
   $('#sidebar').classList.add('mobile-open');
   $('#sidebarOverlay').classList.add('show');
+  lockBodyScroll('sidebar');
 }
 
 function closeSidebar() {
   $('#sidebar').classList.remove('mobile-open');
   $('#sidebarOverlay').classList.remove('show');
+  unlockBodyScroll('sidebar');
 }
 
 // Drawer de ajustes de la galería de clientes (prompt 2,
@@ -1206,6 +1208,7 @@ function closeSidebar() {
 function openGalleryDrawer() {
   $('#galleryDrawer').classList.add('show');
   $('#galleryDrawerOverlay').classList.add('show');
+  lockBodyScroll('gallery-drawer');
   applyTheme(getTheme());
   const rm = $('#chkReduceMotionGallery'); if (rm) rm.checked = getReduceMotion();
   const hc = $('#chkHighContrastGallery'); if (hc) hc.checked = getHighContrast();
@@ -1214,6 +1217,7 @@ function openGalleryDrawer() {
 function closeGalleryDrawer() {
   $('#galleryDrawer').classList.remove('show');
   $('#galleryDrawerOverlay').classList.remove('show');
+  unlockBodyScroll('gallery-drawer');
 }
 
 // Accesos globales de administración del drawer de galería (Usuarios,
@@ -2152,24 +2156,38 @@ function openTotpLoginModal(preAuthToken) {
 }
 
 // ---------------------------------------------------------------------------
+// Scroll-lock del fondo (compartido por modales + los 3 drawers: sidebar,
+// gallery drawer, project drawer) — Set de "dueños" en vez de un booleano
+// porque más de un overlay puede estar abierto a la vez (ej. un modal
+// disparado desde dentro del sidebar en mobile); con un booleano, cerrar
+// cualquiera de los dos quitaría el lock aunque el otro siga abierto. Con
+// el Set, el body solo se desbloquea cuando el último dueño activo se va.
+const scrollLockOwners = new Set();
+function lockBodyScroll(owner) {
+  scrollLockOwners.add(owner);
+  document.body.classList.add('body-scroll-locked');
+}
+function unlockBodyScroll(owner) {
+  scrollLockOwners.delete(owner);
+  if (scrollLockOwners.size === 0) document.body.classList.remove('body-scroll-locked');
+}
+
+// ---------------------------------------------------------------------------
 // Modal helpers
 // ---------------------------------------------------------------------------
-// Bloquea el scroll del fondo mientras cualquier modal está abierto — se
-// aplica una sola vez aquí (todos los modales de la app pasan por
-// openModal/closeModal) para que los modales nuevos lo hereden solos.
 function openModal(html) {
   const modal = $('#modal');
   modal.innerHTML = html;
   modal.classList.add('show');
   $('#modalOverlay').classList.add('show');
-  document.body.classList.add('modal-open');
+  lockBodyScroll('modal');
 }
 function closeModal() {
   $('#modal').classList.remove('show');
   $('#modal').classList.remove('modal-wide'); // ver openVerEstimacionModal — no debe pegarse a otros modales
   $('#modalOverlay').classList.remove('show');
   $('#modal').innerHTML = '';
-  document.body.classList.remove('modal-open');
+  unlockBodyScroll('modal');
   blockOverlayDismiss = false;
 }
 // Los códigos de respaldo de 2FA solo se muestran una vez — mientras ese modal
@@ -2555,8 +2573,8 @@ function confirmDialog(mensaje, { titulo = 'Confirmar', textoAceptar = 'Aceptar'
 // ---------------------------------------------------------------------------
 // Drawer (project switcher)
 // ---------------------------------------------------------------------------
-function openDrawer() { $('#drawer').classList.add('open'); $('#drawerOverlay').classList.add('show'); }
-function closeDrawer() { $('#drawer').classList.remove('open'); $('#drawerOverlay').classList.remove('show'); }
+function openDrawer() { $('#drawer').classList.add('open'); $('#drawerOverlay').classList.add('show'); lockBodyScroll('project-drawer'); }
+function closeDrawer() { $('#drawer').classList.remove('open'); $('#drawerOverlay').classList.remove('show'); unlockBodyScroll('project-drawer'); }
 $('#btnMenu').addEventListener('click', () => {
   if (window.innerWidth <= 860) {
     openSidebar();

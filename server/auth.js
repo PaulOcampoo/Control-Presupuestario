@@ -510,7 +510,13 @@ async function requireAuth(req, res, next) {
       [decoded.id]
     );
     if (!rows[0]) return res.status(401).json({ error: 'Sesión inválida' });
-    const validSinceMs = new Date(rows[0].token_valid_since).getTime();
+    // token_valid_since llega de server/db.js como 'YYYY-MM-DD HH:MM:SS' (el
+    // type parser global le quita la zona) pero el valor en sí SIEMPRE es
+    // UTC (así lo persiste Postgres para TIMESTAMPTZ) — sin el '+ Z', new
+    // Date() lo interpreta como hora LOCAL del proceso, no UTC. En un proceso
+    // corriendo en una zona detrás de UTC eso corre la comparación hacia
+    // adelante y revoca sesiones recién emitidas que no deberían estarlo.
+    const validSinceMs = new Date(`${rows[0].token_valid_since}Z`).getTime();
     // iat es en segundos; si fue emitido en el mismo instante o antes de la revocación, se rechaza
     if (decoded.iat * 1000 <= validSinceMs) {
       return res.status(401).json({ error: 'Sesión revocada, inicia sesión de nuevo' });

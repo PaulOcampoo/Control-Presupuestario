@@ -495,7 +495,11 @@ app.post('/api/auth/refresh', h(async (req, res) => {
     [decoded.id]
   );
   if (!rows[0]) return res.status(401).json({ error: 'Sesión inválida' });
-  if (decoded.iat * 1000 <= new Date(rows[0].token_valid_since).getTime()) {
+  // Mismo fix que requireAuth en server/auth.js: el valor de token_valid_since
+  // llega sin zona (type parser de server/db.js) pero siempre es UTC — hay
+  // que forzarlo con '+ Z' antes de comparar, o new Date() lo interpreta como
+  // hora local del proceso y revoca de más en zonas detrás de UTC.
+  if (decoded.iat * 1000 <= new Date(`${rows[0].token_valid_since}Z`).getTime()) {
     return res.status(401).json({ error: 'Sesión revocada' });
   }
   const token = auth.signToken(rows[0]);

@@ -5236,7 +5236,7 @@ app.delete('/api/projects/:id/trabajadores/:wId', h(auth.allow('residente', 'cab
 }));
 
 // --- Documentos de identidad (Vercel Blob privado) ---
-app.post('/api/projects/:id/trabajadores/:wId/documentos/upload-token', h(auth.allow('residente', 'cabo')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('trabajadores', 'puede_crear')), h(async (req, res) => {
+app.post('/api/projects/:id/trabajadores/:wId/documentos/upload-token', h(auth.allow('residente', 'cabo')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('trabajadores_docs', 'puede_crear')), h(async (req, res) => {
   const wId = Number(req.params.wId);
   const { rows } = await db.pool.query('SELECT id FROM trabajadores WHERE id=$1 AND project_id=$2', [wId, req.project.id]);
   if (!rows[0]) return res.status(404).json({ error: 'Trabajador no encontrado' });
@@ -5261,7 +5261,7 @@ app.post('/api/projects/:id/trabajadores/:wId/documentos/upload-token', h(auth.a
   }
 }));
 
-app.post('/api/projects/:id/trabajadores/:wId/documentos', h(auth.allow('residente', 'cabo')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('trabajadores', 'puede_crear')), h(async (req, res) => {
+app.post('/api/projects/:id/trabajadores/:wId/documentos', h(auth.allow('residente', 'cabo')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('trabajadores_docs', 'puede_crear')), h(async (req, res) => {
   const wId = Number(req.params.wId);
   const { tipo, nombre_archivo, blob_url } = req.body || {};
   if (!blob_url) return res.status(400).json({ error: 'blob_url es requerido' });
@@ -5275,7 +5275,7 @@ app.post('/api/projects/:id/trabajadores/:wId/documentos', h(auth.allow('residen
   res.status(201).json(rows[0]);
 }));
 
-app.get('/api/projects/:id/trabajadores/:wId/documentos', h(auth.allow('residente', 'cabo')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('trabajadores', 'puede_ver')), h(async (req, res) => {
+app.get('/api/projects/:id/trabajadores/:wId/documentos', h(auth.allow('residente', 'cabo')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('trabajadores_docs', 'puede_ver')), h(async (req, res) => {
   const wId = Number(req.params.wId);
   const { rows: wCheck } = await db.pool.query('SELECT id FROM trabajadores WHERE id=$1 AND project_id=$2', [wId, req.project.id]);
   if (!wCheck[0]) return res.status(404).json({ error: 'Trabajador no encontrado' });
@@ -5286,7 +5286,7 @@ app.get('/api/projects/:id/trabajadores/:wId/documentos', h(auth.allow('resident
   res.json(rows);
 }));
 
-app.get('/api/projects/:id/trabajadores/:wId/documentos/:docId/download', h(auth.allow('residente', 'cabo')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('trabajadores', 'puede_ver')), h(async (req, res) => {
+app.get('/api/projects/:id/trabajadores/:wId/documentos/:docId/download', h(auth.allow('residente', 'cabo')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('trabajadores_docs', 'puede_ver')), h(async (req, res) => {
   const wId = Number(req.params.wId);
   const docId = Number(req.params.docId);
   const { rows } = await db.pool.query(
@@ -5304,7 +5304,7 @@ app.get('/api/projects/:id/trabajadores/:wId/documentos/:docId/download', h(auth
   await pipe(Readable.fromWeb(blobResult.stream), res);
 }));
 
-app.delete('/api/projects/:id/trabajadores/:wId/documentos/:docId', h(auth.allow('residente', 'cabo')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('trabajadores', 'puede_eliminar')), h(async (req, res) => {
+app.delete('/api/projects/:id/trabajadores/:wId/documentos/:docId', h(auth.allow('residente', 'cabo')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('trabajadores_docs', 'puede_eliminar')), h(async (req, res) => {
   const wId = Number(req.params.wId);
   const docId = Number(req.params.docId);
   const { rows } = await db.pool.query(
@@ -5320,7 +5320,7 @@ app.delete('/api/projects/:id/trabajadores/:wId/documentos/:docId', h(auth.allow
 // ===========================================================================
 // CONTRATOS LABORALES POR TRABAJADOR
 // ===========================================================================
-app.post('/api/projects/:id/trabajadores/:wId/contratos/upload-token', h(auth.allow('residente', 'cabo')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('trabajadores', 'puede_crear')), h(async (req, res) => {
+app.post('/api/projects/:id/trabajadores/:wId/contratos/upload-token', h(auth.allow('residente', 'cabo')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('trabajadores_contrato', 'puede_crear')), h(async (req, res) => {
   const wId = Number(req.params.wId);
   const { rows } = await db.pool.query('SELECT id FROM trabajadores WHERE id=$1 AND project_id=$2', [wId, req.project.id]);
   if (!rows[0]) return res.status(404).json({ error: 'Trabajador no encontrado' });
@@ -5340,7 +5340,7 @@ app.post('/api/projects/:id/trabajadores/:wId/contratos/upload-token', h(auth.al
   }
 }));
 
-app.post('/api/projects/:id/trabajadores/:wId/contratos', h(auth.allow('residente', 'cabo')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('trabajadores', 'puede_crear')), h(async (req, res) => {
+app.post('/api/projects/:id/trabajadores/:wId/contratos', h(auth.allow('residente', 'cabo')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('trabajadores_contrato', 'puede_crear')), h(async (req, res) => {
   const wId = Number(req.params.wId);
   const { tipo_contrato, fecha_inicio, fecha_fin, salario_diario, pdf_url, pdf_filename } = req.body || {};
   const TIPOS = ['obra_determinada','tiempo_determinado','tiempo_indeterminado'];
@@ -5361,7 +5361,7 @@ app.post('/api/projects/:id/trabajadores/:wId/contratos', h(auth.allow('resident
   res.status(201).json(rows[0]);
 }));
 
-app.get('/api/projects/:id/trabajadores/:wId/contratos', h(auth.allow('residente', 'cabo')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('trabajadores', 'puede_ver')), h(async (req, res) => {
+app.get('/api/projects/:id/trabajadores/:wId/contratos', h(auth.allow('residente', 'cabo')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('trabajadores_contrato', 'puede_ver')), h(async (req, res) => {
   const wId = Number(req.params.wId);
   const { rows: wCheck } = await db.pool.query('SELECT id FROM trabajadores WHERE id=$1 AND project_id=$2', [wId, req.project.id]);
   if (!wCheck[0]) return res.status(404).json({ error: 'Trabajador no encontrado' });
@@ -5374,7 +5374,7 @@ app.get('/api/projects/:id/trabajadores/:wId/contratos', h(auth.allow('residente
   res.json(rows);
 }));
 
-app.get('/api/projects/:id/trabajadores/:wId/contratos/:cId/download', h(auth.allow('residente', 'cabo')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('trabajadores', 'puede_ver')), h(async (req, res) => {
+app.get('/api/projects/:id/trabajadores/:wId/contratos/:cId/download', h(auth.allow('residente', 'cabo')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('trabajadores_contrato', 'puede_ver')), h(async (req, res) => {
   const wId = Number(req.params.wId);
   const cId = Number(req.params.cId);
   const { rows } = await db.pool.query(

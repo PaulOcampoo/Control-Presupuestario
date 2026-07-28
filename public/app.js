@@ -8296,7 +8296,11 @@ async function renderCotizador(view) {
 // (jefe_maquinaria/admin/desarrollador) y horas de uso (cabo, hoy solo
 // retroexcavadoras). DISEÑO DE PRIMER BORRADOR, pendiente de revisión.
 // =========================================================================
-const MAQUINARIA_TIPOS = ['retroexcavadora'];
+// prompt-p3-tipos-maquinaria.md: 4 tipos nuevos además de retroexcavadora.
+// equipos_maquinaria.tipo NO tiene CHECK constraint (confirmado en el
+// diagnóstico — es TEXT NOT NULL DEFAULT 'retroexcavadora' sin restricción
+// de valores), así que no hizo falta tocar server/db.js.
+const MAQUINARIA_TIPOS = ['retroexcavadora', 'equipo menor', 'herramienta eléctrica', 'herramienta mecánica', 'otros'];
 // Catálogo fijo de actividad (prompt-2-rol-operador-actividades.md) — el
 // operador elige de esta lista (auto-llenado), no escribe texto libre.
 // Espejo exacto de ACTIVIDADES_MAQUINARIA en server/app.js, que es quien

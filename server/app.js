@@ -2347,24 +2347,23 @@ app.get('/api/projects', h(auth.allow('residente', 'cabo', 'compras', 'tesoreria
         WHERE up.usuario_id = $1
         ORDER BY p.id DESC
       `, [req.user.id])).rows;
-  // prompt-p2-aislamiento-operador.md: operador no debe recibir importes ni
-  // fechas de obra en este payload (el drawer "Presupuestos cargados" se le
-  // oculta por completo en el frontend, pero este mismo endpoint también
-  // alimenta el selector de Obra del modal de Capturar horas — que solo
-  // necesita id/nombre/lugar). Recorte en la construcción de la respuesta,
-  // no en el render: para operador ni siquiera se corre la query de
-  // totalRows. NO se extiende este recorte a otros roles (residente/cabo/
-  // etc. siguen igual) — eso queda fuera de este prompt.
-  const esOperadorReq = req.user.puesto === 'operador';
+  // prompt-p2-aislamiento-operador.md (operador) + prompt-p9-restringir-
+  // importes-projects.md (todos los demás roles no-admin): solo admin y
+  // desarrollador reciben importes y fechas de obra en este payload (el
+  // drawer "Presupuestos cargados" ya es null-safe para estas 4 claves —
+  // mismo código que corre hoy para operador, sin cambios de frontend).
+  // Recorte en la construcción de la respuesta, no en el render: para
+  // roles no-admin ni siquiera se corre la query de totalRows.
+  const puedeVerImportes = req.user.puesto === 'admin' || req.user.puesto === 'desarrollador';
   const rows = await Promise.all(projects.map(async (p) => {
     const { rows: metaRows } = await db.pool.query(
       'SELECT clave, valor FROM meta WHERE project_id = $1', [p.id]
     );
     const meta = metaToObject(metaRows);
-    const totalRows = esOperadorReq ? [] : (await db.pool.query(
+    const totalRows = puedeVerImportes ? (await db.pool.query(
       "SELECT importe FROM conceptos WHERE project_id = $1 AND es_total = 1 AND grupo IS NULL ORDER BY orden DESC LIMIT 1",
       [p.id]
-    )).rows;
+    )).rows : [];
     return {
       id: p.id,
       nombre: p.nombre,
@@ -2373,12 +2372,12 @@ app.get('/api/projects', h(auth.allow('residente', 'cabo', 'compras', 'tesoreria
       creado_en: p.creado_en,
       obra: meta.obra || null,
       lugar: meta.lugar || null,
-      ...(esOperadorReq ? {} : {
+      ...(puedeVerImportes ? {
         inicio_obra: meta.inicio_obra || null,
         fin_obra: meta.fin_obra || null,
         total_sin_iva: meta.total_sin_iva ? Number(meta.total_sin_iva) : (totalRows[0] ? totalRows[0].importe : null),
         total_con_iva: meta.total_con_iva ? Number(meta.total_con_iva) : null,
-      }),
+      } : {}),
     };
   }));
   res.json(rows);

@@ -750,7 +750,8 @@ const SCHEMA = `
       'destajo','finanzas','insumos','mapeo','usuarios','contrato','impuestos',
       'nominas','sugerencias','programa','estimaciones','maquinaria',
       'trabajadores_global','nominas_global','trabajadores','estado_resultados','maquinaria_captura','maquinaria_combustible',
-      'costos','trabajadores_docs','trabajadores_contrato','trabajadores_bancarios'
+      'costos','trabajadores_docs','trabajadores_contrato','trabajadores_bancarios',
+      'cotizador','estado_resultados_global'
     )),
     puede_ver BOOLEAN NOT NULL DEFAULT false,
     puede_crear BOOLEAN NOT NULL DEFAULT false,
@@ -772,13 +773,19 @@ const SCHEMA = `
   -- agregar la sección SOLO al CREATE TABLE de arriba no alcanza en Preview/
   -- producción (tabla ya existente, el CREATE no vuelve a correr) — tiene que
   -- ir también aquí.
+  -- 'cotizador'/'estado_resultados_global' agregados en prompt-p8-migracion-
+  -- permisos-navegacion.md (diagnóstico): completan el catálogo para los tabs
+  -- 'cotizador' (compras) y 'estadoResultadosGlobal' (tesorería), que hasta
+  -- ahora no tenían sección propia — sin esto INSERT con esas secciones
+  -- viola el CHECK, mismo bug ya documentado arriba con cada sección nueva.
   ALTER TABLE permisos_usuario DROP CONSTRAINT IF EXISTS permisos_usuario_seccion_check;
   ALTER TABLE permisos_usuario ADD CONSTRAINT permisos_usuario_seccion_check CHECK (seccion IN (
     'presupuestos','requisiciones','proveedores','ordenes_compra','avance',
     'destajo','finanzas','insumos','mapeo','usuarios','contrato','impuestos',
     'nominas','sugerencias','programa','estimaciones','maquinaria',
     'trabajadores_global','nominas_global','trabajadores','estado_resultados','maquinaria_captura','maquinaria_combustible',
-    'costos','trabajadores_docs','trabajadores_contrato','trabajadores_bancarios'
+    'costos','trabajadores_docs','trabajadores_contrato','trabajadores_bancarios',
+    'cotizador','estado_resultados_global'
   ));
 
   -- Contador de folios por obra + tipo de documento. INSERT...ON CONFLICT DO

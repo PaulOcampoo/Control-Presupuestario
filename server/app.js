@@ -1015,22 +1015,25 @@ app.get('/api/permisos/me', h(async (req, res) => {
   res.json(resultado);
 }));
 
-// Inverso de auth.TAB_A_SECCION — construido una sola vez al cargar el
-// módulo. Usado por GET /api/projects/:id/nav-tabs abajo para traducir
-// "secciones con puede_ver=true" de vuelta a los tabs de navegación que debe
-// ver el usuario. Excluye 'resumen' a propósito: 'presupuestos' (a lo que
-// mapea 'resumen' en TAB_A_SECCION) NO es 1:1 con el tab — esa sección
-// también gatea checkPermiso('presupuestos','puede_ver') en
-// GET /api/projects/:id/conceptos, el permiso de ver los CONCEPTOS del
-// presupuesto que residente/cabo/etc. necesitan a diario y no tiene ninguna
-// relación con el tab 'Resumen' (dashboard financiero agregado, hoy solo
-// admin/tesorería/administración vía PERMISSIONS). Traducir 'presupuestos'
-// de vuelta a 'resumen' aquí le regalaría el tab Resumen a cualquier rol con
-// acceso de solo-ver-conceptos (confirmado en diagnóstico real: Rbermeo y
-// Ejimenez lo hubieran ganado sin que nadie se los otorgara a propósito).
+// Tabs que se resuelven aparte, vía PERMISSIONS.<rol>.tabs (ver el loop más
+// abajo en GET /api/projects/:id/nav-tabs), en vez de la traducción genérica
+// sección->tab de SECCION_A_TAB:
+// - 'resumen': 'presupuestos' (a lo que mapea en TAB_A_SECCION) NO es 1:1 con
+//   el tab — esa sección también gatea checkPermiso('presupuestos','puede_ver')
+//   en GET /api/projects/:id/conceptos, el permiso de ver los CONCEPTOS del
+//   presupuesto que residente/cabo/etc. necesitan a diario y no tiene relación
+//   con el tab 'Resumen' (dashboard financiero agregado, hoy solo admin/
+//   tesorería/administración). Confirmado en diagnóstico real: Rbermeo y
+//   Ejimenez hubieran ganado el tab Resumen sin que nadie se los otorgara.
+// - 'ordenes': cabo tiene puede_ver=true en 'ordenes_compra' (otorgado en
+//   PR #78 para preservar la lectura del listado/detalle de OC que ya tenía
+//   por rol plano antes de existir checkPermiso), pero eso nunca fue una
+//   decisión consciente de darle el tab completo — no debe ganarlo como
+//   efecto colateral de este cambio (decisión explícita, prompt-p8-parte2).
+const TABS_RESUELTOS_APARTE = ['resumen', 'ordenes'];
 const SECCION_A_TAB = Object.fromEntries(
   Object.entries(auth.TAB_A_SECCION)
-    .filter(([tab]) => tab !== 'resumen')
+    .filter(([tab]) => !TABS_RESUELTOS_APARTE.includes(tab))
     .map(([tab, seccion]) => [seccion, tab])
 );
 
@@ -1062,12 +1065,16 @@ app.get('/api/projects/:id/nav-tabs', h(requireProject), h(auth.verificarAccesoO
     .filter(([, ok]) => ok)
     .map(([seccion]) => SECCION_A_TAB[seccion])
     .filter(Boolean);
-  // 'resumen' queda fuera de SECCION_A_TAB (ver comentario arriba) — se
-  // resuelve aparte, tal cual como hoy (PERMISSIONS.<rol>.tabs), para no
-  // regalarlo vía 'presupuestos' ni perderlo para tesorería/administración
-  // (únicos roles no-admin que sí lo tienen hoy) por no tener una sección
-  // granular propia todavía.
-  if (auth.PERMISSIONS[req.user.puesto]?.tabs.includes('resumen')) tabs.push('resumen');
+  // 'resumen'/'ordenes' quedan fuera de SECCION_A_TAB (ver comentario arriba)
+  // — se resuelven aparte, tal cual como hoy (PERMISSIONS.<rol>.tabs), para
+  // no regalarlos vía una sección de alcance más amplio (presupuestos/
+  // ordenes_compra) ni perderlos para los roles que sí los tienen hoy
+  // (tesorería/administración para resumen; residente/compras/tesorería/
+  // administración/logística para ordenes) por no tener una sección
+  // granular propia y exclusiva todavía.
+  for (const tab of TABS_RESUELTOS_APARTE) {
+    if (auth.PERMISSIONS[req.user.puesto]?.tabs.includes(tab)) tabs.push(tab);
+  }
   res.json({ tabs });
 }));
 

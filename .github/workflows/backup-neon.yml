@@ -52,12 +52,20 @@ jobs:
       # versión vieja (16.x) que pg_dump RECHAZA usar contra un servidor 18
       # ("aborting because of server version mismatch") — hay que instalar
       # postgresql-client-18 específicamente vía el repo oficial de PGDG.
+      #
+      # 🔴 Confirmado en la primera corrida real (2026-07-28, run 30392101676):
+      # instalar postgresql-client-18 NO basta — el runner de ubuntu-latest ya
+      # trae un pg_dump 16.x preinstalado más temprano en el PATH, y el
+      # comando plano `pg_dump` seguía resolviendo a ese binario viejo pese a
+      # tener el 18 instalado. Hay que invocar el binario por ruta explícita
+      # (/usr/lib/postgresql/18/bin/pg_dump), no confiar en el PATH.
       - name: Instalar cliente de Postgres 18 (pg_dump)
         run: |
           sudo apt-get update
           sudo apt-get install --yes postgresql-common
           sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
           sudo apt-get install --yes postgresql-client-18
+          /usr/lib/postgresql/18/bin/pg_dump --version
 
       - name: Configurar Node.js
         uses: actions/setup-node@v4
@@ -78,7 +86,7 @@ jobs:
           fi
           FECHA=$(date -u +%F)
           echo "FECHA=$FECHA" >> "$GITHUB_ENV"
-          pg_dump "$DATABASE_URL" --no-owner --no-privileges | gzip > "backup-$FECHA.sql.gz"
+          /usr/lib/postgresql/18/bin/pg_dump "$DATABASE_URL" --no-owner --no-privileges | gzip > "backup-$FECHA.sql.gz"
           ls -lh "backup-$FECHA.sql.gz"
 
       - name: Subir a Vercel Blob y rotar backups viejos (retener 8)

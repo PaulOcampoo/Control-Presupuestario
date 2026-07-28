@@ -874,6 +874,10 @@ function applySession(user, tabs, needsTotpReminder = false) {
   state.simulatedPuesto = null; // resetea simulación al re-autenticar
   const isAdminUser = user.puesto === 'admin' || user.puesto === 'desarrollador';
   $('#btnUpload').style.display = isAdminUser ? '' : 'none';
+  // prompt-p2-aislamiento-operador.md: '+ Cargar presupuesto (.xlsx)' del
+  // drawer nunca tuvo gate de rol (a diferencia de #btnUpload arriba y de
+  // #drawerAdminActions abajo) — visible para todos, incluido operador.
+  $('#btnUploadDrawer').style.display = user.puesto === 'operador' ? 'none' : '';
   const adminAct = $('#drawerAdminActions');
   if (adminAct) {
     if (isAdminUser) adminAct.classList.remove('hidden-initial'); // ver .hidden-initial en styles.css
@@ -911,6 +915,7 @@ function startSimulation(puesto) {
   sessionStorage.setItem('sim_puesto', puesto);
   const isAdminSim = ['admin', 'desarrollador'].includes(puesto);
   $('#btnUpload').style.display = isAdminSim ? '' : 'none';
+  $('#btnUploadDrawer').style.display = puesto === 'operador' ? 'none' : '';
   if (!state.allowedTabs.includes(state.view)) {
     state.view = state.allowedTabs[0] || 'inicio';
     state.section = VIEW_TO_SECTION[state.view] || null;
@@ -927,6 +932,7 @@ function stopSimulation() {
   sessionStorage.removeItem('sim_puesto');
   const isAdminReal = ['admin', 'desarrollador'].includes(state.user?.puesto);
   $('#btnUpload').style.display = isAdminReal ? '' : 'none';
+  $('#btnUploadDrawer').style.display = state.user?.puesto === 'operador' ? 'none' : '';
   if (!state.allowedTabs.includes(state.view)) {
     state.view = state.allowedTabs[0] || 'inicio';
     state.section = VIEW_TO_SECTION[state.view] || null;
@@ -2650,7 +2656,16 @@ function confirmDialog(mensaje, { titulo = 'Confirmar', textoAceptar = 'Aceptar'
 // ---------------------------------------------------------------------------
 // Drawer (project switcher)
 // ---------------------------------------------------------------------------
-function openDrawer() { $('#drawer').classList.add('open'); $('#drawerOverlay').classList.add('show'); lockBodyScroll('project-drawer'); }
+// prompt-p2-aislamiento-operador.md: operador no necesita cambiar de obra
+// (el campo "Obra" del modal de Capturar horas es opcional, resuelto
+// aparte) y el listado que alimenta este drawer trae importes/fechas — se
+// oculta el drawer completo para ese rol. Gate único aquí (no en cada
+// trigger) para que ninguna vía futura de abrirlo se cuele; effectivePuesto()
+// respeta "Vista como".
+function openDrawer() {
+  if (effectivePuesto() === 'operador') return;
+  $('#drawer').classList.add('open'); $('#drawerOverlay').classList.add('show'); lockBodyScroll('project-drawer');
+}
 function closeDrawer() { $('#drawer').classList.remove('open'); $('#drawerOverlay').classList.remove('show'); unlockBodyScroll('project-drawer'); }
 $('#btnMenu').addEventListener('click', () => {
   if (window.innerWidth <= 860) {
@@ -8313,7 +8328,7 @@ const ROLES_CAPTURAN_HORAS_MAQ = ['operador', 'admin', 'desarrollador'];
 const ROLES_BITACORA_TALLER_MAQ = ['jefe_maquinaria', 'admin', 'desarrollador'];
 
 async function renderMaquinaria(view) {
-  const [equipos, resumen, misPermisos, misPermisosCaptura, misPermisosCombustible, proyectos, clientesMaq, reporteClientes, horasMaq, bitacoraTaller] = await Promise.all([
+  const [equipos, resumen, misPermisos, misPermisosCaptura, misPermisosCombustible, proyectos, clientesMaq, reporteClientes, horasMaq, bitacoraTaller, operadoresMaq] = await Promise.all([
     api('/maquinaria/equipos'),
     api('/maquinaria/resumen'),
     api('/mis-permisos/maquinaria'),
@@ -8332,6 +8347,11 @@ async function renderMaquinaria(view) {
     // operador/cabo (sin fila en 'maquinaria_combustible') — el .catch
     // evita que ese 403 tumbe el resto de la pantalla.
     api('/maquinaria/bitacora-taller').catch(() => []),
+    // prompt-p2-aislamiento-operador.md: 403 esperado para roles sin
+    // puede_editar en 'maquinaria' (la mayoría) — solo lo usa el selector
+    // "Operador asignado" del catálogo, mismo patrón .catch que el resto de
+    // fetches opcionales de esta función.
+    api('/maquinaria/operadores').catch(() => []),
   ]);
   maquinariaEquiposCache = equipos;
   const puedeCrear = !!misPermisos.puede_crear; // equipos — sección 'maquinaria', sin cambio (CN-002)
@@ -8398,6 +8418,7 @@ async function renderMaquinaria(view) {
     <div id="reportesHorasMaqSection"></div>
     <div id="bitacoraTallerSection"></div>
 
+    ${!esOperador ? `
     <h3 class="section-title mt-16">Equipos por cliente</h3>
     <div class="field">
       <label>Cliente</label>
@@ -8411,6 +8432,7 @@ async function renderMaquinaria(view) {
 
     <h3 class="section-title mt-16">Catálogo de equipos</h3>
     <div id="equiposMaqList"></div>
+    ` : ''}
   `;
 
   $('#btnEditarPresupuestoMaq')?.addEventListener('click', () => openPresupuestoMaqModal(resumen.monto_total, reporteClientes));
@@ -8422,8 +8444,14 @@ async function renderMaquinaria(view) {
   paintBitacoraTaller(bitacoraTaller, equipos, { puedeVerBitacora });
   { const fill = $('.progress-bar > span[data-pct]', view); if (fill) fill.style.width = fill.dataset.pct + '%'; }
 
-  paintEquiposPorCliente(equipos, clientesMaq, { puedeEditar: puedeReasignarClienteMaq });
-  paintEquiposMaqList(equipos, proyectos, { puedeEditar, puedeEliminar });
+  // prompt-p2-aislamiento-operador.md: "Equipos por cliente" y "Catálogo de
+  // equipos" (donde vive el selector "Operador asignado") se ocultan por
+  // completo para operador — el equipo asignado ya se ve resuelto arriba en
+  // "Mis reportes de horas" y en el selector del modal de Capturar horas.
+  if (!esOperador) {
+    paintEquiposPorCliente(equipos, clientesMaq, { puedeEditar: puedeReasignarClienteMaq });
+    paintEquiposMaqList(equipos, proyectos, { puedeEditar, puedeEliminar, puedeAsignarOperador: puedeReasignarClienteMaq, operadoresMaq });
+  }
 }
 
 // prompt-a-maquinaria-por-cliente.md: vista de asignación equipo↔cliente,
@@ -8705,7 +8733,7 @@ function renderReporteClientesMaqHtml(reporte) {
   `;
 }
 
-function paintEquiposMaqList(equipos, proyectos, { puedeEditar, puedeEliminar }) {
+function paintEquiposMaqList(equipos, proyectos, { puedeEditar, puedeEliminar, puedeAsignarOperador, operadoresMaq }) {
   const list = $('#equiposMaqList');
   if (!equipos.length) {
     list.innerHTML = '<div class="empty-state">No hay equipos registrados todavía.</div>';
@@ -8723,6 +8751,15 @@ function paintEquiposMaqList(equipos, proyectos, { puedeEditar, puedeEliminar })
         </div>
         <span class="badge ${ESTADO_BADGE[e.estado] || 'muted'}">${esc(e.estado)}</span>
       </div>
+      ${puedeAsignarOperador ? `
+      <div class="field mt-8">
+        <label>Operador asignado</label>
+        <select data-asignar-operador-maq="${e.id}">
+          <option value="">Sin asignar</option>
+          ${operadoresMaq.map((o) => `<option value="${o.id}" ${e.operador_asignado_id === o.id ? 'selected' : ''}>${esc(o.nombre)}</option>`).join('')}
+        </select>
+      </div>
+      ` : (e.operador_asignado_nombre ? `<div class="muted fs-08">👷 ${esc(e.operador_asignado_nombre)}</div>` : '')}
       ${(puedeEditar || puedeEliminar) ? `
       <div class="row end mt8-gap8">
         ${puedeEditar ? `<button class="btn small" data-edit-equipo-maq="${e.id}">Editar</button>` : ''}
@@ -8754,6 +8791,21 @@ function paintEquiposMaqList(equipos, proyectos, { puedeEditar, puedeEliminar })
   });
   $$('[data-toggle-historial-maq]', list).forEach((btn) => {
     btn.addEventListener('click', () => toggleHistorialMaq(btn));
+  });
+  $$('[data-asignar-operador-maq]', list).forEach((selEl) => {
+    selEl.addEventListener('change', async () => {
+      const equipoId = Number(selEl.dataset.asignarOperadorMaq);
+      const operador_id = selEl.value ? Number(selEl.value) : null;
+      selEl.disabled = true;
+      try {
+        await api(`/maquinaria/equipos/${equipoId}/asignar-operador`, { method: 'PUT', body: { operador_id } });
+        toast('Operador reasignado', 'success');
+        renderView();
+      } catch (err) {
+        toast(err.message, 'danger');
+        selEl.disabled = false;
+      }
+    });
   });
 }
 

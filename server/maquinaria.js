@@ -18,16 +18,36 @@ const db = require('./db');
 
 const ALERTA_PRESUPUESTO_PCT = 90;
 
-async function listEquipos() {
+// operadorId: cuando viene (rol operador real, nunca "Vista como" — el
+// backend usa el JWT real, ver prompt-p2-aislamiento-operador.md), filtra en
+// la propia consulta SQL a solo las máquinas asignadas a ese operador — no
+// se filtra en el frontend ni con un WHERE posterior en JS.
+async function listEquipos(operadorId = null) {
   const { rows } = await db.pool.query(`
-    SELECT e.*, p.nombre AS obra_nombre, c.nombre AS cliente_asignado_nombre
+    SELECT e.*, p.nombre AS obra_nombre, c.nombre AS cliente_asignado_nombre, u.nombre AS operador_asignado_nombre
     FROM equipos_maquinaria e
     LEFT JOIN proyectos p ON p.id = e.obra_id
     LEFT JOIN clientes c ON c.id = e.cliente_asignado_id
-    WHERE e.activo = true
+    LEFT JOIN usuarios u ON u.id = e.operador_asignado_id
+    WHERE e.activo = true ${operadorId ? 'AND e.operador_asignado_id = $1' : ''}
     ORDER BY e.nombre
-  `);
+  `, operadorId ? [operadorId] : []);
   return rows;
+}
+
+// Lectura individual — usada por GET /api/maquinaria/equipos/:id, que además
+// del 404 (no existe) valida 403 (operador pidiendo una máquina ajena) sin
+// exponer el objeto en ese caso.
+async function getEquipoById(id) {
+  const { rows } = await db.pool.query(`
+    SELECT e.*, p.nombre AS obra_nombre, c.nombre AS cliente_asignado_nombre, u.nombre AS operador_asignado_nombre
+    FROM equipos_maquinaria e
+    LEFT JOIN proyectos p ON p.id = e.obra_id
+    LEFT JOIN clientes c ON c.id = e.cliente_asignado_id
+    LEFT JOIN usuarios u ON u.id = e.operador_asignado_id
+    WHERE e.id = $1 AND e.activo = true
+  `, [id]);
+  return rows[0];
 }
 
 // Reasignación de cliente (prompt-a-maquinaria-por-cliente.md): un solo
@@ -38,6 +58,19 @@ async function asignarClienteEquipo(id, cliente_id) {
     `UPDATE equipos_maquinaria SET cliente_asignado_id = $1
      WHERE id = $2 AND activo = true RETURNING *`,
     [cliente_id ?? null, id]
+  );
+  return rows[0];
+}
+
+// Asignación de operador (prompt-p2-aislamiento-operador.md) — mismo patrón
+// que asignarClienteEquipo: un solo UPDATE, un solo valor por equipo (no
+// tabla puente), nullable/reasignable en cualquier momento. Independiente de
+// cliente_asignado_id y de obra_id — no los toca ni los deriva.
+async function asignarOperadorEquipo(id, operador_id) {
+  const { rows } = await db.pool.query(
+    `UPDATE equipos_maquinaria SET operador_asignado_id = $1
+     WHERE id = $2 AND activo = true RETURNING *`,
+    [operador_id ?? null, id]
   );
   return rows[0];
 }
@@ -350,7 +383,8 @@ async function getReportePorCliente() {
 }
 
 module.exports = {
-  listEquipos, createEquipo, updateEquipo, softDeleteEquipo, asignarClienteEquipo,
+  listEquipos, getEquipoById, createEquipo, updateEquipo, softDeleteEquipo,
+  asignarClienteEquipo, asignarOperadorEquipo,
   listCombustible, createCombustible, softDeleteCombustible,
   listMantenimientos, createMantenimiento, softDeleteMantenimiento,
   listHoras, createHoras, softDeleteHoras, updateEstadoHoras,

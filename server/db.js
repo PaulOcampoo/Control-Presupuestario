@@ -868,6 +868,14 @@ const SCHEMA = `
   -- dos clientes a la vez; reasignar simplemente sobreescribe.
   ALTER TABLE equipos_maquinaria ADD COLUMN IF NOT EXISTS cliente_asignado_id INTEGER REFERENCES clientes(id) ON DELETE SET NULL;
 
+  -- Asignación de equipo a operador (prompt-p2-aislamiento-operador.md):
+  -- independiente de cliente_asignado_id (arriba) y de obra_id — un operador
+  -- solo debe ver/usar las máquinas que tiene asignadas aquí, nunca la flota
+  -- completa. Un equipo tiene exactamente un operador (o ninguno); un
+  -- operador puede tener varios equipos. Nullable y reasignable en cualquier
+  -- momento, mismo criterio que cliente_asignado_id.
+  ALTER TABLE equipos_maquinaria ADD COLUMN IF NOT EXISTS operador_asignado_id INTEGER REFERENCES usuarios(id) ON DELETE SET NULL;
+
   CREATE TABLE IF NOT EXISTS combustible_maquinaria (
     id SERIAL PRIMARY KEY,
     equipo_id INTEGER NOT NULL REFERENCES equipos_maquinaria(id) ON DELETE CASCADE,

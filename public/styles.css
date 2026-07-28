@@ -1948,6 +1948,14 @@ body.body-scroll-locked { overflow: hidden; }
   flex: 0 0 auto; display: flex; flex-direction: column;
   max-width: 160px; border-right: 1px solid var(--border-color);
 }
+/* Spacer que alinea la columna fija de trabajadores con la fila nueva de
+   "Sem N" agregada arriba del header de días (prompt-p4-asistencia-
+   autollenado.md) — misma altura que .asist-th-semana, duplicada a
+   propósito por el mismo motivo que .asist-fixed-th/.asist-th-dia (arriba):
+   alineación pixel a pixel entre ambas columnas. */
+.asist-fixed-th-semana {
+  height: 22px; box-sizing: border-box; border-bottom: 1px solid var(--border-color);
+}
 .asist-fixed-th {
   height: 40px; box-sizing: border-box; display: flex; align-items: center;
   padding: 8px 12px; font-size: 0.82rem; font-weight: 600; color: var(--text-secondary);
@@ -1970,11 +1978,32 @@ body.body-scroll-locked { overflow: hidden; }
   padding: 0; text-align: center; box-sizing: border-box;
   border: 3px solid transparent; background-clip: padding-box;
 }
+/* Fila de "Sem N" (prompt-p4-asistencia-autollenado.md), un nivel arriba del
+   header de días — border-bottom con !important porque .asist-grid-table th
+   ya fija border:3px solid transparent (arriba) con mayor especificidad
+   (clase+elemento) que un solo .asist-th-semana; mismo patrón que el
+   padding !important de .asist-th-dia, línea siguiente. */
+.asist-th-semana {
+  height: 22px; padding: 3px 2px !important;
+  font-size: 0.66rem; font-weight: 700; color: var(--text-secondary);
+  text-transform: uppercase; letter-spacing: 0.02em;
+  border-bottom: 1px solid var(--border-color) !important;
+}
+.asist-th-semana.semana-actual {
+  color: var(--accent-gold);
+  background: color-mix(in srgb, var(--accent-gold) 12%, transparent);
+}
 .asist-th-dia {
   width: 44px; height: 40px; box-sizing: border-box;
   padding: 8px 2px !important; font-weight: 600; color: var(--text-secondary);
 }
 .asist-th-dia.hoy { color: var(--accent-gold); font-weight: 800; }
+/* Divisor vertical entre semanas ISO — .week-start marca el primer día de
+   cada semana nueva (excepto la primera columna de la tabla). */
+.asist-th-dia.week-start,
+.asist-cell.week-start {
+  border-left: 2px solid var(--border-color) !important;
+}
 .asist-cell {
   width: 44px; height: 46px; border-radius: 8px;
   cursor: pointer; transition: filter 0.1s, transform 0.1s, background-color 150ms ease;
@@ -1984,6 +2013,15 @@ body.body-scroll-locked { overflow: hidden; }
 .asist-cell.falta-just { background: color-mix(in srgb, var(--yellow) 55%, transparent); }
 .asist-cell.falta-injust { background: color-mix(in srgb, var(--red) 55%, transparent); }
 .asist-cell.vacio { background: var(--bg-surface-2); }
+/* Celda precargada por autollenado, aún sin confirmar (prompt-p4-asistencia-
+   autollenado.md) — opacidad reducida + borde punteado para distinguirla de
+   una celda ya guardada; desaparece en cuanto el residente la toca o pulsa
+   "Confirmar día". */
+.asist-cell.propuesta {
+  opacity: 0.55;
+  outline: 2px dashed var(--text-secondary);
+  outline-offset: -2px;
+}
 
 .asist-leyenda { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 12px; font-size: 0.78rem; color: var(--text-secondary); }
 .asist-leyenda-item { display: flex; align-items: center; gap: 5px; }

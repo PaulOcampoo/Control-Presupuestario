@@ -11232,6 +11232,16 @@ async function renderNominas(view) {
   const ASIST_DIAS_CORTO = ['D', 'L', 'M', 'M', 'J', 'V', 'S'];
   const asistDiasEnMes = (y, m) => new Date(y, m + 1, 0).getDate();
   const asistFechaStr = (y, m, d) => `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+  // Semana ISO 8601 (lunes=1..domingo=7) — prompt-p4-asistencia-autollenado.md,
+  // usada para agrupar columnas en bloques semanales con divisor visual y
+  // resaltar la semana que contiene "hoy".
+  const isoWeekNumber = (y, m, d) => {
+    const date = new Date(Date.UTC(y, m, d));
+    const dayNum = date.getUTCDay() || 7;
+    date.setUTCDate(date.getUTCDate() + 4 - dayNum);
+    const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
+    return Math.ceil((((date - yearStart) / 86400000) + 1) / 7);
+  };
   const asistLeyendaHtml = () => `
     <div class="asist-leyenda">
       <span class="asist-leyenda-item"><span class="asist-dot presente"></span>Presente</span>
@@ -11243,7 +11253,7 @@ async function renderNominas(view) {
   async function showAsistencia() {
     subView = 'asistencia';
     const hoy = new Date();
-    const asist = { year: hoy.getFullYear(), month: hoy.getMonth(), trabajadorId: null, trabajadores: [], mapa: {} };
+    const asist = { year: hoy.getFullYear(), month: hoy.getMonth(), trabajadorId: null, trabajadores: [], mapa: {}, propuestas: {} };
 
     function mesLabel() {
       const m = MESES_ES[asist.month];
@@ -11257,6 +11267,36 @@ async function renderNominas(view) {
       asist.trabajadores = data.trabajadores || [];
       asist.mapa = {};
       (data.asistencias || []).forEach((a) => { asist.mapa[`${a.trabajador_id}_${a.fecha}`] = a.estado; });
+      calcularPropuestas();
+    }
+
+    // Autollenado con confirmación (prompt-p4-asistencia-autollenado.md):
+    // 100% client-side, con los datos del mes ya cargado — decisión explícita
+    // de Paul de NO extender la búsqueda a meses anteriores (evita un
+    // endpoint nuevo). Si hoy cae en los primeros días del mes y el
+    // trabajador no tiene ningún registro previo en el mes visible, queda
+    // sin propuesta ("Sin registro"), igual que un alta reciente.
+    // "hoy" se calcula en America/Mexico_City (mismo criterio que
+    // marcadoMasivoAsistencia en server/app.js) para que la fecha que
+    // eventualmente se persista coincida con la que el servidor trataría
+    // como "hoy" — no depende de la zona horaria del navegador.
+    // Se ignoran tanto los días sin ninguna fila (huecos) como los días con
+    // estado='sin_registro' explícito (equivalente visual y semánticamente
+    // a "sin registro" en el resto de la app — ver comentario de
+    // ASIST_ESTADOS) — la búsqueda sigue hacia atrás hasta encontrar un
+    // estado real (presente/falta_justificada/falta_injustificada).
+    function calcularPropuestas() {
+      asist.propuestas = {};
+      const hoyMx = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Mexico_City' }).format(new Date());
+      const [hoyY, hoyM, hoyD] = hoyMx.split('-').map(Number);
+      if (asist.year !== hoyY || (asist.month + 1) !== hoyM) return;
+      asist.trabajadores.forEach((t) => {
+        if (asist.mapa[`${t.id}_${hoyMx}`]) return; // ya tiene registro real hoy
+        for (let d = hoyD - 1; d >= 1; d--) {
+          const estado = asist.mapa[`${t.id}_${asistFechaStr(asist.year, asist.month, d)}`];
+          if (estado && estado !== 'sin_registro') { asist.propuestas[t.id] = estado; break; }
+        }
+      });
     }
 
     async function cambiarMes(delta) {
@@ -11295,6 +11335,7 @@ async function renderNominas(view) {
       const hoy = new Date();
       const esMesActual = asist.year === hoy.getFullYear() && asist.month === hoy.getMonth();
       const diaHoy = esMesActual ? hoy.getDate() : null;
+      const semanaHoy = esMesActual ? isoWeekNumber(asist.year, asist.month, diaHoy) : null;
       // Marcado masivo (prompt-marcado-masivo-asistencia.md) — SIEMPRE aplica
       // a la fecha real de hoy, nunca al mes que se esté navegando; por eso
       // el label del botón siempre muestra "Hoy <fecha>" en vez de depender
@@ -11303,8 +11344,31 @@ async function renderNominas(view) {
       // exactamente con la fecha que aplicará el backend (mismo criterio
       // que marcadoMasivoAsistencia en server/app.js) — un dispositivo con
       // reloj/zona mal configurada no debe ver una fecha distinta a la real.
+      // Reutilizado también por el autollenado (prompt-p4-asistencia-
+      // autollenado.md): fechaHoyMx/esMesActualMx/diaHoyMx identifican la
+      // columna de "hoy" para efectos de precarga y para el payload de
+      // "Confirmar día", con el mismo criterio de zona horaria — deliberadamente
+      // separado de diaHoy/esMesActual (hora local del navegador), que solo
+      // gobierna el resaltado visual dorado ya existente.
       const hoyMx = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Mexico_City' }).format(new Date());
       const hoyLabelCorto = new Date(`${hoyMx}T00:00:00`).toLocaleDateString('es-MX', { day: '2-digit', month: 'short' });
+      const [hoyMxY, hoyMxM, hoyMxD] = hoyMx.split('-').map(Number);
+      const esMesActualMx = asist.year === hoyMxY && (asist.month + 1) === hoyMxM;
+      const diaHoyMx = esMesActualMx ? hoyMxD : null;
+      const fechaHoyMx = esMesActualMx ? asistFechaStr(asist.year, asist.month, diaHoyMx) : null;
+      const totalPropuestas = Object.keys(asist.propuestas).length;
+
+      // Bloques de semana ISO (colspan) para el header + set de días que
+      // inician una semana nueva (para el divisor vertical).
+      const weekBlocks = [];
+      dias.forEach((d) => {
+        const iso = isoWeekNumber(asist.year, asist.month, d);
+        const last = weekBlocks[weekBlocks.length - 1];
+        if (!last || last.iso !== iso) weekBlocks.push({ iso, count: 0, firstDay: d });
+        weekBlocks[weekBlocks.length - 1].count++;
+      });
+      const diasInicioSemana = new Set(weekBlocks.slice(1).map((wb) => wb.firstDay));
+
       panel.innerHTML = `
         <div class="asist-mes-nav">
           <button class="icon-btn" id="btnAsistMesPrev" aria-label="Mes anterior">‹</button>
@@ -11315,9 +11379,11 @@ async function renderNominas(view) {
         <div class="section-actions">
           <button class="btn btn-primary btn-icon-inline" id="btnAsistMarcarTodos">${icon('check', 15)} Marcar todos — Hoy ${hoyLabelCorto}</button>
           <button class="btn" id="btnAsistDesmarcarTodos">Desmarcar todos — Hoy ${hoyLabelCorto}</button>
+          ${totalPropuestas ? `<button class="btn btn-primary btn-icon-inline" id="btnAsistConfirmarDia">${icon('check', 15)} Confirmar día (<span id="asistConfirmarCount">${totalPropuestas}</span>)</button>` : ''}
         </div>` : ''}
         <div class="asist-grid-wrap">
           <div class="asist-fixed-col">
+            <div class="asist-fixed-th-semana"></div>
             <div class="asist-fixed-th">Trabajador</div>
             ${asist.trabajadores.map((t) => `
               <div class="asist-fixed-row" data-tid="${t.id}">
@@ -11330,7 +11396,10 @@ async function renderNominas(view) {
             <table class="asist-grid-table">
               <thead>
                 <tr>
-                  ${dias.map((d) => `<th class="asist-th-dia${d === diaHoy ? ' hoy' : ''}">${d}</th>`).join('')}
+                  ${weekBlocks.map((wb) => `<th colspan="${wb.count}" class="asist-th-semana${wb.iso === semanaHoy ? ' semana-actual' : ''}">Sem ${wb.iso}</th>`).join('')}
+                </tr>
+                <tr>
+                  ${dias.map((d) => `<th class="asist-th-dia${d === diaHoy ? ' hoy' : ''}${diasInicioSemana.has(d) ? ' week-start' : ''}">${d}</th>`).join('')}
                 </tr>
               </thead>
               <tbody>
@@ -11338,9 +11407,14 @@ async function renderNominas(view) {
                   <tr>
                     ${dias.map((d) => {
                       const fecha = asistFechaStr(asist.year, asist.month, d);
-                      const estado = asist.mapa[`${t.id}_${fecha}`] || null;
+                      const estadoReal = asist.mapa[`${t.id}_${fecha}`] || null;
+                      const esPropuesta = !estadoReal && esMesActualMx && d === diaHoyMx && !!asist.propuestas[t.id];
+                      const estado = estadoReal || (esPropuesta ? asist.propuestas[t.id] : null);
                       const cls = estado ? ASIST_META[estado].cls : 'vacio';
-                      return `<td class="asist-cell ${cls}" data-tid="${t.id}" data-fecha="${fecha}" title="${esc(t.nombre)} — ${fecha}${estado ? ': ' + ASIST_META[estado].label : ''}"></td>`;
+                      const weekStartCls = diasInicioSemana.has(d) ? ' week-start' : '';
+                      const propuestaCls = esPropuesta ? ' propuesta' : '';
+                      const tituloEstado = estado ? `: ${ASIST_META[estado].label}${esPropuesta ? ' (propuesta, sin confirmar)' : ''}` : '';
+                      return `<td class="asist-cell ${cls}${weekStartCls}${propuestaCls}" data-tid="${t.id}" data-fecha="${fecha}" title="${esc(t.nombre)} — ${fecha}${tituloEstado}"></td>`;
                     }).join('')}
                   </tr>
                 `).join('')}
@@ -11360,19 +11434,53 @@ async function renderNominas(view) {
         $$('.asist-cell', panel).forEach((cell) => cell.addEventListener('click', () => toggleCelda(cell, Number(cell.dataset.tid), cell.dataset.fecha, null)));
         $('#btnAsistMarcarTodos').addEventListener('click', () => confirmarMarcadoMasivo('marcar-todos', `¿Marcar a todos como presente hoy (${hoyLabelCorto})? Esto sobreescribirá cualquier marca existente para hoy.`));
         $('#btnAsistDesmarcarTodos').addEventListener('click', () => confirmarMarcadoMasivo('desmarcar-todos', `¿Quitar la marca de asistencia de todos para hoy (${hoyLabelCorto})? Los regresa a "Sin registro".`));
+        $('#btnAsistConfirmarDia')?.addEventListener('click', () => confirmarDia(fechaHoyMx));
+      }
+    }
+
+    // "Confirmar día" (prompt-p4-asistencia-autollenado.md): persiste en una
+    // sola llamada PUT todas las propuestas de hoy que el residente NO tocó
+    // manualmente (las que sí tocó ya se guardaron de inmediato vía
+    // toggleCelda, mismo comportamiento de siempre) — al terminar, el día
+    // completo de hoy queda persistido, tocado o no. Antes de este llamado,
+    // nada de lo precargado existe en la BD (100% client-side).
+    async function confirmarDia(fecha) {
+      const btn = $('#btnAsistConfirmarDia');
+      const payload = asist.trabajadores
+        .filter((t) => asist.propuestas[t.id] && !asist.mapa[`${t.id}_${fecha}`])
+        .map((t) => ({ trabajador_id: t.id, estado: asist.propuestas[t.id] }));
+      if (!payload.length) return;
+      if (btn) { btn.disabled = true; btn.textContent = 'Guardando…'; }
+      try {
+        await api(`/projects/${state.projectId}/asistencia`, { method: 'PUT', body: { fecha, asistencia: payload } });
+        toast(`${payload.length} trabajador${payload.length === 1 ? '' : 'es'} confirmado${payload.length === 1 ? '' : 's'}`, 'success');
+        await refrescar();
+      } catch (err) {
+        toast(err.message, 'danger');
+        if (btn) { btn.disabled = false; btn.textContent = `Confirmar día (${payload.length})`; }
       }
     }
 
     async function toggleCelda(cell, tid, fecha, onDone) {
       const key = `${tid}_${fecha}`;
-      const actual = asist.mapa[key] || null;
+      const actualReal = asist.mapa[key] || null;
+      // Si la celda mostraba una propuesta precargada (autollenado, aún sin
+      // guardar), "corregirla" continúa el ciclo normal DESDE ese estado en
+      // vez de reiniciar en 'presente' — prompt-p4-asistencia-autollenado.md:
+      // "entra al ciclo normal de 4 estados desde ahí". Tocarla la saca del
+      // estado "propuesta" de inmediato, sea cual sea el resultado del guardado.
+      const actualPropuesta = !actualReal ? (asist.propuestas[tid] || null) : null;
+      const actual = actualReal || actualPropuesta;
       const idx = actual ? ASIST_ESTADOS.indexOf(actual) : -1;
       const nuevo = ASIST_ESTADOS[(idx + 1) % ASIST_ESTADOS.length];
       const prevCls = actual ? ASIST_META[actual].cls : 'vacio';
+      const teniaPropuesta = !!actualPropuesta;
       // Optimistic update — cambia el color de inmediato, sin esperar al backend
-      cell.classList.remove('presente', 'falta-just', 'falta-injust', 'vacio');
+      cell.classList.remove('presente', 'falta-just', 'falta-injust', 'vacio', 'propuesta');
       cell.classList.add(ASIST_META[nuevo].cls);
       asist.mapa[key] = nuevo;
+      if (teniaPropuesta) delete asist.propuestas[tid];
+      actualizarContadorConfirmarDia();
       try {
         await api(`/projects/${state.projectId}/asistencia`, {
           method: 'PUT',
@@ -11380,12 +11488,26 @@ async function renderNominas(view) {
         });
         if (onDone) onDone();
       } catch (err) {
-        // Revertir si el guardado real falla
+        // Revertir si el guardado real falla — incluye restaurar la propuesta
+        // si la celda partía de ahí, para no marcarla como "confirmada" sin serlo.
         cell.classList.remove(ASIST_META[nuevo].cls);
         cell.classList.add(prevCls);
-        if (actual) asist.mapa[key] = actual; else delete asist.mapa[key];
+        if (actualReal) { asist.mapa[key] = actualReal; } else { delete asist.mapa[key]; }
+        if (teniaPropuesta) { asist.propuestas[tid] = actualPropuesta; cell.classList.add('propuesta'); }
+        actualizarContadorConfirmarDia();
         toast(err.message, 'danger');
       }
+    }
+
+    // Mantiene en vivo el contador de "Confirmar día" cuando el residente
+    // corrige una celda precargada a mano (sin esperar a un refrescar()
+    // completo) — lo esconde por completo si ya no queda ninguna propuesta.
+    function actualizarContadorConfirmarDia() {
+      const restantes = Object.keys(asist.propuestas).length;
+      const btn = $('#btnAsistConfirmarDia');
+      if (!restantes) { if (btn) btn.remove(); return; }
+      const span = $('#asistConfirmarCount');
+      if (span) span.textContent = restantes;
     }
 
     // Marcado masivo — confirmación ligera antes de sobreescribir sin

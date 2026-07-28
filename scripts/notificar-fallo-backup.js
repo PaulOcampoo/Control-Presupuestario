@@ -14,6 +14,20 @@
 const { Pool } = require('pg');
 
 async function main() {
+  // DIAGNÓSTICO TEMPORAL (quitar una vez confirmada la causa de "relation
+  // usuarios does not exist" en la corrida real del 2026-07-28): imprime a
+  // qué host/base se está conectando realmente, sin exponer el password —
+  // para confirmar si DATABASE_URL trae o no el nombre de base (si falta,
+  // libpq conecta por default a una base con el nombre del rol, no a
+  // 'neondb', lo que explicaría el error aunque el servidor/rol estén bien).
+  try {
+    const u = new URL(process.env.DATABASE_URL || '');
+    const db = u.pathname.replace(/^\//, '') || '(vacío — tomará el default de libpq, probablemente el nombre del rol)';
+    console.log(`[diagnóstico temporal] host=${u.hostname} db=${db}`);
+  } catch (e) {
+    console.log('[diagnóstico temporal] DATABASE_URL no parseable como URL:', e.message);
+  }
+
   const pool = new Pool({ connectionString: process.env.DATABASE_URL });
   const { rows: admins } = await pool.query(
     "SELECT id FROM usuarios WHERE puesto IN ('admin', 'desarrollador') AND activo = true"

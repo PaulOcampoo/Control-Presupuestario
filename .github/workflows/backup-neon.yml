@@ -84,6 +84,10 @@ jobs:
             echo "Falta el secret NEON_PRODUCTION_DATABASE_URL_DIRECT — no se puede continuar." >&2
             exit 1
           fi
+          # DIAGNÓSTICO TEMPORAL (quitar una vez confirmada la causa de
+          # "relation usuarios does not exist" en notificar-fallo-backup.js,
+          # corrida real del 2026-07-28) — host/db real, nunca el password.
+          node -e "const u = new URL(process.env.DATABASE_URL); console.log('[diagnóstico temporal] host=' + u.hostname + ' db=' + (u.pathname.replace(/^\//, '') || '(vacío)'));"
           FECHA=$(date -u +%F)
           echo "FECHA=$FECHA" >> "$GITHUB_ENV"
           /usr/lib/postgresql/18/bin/pg_dump "$DATABASE_URL" --no-owner --no-privileges | gzip > "backup-$FECHA.sql.gz"

@@ -144,6 +144,15 @@ const SECCIONES_PERMISOS = [
   // checkPermiso real; 'trabajadores_contrato' no tiene endpoint de editar ni
   // eliminar individual — no existe esa acción, se resube el PDF completo).
   'trabajadores_docs', 'trabajadores_contrato',
+  // Datos bancarios (prompt-p5-cuentas-bancarias.md) — cuenta de nómina HSBC
+  // + cuenta alterna, aún más sensibles que docs/contrato. A propósito SIN
+  // entrada en TAB_A_SECCION (mismo default-deny real que 'costos' — sin
+  // mapeo tab→sección no se genera fila al dar de alta un usuario), pero
+  // 'administracion' SÍ recibe un default explícito abajo en
+  // defaultPermisosParaRol (mismo patrón que jefe_maquinaria con
+  // 'maquinaria_combustible'). Nunca viaja en ningún listado — solo en el
+  // detalle de un trabajador, gateado por checkPermiso real en server/app.js.
+  'trabajadores_bancarios',
   // 'costos' (prompt-modulo-costos.md) — catálogo de precios agregado por
   // cliente y global, cross-obra/cross-cliente por diseño (igual que
   // trabajadores_global/nominas_global, ver SECCIONES_SIEMPRE_GLOBAL en
@@ -306,6 +315,18 @@ function defaultPermisosParaRol(puesto) {
     // plano — 'autorizada' sigue restringido a admin/logistica dentro del
     // propio handler, eso no cambia aquí.
     if (porSeccion.requisiciones) { porSeccion.requisiciones.puede_editar = true; }
+  }
+  if (puesto === 'administracion') {
+    // prompt-p5-cuentas-bancarias.md: 'trabajadores_bancarios' SIN entrada en
+    // TAB_A_SECCION (default-deny real, igual que 'costos') — el default para
+    // administración se empuja aquí explícitamente, mismo patrón que
+    // jefe_maquinaria con 'maquinaria_combustible' más abajo. puede_ver Y
+    // puede_editar en true: el checkpoint del prompt pide que administración
+    // pueda dar de alta un trabajador CON datos bancarios, no solo verlos.
+    filas.push({
+      seccion: 'trabajadores_bancarios', puede_ver: true, puede_crear: false,
+      puede_editar: true, puede_editar_precios: false, puede_eliminar: false,
+    });
   }
   if (puesto === 'jefe_maquinaria' || puesto === 'admin' || puesto === 'desarrollador') {
     // Registro de combustible/mantenimiento (mismo diseño de primer borrador).

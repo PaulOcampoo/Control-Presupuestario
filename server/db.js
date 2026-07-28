@@ -668,6 +668,14 @@ const SCHEMA = `
   ALTER TABLE trabajadores ADD COLUMN IF NOT EXISTS contacto_emergencia_nombre TEXT;
   ALTER TABLE trabajadores ADD COLUMN IF NOT EXISTS contacto_emergencia_telefono TEXT;
 
+  -- Datos bancarios (prompt-p5-cuentas-bancarias.md) — solo admin/desarrollador/
+  -- administración (sección 'trabajadores_bancarios', ver server/auth.js).
+  -- NUNCA viajan en el SELECT de ningún listado (server/app.js reescribe esas
+  -- queries con columnas explícitas, sin estas dos) — el recorte es a nivel
+  -- de query, no de payload condicional.
+  ALTER TABLE trabajadores ADD COLUMN IF NOT EXISTS cuenta_nomina_hsbc TEXT;
+  ALTER TABLE trabajadores ADD COLUMN IF NOT EXISTS cuenta_alterna TEXT;
+
   -- Historial formal de bajas por trabajador (soft-delete auditado).
   -- motivo_baja restringido por CHECK; cuando es 'otro', se espera notas != null (enforced en app).
   CREATE TABLE IF NOT EXISTS trabajador_bajas (
@@ -742,7 +750,7 @@ const SCHEMA = `
       'destajo','finanzas','insumos','mapeo','usuarios','contrato','impuestos',
       'nominas','sugerencias','programa','estimaciones','maquinaria',
       'trabajadores_global','nominas_global','trabajadores','estado_resultados','maquinaria_captura','maquinaria_combustible',
-      'costos','trabajadores_docs','trabajadores_contrato'
+      'costos','trabajadores_docs','trabajadores_contrato','trabajadores_bancarios'
     )),
     puede_ver BOOLEAN NOT NULL DEFAULT false,
     puede_crear BOOLEAN NOT NULL DEFAULT false,
@@ -770,7 +778,7 @@ const SCHEMA = `
     'destajo','finanzas','insumos','mapeo','usuarios','contrato','impuestos',
     'nominas','sugerencias','programa','estimaciones','maquinaria',
     'trabajadores_global','nominas_global','trabajadores','estado_resultados','maquinaria_captura','maquinaria_combustible',
-    'costos','trabajadores_docs','trabajadores_contrato'
+    'costos','trabajadores_docs','trabajadores_contrato','trabajadores_bancarios'
   ));
 
   -- Contador de folios por obra + tipo de documento. INSERT...ON CONFLICT DO

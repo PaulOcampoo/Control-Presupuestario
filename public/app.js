@@ -10220,6 +10220,7 @@ async function renderTrabajadores(view) {
   const misPermisos = todosMisPermisos.trabajadores;
   const misPermisosDocs = todosMisPermisos.trabajadores_docs;
   const misPermisosContrato = todosMisPermisos.trabajadores_contrato;
+  const misPermisosBancarios = todosMisPermisos.trabajadores_bancarios;
   if (!misPermisos.puede_ver) {
     view.innerHTML = `<div class="alert-box danger">⚠️ No tienes permiso para ver esta sección.</div>`;
     return;
@@ -10243,6 +10244,11 @@ async function renderTrabajadores(view) {
   const puedeEliminarDocs = isAdmin() || !!misPermisosDocs.puede_eliminar;
   const puedeVerContrato = isAdmin() || !!misPermisosContrato.puede_ver;
   const puedeCrearContrato = isAdmin() || !!misPermisosContrato.puede_crear;
+  // prompt-p5-cuentas-bancarias.md: gate con effectivePuesto() (vía isAdmin())
+  // para respetar "Vista como" — un admin simulando residente NO debe ver
+  // los campos bancarios en el modal, aunque su JWT real sea admin.
+  const puedeVerBancarios = isAdmin() || !!misPermisosBancarios.puede_ver;
+  const puedeEditarBancarios = isAdmin() || !!misPermisosBancarios.puede_editar;
   let mostrarInactivos = false;
   async function repaint() {
     const trabajadores = await api(`/projects/${state.projectId}/trabajadores${mostrarInactivos ? '' : '?activo=1'}`);
@@ -10252,6 +10258,7 @@ async function renderTrabajadores(view) {
       puedeEditar, puedeVerEpp, puedeCrearEpp,
       puedeVerDocs, puedeCrearDocs, puedeEliminarDocs,
       puedeVerContrato, puedeCrearContrato,
+      puedeVerBancarios, puedeEditarBancarios,
     });
   }
 
@@ -10268,7 +10275,7 @@ async function renderTrabajadores(view) {
     <div id="trabajadoresList"><div class="empty-state">Cargando…</div></div>
   `;
 
-  $('#btnNuevoTrabajador')?.addEventListener('click', () => openTrabajadorModal(null, repaint));
+  $('#btnNuevoTrabajador')?.addEventListener('click', () => openTrabajadorModal(null, repaint, { puedeVerBancarios, puedeEditarBancarios }));
   $('#btnCatalogoEpp')?.addEventListener('click', () => openCatalogoEppModal(puedeCrearEpp, puedeEditarEpp));
   $('#chkVerInactivos')?.addEventListener('change', async (e) => {
     mostrarInactivos = e.target.checked;
@@ -10282,6 +10289,7 @@ function paintTrabajadoresList(trabajadores, listEl, repaint, permisos) {
     puedeEditar, puedeVerEpp, puedeCrearEpp,
     puedeVerDocs, puedeCrearDocs, puedeEliminarDocs,
     puedeVerContrato, puedeCrearContrato,
+    puedeVerBancarios, puedeEditarBancarios,
   } = permisos;
   if (!trabajadores.length) {
     listEl.innerHTML = '<div class="empty-state">No hay trabajadores registrados.</div>';
@@ -10324,7 +10332,19 @@ function paintTrabajadoresList(trabajadores, listEl, repaint, permisos) {
 
   $$('[data-edit-trab]', listEl).forEach((btn) => {
     const t = trabajadores.find((x) => x.id === Number(btn.dataset.editTrab));
-    if (t) btn.addEventListener('click', () => openTrabajadorModal(t, repaint));
+    if (!t) return;
+    btn.addEventListener('click', async () => {
+      // El objeto `t` viene del listado, que NUNCA trae campos bancarios
+      // (prompt-p5-cuentas-bancarias.md — recorte a nivel de SELECT). Si el
+      // usuario tiene permiso de verlos, se pide el detalle real antes de
+      // abrir el modal; si no, se usa el objeto del listado tal cual.
+      let trabParaModal = t;
+      if (puedeVerBancarios) {
+        try { trabParaModal = await api(`/projects/${state.projectId}/trabajadores/${t.id}`); }
+        catch (err) { toast(err.message, 'danger'); return; }
+      }
+      openTrabajadorModal(trabParaModal, repaint, { puedeVerBancarios, puedeEditarBancarios });
+    });
   });
   $$('[data-docs-trab]', listEl).forEach((btn) => {
     btn.addEventListener('click', () => openDocumentosModal(Number(btn.dataset.docsTrab), btn.dataset.docsNombre, puedeCrearDocs, puedeEliminarDocs));
@@ -10388,8 +10408,9 @@ function wireMoneyInput(input) {
   });
 }
 
-async function openTrabajadorModal(trab, repaint) {
+async function openTrabajadorModal(trab, repaint, permisosBancarios) {
   const isEdit = !!trab;
+  const { puedeVerBancarios, puedeEditarBancarios } = permisosBancarios || {};
   // Load destajistas for optional linking
   let destajistas = [];
   try { destajistas = await api(`/projects/${state.projectId}/destajistas`); } catch (_) {}
@@ -10422,6 +10443,10 @@ async function openTrabajadorModal(trab, repaint) {
       <div class="field field-full"><label>Dirección</label><input id="tDireccion" value="${esc(trab?.direccion || '')}" /></div>
       <div class="field"><label>Contacto de emergencia — nombre</label><input id="tContactoNombre" value="${esc(trab?.contacto_emergencia_nombre || '')}" /></div>
       <div class="field"><label>Contacto de emergencia — teléfono</label><input id="tContactoTel" value="${esc(trab?.contacto_emergencia_telefono || '')}" /></div>
+      ${puedeVerBancarios ? `
+        <div class="field"><label>Cuenta de nómina HSBC</label><input id="tCuentaHsbc" value="${esc(trab?.cuenta_nomina_hsbc || '')}" ${puedeEditarBancarios ? '' : 'disabled'} /></div>
+        <div class="field"><label>Cuenta alterna</label><input id="tCuentaAlterna" value="${esc(trab?.cuenta_alterna || '')}" ${puedeEditarBancarios ? '' : 'disabled'} /></div>
+      ` : ''}
     </div>
     <div class="modal-actions">
       <button class="btn" id="btnCancelTrab">Cancelar</button>
@@ -10456,6 +10481,13 @@ async function openTrabajadorModal(trab, repaint) {
       contacto_emergencia_nombre: $('#tContactoNombre').value.trim() || null,
       contacto_emergencia_telefono: $('#tContactoTel').value.trim() || null,
     };
+    // Los campos bancarios solo se agregan al payload si el usuario puede
+    // editarlos — si no tiene permiso, ni siquiera están en el DOM (el
+    // backend además los ignora en silencio si llegaran a mandarse).
+    if (puedeEditarBancarios) {
+      body.cuenta_nomina_hsbc = $('#tCuentaHsbc').value.trim() || null;
+      body.cuenta_alterna = $('#tCuentaAlterna').value.trim() || null;
+    }
     const btn = $('#btnSaveTrab');
     btn.disabled = true;
     try {

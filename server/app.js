@@ -1350,8 +1350,16 @@ app.get('/api/maquinaria/bitacora-taller', h(auth.checkPermiso('maquinaria_combu
   res.json(await maquinaria.listMantenimientos(req.query.equipo_id ? Number(req.query.equipo_id) : null));
 }));
 
+// prompt-p3-filtro-horas-operador.md: fuga detectada durante el diagnóstico
+// de PR #72, fuera de alcance ahí — un operador veía los reportes de todos
+// los operadores, no solo los suyos. Filtro por req.user.puesto (JWT real,
+// no effectivePuesto() — igual que el filtro de equipos en PR #72, "Vista
+// como" es solo frontend y no debe aflojar esto); cabo/jefe_maquinaria/
+// admin/desarrollador siguen viendo todos los reportes (lo necesitan para
+// autorizar/rechazar, sin scoping por operador).
 app.get('/api/maquinaria/horas', h(auth.checkPermiso('maquinaria', 'puede_ver')), h(async (req, res) => {
-  res.json(await maquinaria.listHoras(req.query.equipo_id ? Number(req.query.equipo_id) : null));
+  const operadorId = req.user.puesto === 'operador' ? req.user.id : null;
+  res.json(await maquinaria.listHoras(req.query.equipo_id ? Number(req.query.equipo_id) : null, operadorId));
 }));
 
 // Catálogo fijo de actividad (prompt-2-rol-operador-actividades.md) —

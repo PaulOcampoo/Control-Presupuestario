@@ -667,6 +667,7 @@ module.exports = {
   ensureBootstrapAdmin,
   SECCIONES_PERMISOS,
   ACCIONES_PERMISOS,
+  TAB_A_SECCION,
   defaultPermisosParaRol,
   checkPermiso,
   tienePermiso,

@@ -2851,11 +2851,36 @@ function openCambiarClienteModal(project) {
   });
 }
 
-function selectProject(id, targetView) {
+// prompt-p8-parte2-nav-por-obra.md: recalcula state.allowedTabs contra la
+// obra activa (permisos_usuario resuelto por-obra + global, vía
+// GET /projects/:id/nav-tabs) cada vez que cambia de obra — reemplaza el nav
+// fijo-por-rol que antes solo se calculaba una vez al login. admin/
+// desarrollador reales y la simulación "Vista como" (state.simulatedPuesto)
+// NO pasan por aquí: siguen su bypass/ROLE_TABS de siempre, sin tocar la
+// tabla ni cambiar de comportamiento (Forbidden Action explícita del
+// prompt). Cachea por obra en state.cache[id].navTabs para no repetir el
+// fetch al volver a una obra ya visitada en la misma sesión.
+async function actualizarNavPorObra(id) {
+  if (state.simulatedPuesto || isAdminRealSinSimular()) return;
+  let tabs = state.cache[id].navTabs;
+  if (!tabs) {
+    try {
+      tabs = (await api(`/projects/${id}/nav-tabs`)).tabs;
+      state.cache[id].navTabs = tabs;
+    } catch (_) {
+      return; // sin red: conserva el nav ya cargado en vez de vaciarlo
+    }
+  }
+  state.allowedTabs = tabs;
+  state._realAllowedTabs = tabs;
+}
+
+async function selectProject(id, targetView) {
   const vieneDeSinProyecto = !state.projectId; // true cuando se entra desde el resumen de cliente
   state.projectId = id;
   syncErrorTags();
   state.cache[id] = state.cache[id] || {};
+  await actualizarNavPorObra(id);
   const p = state.projects.find((x) => x.id === id);
   $('#projectName').textContent = p ? `Trabajando en: ${p.nombre}` : '';
   const sn = $('#sidebarProjectName'); if (sn) sn.textContent = p ? p.nombre : 'Sin presupuesto';

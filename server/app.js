@@ -1015,6 +1015,69 @@ app.get('/api/permisos/me', h(async (req, res) => {
   res.json(resultado);
 }));
 
+// Tabs que se resuelven aparte, vía PERMISSIONS.<rol>.tabs (ver el loop más
+// abajo en GET /api/projects/:id/nav-tabs), en vez de la traducción genérica
+// sección->tab de SECCION_A_TAB:
+// - 'resumen': 'presupuestos' (a lo que mapea en TAB_A_SECCION) NO es 1:1 con
+//   el tab — esa sección también gatea checkPermiso('presupuestos','puede_ver')
+//   en GET /api/projects/:id/conceptos, el permiso de ver los CONCEPTOS del
+//   presupuesto que residente/cabo/etc. necesitan a diario y no tiene relación
+//   con el tab 'Resumen' (dashboard financiero agregado, hoy solo admin/
+//   tesorería/administración). Confirmado en diagnóstico real: Rbermeo y
+//   Ejimenez hubieran ganado el tab Resumen sin que nadie se los otorgara.
+// - 'ordenes': cabo tiene puede_ver=true en 'ordenes_compra' (otorgado en
+//   PR #78 para preservar la lectura del listado/detalle de OC que ya tenía
+//   por rol plano antes de existir checkPermiso), pero eso nunca fue una
+//   decisión consciente de darle el tab completo — no debe ganarlo como
+//   efecto colateral de este cambio (decisión explícita, prompt-p8-parte2).
+const TABS_RESUELTOS_APARTE = ['resumen', 'ordenes'];
+const SECCION_A_TAB = Object.fromEntries(
+  Object.entries(auth.TAB_A_SECCION)
+    .filter(([tab]) => !TABS_RESUELTOS_APARTE.includes(tab))
+    .map(([tab, seccion]) => [seccion, tab])
+);
+
+// Fuente de verdad de navegación por-obra (prompt-p8-parte2-nav-por-obra.md
+// — completa el trabajo de PR #78). Reemplaza a PERMISSIONS.<rol>.tabs para
+// roles no-admin: un tab es visible si el usuario tiene puede_ver=true en
+// permisos_usuario para su sección, resuelto contra la obra activa
+// (proyecto_id = :id) O una fila global (proyecto_id NULL) — la fila
+// específica de la obra gana sobre la global, mismo criterio que
+// tienePermiso()/GET /api/permisos/me. admin/desarrollador bypasean por
+// completo (mismo bypass hardcodeado que checkPermiso/allow en todo el
+// resto del sistema) — siguen viendo PERMISSIONS.<rol>.tabs, sin cambio de
+// comportamiento ni consulta a la tabla.
+app.get('/api/projects/:id/nav-tabs', h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  if (req.user.puesto === 'admin' || req.user.puesto === 'desarrollador') {
+    return res.json({ tabs: auth.PERMISSIONS[req.user.puesto].tabs });
+  }
+  const { rows } = await db.pool.query(
+    `SELECT seccion, puede_ver FROM permisos_usuario
+     WHERE usuario_id = $1 AND (proyecto_id = $2 OR proyecto_id IS NULL)
+     ORDER BY proyecto_id NULLS FIRST`,
+    [req.user.id, req.project.id]
+  );
+  // NULLS FIRST: la fila general se procesa primero y la específica de la
+  // obra (si existe) la sobreescribe — mismo patrón que GET /api/permisos/me.
+  const puedeVer = {};
+  for (const row of rows) puedeVer[row.seccion] = row.puede_ver;
+  const tabs = Object.entries(puedeVer)
+    .filter(([, ok]) => ok)
+    .map(([seccion]) => SECCION_A_TAB[seccion])
+    .filter(Boolean);
+  // 'resumen'/'ordenes' quedan fuera de SECCION_A_TAB (ver comentario arriba)
+  // — se resuelven aparte, tal cual como hoy (PERMISSIONS.<rol>.tabs), para
+  // no regalarlos vía una sección de alcance más amplio (presupuestos/
+  // ordenes_compra) ni perderlos para los roles que sí los tienen hoy
+  // (tesorería/administración para resumen; residente/compras/tesorería/
+  // administración/logística para ordenes) por no tener una sección
+  // granular propia y exclusiva todavía.
+  for (const tab of TABS_RESUELTOS_APARTE) {
+    if (auth.PERMISSIONS[req.user.puesto]?.tabs.includes(tab)) tabs.push(tab);
+  }
+  res.json({ tabs });
+}));
+
 app.get('/api/permisos/:usuario_id', h(auth.allow()), h(async (req, res) => {
   const usuarioId = Number(req.params.usuario_id);
   const { rows: userRows } = await db.pool.query('SELECT id FROM usuarios WHERE id = $1', [usuarioId]);

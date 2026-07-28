@@ -1015,6 +1015,62 @@ app.get('/api/permisos/me', h(async (req, res) => {
   res.json(resultado);
 }));
 
+// Inverso de auth.TAB_A_SECCION — construido una sola vez al cargar el
+// módulo. Usado por GET /api/projects/:id/nav-tabs abajo para traducir
+// "secciones con puede_ver=true" de vuelta a los tabs de navegación que debe
+// ver el usuario. Excluye 'resumen' a propósito: 'presupuestos' (a lo que
+// mapea 'resumen' en TAB_A_SECCION) NO es 1:1 con el tab — esa sección
+// también gatea checkPermiso('presupuestos','puede_ver') en
+// GET /api/projects/:id/conceptos, el permiso de ver los CONCEPTOS del
+// presupuesto que residente/cabo/etc. necesitan a diario y no tiene ninguna
+// relación con el tab 'Resumen' (dashboard financiero agregado, hoy solo
+// admin/tesorería/administración vía PERMISSIONS). Traducir 'presupuestos'
+// de vuelta a 'resumen' aquí le regalaría el tab Resumen a cualquier rol con
+// acceso de solo-ver-conceptos (confirmado en diagnóstico real: Rbermeo y
+// Ejimenez lo hubieran ganado sin que nadie se los otorgara a propósito).
+const SECCION_A_TAB = Object.fromEntries(
+  Object.entries(auth.TAB_A_SECCION)
+    .filter(([tab]) => tab !== 'resumen')
+    .map(([tab, seccion]) => [seccion, tab])
+);
+
+// Fuente de verdad de navegación por-obra (prompt-p8-parte2-nav-por-obra.md
+// — completa el trabajo de PR #78). Reemplaza a PERMISSIONS.<rol>.tabs para
+// roles no-admin: un tab es visible si el usuario tiene puede_ver=true en
+// permisos_usuario para su sección, resuelto contra la obra activa
+// (proyecto_id = :id) O una fila global (proyecto_id NULL) — la fila
+// específica de la obra gana sobre la global, mismo criterio que
+// tienePermiso()/GET /api/permisos/me. admin/desarrollador bypasean por
+// completo (mismo bypass hardcodeado que checkPermiso/allow en todo el
+// resto del sistema) — siguen viendo PERMISSIONS.<rol>.tabs, sin cambio de
+// comportamiento ni consulta a la tabla.
+app.get('/api/projects/:id/nav-tabs', h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  if (req.user.puesto === 'admin' || req.user.puesto === 'desarrollador') {
+    return res.json({ tabs: auth.PERMISSIONS[req.user.puesto].tabs });
+  }
+  const { rows } = await db.pool.query(
+    `SELECT seccion, puede_ver FROM permisos_usuario
+     WHERE usuario_id = $1 AND (proyecto_id = $2 OR proyecto_id IS NULL)
+     ORDER BY proyecto_id NULLS FIRST`,
+    [req.user.id, req.project.id]
+  );
+  // NULLS FIRST: la fila general se procesa primero y la específica de la
+  // obra (si existe) la sobreescribe — mismo patrón que GET /api/permisos/me.
+  const puedeVer = {};
+  for (const row of rows) puedeVer[row.seccion] = row.puede_ver;
+  const tabs = Object.entries(puedeVer)
+    .filter(([, ok]) => ok)
+    .map(([seccion]) => SECCION_A_TAB[seccion])
+    .filter(Boolean);
+  // 'resumen' queda fuera de SECCION_A_TAB (ver comentario arriba) — se
+  // resuelve aparte, tal cual como hoy (PERMISSIONS.<rol>.tabs), para no
+  // regalarlo vía 'presupuestos' ni perderlo para tesorería/administración
+  // (únicos roles no-admin que sí lo tienen hoy) por no tener una sección
+  // granular propia todavía.
+  if (auth.PERMISSIONS[req.user.puesto]?.tabs.includes('resumen')) tabs.push('resumen');
+  res.json({ tabs });
+}));
+
 app.get('/api/permisos/:usuario_id', h(auth.allow()), h(async (req, res) => {
   const usuarioId = Number(req.params.usuario_id);
   const { rows: userRows } = await db.pool.query('SELECT id FROM usuarios WHERE id = $1', [usuarioId]);

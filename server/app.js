@@ -5155,10 +5155,19 @@ const TIPOS_DOC = ['ine_frente', 'ine_reverso', 'curp_doc', 'comprobante_domicil
 // permisos.md Prompt 2: ahora es posible otorgar este permiso global a otros
 // roles vía la matriz de permisos, sin perder el bypass de admin/desarrollador
 // (checkPermiso ya lo incluye internamente).
+// prompt-p5-cuentas-bancarias.md: columnas explícitas para CUALQUIER listado
+// de trabajadores (nunca t.*) — excluye cuenta_nomina_hsbc/cuenta_alterna a
+// nivel de SELECT, no como filtro de payload después. Reusada en los 2
+// endpoints de listado de abajo.
+const TRABAJADOR_COLUMNAS_LISTADO = `t.id, t.project_id, t.destajista_id, t.nombre, t.puesto, t.tipo_pago,
+  t.tarifa_jornal, t.periodicidad, t.curp, t.rfc, t.nss, t.telefono, t.direccion,
+  t.contacto_emergencia, t.contacto_emergencia_nombre, t.contacto_emergencia_telefono,
+  t.fecha_ingreso, t.activo, t.fecha_baja, t.motivo_baja, t.orden, t.creado_en`;
+
 app.get('/api/trabajadores', h(auth.checkPermiso('trabajadores_global', 'puede_ver')), h(async (req, res) => {
   const { activo } = req.query;
   let sql = `
-    SELECT t.*, d.nombre AS destajista_nombre,
+    SELECT ${TRABAJADOR_COLUMNAS_LISTADO}, d.nombre AS destajista_nombre,
            p.nombre AS obra_nombre, c.nombre AS cliente_nombre,
            (SELECT string_agg(u.nombre, ', ' ORDER BY u.nombre)
             FROM usuario_proyectos up JOIN usuarios u ON u.id = up.usuario_id
@@ -5183,9 +5192,17 @@ app.get('/api/trabajadores', h(auth.checkPermiso('trabajadores_global', 'puede_v
 // ensanche, otorgarle 'trabajadores' a cabo desde la matriz de permisos no
 // tenía ningún efecto real: auth.allow('residente') rechazaba con 403
 // ANTES de que checkPermiso llegara a evaluarse.
-app.get('/api/projects/:id/trabajadores', h(auth.allow('residente', 'cabo')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('trabajadores', 'puede_ver')), h(async (req, res) => {
+// 'administracion' se agregó a este gate grueso en prompt-p5-cuentas-
+// bancarias.md — sin esto, otorgarle 'trabajadores'/'trabajadores_bancarios'
+// a un usuario administración no tenía ningún efecto real (mismo bug gemelo
+// documentado arriba para cabo): el 403 de auth.allow() se disparaba antes
+// de que cualquier checkPermiso granular se evaluara. administración sigue
+// sin acceso por default (su rol no trae 'trabajadores' en TAB_A_SECCION);
+// debe otorgarse manualmente vía el panel de permisos, igual que cualquier
+// otra sección granular.
+app.get('/api/projects/:id/trabajadores', h(auth.allow('residente', 'cabo', 'administracion')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('trabajadores', 'puede_ver')), h(async (req, res) => {
   const { activo } = req.query;
-  let sql = `SELECT t.*, d.nombre AS destajista_nombre
+  let sql = `SELECT ${TRABAJADOR_COLUMNAS_LISTADO}, d.nombre AS destajista_nombre
              FROM trabajadores t
              LEFT JOIN destajistas d ON d.id = t.destajista_id
              WHERE t.project_id = $1`;
@@ -5197,10 +5214,40 @@ app.get('/api/projects/:id/trabajadores', h(auth.allow('residente', 'cabo')), h(
   res.json(rows);
 }));
 
-app.post('/api/projects/:id/trabajadores', h(auth.allow('residente', 'cabo')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('trabajadores', 'puede_crear')), h(async (req, res) => {
+// prompt-p5-cuentas-bancarias.md: recorta cuenta_nomina_hsbc/cuenta_alterna
+// de un objeto trabajador antes de responder, salvo que el usuario tenga
+// checkPermiso('trabajadores_bancarios','puede_ver') — las claves no deben
+// EXISTIR en el JSON (no basta con null), mismo criterio que /api/projects
+// para operador en PR #72. Usado en detalle, alta y edición — RETURNING *
+// de esos INSERT/UPDATE trae las 2 columnas siempre, así que sin esto un
+// residente que edite un campo cualquiera de un trabajador vería el dato
+// bancario real de otro usuario (ej. administración) en la respuesta.
+async function stripDatosBancarios(req, trabajador) {
+  if (!trabajador) return trabajador;
+  if (await auth.tienePermiso(req, 'trabajadores_bancarios', 'puede_ver')) return trabajador;
+  const { cuenta_nomina_hsbc, cuenta_alterna, ...resto } = trabajador;
+  return resto;
+}
+
+// Detalle de un trabajador — no existía antes de este prompt (la UI leía el
+// objeto directo del arreglo de GET .../trabajadores, que ya no trae los
+// campos bancarios). El frontend solo llama a este endpoint cuando el
+// usuario tiene 'trabajadores_bancarios' puede_ver, para enriquecer el
+// objeto antes de abrir el modal de edición.
+app.get('/api/projects/:id/trabajadores/:wId', h(auth.allow('residente', 'cabo', 'administracion')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('trabajadores', 'puede_ver')), h(async (req, res) => {
+  const wId = Number(req.params.wId);
+  const { rows } = await db.pool.query(
+    'SELECT * FROM trabajadores WHERE id=$1 AND project_id=$2', [wId, req.project.id]
+  );
+  if (!rows[0]) return res.status(404).json({ error: 'Trabajador no encontrado' });
+  res.json(await stripDatosBancarios(req, rows[0]));
+}));
+
+app.post('/api/projects/:id/trabajadores', h(auth.allow('residente', 'cabo', 'administracion')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('trabajadores', 'puede_crear')), h(async (req, res) => {
   const { nombre, puesto, tipo_pago, tarifa_jornal, periodicidad, curp, rfc, nss,
           telefono, direccion, contacto_emergencia, contacto_emergencia_nombre,
-          contacto_emergencia_telefono, fecha_ingreso, destajista_id } = req.body || {};
+          contacto_emergencia_telefono, fecha_ingreso, destajista_id,
+          cuenta_nomina_hsbc, cuenta_alterna } = req.body || {};
   if (!nombre?.trim()) return res.status(400).json({ error: 'El nombre es requerido' });
   if (!TIPOS_PAGO.includes(tipo_pago)) return res.status(400).json({ error: 'tipo_pago inválido' });
   if (!PERIODICIDADES.includes(periodicidad)) return res.status(400).json({ error: 'periodicidad inválida' });
@@ -5209,27 +5256,35 @@ app.post('/api/projects/:id/trabajadores', h(auth.allow('residente', 'cabo')), h
     const { rows: dRows } = await db.pool.query('SELECT id FROM destajistas WHERE id=$1 AND project_id=$2', [destId, req.project.id]);
     if (!dRows[0]) return res.status(400).json({ error: 'Destajista vinculado no pertenece a esta obra' });
   }
+  // Ignora en silencio los campos bancarios si el usuario no tiene el
+  // permiso — mismo criterio que precio_destajo en /destajistas/.../items,
+  // no bloquea el alta completa por un campo al que no debería tener acceso.
+  const puedeEditarBancarios = await auth.tienePermiso(req, 'trabajadores_bancarios', 'puede_editar');
   const { rows } = await db.pool.query(`
     INSERT INTO trabajadores
       (project_id, destajista_id, nombre, puesto, tipo_pago, tarifa_jornal, periodicidad,
        curp, rfc, nss, telefono, direccion, contacto_emergencia,
-       contacto_emergencia_nombre, contacto_emergencia_telefono, fecha_ingreso)
-    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING *`,
+       contacto_emergencia_nombre, contacto_emergencia_telefono, fecha_ingreso,
+       cuenta_nomina_hsbc, cuenta_alterna)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) RETURNING *`,
     [req.project.id, destId, nombre.trim(), puesto?.trim()||null, tipo_pago,
      Math.max(0, Number(tarifa_jornal)||0), periodicidad,
      curp?.trim()||null, rfc?.trim()||null, nss?.trim()||null,
      telefono?.trim()||null, direccion?.trim()||null, contacto_emergencia?.trim()||null,
      contacto_emergencia_nombre?.trim()||null, contacto_emergencia_telefono?.trim()||null,
-     fecha_ingreso||null]
+     fecha_ingreso||null,
+     puedeEditarBancarios ? (cuenta_nomina_hsbc?.trim() || null) : null,
+     puedeEditarBancarios ? (cuenta_alterna?.trim() || null) : null]
   );
-  res.status(201).json(rows[0]);
+  res.status(201).json(await stripDatosBancarios(req, rows[0]));
 }));
 
-app.put('/api/projects/:id/trabajadores/:wId', h(auth.allow('residente', 'cabo')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('trabajadores', 'puede_editar')), h(async (req, res) => {
+app.put('/api/projects/:id/trabajadores/:wId', h(auth.allow('residente', 'cabo', 'administracion')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('trabajadores', 'puede_editar')), h(async (req, res) => {
   const wId = Number(req.params.wId);
   const { nombre, puesto, tipo_pago, tarifa_jornal, periodicidad, curp, rfc, nss,
           telefono, direccion, contacto_emergencia, contacto_emergencia_nombre,
-          contacto_emergencia_telefono, fecha_ingreso, destajista_id } = req.body || {};
+          contacto_emergencia_telefono, fecha_ingreso, destajista_id,
+          cuenta_nomina_hsbc, cuenta_alterna } = req.body || {};
   if (!nombre?.trim()) return res.status(400).json({ error: 'El nombre es requerido' });
   if (!TIPOS_PAGO.includes(tipo_pago)) return res.status(400).json({ error: 'tipo_pago inválido' });
   if (!PERIODICIDADES.includes(periodicidad)) return res.status(400).json({ error: 'periodicidad inválida' });
@@ -5238,22 +5293,35 @@ app.put('/api/projects/:id/trabajadores/:wId', h(auth.allow('residente', 'cabo')
     const { rows: dRows } = await db.pool.query('SELECT id FROM destajistas WHERE id=$1 AND project_id=$2', [destId, req.project.id]);
     if (!dRows[0]) return res.status(400).json({ error: 'Destajista vinculado no pertenece a esta obra' });
   }
-  const { rows } = await db.pool.query(`
-    UPDATE trabajadores SET
-      destajista_id=$1, nombre=$2, puesto=$3, tipo_pago=$4, tarifa_jornal=$5,
-      periodicidad=$6, curp=$7, rfc=$8, nss=$9, telefono=$10, direccion=$11,
-      contacto_emergencia=$12, contacto_emergencia_nombre=$13, contacto_emergencia_telefono=$14,
-      fecha_ingreso=$15
-    WHERE id=$16 AND project_id=$17 RETURNING *`,
-    [destId, nombre.trim(), puesto?.trim()||null, tipo_pago,
-     Math.max(0, Number(tarifa_jornal)||0), periodicidad,
-     curp?.trim()||null, rfc?.trim()||null, nss?.trim()||null,
-     telefono?.trim()||null, direccion?.trim()||null, contacto_emergencia?.trim()||null,
-     contacto_emergencia_nombre?.trim()||null, contacto_emergencia_telefono?.trim()||null,
-     fecha_ingreso||null, wId, req.project.id]
+  // Si el usuario NO tiene permiso sobre datos bancarios, esas 2 columnas se
+  // OMITEN por completo del UPDATE (no se ponen en null) — de lo contrario
+  // un residente editando solo el puesto borraría el dato bancario real que
+  // administración ya había capturado. Solo se tocan si el usuario sí puede.
+  const puedeEditarBancarios = await auth.tienePermiso(req, 'trabajadores_bancarios', 'puede_editar');
+  const setClauses = [
+    'destajista_id=$1', 'nombre=$2', 'puesto=$3', 'tipo_pago=$4', 'tarifa_jornal=$5',
+    'periodicidad=$6', 'curp=$7', 'rfc=$8', 'nss=$9', 'telefono=$10', 'direccion=$11',
+    'contacto_emergencia=$12', 'contacto_emergencia_nombre=$13', 'contacto_emergencia_telefono=$14',
+    'fecha_ingreso=$15',
+  ];
+  const params = [destId, nombre.trim(), puesto?.trim()||null, tipo_pago,
+    Math.max(0, Number(tarifa_jornal)||0), periodicidad,
+    curp?.trim()||null, rfc?.trim()||null, nss?.trim()||null,
+    telefono?.trim()||null, direccion?.trim()||null, contacto_emergencia?.trim()||null,
+    contacto_emergencia_nombre?.trim()||null, contacto_emergencia_telefono?.trim()||null,
+    fecha_ingreso||null];
+  if (puedeEditarBancarios) {
+    params.push(cuenta_nomina_hsbc?.trim() || null, cuenta_alterna?.trim() || null);
+    setClauses.push(`cuenta_nomina_hsbc=$${params.length - 1}`, `cuenta_alterna=$${params.length}`);
+  }
+  params.push(wId, req.project.id);
+  const { rows } = await db.pool.query(
+    `UPDATE trabajadores SET ${setClauses.join(', ')}
+     WHERE id=$${params.length - 1} AND project_id=$${params.length} RETURNING *`,
+    params
   );
   if (!rows[0]) return res.status(404).json({ error: 'Trabajador no encontrado' });
-  res.json(rows[0]);
+  res.json(await stripDatosBancarios(req, rows[0]));
 }));
 
 app.post('/api/projects/:id/trabajadores/:wId/baja', h(auth.allow('residente', 'cabo')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('trabajadores', 'puede_editar')), h(async (req, res) => {

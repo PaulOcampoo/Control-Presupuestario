@@ -35,7 +35,15 @@ const PERMISSIONS = {
   // fila = 403, igual que 'nominas' hoy): agregar la pestaña no otorga el
   // permiso por sí sola, un admin debe concederlo explícitamente en la
   // matriz por cada obra.
-  residente:      { label: 'Residente',     tabs: ['programa', 'avance', 'destajo', 'requisiciones', 'insumos', 'ordenes', 'nominas', 'trabajadores', 'estimaciones'] },
+  // 'maquinaria' agregado aquí (prompt-p1-residente-maquinaria.md): mismo gap
+  // ya documentado arriba para 'trabajadores' — checkPermiso('maquinaria', ...)
+  // y el CHECK constraint de permisos_usuario.seccion ya soportaban 'maquinaria'
+  // para residente, y varios residentes ya tenían la fila puede_ver=true
+  // otorgada desde la matriz, pero la pestaña nunca llegaba a state.allowedTabs
+  // (viene de esta lista, no de la matriz) así que nunca veían el tile. Igual
+  // que 'trabajadores': agregar el tab no otorga el permiso por sí solo, sigue
+  // decidiéndolo checkPermiso vía permisos_usuario (sin fila = 403).
+  residente:      { label: 'Residente',     tabs: ['programa', 'avance', 'destajo', 'requisiciones', 'insumos', 'ordenes', 'nominas', 'trabajadores', 'estimaciones', 'maquinaria'] },
   // 'trabajadores' agregado aquí (prompt-c-checkpermiso-trabajadores.md,
   // fix de visibilidad en nav): mismo gap ya documentado para 'costos' más
   // abajo — el permiso puede_ver otorgado vía la matriz a UN cabo específico

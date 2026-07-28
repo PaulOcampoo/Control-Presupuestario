@@ -1190,8 +1190,25 @@ app.put('/api/proveedores/:id/estado', h(auth.allow('compras')), h(auth.checkPer
 // mismo día que se activa el enforcement).
 // DISEÑO DE PRIMER BORRADOR, pendiente de revisión (ver server/maquinaria.js).
 // ---------------------------------------------------------------------------
+// prompt-p2-aislamiento-operador.md: filtro en la consulta SQL (ver
+// listEquipos en server/maquinaria.js), no en el frontend — un operador solo
+// recibe las máquinas que tiene asignadas, lista vacía si no tiene ninguna
+// (nunca error/403 por eso). Usa req.user.puesto (JWT real), no
+// effectivePuesto() — "Vista como" es solo frontend, no debe aflojar esto.
 app.get('/api/maquinaria/equipos', h(auth.checkPermiso('maquinaria', 'puede_ver')), h(async (req, res) => {
-  res.json(await maquinaria.listEquipos());
+  const operadorId = req.user.puesto === 'operador' ? req.user.id : null;
+  res.json(await maquinaria.listEquipos(operadorId));
+}));
+
+// Lectura individual — operador pidiendo una máquina que no es la suya: 403
+// (no 404, para no filtrar si el ID existe o no), sin exponer el objeto.
+app.get('/api/maquinaria/equipos/:id', h(auth.checkPermiso('maquinaria', 'puede_ver')), h(async (req, res) => {
+  const equipo = await maquinaria.getEquipoById(Number(req.params.id));
+  if (!equipo) return res.status(404).json({ error: 'Equipo no encontrado' });
+  if (req.user.puesto === 'operador' && equipo.operador_asignado_id !== req.user.id) {
+    return res.status(403).json({ error: 'No tienes permiso para realizar esta acción' });
+  }
+  res.json(equipo);
 }));
 
 app.post('/api/maquinaria/equipos', h(auth.checkPermiso('maquinaria', 'puede_crear')), h(async (req, res) => {
@@ -1226,6 +1243,35 @@ app.put('/api/maquinaria/equipos/:id/asignar-cliente', h(auth.checkPermiso('maqu
   const equipo = await maquinaria.asignarClienteEquipo(Number(req.params.id), cliente_id ?? null);
   if (!equipo) return res.status(404).json({ error: 'Equipo no encontrado' });
   res.json(equipo);
+}));
+
+// prompt-p2-aislamiento-operador.md: mismo permiso que asignar-cliente
+// arriba (jefe_maquinaria/admin/desarrollador ya tienen puede_editar en
+// 'maquinaria'). Valida que el usuario destino sea realmente un operador
+// activo antes de asignar — evita asignar por error un usuario de otro rol.
+app.put('/api/maquinaria/equipos/:id/asignar-operador', h(auth.checkPermiso('maquinaria', 'puede_editar')), h(async (req, res) => {
+  const { operador_id } = req.body || {};
+  if (operador_id != null) {
+    const { rows } = await db.pool.query(
+      "SELECT id FROM usuarios WHERE id = $1 AND puesto = 'operador' AND activo = true",
+      [Number(operador_id)]
+    );
+    if (!rows[0]) return res.status(400).json({ error: 'El usuario indicado no es un operador activo' });
+  }
+  const equipo = await maquinaria.asignarOperadorEquipo(Number(req.params.id), operador_id ?? null);
+  if (!equipo) return res.status(404).json({ error: 'Equipo no encontrado' });
+  res.json(equipo);
+}));
+
+// Lista liviana (solo id+nombre) para poblar el selector "Operador asignado"
+// del catálogo — checkPermiso('maquinaria','puede_editar') en vez de
+// auth.allow('administracion') como GET /api/usuarios, porque jefe_maquinaria
+// (sin acceso a esa lista completa de usuarios) también debe poder asignar.
+app.get('/api/maquinaria/operadores', h(auth.checkPermiso('maquinaria', 'puede_editar')), h(async (req, res) => {
+  const { rows } = await db.pool.query(
+    "SELECT id, nombre FROM usuarios WHERE puesto = 'operador' AND activo = true ORDER BY nombre"
+  );
+  res.json(rows);
 }));
 
 app.get('/api/maquinaria/combustible', h(auth.checkPermiso('maquinaria', 'puede_ver')), h(async (req, res) => {
@@ -2293,15 +2339,24 @@ app.get('/api/projects', h(auth.allow('residente', 'cabo', 'compras', 'tesoreria
         WHERE up.usuario_id = $1
         ORDER BY p.id DESC
       `, [req.user.id])).rows;
+  // prompt-p2-aislamiento-operador.md: operador no debe recibir importes ni
+  // fechas de obra en este payload (el drawer "Presupuestos cargados" se le
+  // oculta por completo en el frontend, pero este mismo endpoint también
+  // alimenta el selector de Obra del modal de Capturar horas — que solo
+  // necesita id/nombre/lugar). Recorte en la construcción de la respuesta,
+  // no en el render: para operador ni siquiera se corre la query de
+  // totalRows. NO se extiende este recorte a otros roles (residente/cabo/
+  // etc. siguen igual) — eso queda fuera de este prompt.
+  const esOperadorReq = req.user.puesto === 'operador';
   const rows = await Promise.all(projects.map(async (p) => {
     const { rows: metaRows } = await db.pool.query(
       'SELECT clave, valor FROM meta WHERE project_id = $1', [p.id]
     );
     const meta = metaToObject(metaRows);
-    const { rows: totalRows } = await db.pool.query(
+    const totalRows = esOperadorReq ? [] : (await db.pool.query(
       "SELECT importe FROM conceptos WHERE project_id = $1 AND es_total = 1 AND grupo IS NULL ORDER BY orden DESC LIMIT 1",
       [p.id]
-    );
+    )).rows;
     return {
       id: p.id,
       nombre: p.nombre,
@@ -2310,10 +2365,12 @@ app.get('/api/projects', h(auth.allow('residente', 'cabo', 'compras', 'tesoreria
       creado_en: p.creado_en,
       obra: meta.obra || null,
       lugar: meta.lugar || null,
-      inicio_obra: meta.inicio_obra || null,
-      fin_obra: meta.fin_obra || null,
-      total_sin_iva: meta.total_sin_iva ? Number(meta.total_sin_iva) : (totalRows[0] ? totalRows[0].importe : null),
-      total_con_iva: meta.total_con_iva ? Number(meta.total_con_iva) : null,
+      ...(esOperadorReq ? {} : {
+        inicio_obra: meta.inicio_obra || null,
+        fin_obra: meta.fin_obra || null,
+        total_sin_iva: meta.total_sin_iva ? Number(meta.total_sin_iva) : (totalRows[0] ? totalRows[0].importe : null),
+        total_con_iva: meta.total_con_iva ? Number(meta.total_con_iva) : null,
+      }),
     };
   }));
   res.json(rows);

@@ -165,6 +165,17 @@ const SECCIONES_PERMISOS = [
   // la matriz, ese rol necesita además 'costos' en su lista de tabs para ver
   // el tile (mismo gap ya documentado para trabajadores_global/nominas_global).
   'costos',
+  // prompt-p8-migracion-permisos-navegacion.md (diagnóstico): 'cotizador'
+  // (tab de PERMISSIONS.compras) y 'estadoResultadosGlobal' (tab de
+  // PERMISSIONS.tesoreria) no tenían sección propia — hoy no rompe nada
+  // porque no existe ningún usuario real con puesto compras/tesorería, pero
+  // dejaba el catálogo incompleto: si el día de mañana se crea uno, no
+  // habría forma de otorgarle esa pestaña vía permisos_usuario. Se agregan
+  // aquí para completar el catálogo antes de migrar la fuente de verdad de
+  // navegación (ver TAB_A_SECCION más abajo) — sin enforcement real todavía
+  // (mismo estado "informativo" que 'programa'/'estimaciones', ver
+  // SECCIONES_CON_ENFORCEMENT en public/app.js).
+  'cotizador', 'estado_resultados_global',
 ];
 const ACCIONES_PERMISOS = ['puede_ver', 'puede_crear', 'puede_editar', 'puede_editar_precios', 'puede_eliminar'];
 
@@ -182,6 +193,11 @@ const TAB_A_SECCION = {
   estadoResultados: 'estado_resultados',
   mapeo: 'mapeo', nominas: 'nominas', estimaciones: 'estimaciones',
   maquinaria: 'maquinaria', trabajadores: 'trabajadores',
+  // prompt-p8-migracion-permisos-navegacion.md: completan el catálogo (ver
+  // SECCIONES_PERMISOS arriba) — sin estos dos, defaultPermisosParaRol()
+  // descartaba en silencio los tabs 'cotizador' (compras) y
+  // 'estadoResultadosGlobal' (tesorería) por no tener sección mapeada.
+  cotizador: 'cotizador', estadoResultadosGlobal: 'estado_resultados_global',
 };
 
 // Set de permisos default al dar de alta un usuario: puede_ver=true en las

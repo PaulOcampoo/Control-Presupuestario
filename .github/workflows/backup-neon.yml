@@ -1,0 +1,93 @@
+name: Backup semanal de Neon a Vercel Blob
+
+# prompt-p6-backup-neon.md: backup lógico (pg_dump) de la base de datos de
+# producción hacia Vercel Blob, con retención rotativa de 8 semanas.
+#
+# Corre en GitHub Actions, no en Vercel Cron: pg_dump no está disponible en
+# el runtime serverless de Vercel (Node.js administrado, sin binarios nativos
+# del sistema — el mismo motivo por el que este proyecto ya necesitó
+# @sparticuz/chromium para poder correr Chromium ahí; no existe un paquete
+# equivalente ampliamente usado para pg_dump). vercel.json además ya limita
+# maxDuration a 90s para la función que sirve la app. Los runners
+# ubuntu-latest de GitHub Actions no tienen ese límite.
+#
+# 🔴 CRÍTICO — usar la conexión DIRECTA de Neon, NUNCA la pooled (la misma
+# que usa la app en Vercel, host con "-pooler" en el nombre). Confirmado
+# empíricamente contra Preview durante el desarrollo de este workflow:
+# correr pg_dump contra el endpoint pooled dejó `search_path` roto (vacío)
+# en OTRAS conexiones nuevas contra ese mismo pooler durante varios minutos
+# (pg_dump emite `SET search_path=''` a nivel de sesión, y el pooler de Neon
+# no siempre resetea limpio el backend físico reutilizado entre clientes) —
+# cualquier query sin calificar esquema (`SELECT * FROM usuarios`, como usa
+# TODA la app) habría fallado con "relation does not exist" para cualquier
+# request real que compartiera ese backend mientras duró. Repetido con la
+# conexión DIRECTA (sin "-pooler" en el host): el pooled quedó intacto antes,
+# durante y después. Nunca pasar la DATABASE_URL de Vercel (pooled) aquí.
+#
+# Secrets de repo requeridos (Settings → Secrets and variables → Actions):
+#   - NEON_PRODUCTION_DATABASE_URL_DIRECT: connection string DIRECTA (sin
+#     "-pooler") de la rama PRODUCTION en Neon. Se obtiene en el dashboard de
+#     Neon → Connection Details → desmarcar "Pooled connection". Distinta de
+#     la DATABASE_URL que usa la app en Vercel (esa SÍ debe seguir pooled).
+#   - BLOB_READ_WRITE_TOKEN: el mismo token que ya usa la app en Vercel
+#     (Production) para subir/leer blobs — así los backups viven en el mismo
+#     store que los PDFs de contrato, administrable desde el mismo dashboard.
+
+on:
+  schedule:
+    # Domingo 09:00 UTC (~03:00-04:00 hora de Ciudad de México, según horario
+    # de verano) — hora baja de uso.
+    - cron: '0 9 * * 0'
+  workflow_dispatch: {} # permite correrlo manualmente desde la pestaña Actions
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Neon corre Postgres 18. Confirmado con pg_dump real contra Preview:
+      # el paquete "postgresql-client" del repo default de Ubuntu instala una
+      # versión vieja (16.x) que pg_dump RECHAZA usar contra un servidor 18
+      # ("aborting because of server version mismatch") — hay que instalar
+      # postgresql-client-18 específicamente vía el repo oficial de PGDG.
+      - name: Instalar cliente de Postgres 18 (pg_dump)
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes postgresql-common
+          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+          sudo apt-get install --yes postgresql-client-18
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Instalar dependencias (@vercel/blob, pg)
+        run: npm install --omit=dev --no-audit --no-fund @vercel/blob pg
+
+      - name: Generar dump comprimido
+        env:
+          DATABASE_URL: ${{ secrets.NEON_PRODUCTION_DATABASE_URL_DIRECT }}
+        run: |
+          set -euo pipefail
+          if [ -z "${DATABASE_URL:-}" ]; then
+            echo "Falta el secret NEON_PRODUCTION_DATABASE_URL_DIRECT — no se puede continuar." >&2
+            exit 1
+          fi
+          FECHA=$(date -u +%F)
+          echo "FECHA=$FECHA" >> "$GITHUB_ENV"
+          pg_dump "$DATABASE_URL" --no-owner --no-privileges | gzip > "backup-$FECHA.sql.gz"
+          ls -lh "backup-$FECHA.sql.gz"
+
+      - name: Subir a Vercel Blob y rotar backups viejos (retener 8)
+        env:
+          BLOB_READ_WRITE_TOKEN: ${{ secrets.BLOB_READ_WRITE_TOKEN }}
+        run: node scripts/backup-neon-to-blob.js "backup-${{ env.FECHA }}.sql.gz"
+
+      - name: Avisar a admin/desarrollador si algo falló
+        if: failure()
+        env:
+          DATABASE_URL: ${{ secrets.NEON_PRODUCTION_DATABASE_URL_DIRECT }}
+        run: node scripts/notificar-fallo-backup.js

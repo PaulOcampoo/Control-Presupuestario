@@ -63,3 +63,59 @@ incrementar `SW_VERSION` en `public/sw.js` (`ctrl-ppto-vN` → `ctrl-ppto-v(N+1)
 
 Se evaluó la propuesta de omitir el bump en commits backend-only y fue **rechazada**.
 La regla no tiene excepciones.
+
+## Backup semanal de Neon a Vercel Blob
+
+Además del point-in-time recovery de corto plazo que Neon ya da por defecto,
+existe un backup lógico semanal (`pg_dump`) hacia Vercel Blob, para tener una
+copia fuera del proveedor ante pérdida de datos, branch borrada, o problema
+en la cuenta de Neon.
+
+- **Mecanismo**: `.github/workflows/backup-neon.yml`, corre en GitHub
+  Actions (no en Vercel Cron — `pg_dump` no está disponible en el runtime
+  serverless de Vercel; ver comentario en el propio workflow). Domingo
+  09:00 UTC, o manualmente desde la pestaña **Actions** del repo
+  (`workflow_dispatch`).
+- **Dónde viven los backups**: Vercel Blob, prefijo `backups/`, nombre
+  `backups/app-cp-YYYY-MM-DD.sql.gz` (`access: private` — no son públicos).
+  Mismo store que ya usa la app para PDFs de contrato — administrable desde
+  el mismo dashboard de Vercel (Storage → Blob).
+- **Retención**: los últimos 8 backups (~8 semanas). Al subir uno nuevo, el
+  workflow borra automáticamente los que excedan esa ventana
+  (`scripts/backup-neon-to-blob.js`) — con salvaguarda explícita: si no
+  puede confirmar que quedan al menos 8 backups válidos tras filtrar,
+  aborta el borrado sin tocar nada en vez de arriesgarse a borrar de más.
+- **🔴 CRÍTICO — conexión DIRECTA, nunca pooled**: el secret
+  `NEON_PRODUCTION_DATABASE_URL_DIRECT` (GitHub → repo → Settings → Secrets
+  and variables → Actions) debe ser la connection string **directa** de la
+  rama `production` en Neon (sin `-pooler` en el host — dashboard de Neon →
+  Connection Details → desmarcar "Pooled connection"), **nunca** la misma
+  `DATABASE_URL` pooled que usa la app en Vercel. Confirmado empíricamente
+  durante el desarrollo de este mecanismo: correr `pg_dump` contra el
+  endpoint *pooled* dejó `search_path` roto (vacío) en otras conexiones
+  nuevas contra ese mismo pooler durante varios minutos (pg_dump fija
+  `search_path=''` a nivel de sesión y el pooler de Neon no siempre
+  resetea limpio el backend físico reutilizado) — cualquier query de la
+  app sin calificar esquema habría fallado con "relation does not exist"
+  para cualquier request real que compartiera ese backend mientras duró.
+  Con la conexión directa, el pooled queda intacto siempre.
+- **Si falla**: el run queda marcado en rojo en la pestaña Actions (log
+  completo ahí) y además se inserta una notificación in-app para
+  admin/desarrollador (`scripts/notificar-fallo-backup.js`, mismo mecanismo
+  de notificaciones que el resto de la app).
+
+### Restaurar un backup en caso de emergencia
+
+1. Descargar el `.sql.gz` deseado desde Vercel Blob (dashboard → Storage →
+   Blob → `backups/`, o vía `@vercel/blob` con el `BLOB_READ_WRITE_TOKEN`).
+2. Descomprimir: `gunzip backup-YYYY-MM-DD.sql.gz`.
+3. **Nunca restaurar directo sobre producción ni sobre el Preview activo.**
+   Restaurar primero contra un Postgres efímero/local para confirmar que el
+   dump sirve (ej. `docker run -d -e POSTGRES_PASSWORD=x -e POSTGRES_DB=y
+   -p 15432:5432 postgres:18`, luego `psql -h localhost -p 15432 -U postgres
+   -d y < backup-YYYY-MM-DD.sql`) y revisar que las tablas principales
+   (`usuarios`, `proyectos`, `conceptos`, etc.) tengan conteos razonables.
+4. Solo si la restauración de prueba fue limpia, coordinar con el equipo la
+   restauración real (crear una rama nueva de Neon desde el backup, o
+   restaurar en una branch de Neon dedicada — nunca sobreescribir
+   `production` directamente sin ese paso intermedio).

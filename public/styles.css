@@ -2043,13 +2043,35 @@ body.body-scroll-locked { overflow: hidden; }
   outline-offset: -2px;
 }
 
-/* Selector de rango de vista (semana/mes/3-6-12 meses) — usa el <select>
-   nativo, mejorado por el componente custom app-wide (PR #62, ver
-   enhanceSelect()); esta clase solo gobierna el layout del contenedor. */
-.asist-rango-bar {
-  display: flex; align-items: center; gap: 8px; margin: 10px 0;
+/* Selector de rango de vista (semana/mes/3-6-12 meses) — tab bar estilo
+   Notion. El menú flotante de "···" reusa el patrón de posicionamiento
+   (getBoundingClientRect, fixed, portal a body) del <select> custom app-wide
+   (PR #62) vía CUSTOM_SELECT_Z, sin reimplementar ese componente. */
+.asist-tabbar {
+  display: flex; align-items: center; gap: 6px; margin: 10px 0;
 }
-.asist-rango-label { font-size: 0.82rem; color: var(--text-secondary); font-weight: 600; }
+.asist-tab {
+  display: flex; align-items: center; gap: 6px;
+  padding: 7px 12px; border-radius: var(--radius);
+  border: 1px solid var(--border-color); background: var(--bg-surface);
+  color: var(--text-secondary); font-size: 0.82rem; font-weight: 600;
+  cursor: pointer; white-space: nowrap;
+  transition: background-color 150ms ease, color 150ms ease, border-color 150ms ease;
+}
+.asist-tab:hover { background: var(--bg-surface-2); }
+.asist-tab.active { background: var(--accent-gold); border-color: var(--accent-gold); color: #04212f; }
+.asist-tab-more { padding: 7px 10px; letter-spacing: 1px; }
+.asist-rango-menu {
+  position: fixed; background: var(--bg-surface); border: 1px solid var(--border-color);
+  border-radius: var(--radius); box-shadow: 0 8px 24px rgba(0,0,0,0.18);
+  padding: 4px; display: flex; flex-direction: column; gap: 2px;
+}
+.asist-rango-menu-item {
+  padding: 8px 12px; border-radius: calc(var(--radius) - 2px); border: none; background: none;
+  text-align: left; font-size: 0.82rem; color: var(--text-primary); cursor: pointer; width: 100%;
+}
+.asist-rango-menu-item:hover { background: var(--bg-surface-2); }
+.asist-rango-menu-item.selected { color: var(--accent-gold); font-weight: 700; }
 
 /* Modo resumen (3/6/12 meses) — solo lectura, grid trabajador × mes. */
 .asist-resumen-aviso {

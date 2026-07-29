@@ -11463,24 +11463,94 @@ async function renderNominas(view) {
       await refrescar();
     }
 
+    function syncAsistTabBar() {
+      $$('.asist-tab[data-rango]', view).forEach((btn) => btn.classList.toggle('active', btn.dataset.rango === asist.rango));
+      const masBtn = $('#asistTabMas', view);
+      if (masBtn) masBtn.classList.toggle('active', RANGO_MODO_RESUMEN.has(asist.rango));
+    }
+
+    // Menú flotante de la pestaña "···" (3/6/12 meses), mismo patrón de
+    // posicionamiento (getBoundingClientRect, fixed, portal a body) que el
+    // <select> custom de PR #62 — ver CUSTOM_SELECT_Z.
+    function onDocClickCloseAsistRangoMenu(e) {
+      const menu = document.getElementById('asistRangoMenu');
+      const btn = $('#asistTabMas', view);
+      if (menu && !menu.contains(e.target) && !(btn && btn.contains(e.target))) closeAsistRangoMenu();
+    }
+
+    function closeAsistRangoMenu() {
+      const menu = document.getElementById('asistRangoMenu');
+      if (menu) menu.remove();
+      const btn = $('#asistTabMas', view);
+      if (btn) btn.setAttribute('aria-expanded', 'false');
+      document.removeEventListener('click', onDocClickCloseAsistRangoMenu, true);
+      window.removeEventListener('scroll', closeAsistRangoMenu, true);
+      window.removeEventListener('resize', closeAsistRangoMenu);
+    }
+
+    function positionAsistRangoMenu(btn, menu) {
+      const r = btn.getBoundingClientRect();
+      const margin = 6;
+      menu.style.position = 'fixed';
+      menu.style.zIndex = String(CUSTOM_SELECT_Z);
+      const menuWidth = Math.max(r.width, 140);
+      menu.style.minWidth = `${menuWidth}px`;
+      const spaceBelow = window.innerHeight - r.bottom;
+      const spaceAbove = r.top;
+      if (spaceBelow < 160 && spaceAbove > spaceBelow) {
+        menu.style.bottom = `${window.innerHeight - r.top + margin}px`;
+        menu.style.top = 'auto';
+      } else {
+        menu.style.top = `${r.bottom + margin}px`;
+        menu.style.bottom = 'auto';
+      }
+      let left = r.right - menuWidth;
+      if (left < 4) left = r.left;
+      menu.style.left = `${left}px`;
+    }
+
+    function openAsistRangoMenu(btn) {
+      const menu = document.createElement('div');
+      menu.id = 'asistRangoMenu';
+      menu.className = 'asist-rango-menu';
+      menu.setAttribute('role', 'menu');
+      menu.innerHTML = ['3meses', '6meses', '12meses'].map((v) => `<button class="asist-rango-menu-item ${asist.rango === v ? 'selected' : ''}" data-rango="${v}" role="menuitem">${RANGO_LABELS[v]}</button>`).join('');
+      document.body.appendChild(menu);
+      positionAsistRangoMenu(btn, menu);
+      btn.setAttribute('aria-expanded', 'true');
+      $$('.asist-rango-menu-item', menu).forEach((item) => {
+        item.addEventListener('click', () => { cambiarRango(item.dataset.rango); closeAsistRangoMenu(); });
+      });
+      setTimeout(() => document.addEventListener('click', onDocClickCloseAsistRangoMenu, true), 0);
+      window.addEventListener('scroll', closeAsistRangoMenu, true);
+      window.addEventListener('resize', closeAsistRangoMenu);
+    }
+
+    function toggleAsistRangoMenu() {
+      if (document.getElementById('asistRangoMenu')) { closeAsistRangoMenu(); return; }
+      openAsistRangoMenu($('#asistTabMas', view));
+    }
+
     async function cambiarRango(nuevoRango) {
       if (!RANGO_VALIDOS.includes(nuevoRango) || nuevoRango === asist.rango) return;
       asist.rango = nuevoRango;
       localStorage.setItem(RANGO_STORAGE_KEY, nuevoRango);
       asist.trabajadorId = null;
+      closeAsistRangoMenu();
+      syncAsistTabBar();
       await refrescar();
     }
 
-    // Navegación desde una celda del modo resumen (sección 2: "cambia el
-    // selector a mes posicionado en ese mes — navegación, no edición"). Deja
-    // que el listener del <select> (abajo) sea quien realmente dispare
-    // cambiarRango()/refrescar() — evita duplicar esa lógica aquí.
+    // Navegación desde una celda del modo resumen (sección 2 de prompt-
+    // calendario-asistencia-rangos-y-bloqueo.md: "cambia el selector a mes
+    // posicionado en ese mes — navegación, no edición"). Ya no depende de un
+    // <select> oculto (prompt-tab-bar-notion-asistencia.md lo reemplazó por
+    // la tab bar) — llama cambiarRango() directo, que ya sincroniza la tab
+    // bar y re-renderiza.
     function irAMesDesdeResumen(mesStr) {
       const [y, m] = mesStr.split('-').map(Number);
       asist.year = y; asist.month = m - 1; asist.trabajadorId = null;
-      const sel = $('#asistRangoSelect');
-      if (sel) { sel.value = 'mes'; sel.dispatchEvent(new Event('change')); }
-      else cambiarRango('mes');
+      cambiarRango('mes');
     }
 
     async function refrescar() {
@@ -11854,22 +11924,18 @@ async function renderNominas(view) {
     view.innerHTML = `
       <h2 class="section-title">Personal</h2>
       ${renderSubNav()}
-      <div class="asist-rango-bar">
-        <label class="asist-rango-label" for="asistRangoSelect">Ver:</label>
-        <select id="asistRangoSelect">
-          ${RANGO_VALIDOS.map((v) => `<option value="${v}" ${v === asist.rango ? 'selected' : ''}>${RANGO_LABELS[v]}</option>`).join('')}
-        </select>
+      <div class="asist-tabbar" role="tablist">
+        <button class="asist-tab ${asist.rango === 'semana' ? 'active' : ''}" data-rango="semana" title="Semana">${icon('list', 16)}<span>Semana</span></button>
+        <button class="asist-tab ${asist.rango === 'mes' ? 'active' : ''}" data-rango="mes" title="Mes">${icon('programa', 16)}<span>Mes</span></button>
+        <button class="asist-tab asist-tab-more ${RANGO_MODO_RESUMEN.has(asist.rango) ? 'active' : ''}" id="asistTabMas" type="button" aria-haspopup="true" aria-expanded="false" title="Más rangos">&middot;&middot;&middot;</button>
       </div>
       <div id="asistenciaPanel" class="mt-12"></div>
     `;
     bindSubNav();
-    // El <select> real (oculto tras el enhance del componente custom, ver
-    // enhanceSelect()/MutationObserver global — PR #62, prompt prohíbe
-    // <select> nativo visible) sigue siendo la fuente de verdad de
-    // value/'change'. irAMesDesdeResumen() reutiliza este mismo listener
-    // (set .value + dispatchEvent) para no duplicar la lógica de
-    // cambiarRango() al navegar desde una celda del modo resumen.
-    $('#asistRangoSelect').addEventListener('change', (e) => cambiarRango(e.target.value));
+    $$('.asist-tab[data-rango]', view).forEach((btn) => {
+      btn.addEventListener('click', () => cambiarRango(btn.dataset.rango));
+    });
+    $('#asistTabMas', view).addEventListener('click', (e) => { e.stopPropagation(); toggleAsistRangoMenu(); });
     await refrescar();
   }
 

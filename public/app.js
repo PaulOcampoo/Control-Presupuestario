@@ -11275,24 +11275,145 @@ async function renderNominas(view) {
       <span class="asist-leyenda-item"><span class="asist-dot vacio"></span>Sin registro</span>
     </div>`;
 
+  // prompt-calendario-asistencia-rangos-y-bloqueo.md: 5 rangos de vista.
+  // 'semana'/'mes' son navegables (prev/next, igual que el mes ya era) y se
+  // renderizan en modo detalle (editable, sujeto al bloqueo de sección 3).
+  // '3meses'/'6meses'/'12meses' NO son navegables — siempre miran hacia
+  // atrás desde el mes calendario en curso real (nunca hacia el futuro) y se
+  // renderizan en modo resumen de solo lectura (sección 2).
+  const RANGO_VALIDOS = ['semana', 'mes', '3meses', '6meses', '12meses'];
+  const RANGO_LABELS = { semana: 'Semana', mes: 'Mes', '3meses': '3 meses', '6meses': '6 meses', '12meses': '12 meses' };
+  const RANGO_STORAGE_KEY = 'asistencia_rango_vista';
+  const RANGO_MODO_RESUMEN = new Set(['3meses', '6meses', '12meses']);
+
   async function showAsistencia() {
     subView = 'asistencia';
     const hoy = new Date();
-    const asist = { year: hoy.getFullYear(), month: hoy.getMonth(), trabajadorId: null, trabajadores: [], mapa: {}, propuestas: {} };
+    const rangoGuardado = localStorage.getItem(RANGO_STORAGE_KEY);
+    const asist = {
+      rango: RANGO_VALIDOS.includes(rangoGuardado) ? rangoGuardado : 'mes',
+      year: hoy.getFullYear(), month: hoy.getMonth(),
+      semanaAncla: new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate()),
+      trabajadorId: null, trabajadores: [], mapa: {}, propuestas: {},
+      resumenMensual: [], fechaHoy: null, desde: null, hasta: null,
+    };
+
+    function modoActual() { return RANGO_MODO_RESUMEN.has(asist.rango) ? 'resumen' : 'detalle'; }
 
     function mesLabel() {
       const m = MESES_ES[asist.month];
       return `${m.charAt(0).toUpperCase()}${m.slice(1)} ${asist.year}`;
     }
 
-    async function cargarMes() {
-      const desde = asistFechaStr(asist.year, asist.month, 1);
-      const hasta = asistFechaStr(asist.year, asist.month, asistDiasEnMes(asist.year, asist.month));
-      const data = await api(`/projects/${state.projectId}/asistencia-rango?desde=${desde}&hasta=${hasta}`);
+    // Cada día real entre desde/hasta como {fecha, dia, mes(0-idx), anio} —
+    // generaliza lo que antes era "todos los días del mes" a cualquier rango
+    // (semana = 7, mes = hasta 31), para que el grid itere sobre fechas
+    // reales en vez de asumir siempre un mes completo.
+    function diasEnRango() {
+      const out = [];
+      const [y0, m0, d0] = asist.desde.split('-').map(Number);
+      const [y1, m1, d1] = asist.hasta.split('-').map(Number);
+      let cur = new Date(y0, m0 - 1, d0);
+      const fin = new Date(y1, m1 - 1, d1);
+      while (cur <= fin) {
+        out.push({ fecha: asistFechaStr(cur.getFullYear(), cur.getMonth(), cur.getDate()), dia: cur.getDate() });
+        cur = new Date(cur.getFullYear(), cur.getMonth(), cur.getDate() + 1);
+      }
+      return out;
+    }
+
+    function isoWeekOfFechaStr(f) {
+      const [y, m, d] = f.split('-').map(Number);
+      return isoWeekNumber(y, m - 1, d);
+    }
+
+    // Meses "YYYY-MM" cubiertos por desde/hasta — columnas del modo resumen.
+    function mesesEnRango() {
+      const out = [];
+      let [y, m] = asist.desde.split('-').slice(0, 2).map(Number);
+      const [hy, hm] = asist.hasta.split('-').slice(0, 2).map(Number);
+      while (y < hy || (y === hy && m <= hm)) {
+        out.push(`${y}-${String(m).padStart(2, '0')}`);
+        m++; if (m > 12) { m = 1; y++; }
+      }
+      return out;
+    }
+
+    function mesCorto(ym) {
+      const [y, m] = ym.split('-').map(Number);
+      const nombre = MESES_ES[m - 1];
+      return `${nombre.charAt(0).toUpperCase()}${nombre.slice(1, 3)} ${y}`;
+    }
+
+    // Escala de color del modo resumen: reutiliza literalmente las mismas
+    // clases (presente/falta-just/falta-injust/vacio, mismo verde/amarillo/
+    // rojo/gris ya definidos para el heatmap y el grid) aplicadas por umbral
+    // de porcentaje en vez de por estado discreto — no existe hoy una escala
+    // continua separada que "reutilizar" literalmente, así que se reutiliza
+    // la misma paleta/clases visuales.
+    function pctColorCls(pct, tieneRegistros) {
+      if (!tieneRegistros) return 'vacio';
+      if (pct >= 90) return 'presente';
+      if (pct >= 75) return 'falta-just';
+      return 'falta-injust';
+    }
+
+    function calcularRangoFechas() {
+      if (asist.rango === 'semana') {
+        const d = asist.semanaAncla;
+        const dow = d.getDay();
+        const diffLunes = dow === 0 ? -6 : 1 - dow;
+        const lunes = new Date(d.getFullYear(), d.getMonth(), d.getDate() + diffLunes);
+        const domingo = new Date(lunes.getFullYear(), lunes.getMonth(), lunes.getDate() + 6);
+        return {
+          desde: asistFechaStr(lunes.getFullYear(), lunes.getMonth(), lunes.getDate()),
+          hasta: asistFechaStr(domingo.getFullYear(), domingo.getMonth(), domingo.getDate()),
+        };
+      }
+      if (asist.rango === 'mes') {
+        return {
+          desde: asistFechaStr(asist.year, asist.month, 1),
+          hasta: asistFechaStr(asist.year, asist.month, asistDiasEnMes(asist.year, asist.month)),
+        };
+      }
+      // 3meses/6meses/12meses: SIEMPRE hacia atrás desde el mes en curso
+      // REAL (no navegable) — "mira hacia atrás, no hacia el futuro".
+      const mesesAtras = { '3meses': 2, '6meses': 5, '12meses': 11 }[asist.rango];
+      const real = new Date();
+      const hastaY = real.getFullYear(), hastaM = real.getMonth();
+      const hasta = asistFechaStr(hastaY, hastaM, asistDiasEnMes(hastaY, hastaM));
+      let desdeY = hastaY, desdeM = hastaM - mesesAtras;
+      while (desdeM < 0) { desdeM += 12; desdeY--; }
+      const desde = asistFechaStr(desdeY, desdeM, 1);
+      return { desde, hasta };
+    }
+
+    async function cargarDatos() {
+      const { desde, hasta } = calcularRangoFechas();
+      asist.desde = desde; asist.hasta = hasta;
+      // Mantiene year/month en sync con la semana mostrada, para que si el
+      // usuario entra al detalle de un trabajador desde modo 'semana', el
+      // heatmap mensual (renderDetalle, sin cambios de rango) muestre el mes
+      // que contiene esa semana en vez de quedar desalineado.
+      if (asist.rango === 'semana') {
+        asist.year = asist.semanaAncla.getFullYear();
+        asist.month = asist.semanaAncla.getMonth();
+      }
+      const modo = modoActual();
+      const granularidad = modo === 'resumen' ? 'mes' : 'dia';
+      const data = await api(`/projects/${state.projectId}/asistencia-rango?desde=${desde}&hasta=${hasta}&granularidad=${granularidad}`);
       asist.trabajadores = data.trabajadores || [];
-      asist.mapa = {};
-      (data.asistencias || []).forEach((a) => { asist.mapa[`${a.trabajador_id}_${a.fecha}`] = a.estado; });
-      calcularPropuestas();
+      asist.fechaHoy = data.fecha_hoy;
+      if (modo === 'resumen') {
+        asist.resumenMensual = data.resumen_mensual || [];
+        asist.mapa = {};
+        asist.propuestas = {};
+      } else {
+        asist.resumenMensual = [];
+        asist.mapa = {};
+        (data.asistencias || []).forEach((a) => { asist.mapa[`${a.trabajador_id}_${a.fecha}`] = a.estado; });
+        calcularPropuestas();
+      }
     }
 
     // Autollenado con confirmación (prompt-p4-asistencia-autollenado.md):
@@ -11301,10 +11422,13 @@ async function renderNominas(view) {
     // endpoint nuevo). Si hoy cae en los primeros días del mes y el
     // trabajador no tiene ningún registro previo en el mes visible, queda
     // sin propuesta ("Sin registro"), igual que un alta reciente.
-    // "hoy" se calcula en America/Mexico_City (mismo criterio que
-    // marcadoMasivoAsistencia en server/app.js) para que la fecha que
-    // eventualmente se persista coincida con la que el servidor trataría
-    // como "hoy" — no depende de la zona horaria del navegador.
+    // Acotado a rango='mes' a propósito (prompt-calendario-asistencia-rangos-
+    // y-bloqueo.md): el diseño original asume "el mes visible completo ya
+    // está cargado" para buscar hacia atrás — en 'semana' solo se cargan 7
+    // días, así que el autollenado se omite ahí (el ciclo normal de 4
+    // estados en toggleCelda sigue funcionando igual, solo sin la propuesta
+    // precargada). "hoy" viene de asist.fechaHoy (America/Mexico_City,
+    // calculado por el servidor) — nunca del reloj del dispositivo.
     // Se ignoran tanto los días sin ninguna fila (huecos) como los días con
     // estado='sin_registro' explícito (equivalente visual y semánticamente
     // a "sin registro" en el resto de la app — ver comentario de
@@ -11312,11 +11436,11 @@ async function renderNominas(view) {
     // estado real (presente/falta_justificada/falta_injustificada).
     function calcularPropuestas() {
       asist.propuestas = {};
-      const hoyMx = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Mexico_City' }).format(new Date());
-      const [hoyY, hoyM, hoyD] = hoyMx.split('-').map(Number);
+      if (asist.rango !== 'mes' || !asist.fechaHoy) return;
+      const [hoyY, hoyM, hoyD] = asist.fechaHoy.split('-').map(Number);
       if (asist.year !== hoyY || (asist.month + 1) !== hoyM) return;
       asist.trabajadores.forEach((t) => {
-        if (asist.mapa[`${t.id}_${hoyMx}`]) return; // ya tiene registro real hoy
+        if (asist.mapa[`${t.id}_${asist.fechaHoy}`]) return; // ya tiene registro real hoy
         for (let d = hoyD - 1; d >= 1; d--) {
           const estado = asist.mapa[`${t.id}_${asistFechaStr(asist.year, asist.month, d)}`];
           if (estado && estado !== 'sin_registro') { asist.propuestas[t.id] = estado; break; }
@@ -11324,11 +11448,39 @@ async function renderNominas(view) {
       });
     }
 
-    async function cambiarMes(delta) {
-      asist.month += delta;
-      if (asist.month < 0) { asist.month = 11; asist.year--; }
-      if (asist.month > 11) { asist.month = 0; asist.year++; }
+    // Generaliza el prev/next: en 'semana' avanza/retrocede 7 días; en 'mes'
+    // avanza/retrocede un mes calendario (comportamiento sin cambios). En
+    // modo resumen (3/6/12 meses) no hay navegación — el rango siempre mira
+    // hacia atrás desde el mes en curso real (sección 1 del prompt).
+    async function cambiarAncla(delta) {
+      if (asist.rango === 'semana') {
+        asist.semanaAncla = new Date(asist.semanaAncla.getFullYear(), asist.semanaAncla.getMonth(), asist.semanaAncla.getDate() + delta * 7);
+      } else if (asist.rango === 'mes') {
+        asist.month += delta;
+        if (asist.month < 0) { asist.month = 11; asist.year--; }
+        if (asist.month > 11) { asist.month = 0; asist.year++; }
+      }
       await refrescar();
+    }
+
+    async function cambiarRango(nuevoRango) {
+      if (!RANGO_VALIDOS.includes(nuevoRango) || nuevoRango === asist.rango) return;
+      asist.rango = nuevoRango;
+      localStorage.setItem(RANGO_STORAGE_KEY, nuevoRango);
+      asist.trabajadorId = null;
+      await refrescar();
+    }
+
+    // Navegación desde una celda del modo resumen (sección 2: "cambia el
+    // selector a mes posicionado en ese mes — navegación, no edición"). Deja
+    // que el listener del <select> (abajo) sea quien realmente dispare
+    // cambiarRango()/refrescar() — evita duplicar esa lógica aquí.
+    function irAMesDesdeResumen(mesStr) {
+      const [y, m] = mesStr.split('-').map(Number);
+      asist.year = y; asist.month = m - 1; asist.trabajadorId = null;
+      const sel = $('#asistRangoSelect');
+      if (sel) { sel.value = 'mes'; sel.dispatchEvent(new Event('change')); }
+      else cambiarRango('mes');
     }
 
     async function refrescar() {
@@ -11336,7 +11488,7 @@ async function renderNominas(view) {
       if (!panel) return;
       panel.innerHTML = '<div class="empty-state">Cargando…</div>';
       try {
-        await cargarMes();
+        await cargarDatos();
         renderPanel();
       } catch (err) {
         panel.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
@@ -11350,55 +11502,53 @@ async function renderNominas(view) {
         panel.innerHTML = '<div class="empty-state">No hay trabajadores activos en esta obra.</div>';
         return;
       }
+      if (modoActual() === 'resumen') { renderResumen(panel); return; }
       if (asist.trabajadorId) renderDetalle(panel); else renderGeneral(panel);
     }
 
     function renderGeneral(panel) {
-      const totalDias = asistDiasEnMes(asist.year, asist.month);
-      const dias = Array.from({ length: totalDias }, (_, i) => i + 1);
+      const diasArr = diasEnRango();
       const canEdit = puedeEditarNom;
-      const hoy = new Date();
-      const esMesActual = asist.year === hoy.getFullYear() && asist.month === hoy.getMonth();
-      const diaHoy = esMesActual ? hoy.getDate() : null;
-      const semanaHoy = esMesActual ? isoWeekNumber(asist.year, asist.month, diaHoy) : null;
+      // prompt-calendario-asistencia-rangos-y-bloqueo.md sección 3, con
+      // ajuste explícito de Paul tras el diagnóstico (Stop Condition
+      // activado): solo residente/cabo quedan limitados a editar el día de
+      // hoy — admin/desarrollador conservan la corrección retroactiva libre
+      // que ya existía. effectivePuesto() (no el puesto real crudo) para
+      // consistencia con canEdit/isAdmin() de arriba: "Vista como" debe
+      // previsualizar el bloqueo igual que previsualiza todo lo demás.
+      const restringidoSoloHoy = ['residente', 'cabo'].includes(effectivePuesto());
+      const fechaHoy = asist.fechaHoy;
+      const semanaHoy = fechaHoy ? isoWeekOfFechaStr(fechaHoy) : null;
       // Marcado masivo (prompt-marcado-masivo-asistencia.md) — SIEMPRE aplica
-      // a la fecha real de hoy, nunca al mes que se esté navegando; por eso
-      // el label del botón siempre muestra "Hoy <fecha>" en vez de depender
-      // de qué mes esté visible. Se calcula en America/Mexico_City (no la
-      // zona horaria local del navegador) para que el label coincida
-      // exactamente con la fecha que aplicará el backend (mismo criterio
-      // que marcadoMasivoAsistencia en server/app.js) — un dispositivo con
-      // reloj/zona mal configurada no debe ver una fecha distinta a la real.
-      // Reutilizado también por el autollenado (prompt-p4-asistencia-
-      // autollenado.md): fechaHoyMx/esMesActualMx/diaHoyMx identifican la
-      // columna de "hoy" para efectos de precarga y para el payload de
-      // "Confirmar día", con el mismo criterio de zona horaria — deliberadamente
-      // separado de diaHoy/esMesActual (hora local del navegador), que solo
-      // gobierna el resaltado visual dorado ya existente.
-      const hoyMx = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Mexico_City' }).format(new Date());
-      const hoyLabelCorto = new Date(`${hoyMx}T00:00:00`).toLocaleDateString('es-MX', { day: '2-digit', month: 'short' });
-      const [hoyMxY, hoyMxM, hoyMxD] = hoyMx.split('-').map(Number);
-      const esMesActualMx = asist.year === hoyMxY && (asist.month + 1) === hoyMxM;
-      const diaHoyMx = esMesActualMx ? hoyMxD : null;
-      const fechaHoyMx = esMesActualMx ? asistFechaStr(asist.year, asist.month, diaHoyMx) : null;
+      // a la fecha real de hoy, nunca al rango que se esté navegando. El
+      // label y el payload de "Confirmar día" usan asist.fechaHoy (calculado
+      // por el servidor en America/Mexico_City) — nunca el reloj del
+      // dispositivo (prompt-calendario-asistencia-rangos-y-bloqueo.md
+      // sección 3: "el frontend usa fecha_hoy, nunca el reloj del dispositivo").
+      const hoyLabelCorto = fechaHoy ? new Date(`${fechaHoy}T00:00:00`).toLocaleDateString('es-MX', { day: '2-digit', month: 'short' }) : '';
       const totalPropuestas = Object.keys(asist.propuestas).length;
+      const navLabel = asist.rango === 'semana'
+        ? `${new Date(`${asist.desde}T00:00:00`).toLocaleDateString('es-MX', { day: '2-digit', month: 'short' })} – ${new Date(`${asist.hasta}T00:00:00`).toLocaleDateString('es-MX', { day: '2-digit', month: 'short' })}`
+        : mesLabel();
 
-      // Bloques de semana ISO (colspan) para el header + set de días que
-      // inician una semana nueva (para el divisor vertical).
+      // Bloques de semana ISO (colspan) para el header + set de fechas que
+      // inician una semana nueva (para el divisor vertical) — generalizado a
+      // trabajar sobre fechas reales (diasEnRango) en vez de asumir siempre
+      // un mes completo, así también agrupa correctamente el rango 'semana'.
       const weekBlocks = [];
-      dias.forEach((d) => {
-        const iso = isoWeekNumber(asist.year, asist.month, d);
+      diasArr.forEach((dia) => {
+        const iso = isoWeekOfFechaStr(dia.fecha);
         const last = weekBlocks[weekBlocks.length - 1];
-        if (!last || last.iso !== iso) weekBlocks.push({ iso, count: 0, firstDay: d });
+        if (!last || last.iso !== iso) weekBlocks.push({ iso, count: 0, firstFecha: dia.fecha });
         weekBlocks[weekBlocks.length - 1].count++;
       });
-      const diasInicioSemana = new Set(weekBlocks.slice(1).map((wb) => wb.firstDay));
+      const fechasInicioSemana = new Set(weekBlocks.slice(1).map((wb) => wb.firstFecha));
 
       panel.innerHTML = `
         <div class="asist-mes-nav">
-          <button class="icon-btn" id="btnAsistMesPrev" aria-label="Mes anterior">‹</button>
-          <strong>${mesLabel()}</strong>
-          <button class="icon-btn" id="btnAsistMesNext" aria-label="Mes siguiente">›</button>
+          <button class="icon-btn" id="btnAsistMesPrev" aria-label="Anterior">‹</button>
+          <strong>${navLabel}</strong>
+          <button class="icon-btn" id="btnAsistMesNext" aria-label="Siguiente">›</button>
         </div>
         ${canEdit ? `
         <div class="section-actions">
@@ -11411,9 +11561,9 @@ async function renderNominas(view) {
             <div class="asist-fixed-th-semana"></div>
             <div class="asist-fixed-th">Trabajador</div>
             ${asist.trabajadores.map((t) => `
-              <div class="asist-fixed-row" data-tid="${t.id}">
+              <div class="asist-fixed-row${asist.rango === 'mes' ? '' : ' asist-fixed-row-sin-detalle'}" data-tid="${t.id}">
                 <span class="asist-fixed-row-name">${esc(t.nombre)}</span>
-                <span class="asist-fixed-row-chevron">${icon('chevron-right', 15)}</span>
+                ${asist.rango === 'mes' ? `<span class="asist-fixed-row-chevron">${icon('chevron-right', 15)}</span>` : ''}
               </div>
             `).join('')}
           </div>
@@ -11424,22 +11574,26 @@ async function renderNominas(view) {
                   ${weekBlocks.map((wb) => `<th colspan="${wb.count}" class="asist-th-semana${wb.iso === semanaHoy ? ' semana-actual' : ''}">Sem ${wb.iso}</th>`).join('')}
                 </tr>
                 <tr>
-                  ${dias.map((d) => `<th class="asist-th-dia${d === diaHoy ? ' hoy' : ''}${diasInicioSemana.has(d) ? ' week-start' : ''}">${d}</th>`).join('')}
+                  ${diasArr.map((dia) => `<th class="asist-th-dia${dia.fecha === fechaHoy ? ' hoy' : ''}${fechasInicioSemana.has(dia.fecha) ? ' week-start' : ''}">${dia.dia}</th>`).join('')}
                 </tr>
               </thead>
               <tbody>
                 ${asist.trabajadores.map((t) => `
                   <tr>
-                    ${dias.map((d) => {
-                      const fecha = asistFechaStr(asist.year, asist.month, d);
+                    ${diasArr.map((dia) => {
+                      const fecha = dia.fecha;
                       const estadoReal = asist.mapa[`${t.id}_${fecha}`] || null;
-                      const esPropuesta = !estadoReal && esMesActualMx && d === diaHoyMx && !!asist.propuestas[t.id];
+                      const esPropuesta = !estadoReal && fecha === fechaHoy && !!asist.propuestas[t.id];
                       const estado = estadoReal || (esPropuesta ? asist.propuestas[t.id] : null);
                       const cls = estado ? ASIST_META[estado].cls : 'vacio';
-                      const weekStartCls = diasInicioSemana.has(d) ? ' week-start' : '';
+                      const weekStartCls = fechasInicioSemana.has(fecha) ? ' week-start' : '';
                       const propuestaCls = esPropuesta ? ' propuesta' : '';
+                      const bloqueada = canEdit && restringidoSoloHoy && fecha !== fechaHoy;
+                      const bloqueadaCls = bloqueada ? ' asist-cell-bloqueada' : '';
+                      const hoyCls = fecha === fechaHoy ? ' asist-cell-hoy' : '';
                       const tituloEstado = estado ? `: ${ASIST_META[estado].label}${esPropuesta ? ' (propuesta, sin confirmar)' : ''}` : '';
-                      return `<td class="asist-cell ${cls}${weekStartCls}${propuestaCls}" data-tid="${t.id}" data-fecha="${fecha}" title="${esc(t.nombre)} — ${fecha}${tituloEstado}"></td>`;
+                      const tituloBloqueo = bloqueada ? ' (solo se puede editar el día de hoy)' : '';
+                      return `<td class="asist-cell ${cls}${weekStartCls}${propuestaCls}${bloqueadaCls}${hoyCls}" data-tid="${t.id}" data-fecha="${fecha}"${bloqueada ? ' aria-disabled="true"' : ''} title="${esc(t.nombre)} — ${fecha}${tituloEstado}${tituloBloqueo}"></td>`;
                     }).join('')}
                   </tr>
                 `).join('')}
@@ -11448,19 +11602,72 @@ async function renderNominas(view) {
           </div>
         </div>
         ${asistLeyendaHtml()}
-        ${canEdit ? '<p class="muted fs-08 mt-6">Toca una celda para marcar/cambiar el estado. Toca un nombre para ver el detalle.</p>' : ''}
+        ${canEdit ? `<p class="muted fs-08 mt-6">Toca una celda para marcar/cambiar el estado.${asist.rango === 'mes' ? ' Toca un nombre para ver el detalle.' : ''}${restringidoSoloHoy ? ' Solo puedes editar el día de hoy.' : ''}</p>` : ''}
       `;
-      $('#btnAsistMesPrev').addEventListener('click', () => cambiarMes(-1));
-      $('#btnAsistMesNext').addEventListener('click', () => cambiarMes(1));
-      $$('.asist-fixed-row', panel).forEach((row) => {
-        row.addEventListener('click', () => { asist.trabajadorId = Number(row.dataset.tid); renderPanel(); });
-      });
+      $('#btnAsistMesPrev').addEventListener('click', () => cambiarAncla(-1));
+      $('#btnAsistMesNext').addEventListener('click', () => cambiarAncla(1));
+      // Ir al detalle por trabajador solo tiene sentido en rango 'mes': es el
+      // único rango donde cargarDatos() trae el mes completo que renderDetalle
+      // necesita — en 'semana' solo hay 7 días cargados (ver comentario en
+      // calcularPropuestas). No es una restricción mencionada explícitamente
+      // en la sección 2 del prompt (que solo habla del grid), así que se
+      // resuelve así en vez de duplicar la carga de datos de renderDetalle.
+      if (asist.rango === 'mes') {
+        $$('.asist-fixed-row', panel).forEach((row) => {
+          row.addEventListener('click', () => { asist.trabajadorId = Number(row.dataset.tid); renderPanel(); });
+        });
+      }
       if (canEdit) {
-        $$('.asist-cell', panel).forEach((cell) => cell.addEventListener('click', () => toggleCelda(cell, Number(cell.dataset.tid), cell.dataset.fecha, null)));
+        $$('.asist-cell:not(.asist-cell-bloqueada)', panel).forEach((cell) => cell.addEventListener('click', () => toggleCelda(cell, Number(cell.dataset.tid), cell.dataset.fecha, null)));
         $('#btnAsistMarcarTodos').addEventListener('click', () => confirmarMarcadoMasivo('marcar-todos', `¿Marcar a todos como presente hoy (${hoyLabelCorto})? Esto sobreescribirá cualquier marca existente para hoy.`));
         $('#btnAsistDesmarcarTodos').addEventListener('click', () => confirmarMarcadoMasivo('desmarcar-todos', `¿Quitar la marca de asistencia de todos para hoy (${hoyLabelCorto})? Los regresa a "Sin registro".`));
-        $('#btnAsistConfirmarDia')?.addEventListener('click', () => confirmarDia(fechaHoyMx));
+        $('#btnAsistConfirmarDia')?.addEventListener('click', () => confirmarDia(fechaHoy));
       }
+    }
+
+    function renderResumen(panel) {
+      const meses = mesesEnRango();
+      const porTM = {};
+      asist.resumenMensual.forEach((r) => { porTM[`${r.trabajador_id}_${r.mes}`] = r; });
+      panel.innerHTML = `
+        <div class="asist-resumen-aviso">👁️ Vista de resumen — solo lectura</div>
+        <div class="asist-grid-wrap">
+          <div class="asist-fixed-col">
+            <div class="asist-fixed-th">Trabajador</div>
+            ${asist.trabajadores.map((t) => `
+              <div class="asist-fixed-row asist-fixed-row-sin-detalle" data-tid="${t.id}">
+                <span class="asist-fixed-row-name">${esc(t.nombre)}</span>
+              </div>
+            `).join('')}
+          </div>
+          <div class="asist-grid-scroll">
+            <table class="asist-grid-table">
+              <thead>
+                <tr>${meses.map((m) => `<th class="asist-th-dia asist-th-mes">${mesCorto(m)}</th>`).join('')}</tr>
+              </thead>
+              <tbody>
+                ${asist.trabajadores.map((t) => `
+                  <tr>
+                    ${meses.map((m) => {
+                      const r = porTM[`${t.id}_${m}`];
+                      const diasAsistidos = r ? r.dias_asistidos : 0;
+                      const diasRegistrados = r ? r.dias_registrados : 0;
+                      const pct = r ? r.porcentaje : 0;
+                      const cls = pctColorCls(pct, diasRegistrados > 0);
+                      return `<td class="asist-cell asist-resumen-cell ${cls}" data-mes="${m}" title="${esc(t.nombre)} — ${mesCorto(m)}: ${diasAsistidos}/${diasRegistrados} (${pct}%)">
+                        <span class="asist-resumen-frac">${diasAsistidos}/${diasRegistrados}</span>
+                        <span class="asist-resumen-pct">${pct}%</span>
+                      </td>`;
+                    }).join('')}
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>
+        ${asistLeyendaHtml()}
+      `;
+      $$('.asist-resumen-cell', panel).forEach((cell) => cell.addEventListener('click', () => irAMesDesdeResumen(cell.dataset.mes)));
     }
 
     // "Confirmar día" (prompt-p4-asistencia-autollenado.md): persiste en una
@@ -11570,7 +11777,7 @@ async function renderNominas(view) {
       if (!t) { asist.trabajadorId = null; renderGeneral(panel); return; }
       const totalDias = asistDiasEnMes(asist.year, asist.month);
       const primerDiaSemana = new Date(asist.year, asist.month, 1).getDay();
-      const hoyCorte = new Date(); hoyCorte.setHours(0, 0, 0, 0);
+      const fechaHoy = asist.fechaHoy;
 
       let presentes = 0, conRegistro = 0;
       const celdas = [];
@@ -11589,14 +11796,19 @@ async function renderNominas(view) {
       // Racha actual: días 'presente' consecutivos hacia atrás desde hoy
       // (o el último día del mes mostrado, si es un mes pasado). Se corta en
       // el primer día sin registro o con falta — acotada al mes visible.
+      // Comparación de strings "YYYY-MM-DD" (fechaHoy viene del servidor,
+      // America/Mexico_City) en vez de objetos Date del reloj local —
+      // prompt-calendario-asistencia-rangos-y-bloqueo.md sección 3.
       let racha = 0;
       for (let d = totalDias; d >= 1; d--) {
-        if (new Date(asist.year, asist.month, d) > hoyCorte) continue;
-        const estado = asist.mapa[`${t.id}_${asistFechaStr(asist.year, asist.month, d)}`] || null;
+        const fecha = asistFechaStr(asist.year, asist.month, d);
+        if (fechaHoy && fecha > fechaHoy) continue;
+        const estado = asist.mapa[`${t.id}_${fecha}`] || null;
         if (estado === 'presente') racha++; else break;
       }
 
       const canEdit = puedeEditarNom;
+      const restringidoSoloHoy = ['residente', 'cabo'].includes(effectivePuesto());
       panel.innerHTML = `
         <button class="btn small" id="btnAsistVolver">‹ Volver a la obra</button>
         <div class="asist-detalle-card mt-8">
@@ -11619,17 +11831,21 @@ async function renderNominas(view) {
             ${celdas.map((c) => {
               if (!c) return '<span class="asist-heat-cell vacio-slot"></span>';
               const cls = c.estado ? ASIST_META[c.estado].cls : 'vacio';
-              return `<span class="asist-heat-cell ${cls}" data-fecha="${c.fecha}" title="${c.fecha}${c.estado ? ': ' + ASIST_META[c.estado].label : ''}">${c.d}</span>`;
+              const bloqueada = canEdit && restringidoSoloHoy && c.fecha !== fechaHoy;
+              const bloqueadaCls = bloqueada ? ' asist-cell-bloqueada' : '';
+              const hoyCls = c.fecha === fechaHoy ? ' asist-cell-hoy' : '';
+              const tituloBloqueo = bloqueada ? ' (solo se puede editar el día de hoy)' : '';
+              return `<span class="asist-heat-cell ${cls}${bloqueadaCls}${hoyCls}" data-fecha="${c.fecha}"${bloqueada ? ' aria-disabled="true"' : ''} title="${c.fecha}${c.estado ? ': ' + ASIST_META[c.estado].label : ''}${tituloBloqueo}">${c.d}</span>`;
             }).join('')}
           </div>
         </div>
         ${asistLeyendaHtml()}
       `;
       $('#btnAsistVolver').addEventListener('click', () => { asist.trabajadorId = null; renderPanel(); });
-      $('#btnAsistMesPrev').addEventListener('click', () => cambiarMes(-1));
-      $('#btnAsistMesNext').addEventListener('click', () => cambiarMes(1));
+      $('#btnAsistMesPrev').addEventListener('click', () => cambiarAncla(-1));
+      $('#btnAsistMesNext').addEventListener('click', () => cambiarAncla(1));
       if (canEdit) {
-        $$('.asist-heat-cell:not(.vacio-slot)', panel).forEach((cell) => {
+        $$('.asist-heat-cell:not(.vacio-slot):not(.asist-cell-bloqueada)', panel).forEach((cell) => {
           cell.addEventListener('click', () => toggleCelda(cell, t.id, cell.dataset.fecha, () => renderDetalle(panel)));
         });
       }
@@ -11638,9 +11854,22 @@ async function renderNominas(view) {
     view.innerHTML = `
       <h2 class="section-title">Personal</h2>
       ${renderSubNav()}
+      <div class="asist-rango-bar">
+        <label class="asist-rango-label" for="asistRangoSelect">Ver:</label>
+        <select id="asistRangoSelect">
+          ${RANGO_VALIDOS.map((v) => `<option value="${v}" ${v === asist.rango ? 'selected' : ''}>${RANGO_LABELS[v]}</option>`).join('')}
+        </select>
+      </div>
       <div id="asistenciaPanel" class="mt-12"></div>
     `;
     bindSubNav();
+    // El <select> real (oculto tras el enhance del componente custom, ver
+    // enhanceSelect()/MutationObserver global — PR #62, prompt prohíbe
+    // <select> nativo visible) sigue siendo la fuente de verdad de
+    // value/'change'. irAMesDesdeResumen() reutiliza este mismo listener
+    // (set .value + dispatchEvent) para no duplicar la lógica de
+    // cambiarRango() al navegar desde una celda del modo resumen.
+    $('#asistRangoSelect').addEventListener('change', (e) => cambiarRango(e.target.value));
     await refrescar();
   }
 

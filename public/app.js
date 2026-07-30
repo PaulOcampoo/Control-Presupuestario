@@ -2461,7 +2461,19 @@ function enhanceSelect(select) {
     // Cierra al hacer scroll (del modal o de la pantalla) en vez de
     // recalcular posición en cada evento — evita que quede flotando
     // desalineado de su trigger real.
-    onScrollClose = () => closeList();
+    // BUG (prompt-4-fix-selector-actividades-cierre.md): 'scroll' no burbujea,
+    // pero SÍ se captura en window durante la fase de captura para cualquier
+    // elemento con overflow, incluida la lista misma cuando sus opciones no
+    // caben en max-height (list.scrollHeight > list.clientHeight). Sin el
+    // filtro de abajo, el primer intento de desplazarse DENTRO del listbox
+    // para alcanzar una opción fuera de vista (ej. la última de la lista)
+    // disparaba este mismo listener y cerraba el menú antes de poder hacer
+    // click — reproducido con evidencia: forzando overflow con un viewport
+    // bajo, el evento 'scroll' con target=list llegaba aquí y listShow pasaba
+    // a false en el mismo tick. Ignorar los scrolls que se originan dentro
+    // del propio listbox conserva el cierre-al-hacer-scroll-de-la-página
+    // (la razón original del listener) sin bloquear su scroll interno.
+    onScrollClose = (e) => { if (list.contains(e.target)) return; closeList(); };
     window.addEventListener('scroll', onScrollClose, true);
     onResizeClose = () => closeList();
     window.addEventListener('resize', onResizeClose);
@@ -8353,7 +8365,7 @@ const MAQUINARIA_TIPOS = ['retroexcavadora', 'equipo menor', 'herramienta eléct
 // operador elige de esta lista (auto-llenado), no escribe texto libre.
 // Espejo exacto de ACTIVIDADES_MAQUINARIA en server/app.js, que es quien
 // valida de verdad (esto es solo para pintar el <select>).
-const ACTIVIDADES_MAQUINARIA = ['Excavaciones', 'Cepas', 'Rellenos', 'Acarreos', 'Carga de material', 'Limpiezas'];
+const ACTIVIDADES_MAQUINARIA = ['Excavaciones', 'Cepas', 'Rellenos', 'Acarreos', 'Carga de material', 'Limpiezas', 'Taller', 'Renta'];
 let maquinariaEquiposCache = [];
 
 // Bug encontrado en revisión de dispositivo real (prompt-fix-cabo-operador-

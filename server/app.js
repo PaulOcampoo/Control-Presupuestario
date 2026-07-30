@@ -4572,9 +4572,15 @@ app.put('/api/projects/:id/avances/:semana', h(auth.allow('residente', 'cabo')),
   if (!existRows[0]) return res.status(404).json({ error: 'Semana no encontrada' });
 
   const clamp = (v) => (v == null || v === '' ? null : Math.max(0, Math.min(100, Number(v))));
-  const { avance_fisico_real, avance_financiero_real } = req.body || {};
-  const nuevoFisico = clamp(avance_fisico_real);
-  const nuevoFinanciero = clamp(avance_financiero_real);
+  const body = req.body || {};
+  // NULL está sobrecargado: distinguir "llave no enviada" (no tocar la
+  // columna) de "llave enviada en null/''" (limpiar la columna) — antes el
+  // COALESCE de abajo trataba ambos casos igual y silenciosamente ignoraba
+  // el intento de limpiar un campo.
+  const fisicoPresente = Object.prototype.hasOwnProperty.call(body, 'avance_fisico_real');
+  const financieroPresente = Object.prototype.hasOwnProperty.call(body, 'avance_financiero_real');
+  const nuevoFisico = fisicoPresente ? clamp(body.avance_fisico_real) : undefined;
+  const nuevoFinanciero = financieroPresente ? clamp(body.avance_financiero_real) : undefined;
 
   // Cierra el mismo gate de avance-requiere-entrega para este editor directo
   // por % — sin granularidad de concepto, así que no puede validarse
@@ -4601,18 +4607,68 @@ app.put('/api/projects/:id/avances/:semana', h(auth.allow('residente', 'cabo')),
   }
 
   const { nuevoEstado, notificar } = calcularEstadoAutorizacion(existRows[0].estado_autorizacion, req.user.puesto === 'admin');
+  const setClauses = ['estado_autorizacion = $1'];
+  const params = [nuevoEstado];
+  if (fisicoPresente) {
+    params.push(nuevoFisico);
+    setClauses.push(`avance_fisico_real = $${params.length}`);
+  }
+  if (financieroPresente) {
+    params.push(nuevoFinanciero);
+    setClauses.push(`avance_financiero_real = $${params.length}`);
+  }
+  params.push(pid, semana);
   const { rows } = await db.pool.query(`
     UPDATE avances_semanales
-    SET avance_fisico_real = COALESCE($1, avance_fisico_real),
-        avance_financiero_real = COALESCE($2, avance_financiero_real),
-        estado_autorizacion = $3
-    WHERE project_id = $4 AND semana = $5
+    SET ${setClauses.join(', ')}
+    WHERE project_id = $${params.length - 1} AND semana = $${params.length}
     RETURNING *
-  `, [nuevoFisico, nuevoFinanciero, nuevoEstado, pid, semana]);
+  `, params);
 
   if (notificar) {
     await notificarAdmins(pid, 'avance_pendiente', semana, `${req.user.nombre} reportó avance real de la semana ${semana} para autorización`);
   }
+  res.json(rows[0]);
+}));
+
+// Resetea el avance real de una semana (porcentajes + cantidades por
+// concepto) para permitir recapturarla desde cero. Endpoint dedicado en vez
+// de reutilizar el PUT: limpiar es una acción destructiva-pero-recuperable
+// distinta de "actualizar un valor", y necesita tocar avance_conceptos
+// además de avances_semanales en una sola transacción.
+app.post('/api/projects/:id/avances/:semana/limpiar', h(auth.allow('residente', 'cabo')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('avance', 'puede_crear')), h(async (req, res) => {
+  const pid = req.project.id;
+  const semana = Number(req.params.semana);
+  const { rows: existRows } = await db.pool.query(
+    'SELECT id, estado_autorizacion FROM avances_semanales WHERE project_id = $1 AND semana = $2',
+    [pid, semana]
+  );
+  if (!existRows[0]) return res.status(404).json({ error: 'Semana no encontrada' });
+
+  const { nuevoEstado, notificar } = calcularEstadoAutorizacion(existRows[0].estado_autorizacion, req.user.puesto === 'admin');
+
+  await db.withTransaction(async (client) => {
+    await client.query(
+      'UPDATE avances_semanales SET avance_fisico_real = NULL, avance_financiero_real = NULL, estado_autorizacion = $1 WHERE project_id = $2 AND semana = $3',
+      [nuevoEstado, pid, semana]
+    );
+    // Cantidades a 0, NUNCA DELETE — regla dura del proyecto: sin borrado
+    // físico de registros financieros. avance_conceptos no tiene project_id
+    // propio y `semana` no es única entre obras, así que se filtra por el
+    // project_id del concepto relacionado.
+    await client.query(`
+      UPDATE avance_conceptos ac
+      SET cantidad_ejecutada = 0, actualizado_en = NOW()
+      FROM conceptos c
+      WHERE ac.concepto_id = c.id AND c.project_id = $1 AND ac.semana = $2
+    `, [pid, semana]);
+  });
+
+  if (notificar) {
+    await notificarAdmins(pid, 'avance_pendiente', semana, `${req.user.nombre} limpió el avance real de la semana ${semana} para recapturarlo`);
+  }
+
+  const { rows } = await db.pool.query('SELECT * FROM avances_semanales WHERE project_id = $1 AND semana = $2', [pid, semana]);
   res.json(rows[0]);
 }));
 

@@ -51,6 +51,7 @@ const maquinaria = require('./maquinaria');
 const cotizador = require('./cotizador');
 const { metaToObject, presupuestoTotalDe, getFinanzasResumenData } = require('./finanzas');
 const { calcularJornal, calcularDestajo } = require('./calculos');
+const { validarClabe } = require('./catalogoBancos');
 const estadoResultados = require('./estadoResultados');
 const { emparejarConceptos, calcularCambios } = require('./reintegracionPresupuesto');
 
@@ -5343,8 +5344,51 @@ app.get('/api/projects/:id/trabajadores', h(auth.allow('residente', 'cabo', 'adm
 async function stripDatosBancarios(req, trabajador) {
   if (!trabajador) return trabajador;
   if (await auth.tienePermiso(req, 'trabajadores_bancarios', 'puede_ver')) return trabajador;
-  const { cuenta_nomina_hsbc, cuenta_alterna, ...resto } = trabajador;
+  const { cuenta_nomina_hsbc, cuenta_alterna, banco_nomina, banco_alterna, ...resto } = trabajador;
   return resto;
+}
+
+// prompt-2-deteccion-banco-clabe.md: valida una cuenta bancaria y resuelve
+// qué banco guardar. Solo aplica la detección/validación de CLABE cuando la
+// cuenta tiene exactamente 18 dígitos — un número de cuenta simple (10-11
+// dígitos) no codifica el banco, así que se deja pasar tal cual (sin error,
+// sin detección) para no bloquear captura manual. Si el usuario ya mandó un
+// banco (autollenado o escrito a mano) se respeta siempre el suyo; solo se
+// completa con el detectado cuando no mandó ninguno. Nunca llama a
+// validarClabe si length !== 18 (ninguna razón para exigir dígito
+// verificador de un número que no es CLABE).
+function resolverCuentaBanco(cuentaRaw, bancoRaw) {
+  const cuenta = cuentaRaw?.trim() || null;
+  const bancoEnviado = bancoRaw?.trim() || null;
+  if (!cuenta || cuenta.length !== 18) {
+    return { cuenta, banco: bancoEnviado, discrepancia: null };
+  }
+  const r = validarClabe(cuenta);
+  if (!r.valida) {
+    const MOTIVOS = { longitud: 'formato inválido', clave_desconocida: 'clave de institución desconocida', digito_verificador: 'dígito verificador incorrecto' };
+    return { error: `CLABE inválida — verifica el número (${MOTIVOS[r.motivo] || r.motivo})` };
+  }
+  const banco = bancoEnviado || r.banco;
+  const discrepancia = (bancoEnviado && bancoEnviado !== r.banco) ? { detectado: r.banco, capturado: bancoEnviado } : null;
+  return { cuenta, banco, discrepancia };
+}
+
+// Nunca sobrescribe el banco que mandó el usuario, pero deja rastro en
+// audit_log cuando difiere del detectado por CLABE — para que alguien con
+// acceso a bancarios pueda revisar el caso después, sin bloquear el guardado.
+async function registrarDiscrepanciasBanco(req, trabajadorId, { nomina, alterna }) {
+  const ip = auth.getIp(req);
+  const casos = [
+    nomina.discrepancia && { campo: 'cuenta_nomina_hsbc', ...nomina.discrepancia },
+    alterna.discrepancia && { campo: 'cuenta_alterna', ...alterna.discrepancia },
+  ].filter(Boolean);
+  for (const caso of casos) {
+    await db.pool.query(
+      `INSERT INTO audit_log (actor_id, actor_usuario, accion, target_id, ip, detalle)
+       VALUES ($1,$2,$3,$4,$5,$6)`,
+      [req.user.id, req.user.usuario, 'banco_discrepancia_clabe', trabajadorId, ip, JSON.stringify(caso)]
+    );
+  }
 }
 
 // Detalle de un trabajador — no existía antes de este prompt (la UI leía el
@@ -5365,7 +5409,7 @@ app.post('/api/projects/:id/trabajadores', h(auth.allow('residente', 'cabo', 'ad
   const { nombre, puesto, tipo_pago, tarifa_jornal, periodicidad, curp, rfc, nss,
           telefono, direccion, contacto_emergencia, contacto_emergencia_nombre,
           contacto_emergencia_telefono, fecha_ingreso, destajista_id,
-          cuenta_nomina_hsbc, cuenta_alterna } = req.body || {};
+          cuenta_nomina_hsbc, cuenta_alterna, banco_nomina, banco_alterna } = req.body || {};
   if (!nombre?.trim()) return res.status(400).json({ error: 'El nombre es requerido' });
   if (!TIPOS_PAGO.includes(tipo_pago)) return res.status(400).json({ error: 'tipo_pago inválido' });
   if (!PERIODICIDADES.includes(periodicidad)) return res.status(400).json({ error: 'periodicidad inválida' });
@@ -5378,22 +5422,30 @@ app.post('/api/projects/:id/trabajadores', h(auth.allow('residente', 'cabo', 'ad
   // permiso — mismo criterio que precio_destajo en /destajistas/.../items,
   // no bloquea el alta completa por un campo al que no debería tener acceso.
   const puedeEditarBancarios = await auth.tienePermiso(req, 'trabajadores_bancarios', 'puede_editar');
+  let nomina = { cuenta: null, banco: null, discrepancia: null };
+  let alterna = { cuenta: null, banco: null, discrepancia: null };
+  if (puedeEditarBancarios) {
+    nomina = resolverCuentaBanco(cuenta_nomina_hsbc, banco_nomina);
+    if (nomina.error) return res.status(400).json({ error: nomina.error });
+    alterna = resolverCuentaBanco(cuenta_alterna, banco_alterna);
+    if (alterna.error) return res.status(400).json({ error: alterna.error });
+  }
   const { rows } = await db.pool.query(`
     INSERT INTO trabajadores
       (project_id, destajista_id, nombre, puesto, tipo_pago, tarifa_jornal, periodicidad,
        curp, rfc, nss, telefono, direccion, contacto_emergencia,
        contacto_emergencia_nombre, contacto_emergencia_telefono, fecha_ingreso,
-       cuenta_nomina_hsbc, cuenta_alterna)
-    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) RETURNING *`,
+       cuenta_nomina_hsbc, cuenta_alterna, banco_nomina, banco_alterna)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20) RETURNING *`,
     [req.project.id, destId, nombre.trim(), puesto?.trim()||null, tipo_pago,
      Math.max(0, Number(tarifa_jornal)||0), periodicidad,
      curp?.trim()||null, rfc?.trim()||null, nss?.trim()||null,
      telefono?.trim()||null, direccion?.trim()||null, contacto_emergencia?.trim()||null,
      contacto_emergencia_nombre?.trim()||null, contacto_emergencia_telefono?.trim()||null,
      fecha_ingreso||null,
-     puedeEditarBancarios ? (cuenta_nomina_hsbc?.trim() || null) : null,
-     puedeEditarBancarios ? (cuenta_alterna?.trim() || null) : null]
+     nomina.cuenta, alterna.cuenta, nomina.banco, alterna.banco]
   );
+  await registrarDiscrepanciasBanco(req, rows[0].id, { nomina, alterna });
   res.status(201).json(await stripDatosBancarios(req, rows[0]));
 }));
 
@@ -5402,7 +5454,7 @@ app.put('/api/projects/:id/trabajadores/:wId', h(auth.allow('residente', 'cabo',
   const { nombre, puesto, tipo_pago, tarifa_jornal, periodicidad, curp, rfc, nss,
           telefono, direccion, contacto_emergencia, contacto_emergencia_nombre,
           contacto_emergencia_telefono, fecha_ingreso, destajista_id,
-          cuenta_nomina_hsbc, cuenta_alterna } = req.body || {};
+          cuenta_nomina_hsbc, cuenta_alterna, banco_nomina, banco_alterna } = req.body || {};
   if (!nombre?.trim()) return res.status(400).json({ error: 'El nombre es requerido' });
   if (!TIPOS_PAGO.includes(tipo_pago)) return res.status(400).json({ error: 'tipo_pago inválido' });
   if (!PERIODICIDADES.includes(periodicidad)) return res.status(400).json({ error: 'periodicidad inválida' });
@@ -5411,7 +5463,7 @@ app.put('/api/projects/:id/trabajadores/:wId', h(auth.allow('residente', 'cabo',
     const { rows: dRows } = await db.pool.query('SELECT id FROM destajistas WHERE id=$1 AND project_id=$2', [destId, req.project.id]);
     if (!dRows[0]) return res.status(400).json({ error: 'Destajista vinculado no pertenece a esta obra' });
   }
-  // Si el usuario NO tiene permiso sobre datos bancarios, esas 2 columnas se
+  // Si el usuario NO tiene permiso sobre datos bancarios, esas 4 columnas se
   // OMITEN por completo del UPDATE (no se ponen en null) — de lo contrario
   // un residente editando solo el puesto borraría el dato bancario real que
   // administración ya había capturado. Solo se tocan si el usuario sí puede.
@@ -5428,9 +5480,18 @@ app.put('/api/projects/:id/trabajadores/:wId', h(auth.allow('residente', 'cabo',
     telefono?.trim()||null, direccion?.trim()||null, contacto_emergencia?.trim()||null,
     contacto_emergencia_nombre?.trim()||null, contacto_emergencia_telefono?.trim()||null,
     fecha_ingreso||null];
+  let nomina = { discrepancia: null };
+  let alterna = { discrepancia: null };
   if (puedeEditarBancarios) {
-    params.push(cuenta_nomina_hsbc?.trim() || null, cuenta_alterna?.trim() || null);
-    setClauses.push(`cuenta_nomina_hsbc=$${params.length - 1}`, `cuenta_alterna=$${params.length}`);
+    nomina = resolverCuentaBanco(cuenta_nomina_hsbc, banco_nomina);
+    if (nomina.error) return res.status(400).json({ error: nomina.error });
+    alterna = resolverCuentaBanco(cuenta_alterna, banco_alterna);
+    if (alterna.error) return res.status(400).json({ error: alterna.error });
+    params.push(nomina.cuenta, alterna.cuenta, nomina.banco, alterna.banco);
+    setClauses.push(
+      `cuenta_nomina_hsbc=$${params.length - 3}`, `cuenta_alterna=$${params.length - 2}`,
+      `banco_nomina=$${params.length - 1}`, `banco_alterna=$${params.length}`
+    );
   }
   params.push(wId, req.project.id);
   const { rows } = await db.pool.query(
@@ -5439,6 +5500,7 @@ app.put('/api/projects/:id/trabajadores/:wId', h(auth.allow('residente', 'cabo',
     params
   );
   if (!rows[0]) return res.status(404).json({ error: 'Trabajador no encontrado' });
+  await registrarDiscrepanciasBanco(req, wId, { nomina, alterna });
   res.json(await stripDatosBancarios(req, rows[0]));
 }));
 

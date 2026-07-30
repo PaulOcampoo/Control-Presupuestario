@@ -10468,6 +10468,85 @@ function wireMoneyInput(input) {
   });
 }
 
+// Detección de banco por CLABE (prompt-2-deteccion-banco-clabe.md). Espejo
+// exacto del catálogo y el algoritmo de server/catalogoBancos.js — igual que
+// ACTIVIDADES_MAQUINARIA, esto es solo para autollenar instantáneo en el
+// cliente sin llamada de red; el backend vuelve a validar todo al guardar,
+// nunca confía solo en esto. Ver ese archivo para la cita de la fuente
+// oficial (Banxico, CEP-SCL) y fecha de consulta.
+const CATALOGO_BANCOS_CLABE = {
+  '002': 'BANAMEX', '006': 'BANCOMEXT', '009': 'BANOBRAS', '012': 'BBVA MEXICO',
+  '014': 'SANTANDER', '019': 'BANJERCITO', '021': 'HSBC', '030': 'BAJIO',
+  '036': 'INBURSA', '042': 'MIFEL', '044': 'SCOTIABANK', '058': 'BANREGIO',
+  '059': 'INVEX', '060': 'BANSI', '062': 'AFIRME', '072': 'BANORTE',
+  '106': 'BANK OF AMERICA', '108': 'MUFG', '110': 'JP MORGAN', '112': 'BMONEX',
+  '113': 'VE POR MAS', '124': 'CITI MEXICO', '127': 'AZTECA', '128': 'KAPITAL',
+  '129': 'BARCLAYS', '130': 'COMPARTAMOS', '132': 'MULTIVA BANCO', '133': 'ACTINVER',
+  '135': 'NAFIN', '136': 'INTERCAM BANCO', '137': 'BANCOPPEL', '138': 'UALA',
+  '140': 'CONSUBANCO', '141': 'VOLKSWAGEN', '145': 'BBASE', '147': 'BANKAOOL',
+  '148': 'PAGATODO', '150': 'INMOBILIARIO', '151': 'DONDE', '152': 'BANCREA',
+  '154': 'BANCO COVALTO', '155': 'ICBC', '156': 'SABADELL', '157': 'SHINHAN',
+  '158': 'MIZUHO BANK', '159': 'BANK OF CHINA', '160': 'BANCO S3', '166': 'BaBien',
+  '167': 'HEY BANCO', '168': 'HIPOTECARIA FED', '600': 'MONEXCB', '601': 'GBM',
+  '602': 'MASARI', '605': 'VALUE', '616': 'FINAMEX', '617': 'VALMEX',
+  '620': 'PROFUTURO', '631': 'CI BOLSA', '634': 'FINCOMUN', '638': 'NU MEXICO',
+  '646': 'STP', '652': 'CREDICAPITAL', '653': 'KUSPIT', '656': 'UNAGRA',
+  '659': 'ASP INTEGRA OPC', '661': 'KLAR', '670': 'LIBERTAD', '677': 'CAJA POP MEXICA',
+  '680': 'CRISTOBAL COLON', '683': 'CAJA TELEFONIST', '684': 'TRANSFER', '685': 'FONDO (FIRA)',
+  '688': 'CREDICLUB', '699': 'FONDEADORA', '703': 'TESORED', '706': 'ARCUS FI',
+  '710': 'NVIO', '714': 'PPBALANCEMX', '715': 'CASHI CUENTA', '720': 'MexPago',
+  '721': 'albo', '722': 'Mercado Pago W', '723': 'Cuenca', '725': 'COOPDESARROLLO',
+  '727': 'TRANSFER DIRECT', '728': 'SPIN BY OXXO', '729': 'Dep y Pag Dig', '730': 'Clip',
+  '732': 'Peibo', '734': 'FINCO PAY', '738': 'FINTOC', '901': 'CLS',
+  '902': 'INDEVAL', '903': 'CoDi Valida',
+};
+
+function validarClabeCliente(clabe) {
+  if (typeof clabe !== 'string' || !/^\d{18}$/.test(clabe)) return { valida: false, motivo: 'longitud' };
+  const claveInstitucion = clabe.slice(0, 3);
+  const nombreBanco = CATALOGO_BANCOS_CLABE[claveInstitucion];
+  if (!nombreBanco) return { valida: false, motivo: 'clave_desconocida' };
+  const pesos = [3, 7, 1];
+  let suma = 0;
+  for (let i = 0; i < 17; i++) suma += (Number(clabe[i]) * pesos[i % 3]) % 10;
+  const esperado = (10 - (suma % 10)) % 10;
+  if (esperado !== Number(clabe[17])) return { valida: false, motivo: 'digito_verificador' };
+  return { valida: true, banco: nombreBanco };
+}
+
+// Conecta un input de cuenta con su input de banco hermano: autollena el
+// banco al detectar una CLABE válida de 18 dígitos, muestra error si el
+// dígito verificador falla, y dejar de autollenar en cuanto el usuario edita
+// el campo de banco a mano (esa marca dura toda la sesión del modal — "si el
+// usuario lo sobrescribe, se respeta su valor").
+function wireDeteccionBancoClabe(inputCuentaId, inputBancoId, errorId, badgeId) {
+  const inputCuenta = $(`#${inputCuentaId}`);
+  const inputBanco = $(`#${inputBancoId}`);
+  const errorEl = $(`#${errorId}`);
+  const badgeEl = $(`#${badgeId}`);
+  if (!inputCuenta || !inputBanco) return;
+  let bancoEditadoAMano = false;
+  inputBanco.addEventListener('input', () => { bancoEditadoAMano = true; badgeEl.classList.add('hidden-initial'); });
+  inputCuenta.addEventListener('input', () => {
+    const cuenta = inputCuenta.value.trim();
+    errorEl.classList.add('hidden-initial');
+    badgeEl.classList.add('hidden-initial');
+    if (cuenta.length !== 18) return; // longitud distinta de 18: sin autollenado, sin error agresivo
+    const r = validarClabeCliente(cuenta);
+    if (!r.valida) {
+      if (r.motivo === 'digito_verificador') {
+        errorEl.textContent = 'CLABE inválida — verifica el número';
+        errorEl.classList.remove('hidden-initial');
+      }
+      return;
+    }
+    if (!bancoEditadoAMano) {
+      inputBanco.value = r.banco;
+      badgeEl.classList.remove('hidden-initial');
+    }
+  });
+}
+
 async function openTrabajadorModal(trab, repaint, permisosBancarios) {
   const isEdit = !!trab;
   const { puedeVerBancarios, puedeEditarBancarios } = permisosBancarios || {};
@@ -10504,8 +10583,26 @@ async function openTrabajadorModal(trab, repaint, permisosBancarios) {
       <div class="field"><label>Contacto de emergencia — nombre</label><input id="tContactoNombre" value="${esc(trab?.contacto_emergencia_nombre || '')}" /></div>
       <div class="field"><label>Contacto de emergencia — teléfono</label><input id="tContactoTel" value="${esc(trab?.contacto_emergencia_telefono || '')}" /></div>
       ${puedeVerBancarios ? `
-        <div class="field"><label>Cuenta de nómina HSBC</label><input id="tCuentaHsbc" value="${esc(trab?.cuenta_nomina_hsbc || '')}" ${puedeEditarBancarios ? '' : 'disabled'} /></div>
-        <div class="field"><label>Cuenta alterna</label><input id="tCuentaAlterna" value="${esc(trab?.cuenta_alterna || '')}" ${puedeEditarBancarios ? '' : 'disabled'} /></div>
+        <div class="field">
+          <label>Cuenta de nómina</label>
+          <input id="tCuentaHsbc" value="${esc(trab?.cuenta_nomina_hsbc || '')}" ${puedeEditarBancarios ? '' : 'disabled'} placeholder="Cuenta o CLABE (18 dígitos)" />
+          <div class="clabe-error hidden-initial" id="tCuentaHsbcError"></div>
+        </div>
+        <div class="field">
+          <label>Banco (cuenta de nómina)</label>
+          <input id="tBancoNomina" value="${esc(trab?.banco_nomina || '')}" ${puedeEditarBancarios ? '' : 'disabled'} placeholder="Se detecta solo si capturas una CLABE" />
+          <div class="banco-detectado-badge hidden-initial" id="tBancoNominaBadge">✓ Detectado automáticamente por CLABE</div>
+        </div>
+        <div class="field">
+          <label>Cuenta alterna</label>
+          <input id="tCuentaAlterna" value="${esc(trab?.cuenta_alterna || '')}" ${puedeEditarBancarios ? '' : 'disabled'} placeholder="Cuenta o CLABE (18 dígitos)" />
+          <div class="clabe-error hidden-initial" id="tCuentaAlternaError"></div>
+        </div>
+        <div class="field">
+          <label>Banco (cuenta alterna)</label>
+          <input id="tBancoAlterna" value="${esc(trab?.banco_alterna || '')}" ${puedeEditarBancarios ? '' : 'disabled'} placeholder="Se detecta solo si capturas una CLABE" />
+          <div class="banco-detectado-badge hidden-initial" id="tBancoAlternaBadge">✓ Detectado automáticamente por CLABE</div>
+        </div>
       ` : ''}
     </div>
     <div class="modal-actions">
@@ -10521,6 +10618,10 @@ async function openTrabajadorModal(trab, repaint, permisosBancarios) {
   syncTarifaField();
   $('#tTipoPago').addEventListener('change', syncTarifaField);
   wireMoneyInput($('#tTarifa'));
+  if (puedeEditarBancarios) {
+    wireDeteccionBancoClabe('tCuentaHsbc', 'tBancoNomina', 'tCuentaHsbcError', 'tBancoNominaBadge');
+    wireDeteccionBancoClabe('tCuentaAlterna', 'tBancoAlterna', 'tCuentaAlternaError', 'tBancoAlternaBadge');
+  }
   $('#btnCancelTrab').addEventListener('click', closeModal);
   $('#btnSaveTrab').addEventListener('click', async () => {
     const nombre = $('#tNombre').value.trim();
@@ -10547,6 +10648,8 @@ async function openTrabajadorModal(trab, repaint, permisosBancarios) {
     if (puedeEditarBancarios) {
       body.cuenta_nomina_hsbc = $('#tCuentaHsbc').value.trim() || null;
       body.cuenta_alterna = $('#tCuentaAlterna').value.trim() || null;
+      body.banco_nomina = $('#tBancoNomina').value.trim() || null;
+      body.banco_alterna = $('#tBancoAlterna').value.trim() || null;
     }
     const btn = $('#btnSaveTrab');
     btn.disabled = true;

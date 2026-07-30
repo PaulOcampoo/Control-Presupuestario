@@ -5713,21 +5713,57 @@ app.delete('/api/projects/:id/trabajadores/:wId/epp-entregas/:entregaId', h(auth
 
 // Rango de fechas (para el calendario: vista general del mes + detalle por
 // trabajador) — a diferencia de GET /asistencia (un solo día), esta trae
-// todos los registros de un periodo en una sola llamada. Tope de 92 días
-// (~3 meses) para que nadie pida el historial completo de golpe por error.
+// todos los registros de un periodo en una sola llamada. Tope de 366 días
+// (~12 meses, prompt-calendario-asistencia-rangos-y-bloqueo.md — antes 92)
+// para soportar el selector de rango de vista sin permitir pedir el
+// historial completo de golpe por error.
+// fecha_hoy (America/Mexico_City) viaja en la respuesta como fuente de
+// verdad única para que el frontend nunca dependa del reloj del dispositivo
+// al decidir qué celda es editable (sección 3 del prompt).
+// granularidad=mes agrega en SQL (date_trunc) para el modo resumen — evita
+// mandar el detalle día por día de hasta 12 meses solo para pintar
+// porcentajes por mes.
 app.get('/api/projects/:id/asistencia-rango', h(auth.allow('residente', 'cabo')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('nominas', 'puede_ver')), h(async (req, res) => {
-  const { desde, hasta } = req.query;
+  const { desde, hasta, granularidad } = req.query;
   if (!desde || !/^\d{4}-\d{2}-\d{2}$/.test(desde)) return res.status(400).json({ error: 'desde requerido (YYYY-MM-DD)' });
   if (!hasta || !/^\d{4}-\d{2}-\d{2}$/.test(hasta)) return res.status(400).json({ error: 'hasta requerido (YYYY-MM-DD)' });
   if (desde > hasta) return res.status(400).json({ error: 'desde debe ser anterior o igual a hasta' });
   const dias = (new Date(hasta) - new Date(desde)) / 86400000;
-  if (dias > 92) return res.status(400).json({ error: 'El rango no puede superar 92 días' });
+  if (dias > 366) return res.status(400).json({ error: 'El rango no puede superar 366 días' });
+  if (granularidad != null && granularidad !== 'dia' && granularidad !== 'mes') {
+    return res.status(400).json({ error: "granularidad debe ser 'dia' o 'mes'" });
+  }
+
+  const fechaHoy = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Mexico_City' }).format(new Date());
 
   const { rows: trabajadores } = await db.pool.query(
     `SELECT id, nombre, puesto, tipo_pago FROM trabajadores
      WHERE project_id = $1 AND activo = true ORDER BY orden, nombre`,
     [req.project.id]
   );
+
+  if (granularidad === 'mes') {
+    // dias_asistidos/dias_registrados/porcentaje con el mismo criterio que
+    // renderDetalle() en public/app.js: 'sin_registro' no cuenta como
+    // registro real (mismo criterio que el cálculo de nómina).
+    const { rows: resumenMensual } = await db.pool.query(
+      `SELECT trabajador_id,
+              to_char(date_trunc('month', fecha), 'YYYY-MM') AS mes,
+              COUNT(*) FILTER (WHERE estado = 'presente') AS dias_asistidos,
+              COUNT(*) FILTER (WHERE estado <> 'sin_registro') AS dias_registrados,
+              COALESCE(ROUND(
+                100.0 * COUNT(*) FILTER (WHERE estado = 'presente')
+                / NULLIF(COUNT(*) FILTER (WHERE estado <> 'sin_registro'), 0)
+              ), 0) AS porcentaje
+       FROM asistencia_diaria
+       WHERE project_id = $1 AND fecha BETWEEN $2 AND $3
+       GROUP BY trabajador_id, date_trunc('month', fecha)
+       ORDER BY trabajador_id, date_trunc('month', fecha)`,
+      [req.project.id, desde, hasta]
+    );
+    return res.json({ desde, hasta, fecha_hoy: fechaHoy, granularidad: 'mes', trabajadores, resumen_mensual: resumenMensual });
+  }
+
   // fecha viaja tal cual "YYYY-MM-DD": este proyecto registra un type parser
   // para OID 1082 (DATE) que devuelve el valor crudo del driver, sin
   // convertirlo a Date (ver server/db.js) — no hace falta reformatear aquí.
@@ -5736,7 +5772,7 @@ app.get('/api/projects/:id/asistencia-rango', h(auth.allow('residente', 'cabo'))
      WHERE project_id = $1 AND fecha BETWEEN $2 AND $3`,
     [req.project.id, desde, hasta]
   );
-  res.json({ desde, hasta, trabajadores, asistencias });
+  res.json({ desde, hasta, fecha_hoy: fechaHoy, granularidad: 'dia', trabajadores, asistencias });
 }));
 
 app.get('/api/projects/:id/asistencia', h(auth.allow('residente', 'cabo')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('nominas', 'puede_ver')), h(async (req, res) => {
@@ -5759,6 +5795,20 @@ app.get('/api/projects/:id/asistencia', h(auth.allow('residente', 'cabo')), h(re
 app.put('/api/projects/:id/asistencia', h(auth.allow('residente', 'cabo')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('nominas', 'puede_editar')), h(async (req, res) => {
   const { fecha, asistencia } = req.body || {};
   if (!fecha || !/^\d{4}-\d{2}-\d{2}$/.test(fecha)) return res.status(400).json({ error: 'fecha inválida' });
+  // prompt-calendario-asistencia-rangos-y-bloqueo.md, sección 3/4, con ajuste
+  // explícito de Paul tras el diagnóstico (Stop Condition activado): residente/
+  // cabo solo pueden capturar/corregir el día de hoy — admin/desarrollador
+  // conservan la corrección retroactiva libre que ya existía (auth.allow()
+  // arriba ya solo deja pasar residente/cabo/admin/desarrollador, así que
+  // cualquier otro puesto no llega ni aquí). Se calcula en
+  // America/Mexico_City, nunca new Date() crudo — mismo criterio que
+  // marcadoMasivoAsistencia más abajo.
+  if (req.user.puesto === 'residente' || req.user.puesto === 'cabo') {
+    const hoyMx = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Mexico_City' }).format(new Date());
+    if (fecha !== hoyMx) {
+      return res.status(403).json({ error: 'Solo se puede registrar asistencia del día en curso' });
+    }
+  }
   if (!Array.isArray(asistencia)) return res.status(400).json({ error: 'asistencia debe ser un arreglo' });
   // Validar que todos los trabajador_id del payload pertenecen a este proyecto
   const payloadIds = asistencia.map((item) => Number(item.trabajador_id));

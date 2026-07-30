@@ -2022,6 +2022,54 @@ body.body-scroll-locked { overflow: hidden; }
   outline: 2px dashed var(--text-secondary);
   outline-offset: -2px;
 }
+/* prompt-calendario-asistencia-rangos-y-bloqueo.md sección 3: celda de un
+   día distinto a hoy para residente/cabo — pointer-events:none es la
+   barrera real (ni click, ni tap, ni foco por teclado llegan al elemento);
+   la clase solo se aplica server-confirmed vía fecha_hoy, nunca se calcula
+   por CSS. cursor:not-allowed vive en el propio elemento (no en un padre)
+   porque pointer-events:none también anula el cursor si no se fija aquí. */
+.asist-cell.asist-cell-bloqueada,
+.asist-heat-cell.asist-cell-bloqueada {
+  pointer-events: none;
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+/* Indicador de "esta celda sí es editable hoy" — además del dorado ya
+   existente en el header de columna (.asist-th-dia.hoy), un anillo en la
+   celda de datos misma para que se note fila por fila, no solo en el
+   encabezado. */
+.asist-cell.asist-cell-hoy:not(.asist-cell-bloqueada) {
+  outline: 2px solid var(--accent-gold);
+  outline-offset: -2px;
+}
+
+/* Selector de rango de vista (semana/mes/3-6-12 meses) — usa el <select>
+   nativo, mejorado por el componente custom app-wide (PR #62, ver
+   enhanceSelect()); esta clase solo gobierna el layout del contenedor. */
+.asist-rango-bar {
+  display: flex; align-items: center; gap: 8px; margin: 10px 0;
+}
+.asist-rango-label { font-size: 0.82rem; color: var(--text-secondary); font-weight: 600; }
+
+/* Modo resumen (3/6/12 meses) — solo lectura, grid trabajador × mes. */
+.asist-resumen-aviso {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 0.8rem; color: var(--text-secondary);
+  background: var(--bg-surface-2); border-radius: var(--radius);
+  padding: 8px 12px; margin-bottom: 10px;
+}
+.asist-th-mes { width: 74px; }
+.asist-resumen-cell {
+  width: 74px; height: 46px; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 1px; cursor: pointer;
+}
+.asist-resumen-frac { font-size: 0.74rem; font-weight: 700; }
+.asist-resumen-pct { font-size: 0.66rem; color: var(--text-secondary); }
+/* Fila de trabajador sin drill-down a detalle (rango 'semana' y modo
+   resumen — ver comentario en renderGeneral()/renderResumen() sobre por
+   qué el detalle individual queda acotado a rango 'mes'): mismo look que
+   .asist-fixed-row pero sin cursor de "tappeable". */
+.asist-fixed-row-sin-detalle { cursor: default; }
 
 .asist-leyenda { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 12px; font-size: 0.78rem; color: var(--text-secondary); }
 .asist-leyenda-item { display: flex; align-items: center; gap: 5px; }

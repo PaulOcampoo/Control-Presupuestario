@@ -5748,6 +5748,7 @@ async function renderAvance(view) {
 
     <h3 class="section-title">Captura de avance real por semana</h3>
     <p class="muted">La columna "Presupuesto del periodo" muestra la cantidad presupuestada (en pesos) para esa semana, según la curva programada — úsala como referencia para anotar tu avance real de esa misma semana. Toca <strong>"Por concepto"</strong> para anotar las cantidades realmente ejecutadas de cada concepto del catálogo (con su descripción, unidad y cantidad presupuestada) — el % de avance real se calculará automáticamente a partir de esas cantidades.</p>
+    ${puedeEditar ? `<div class="alert-box info">⚠️ Los % que edites y guardes aquí directamente se sobrescriben la próxima vez que guardes algo desde "Por concepto" de esa misma semana — ese modal siempre recalcula el % a partir de las cantidades capturadas ahí.</div>` : ''}
     <div class="card">
       <div class="table-scroll">
         <table>
@@ -5854,6 +5855,7 @@ function paintAvanceTable(avances, presupuestoTotal, puedeEditar) {
         ${puedeEditar ? `<div class="row row-nowrap-gap6">
           <button class="btn small" data-detalle="${a.semana}" title="Capturar avance por concepto">Por concepto</button>
           <button class="btn small btn-primary" data-save="${a.semana}">Guardar</button>
+          <button class="btn small btn-danger" data-limpiar="${a.semana}" title="Borrar el avance real capturado de esta semana">Limpiar semana</button>
         </div>` : `<button class="btn small" data-detalle="${a.semana}" title="Ver avance por concepto">Ver detalle</button>`}
       </td>
     </tr>
@@ -5902,6 +5904,27 @@ function paintAvanceTable(avances, presupuestoTotal, puedeEditar) {
       } catch (err) {
         toast(err.message, 'danger');
         btn.disabled = false; btn.textContent = 'Guardar';
+      }
+    });
+  });
+
+  $$('[data-limpiar]', tbody).forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const semana = Number(btn.dataset.limpiar);
+      const ok = await confirmDialog(
+        `Se borrarán los % de avance real (físico y financiero) y las cantidades por concepto capturadas para la semana ${semana}. La semana volverá a quedar en estado "Pendiente" de autorización. Esta acción no se puede deshacer.`,
+        { titulo: 'Limpiar semana', textoAceptar: 'Limpiar semana', claseAceptar: 'btn-danger' }
+      );
+      if (!ok) return;
+      btn.disabled = true; btn.textContent = '…';
+      try {
+        await api(`/projects/${state.projectId}/avances/${semana}/limpiar`, { method: 'POST' });
+        invalidate('resumen');
+        toast(`Avance de la semana ${semana} limpiado`, 'success');
+        renderView();
+      } catch (err) {
+        toast(err.message, 'danger');
+        btn.disabled = false; btn.textContent = 'Limpiar semana';
       }
     });
   });

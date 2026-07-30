@@ -2311,6 +2311,11 @@ body.body-scroll-locked { overflow: hidden; }
    CSP desde antes de hoy (confirmado byte-idéntico contra 5f0ba86). */
 .trab-form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 
+/* Detección de banco por CLABE (prompt-2-deteccion-banco-clabe.md), dentro
+   del mismo .trab-form-grid de arriba. */
+.clabe-error { color: var(--red); font-size: 0.78rem; margin-top: 4px; }
+.banco-detectado-badge { color: var(--green); font-size: 0.78rem; margin-top: 4px; }
+
 /* Periodo inicio/fin (modal "Nueva estimación") — clase propia en vez de
    reutilizar .trab-form-grid para no afectar Nóminas/Trabajadores. Dos
    columnas siempre (Paul prefiere el layout lado a lado, no apilado); el

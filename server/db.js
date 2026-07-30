@@ -676,6 +676,17 @@ const SCHEMA = `
   ALTER TABLE trabajadores ADD COLUMN IF NOT EXISTS cuenta_nomina_hsbc TEXT;
   ALTER TABLE trabajadores ADD COLUMN IF NOT EXISTS cuenta_alterna TEXT;
 
+  -- Banco detectado/capturado para cada cuenta (prompt-2-deteccion-banco-
+  -- clabe.md) — "cuenta_nomina_hsbc" ya no asume HSBC fijo: si el usuario
+  -- captura una CLABE de 18 dígitos válida, el banco se autodetecta contra
+  -- server/catalogoBancos.js y se guarda aquí; el nombre de columna de la
+  -- cuenta se conserva tal cual (sin RENAME, sin precedente en este
+  -- proyecto) para no romper referencias existentes — solo cambia su
+  -- semántica de "siempre HSBC" a "banco real, detectado o capturado a
+  -- mano". Mismo gating de permisos que las cuentas (trabajadores_bancarios).
+  ALTER TABLE trabajadores ADD COLUMN IF NOT EXISTS banco_nomina TEXT;
+  ALTER TABLE trabajadores ADD COLUMN IF NOT EXISTS banco_alterna TEXT;
+
   -- Historial formal de bajas por trabajador (soft-delete auditado).
   -- motivo_baja restringido por CHECK; cuando es 'otro', se espera notas != null (enforced en app).
   CREATE TABLE IF NOT EXISTS trabajador_bajas (

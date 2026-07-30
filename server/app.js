@@ -1429,7 +1429,7 @@ app.get('/api/maquinaria/horas', h(auth.checkPermiso('maquinaria', 'puede_ver'))
 // validado aquí en el backend, nunca solo en el frontend (mismo criterio de
 // "auto-llenado" que ya usa el resto de la app: el rol 'operador' elige de
 // esta lista, no escribe texto libre).
-const ACTIVIDADES_MAQUINARIA = ['Excavaciones', 'Cepas', 'Rellenos', 'Acarreos', 'Carga de material', 'Limpiezas'];
+const ACTIVIDADES_MAQUINARIA = ['Excavaciones', 'Cepas', 'Rellenos', 'Acarreos', 'Carga de material', 'Limpiezas', 'Taller', 'Renta'];
 
 // Operador captura sus propias horas (operador_id = quien está autenticado,
 // se ignora cualquier operador_id enviado); admin/desarrollador sí pueden

@@ -8353,7 +8353,7 @@ const MAQUINARIA_TIPOS = ['retroexcavadora', 'equipo menor', 'herramienta eléct
 // operador elige de esta lista (auto-llenado), no escribe texto libre.
 // Espejo exacto de ACTIVIDADES_MAQUINARIA en server/app.js, que es quien
 // valida de verdad (esto es solo para pintar el <select>).
-const ACTIVIDADES_MAQUINARIA = ['Excavaciones', 'Cepas', 'Rellenos', 'Acarreos', 'Carga de material', 'Limpiezas'];
+const ACTIVIDADES_MAQUINARIA = ['Excavaciones', 'Cepas', 'Rellenos', 'Acarreos', 'Carga de material', 'Limpiezas', 'Taller', 'Renta'];
 let maquinariaEquiposCache = [];
 
 // Bug encontrado en revisión de dispositivo real (prompt-fix-cabo-operador-

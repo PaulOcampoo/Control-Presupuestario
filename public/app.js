@@ -661,6 +661,19 @@ async function tryRefreshToken() {
   return _refreshPromise;
 }
 
+// Extrae un mensaje de error legible del campo `error` de una respuesta
+// fallida. El backend de esta app siempre manda { error: "string" }, pero
+// capas externas delante de la app (ej. Vercel Deployment Protection, que
+// manda { error: { message, code } } en vez de un string) pueden mandar
+// otra forma. `new Error(objeto)` coerciona el valor con String(), y para
+// un objeto plano eso da literalmente "[object Object]" — este helper corta
+// esa coerción antes de que llegue a new Error().
+function extraerMensajeError(errorField, fallback) {
+  if (typeof errorField === 'string' && errorField) return errorField;
+  if (errorField && typeof errorField.message === 'string' && errorField.message) return errorField.message;
+  return fallback;
+}
+
 async function api(path, opts = {}) {
   const doFetch = (tkn) => {
     const headers = opts.body && !(opts.body instanceof FormData) ? { 'Content-Type': 'application/json' } : {};
@@ -683,10 +696,10 @@ async function api(path, opts = {}) {
     }
     if (res.status === 401) {
       handleSessionExpired();
-      throw new Error((data && data.error) || 'Sesión expirada');
+      throw new Error(extraerMensajeError(data && data.error, 'Sesión expirada'));
     }
   }
-  if (!res.ok) throw new Error((data && data.error) || `Error ${res.status}`);
+  if (!res.ok) throw new Error(extraerMensajeError(data && data.error, `Error ${res.status}`));
   return data;
 }
 
@@ -704,7 +717,7 @@ async function downloadExport(path) {
   }
   if (!res.ok) {
     let msg = `Error ${res.status}`;
-    try { const data = await res.json(); msg = (data && data.error) || msg; } catch { /* no body */ }
+    try { const data = await res.json(); msg = extraerMensajeError(data && data.error, msg); } catch { /* no body */ }
     throw new Error(msg);
   }
   const blob = await res.blob();
@@ -11139,7 +11152,7 @@ async function apiDownload(path, fallbackName) {
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    throw new Error(err.error || `Error ${res.status}`);
+    throw new Error(extraerMensajeError(err.error, `Error ${res.status}`));
   }
   const blob = await res.blob();
   const disposition = res.headers.get('Content-Disposition') || '';

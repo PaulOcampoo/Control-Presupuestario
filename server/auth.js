@@ -176,6 +176,16 @@ const SECCIONES_PERMISOS = [
   // (mismo estado "informativo" que 'programa'/'estimaciones', ver
   // SECCIONES_CON_ENFORCEMENT en public/app.js).
   'cotizador', 'estado_resultados_global',
+  // prompt-6-estado-unidad-operador.md: checklist de seguridad/preventivos
+  // que captura el propio operador sobre su unidad asignada. Sección propia
+  // (no comparte 'maquinaria_captura' con horas) porque el criterio de
+  // ownership es distinto: horas se captura sobre cualquier equipo que el
+  // operador trabaje ese día, estado_unidad SOLO sobre operador_asignado_id
+  // — mezclarlas habría hecho que dar puede_crear en una diera sin querer la
+  // otra. Sin entrada en TAB_A_SECCION a propósito: vive dentro del tab
+  // 'maquinaria' existente (misma pantalla), no es un tab nuevo — mismo
+  // criterio que 'maquinaria_captura'/'maquinaria_combustible' arriba.
+  'estado_unidad',
 ];
 const ACCIONES_PERMISOS = ['puede_ver', 'puede_crear', 'puede_editar', 'puede_editar_precios', 'puede_eliminar'];
 
@@ -301,6 +311,13 @@ function defaultPermisosParaRol(puesto) {
     // que la sección existe y pueden pedir acceso), pero sin el permiso
     // real hasta que un admin se lo conceda explícitamente por la matriz.
     if (porSeccion.trabajadores) { porSeccion.trabajadores.puede_ver = false; }
+    // prompt-6-estado-unidad-operador.md: cabo SOLO lee el checklist de
+    // todas las unidades de la obra (supervisión), nunca captura por esta
+    // vía — coherente con que no capture horas tampoco (ver arriba).
+    filas.push({
+      seccion: 'estado_unidad', puede_ver: true, puede_crear: false,
+      puede_editar: false, puede_editar_precios: false, puede_eliminar: false,
+    });
   }
   if (puesto === 'compras') {
     // compras podía crear/editar/eliminar requisiciones de cualquier obra por
@@ -356,6 +373,13 @@ function defaultPermisosParaRol(puesto) {
       seccion: 'maquinaria_combustible', puede_ver: true, puede_crear: true,
       puede_editar: false, puede_editar_precios: false, puede_eliminar: false,
     });
+    // prompt-6-estado-unidad-operador.md: jefe_maquinaria lee el checklist
+    // de todas las unidades (supervisión de taller), no captura por esta vía
+    // — mismo criterio que cabo arriba.
+    filas.push({
+      seccion: 'estado_unidad', puede_ver: true, puede_crear: false,
+      puede_editar: false, puede_editar_precios: false, puede_eliminar: false,
+    });
   }
   if (puesto === 'operador') {
     // Solo captura de horas/actividad (prompt-2-rol-operador-actividades.md)
@@ -364,6 +388,13 @@ function defaultPermisosParaRol(puesto) {
     // toca combustible/mantenimiento. Ningún permiso de aprobar/autorizar.
     filas.push({
       seccion: 'maquinaria_captura', puede_ver: true, puede_crear: true,
+      puede_editar: false, puede_editar_precios: false, puede_eliminar: false,
+    });
+    // prompt-6-estado-unidad-operador.md: único rol que captura el checklist
+    // de estado de unidad — el backend valida ownership real (operador_
+    // asignado_id) antes de cualquier INSERT, esto solo habilita el intento.
+    filas.push({
+      seccion: 'estado_unidad', puede_ver: true, puede_crear: true,
       puede_editar: false, puede_editar_precios: false, puede_eliminar: false,
     });
   }

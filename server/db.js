@@ -762,7 +762,7 @@ const SCHEMA = `
       'nominas','sugerencias','programa','estimaciones','maquinaria',
       'trabajadores_global','nominas_global','trabajadores','estado_resultados','maquinaria_captura','maquinaria_combustible',
       'costos','trabajadores_docs','trabajadores_contrato','trabajadores_bancarios',
-      'cotizador','estado_resultados_global'
+      'cotizador','estado_resultados_global','estado_unidad'
     )),
     puede_ver BOOLEAN NOT NULL DEFAULT false,
     puede_crear BOOLEAN NOT NULL DEFAULT false,
@@ -789,6 +789,8 @@ const SCHEMA = `
   -- 'cotizador' (compras) y 'estadoResultadosGlobal' (tesorería), que hasta
   -- ahora no tenían sección propia — sin esto INSERT con esas secciones
   -- viola el CHECK, mismo bug ya documentado arriba con cada sección nueva.
+  -- 'estado_unidad' agregado en prompt-6-estado-unidad-operador.md — mismo
+  -- patrón, sección propia para el checklist de operador.
   ALTER TABLE permisos_usuario DROP CONSTRAINT IF EXISTS permisos_usuario_seccion_check;
   ALTER TABLE permisos_usuario ADD CONSTRAINT permisos_usuario_seccion_check CHECK (seccion IN (
     'presupuestos','requisiciones','proveedores','ordenes_compra','avance',
@@ -796,7 +798,7 @@ const SCHEMA = `
     'nominas','sugerencias','programa','estimaciones','maquinaria',
     'trabajadores_global','nominas_global','trabajadores','estado_resultados','maquinaria_captura','maquinaria_combustible',
     'costos','trabajadores_docs','trabajadores_contrato','trabajadores_bancarios',
-    'cotizador','estado_resultados_global'
+    'cotizador','estado_resultados_global','estado_unidad'
   ));
 
   -- Contador de folios por obra + tipo de documento. INSERT...ON CONFLICT DO
@@ -902,6 +904,18 @@ const SCHEMA = `
   -- momento, mismo criterio que cliente_asignado_id.
   ALTER TABLE equipos_maquinaria ADD COLUMN IF NOT EXISTS operador_asignado_id INTEGER REFERENCES usuarios(id) ON DELETE SET NULL;
 
+  -- Categoría de unidad (prompt-6-estado-unidad-operador.md): distinta de
+  -- 'tipo' (arriba) a propósito. 'tipo' es el modelo/equipo específico
+  -- (retroexcavadora, equipo menor, etc. — texto libre sin CHECK, catálogo
+  -- vive en public/app.js MAQUINARIA_TIPOS). 'categoria' es la clasificación
+  -- de alto nivel que determina QUÉ VARIANTE de checklist de estado_unidad
+  -- aplica (máquina vs. camioneta) — controlada con CHECK porque solo hay 2
+  -- variantes de formulario posibles, a diferencia de 'tipo' que sigue
+  -- creciendo. Diagnóstico confirmó cero camionetas registradas hoy (las 3
+  -- filas existentes son 'retroexcavadora'); DEFAULT 'maquina' las backfillea
+  -- sin intervención manual.
+  ALTER TABLE equipos_maquinaria ADD COLUMN IF NOT EXISTS categoria TEXT NOT NULL DEFAULT 'maquina' CHECK (categoria IN ('maquina', 'camioneta'));
+
   CREATE TABLE IF NOT EXISTS combustible_maquinaria (
     id SERIAL PRIMARY KEY,
     equipo_id INTEGER NOT NULL REFERENCES equipos_maquinaria(id) ON DELETE CASCADE,
@@ -939,6 +953,30 @@ const SCHEMA = `
     creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW()
   );
   CREATE INDEX IF NOT EXISTS idx_reportes_horas_maquinaria_equipo ON reportes_horas_maquinaria(equipo_id);
+
+  -- Checklist rápido de "estado de la unidad" (prompt-6-estado-unidad-
+  -- operador.md): distinto de mantenimientos_maquinaria (bitácora de
+  -- taller/mantenimiento de jefe_maquinaria) — este es el checklist de
+  -- seguridad/preventivos que captura el propio operador sobre SU unidad
+  -- asignada. tipo_unidad queda desnormalizado (copia de equipos_maquinaria.
+  -- categoria al momento de la captura) para que el histórico no cambie de
+  -- forma retroactiva si la categoría del equipo se reclasifica después.
+  -- items en JSONB: [{clave, etiqueta, estado: 'ok'|'atencion'|'critico', nota?}],
+  -- validado en código contra el catálogo fijo de cada variante (server/
+  -- app.js) — mismo patrón que ACTIVIDADES_MAQUINARIA (sin CHECK a nivel BD
+  -- para no duplicar el catálogo en dos lugares).
+  CREATE TABLE IF NOT EXISTS estado_unidad (
+    id SERIAL PRIMARY KEY,
+    equipo_id INTEGER NOT NULL REFERENCES equipos_maquinaria(id) ON DELETE CASCADE,
+    operador_id INTEGER NOT NULL REFERENCES usuarios(id),
+    fecha DATE NOT NULL,
+    tipo_unidad TEXT NOT NULL CHECK (tipo_unidad IN ('maquina', 'camioneta')),
+    items JSONB NOT NULL,
+    lectura NUMERIC,
+    observaciones TEXT,
+    creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
+  CREATE INDEX IF NOT EXISTS idx_estado_unidad_equipo ON estado_unidad(equipo_id, creado_en DESC);
 
   -- Catálogo fijo de actividad (prompt-2-rol-operador-actividades.md):
   -- Excavaciones/Cepas/Rellenos/Acarreos/Carga de material/Limpiezas.
@@ -1110,6 +1148,27 @@ const SCHEMA = `
   UPDATE permisos_usuario SET puede_crear = false, puede_editar = true
   WHERE seccion = 'maquinaria_captura'
     AND usuario_id IN (SELECT id FROM usuarios WHERE puesto = 'cabo');
+
+  -- prompt-6-estado-unidad-operador.md: 'estado_unidad' es una sección NUEVA
+  -- que defaultPermisosParaRol (server/auth.js) solo asigna a usuarios dados
+  -- de alta a partir de este cambio — mismo patrón ya usado arriba para
+  -- 'maquinaria_captura' con cabo. Backfill para operador/cabo/jefe_maquinaria
+  -- YA existentes en Preview (3 operadores, 1 cabo, 1 jefe_maquinaria al
+  -- momento del diagnóstico).
+  -- NOT EXISTS en vez de ON CONFLICT: proyecto_id es NULL en estas filas, y
+  -- Postgres NO considera NULL=NULL para efectos de UNIQUE — ON CONFLICT
+  -- (usuario_id, proyecto_id, seccion) DO NOTHING NO habría evitado
+  -- duplicados en cada cold start (confirmado empíricamente antes de este
+  -- fix: un segundo INSERT idéntico con proyecto_id NULL sí pasa el
+  -- constraint). NOT EXISTS sí es correcto para NULL e idempotente de verdad.
+  INSERT INTO permisos_usuario (usuario_id, proyecto_id, seccion, puede_ver, puede_crear, puede_editar, puede_editar_precios, puede_eliminar)
+  SELECT u.id, NULL, 'estado_unidad', true, (u.puesto = 'operador'), false, false, false
+  FROM usuarios u
+  WHERE u.puesto IN ('operador', 'cabo', 'jefe_maquinaria')
+    AND NOT EXISTS (
+      SELECT 1 FROM permisos_usuario pu
+      WHERE pu.usuario_id = u.id AND pu.proyecto_id IS NULL AND pu.seccion = 'estado_unidad'
+    );
 `;
 
 // prompt-fix-error-permiso-trabajadores.md → el diagnóstico de ese prompt no

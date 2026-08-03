@@ -390,6 +390,60 @@ async function getReportePorCliente() {
   };
 }
 
+// Estado de la unidad (prompt-6-estado-unidad-operador.md) — checklist de
+// seguridad/preventivos del operador, distinto de mantenimientos_maquinaria
+// (bitácora de taller de jefe_maquinaria).
+//
+// operadorId (mismo criterio que listEquipos arriba): cuando viene, filtra
+// en la propia consulta SQL a solo el/los equipo(s) asignados a ese
+// operador — usado cuando un operador consulta esta vista (tiene puede_ver,
+// ver defaultPermisosParaRol), nunca la flota completa de otros operadores.
+// LEFT JOIN LATERAL trae la ÚLTIMA captura por equipo (o ninguna, si nunca
+// se ha capturado) — un LEFT JOIN normal con MAX(creado_en) traería todas
+// las columnas desalineadas entre filas distintas.
+async function listEstadoUnidadResumen(operadorId = null) {
+  const { rows } = await db.pool.query(`
+    SELECT e.id AS equipo_id, e.nombre AS equipo_nombre, e.tipo, e.categoria, e.identificador,
+      eu.id AS estado_id, eu.fecha, eu.tipo_unidad, eu.items, eu.lectura, eu.observaciones, eu.creado_en,
+      u.nombre AS operador_nombre
+    FROM equipos_maquinaria e
+    LEFT JOIN LATERAL (
+      SELECT * FROM estado_unidad WHERE equipo_id = e.id ORDER BY creado_en DESC LIMIT 1
+    ) eu ON true
+    LEFT JOIN usuarios u ON u.id = eu.operador_id
+    WHERE e.activo = true ${operadorId ? 'AND e.operador_asignado_id = $1' : ''}
+    ORDER BY e.nombre
+  `, operadorId ? [operadorId] : []);
+  return rows.map((r) => ({
+    ...r,
+    tiene_critico: Array.isArray(r.items) && r.items.some((it) => it.estado === 'critico'),
+  }));
+}
+
+// Histórico completo (no solo la última) de un equipo — más reciente primero.
+async function listEstadoUnidadHistorico(equipoId) {
+  const { rows } = await db.pool.query(`
+    SELECT eu.*, u.nombre AS operador_nombre
+    FROM estado_unidad eu
+    LEFT JOIN usuarios u ON u.id = eu.operador_id
+    WHERE eu.equipo_id = $1
+    ORDER BY eu.creado_en DESC
+  `, [equipoId]);
+  return rows.map((r) => ({
+    ...r,
+    tiene_critico: Array.isArray(r.items) && r.items.some((it) => it.estado === 'critico'),
+  }));
+}
+
+async function createEstadoUnidad({ equipo_id, operador_id, fecha, tipo_unidad, items, lectura, observaciones }) {
+  const { rows } = await db.pool.query(
+    `INSERT INTO estado_unidad (equipo_id, operador_id, fecha, tipo_unidad, items, lectura, observaciones)
+     VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+    [equipo_id, operador_id, fecha, tipo_unidad, JSON.stringify(items), lectura, observaciones || null]
+  );
+  return rows[0];
+}
+
 module.exports = {
   listEquipos, getEquipoById, createEquipo, updateEquipo, softDeleteEquipo,
   asignarClienteEquipo, asignarOperadorEquipo,
@@ -398,4 +452,5 @@ module.exports = {
   listHoras, createHoras, softDeleteHoras, updateEstadoHoras,
   getResumen, updatePresupuesto,
   getPresupuestoSugerido, getReportePorCliente,
+  listEstadoUnidadResumen, listEstadoUnidadHistorico, createEstadoUnidad,
 };

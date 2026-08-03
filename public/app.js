@@ -10164,12 +10164,14 @@ async function renderCostos(view) {
       <div class="nominas-subnav">
         <button class="btn ${subView === 'porCliente' ? 'btn-primary' : ''}" id="btnCostosSubCliente">Por cliente</button>
         <button class="btn ${subView === 'global' ? 'btn-primary' : ''}" id="btnCostosSubGlobal">Generar presupuesto (global)</button>
+        <button class="btn ${subView === 'nomina' ? 'btn-primary' : ''}" id="btnCostosSubNomina">Gasto de Nómina</button>
       </div>
     `;
   }
   function bindSubNav() {
     $('#btnCostosSubCliente').addEventListener('click', showPorCliente);
     $('#btnCostosSubGlobal').addEventListener('click', showGlobal);
+    $('#btnCostosSubNomina').addEventListener('click', showNomina);
   }
 
   async function showPorCliente() {
@@ -10245,6 +10247,68 @@ async function renderCostos(view) {
       if (!catalogoGlobalCache?.length) { toast('No hay insumos con código para armar un presupuesto todavía', ''); return; }
       openCrearPresupuestoModal(catalogoGlobalCache);
     });
+  }
+
+  // Gasto de Nómina por cliente (prompt-9-reporte-nomina-por-cliente.md) —
+  // origen: diagnósticos prompt-7/prompt-8, confirmados contra Producción.
+  // Nunca suma Carga Social (estimada) ni el destajo huérfano por segunda
+  // vez al total "real" — ambos se muestran aparte, rotulados, mismo
+  // criterio que Composición de Costos (PR #48) con "No disponible" en vez
+  // de 0%. Bucket explícito "Sin cliente asignado" — a diferencia de
+  // /api/avance-por-cliente, que descarta esos proyectos en silencio.
+  function gncFilaHtml(f, { esGlobal = false, esSinCliente = false } = {}) {
+    return `
+      <div class="card gnc-card ${esGlobal ? 'gnc-card-global' : ''} ${esSinCliente ? 'gnc-card-sin-cliente' : ''}">
+        <div class="card-row"><span class="k">${esGlobal ? 'Global — todos los clientes' : esc(f.cliente_nombre)}</span><span class="v"></span></div>
+        <div class="card-row"><span class="k">Jornal real</span><span class="v">${fmtMoney(f.jornal_real)}</span></div>
+        <div class="card-row"><span class="k">Destajo ejecutado</span><span class="v">${fmtMoney(f.destajo_ejecutado)}</span></div>
+        ${f.destajo_huerfano > 0 ? `
+        <div class="card-row gnc-subrow">
+          <span class="k">— de los cuales, sin trabajador vinculado</span>
+          <span class="v">${fmtMoney(f.destajo_huerfano)} <span class="badge yellow">Pagado fuera de Nómina</span></span>
+        </div>` : ''}
+        <div class="card-row gnc-total-row"><span class="k">Total real (jornal + destajo)</span><span class="v">${fmtMoney(f.total_real)}</span></div>
+        <div class="card-row gnc-estimado-row">
+          <span class="k">Carga Social <span class="badge muted">Estimado — sin dato real</span></span>
+          <span class="v">${fmtMoney(f.carga_social_estimada)}</span>
+        </div>
+        ${f.nominas_borrador.monto > 0 ? `
+        <div class="card-row gnc-borrador-row">
+          <span class="k">Nóminas en borrador (${f.nominas_borrador.n}) <span class="badge yellow">No incluido en el total</span></span>
+          <span class="v">${fmtMoney(f.nominas_borrador.monto)}</span>
+        </div>` : ''}
+      </div>
+    `;
+  }
+
+  async function showNomina() {
+    subView = 'nomina';
+    view.innerHTML = `
+      <h2 class="section-title">Costos ${renderHelpBtn('costos')}</h2>
+      <p class="muted">Gasto real de nómina por cliente — jornal y destajo confirmados, con Carga Social estimada y destajo pagado fuera de nómina siempre mostrados aparte.</p>
+      ${renderSubNav()}
+      <div class="section-actions mt-12">
+        <button class="btn" id="btnCostosNominaExport">⭳ Exportar a Excel</button>
+      </div>
+      <div id="costosNominaResult" class="mt-12"><div class="spinner"></div></div>
+    `;
+    bindSubNav();
+    $('#btnCostosNominaExport').addEventListener('click', async () => {
+      try { await downloadExport('/costos/nomina-por-cliente/export'); }
+      catch (err) { toast(err.message, 'danger'); }
+    });
+    try {
+      const data = await api('/costos/nomina-por-cliente');
+      const partes = [gncFilaHtml(data.global, { esGlobal: true })];
+      if (data.sin_cliente_asignado) partes.push(gncFilaHtml(data.sin_cliente_asignado, { esSinCliente: true }));
+      partes.push(...data.por_cliente.map((f) => gncFilaHtml(f)));
+      $('#costosNominaResult').innerHTML = `
+        <p class="muted fs-08">% de Carga Social de referencia: ${fmtPct(data.carga_social_pct_referencia)}. "Pagado fuera de Nómina" y "Nóminas en borrador" nunca están incluidos en "Total real".</p>
+        <div class="gnc-grid">${partes.join('')}</div>
+      `;
+    } catch (err) {
+      $('#costosNominaResult').innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+    }
   }
 
   if (subView === 'porCliente') await showPorCliente();

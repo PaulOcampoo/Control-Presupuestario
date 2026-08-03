@@ -3029,3 +3029,11 @@ body.a11y-reduce-motion *::after {
 .eu-mini-badge.critico { background: rgba(239,68,68,0.18); color: var(--red); }
 .eu-cards-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
 tr.eu-row-critico td { background: color-mix(in srgb, var(--red) 9%, transparent); }
+
+/* Gasto de Nómina por cliente (prompt-9-reporte-nomina-por-cliente.md) */
+.gnc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
+.gnc-card-global { border-color: var(--accent-gold, var(--green)); border-width: 2px; }
+.gnc-card-sin-cliente { border-style: dashed; }
+.gnc-total-row .k, .gnc-total-row .v { font-weight: 700; }
+.gnc-estimado-row, .gnc-borrador-row, .gnc-subrow { opacity: 0.85; }
+.gnc-subrow .k, .gnc-subrow .v { font-size: 0.8rem; }

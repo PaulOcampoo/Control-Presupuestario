@@ -1602,6 +1602,80 @@ app.post('/api/maquinaria/estado-unidad', h(auth.checkPermiso('estado_unidad', '
   res.status(201).json({ ...registro, tiene_critico: tieneCritico });
 }));
 
+// =========================================================================
+// Programa de consumibles (prompt-10-programa-consumibles.md) — captura de
+// operador sobre su unidad: diesel + 3 aceites (motor/hidráulico/
+// transmisión). Diesel se guarda en combustible_maquinaria (decisión
+// consultada: NO se duplica una tabla nueva para algo que ya existe) con
+// ownership validado aquí — a diferencia de POST /api/maquinaria/combustible
+// (jefe_maquinaria, sin restricción de unidad), este endpoint es exclusivo
+// del operador dueño del equipo. Los 3 aceites sí son consumibles_maquinaria,
+// tabla nueva de verdad.
+// =========================================================================
+const TIPOS_CONSUMIBLE = ['diesel', 'aceite_motor', 'aceite_hidraulico', 'aceite_transmision'];
+
+app.get('/api/maquinaria/consumibles', h(auth.checkPermiso('maquinaria_consumibles', 'puede_ver')), h(async (req, res) => {
+  const operadorId = req.user.puesto === 'operador' ? req.user.id : null;
+  const equipoId = req.query.equipo_id ? Number(req.query.equipo_id) : null;
+  const registros = await maquinaria.listConsumibles({
+    equipoId, operadorId,
+    fechaDesde: req.query.desde || null, fechaHasta: req.query.hasta || null,
+  });
+  // Resumen acumulado por unidad+tipo — mismo criterio de agregación en JS
+  // que getResumen/getReportePorCliente (server/maquinaria.js), sin
+  // duplicar la query: se calcula sobre el mismo dataset ya filtrado.
+  const resumenMap = new Map();
+  for (const r of registros) {
+    const key = `${r.equipo_id}|${r.tipo}`;
+    if (!resumenMap.has(key)) {
+      resumenMap.set(key, {
+        equipo_id: r.equipo_id, equipo_nombre: r.equipo_nombre, tipo: r.tipo,
+        unidad: r.unidad, total_cantidad: 0, total_costo_estimado: 0, n_registros: 0,
+      });
+    }
+    const acc = resumenMap.get(key);
+    acc.total_cantidad += Number(r.cantidad);
+    acc.total_costo_estimado += Number(r.costo_estimado) || 0;
+    acc.n_registros += 1;
+  }
+  res.json({ registros, resumen: [...resumenMap.values()] });
+}));
+
+app.post('/api/maquinaria/consumibles', h(auth.checkPermiso('maquinaria_consumibles', 'puede_crear')), h(async (req, res) => {
+  const { equipo_id, tipo, cantidad, lectura, fecha } = req.body || {};
+  if (!equipo_id || !fecha) return res.status(400).json({ error: 'Indica equipo y fecha' });
+  if (!TIPOS_CONSUMIBLE.includes(tipo)) {
+    return res.status(400).json({ error: `Indica un tipo válido: ${TIPOS_CONSUMIBLE.join(', ')}` });
+  }
+  if (!(Number(cantidad) > 0)) return res.status(400).json({ error: 'Indica una cantidad válida' });
+
+  const equipo = await maquinaria.getEquipoById(Number(equipo_id));
+  if (!equipo) return res.status(404).json({ error: 'Equipo no encontrado' });
+  if (equipo.operador_asignado_id !== req.user.id) {
+    return res.status(403).json({ error: 'No tienes permiso para realizar esta acción' });
+  }
+
+  const insumo = await maquinaria.resolverCostoConsumible(tipo);
+  const lecturaNum = lectura != null && lectura !== '' ? Number(lectura) : null;
+
+  let registro;
+  if (tipo === 'diesel') {
+    registro = await maquinaria.createCombustible({
+      equipo_id: equipo.id, fecha, litros: Number(cantidad),
+      costo: insumo ? Number(insumo.precio_presupuesto) * Number(cantidad) : 0,
+      registrado_por: req.user.id, lectura: lecturaNum,
+    });
+  } else {
+    registro = await maquinaria.createConsumible({
+      equipo_id: equipo.id, tipo, cantidad: Number(cantidad), unidad: 'litros',
+      lectura: lecturaNum, operador_id: req.user.id, fecha,
+      costo_estimado: insumo ? Number(insumo.precio_presupuesto) * Number(cantidad) : null,
+      insumo_id: insumo ? insumo.id : null,
+    });
+  }
+  res.status(201).json({ ...registro, tipo, costo_resuelto_de_insumo: !!insumo });
+}));
+
 // Cifras de presupuesto (monto total, gastado, % consumido) — solo
 // admin/desarrollador; el resto de roles con acceso a Maquinaria ve el
 // catálogo/combustible/mantenimiento/horas pero no estos montos.

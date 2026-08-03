@@ -8381,6 +8381,43 @@ const MAQUINARIA_TIPOS = ['retroexcavadora', 'equipo menor', 'herramienta eléct
 const ACTIVIDADES_MAQUINARIA = ['Excavaciones', 'Cepas', 'Rellenos', 'Acarreos', 'Carga de material', 'Limpiezas', 'Taller', 'Renta'];
 let maquinariaEquiposCache = [];
 
+// Checklist de "estado de la unidad" (prompt-6-estado-unidad-operador.md) —
+// espejo exacto de CHECKLIST_ESTADO_UNIDAD en server/app.js, que es quien
+// valida de verdad (mismo criterio que ACTIVIDADES_MAQUINARIA arriba).
+const CHECKLIST_ESTADO_UNIDAD = {
+  maquina: [
+    { clave: 'fluidos', etiqueta: 'Niveles de fluidos' },
+    { clave: 'fugas', etiqueta: 'Fugas visibles' },
+    { clave: 'orugas_llantas', etiqueta: 'Estado de orugas/llantas' },
+    { clave: 'frenos', etiqueta: 'Frenos' },
+    { clave: 'luces_torreta', etiqueta: 'Luces y torreta' },
+    { clave: 'alarma_reversa', etiqueta: 'Alarma de reversa' },
+    { clave: 'cinturon', etiqueta: 'Cinturón' },
+    { clave: 'espejos', etiqueta: 'Espejos' },
+    { clave: 'extintor', etiqueta: 'Extintor' },
+  ],
+  camioneta: [
+    { clave: 'fluidos', etiqueta: 'Niveles de fluidos' },
+    { clave: 'fugas', etiqueta: 'Fugas visibles' },
+    { clave: 'llantas_refaccion', etiqueta: 'Llantas y refacción' },
+    { clave: 'frenos', etiqueta: 'Frenos' },
+    { clave: 'luces_direccionales', etiqueta: 'Luces y direccionales' },
+    { clave: 'cinturones', etiqueta: 'Cinturones' },
+    { clave: 'espejos', etiqueta: 'Espejos' },
+    { clave: 'extintor', etiqueta: 'Extintor' },
+    { clave: 'herramienta_gato', etiqueta: 'Herramienta/gato' },
+  ],
+};
+const ESTADO_ITEM_LABELS = { ok: 'OK', atencion: 'Atención', critico: 'Crítico' };
+const LECTURA_LABEL_POR_CATEGORIA = { maquina: 'Horómetro (hrs)', camioneta: 'Kilometraje (km)' };
+// Mismo criterio que ROLES_CAPTURAN_HORAS_MAQ/ROLES_BITACORA_TALLER_MAQ
+// arriba: el permiso crudo del backend no distingue rol simulado del real
+// para admin/desarrollador (bypass siempre true), así que "Vista como"
+// necesita este AND explícito para no mostrar botones que no le
+// corresponden al rol que se está simulando.
+const ROLES_CAPTURAN_ESTADO_UNIDAD_MAQ = ['operador', 'admin', 'desarrollador'];
+const ROLES_SUPERVISAN_ESTADO_UNIDAD_MAQ = ['cabo', 'jefe_maquinaria', 'admin', 'desarrollador'];
+
 // Bug encontrado en revisión de dispositivo real (prompt-fix-cabo-operador-
 // permisos-simulacion.md): un admin/desarrollador usando "vista simulada"
 // (state.simulatedPuesto) veía los botones Autorizar/Rechazar/+Capturar
@@ -8405,12 +8442,16 @@ const ROLES_CAPTURAN_HORAS_MAQ = ['operador', 'admin', 'desarrollador'];
 const ROLES_BITACORA_TALLER_MAQ = ['jefe_maquinaria', 'admin', 'desarrollador'];
 
 async function renderMaquinaria(view) {
-  const [equipos, resumen, misPermisos, misPermisosCaptura, misPermisosCombustible, proyectos, clientesMaq, reporteClientes, horasMaq, bitacoraTaller, operadoresMaq] = await Promise.all([
+  const [equipos, resumen, misPermisos, misPermisosCaptura, misPermisosCombustible, misPermisosEstadoUnidad, proyectos, clientesMaq, reporteClientes, horasMaq, bitacoraTaller, operadoresMaq, estadoUnidadList] = await Promise.all([
     api('/maquinaria/equipos'),
     api('/maquinaria/resumen'),
     api('/mis-permisos/maquinaria'),
     api('/mis-permisos/maquinaria_captura'),
     api('/mis-permisos/maquinaria_combustible'),
+    // prompt-6-estado-unidad-operador.md — residente no tiene fila en
+    // 'estado_unidad' (default-deny real, a propósito: no forma parte del
+    // alcance de este checklist), el .catch evita que ese 403 tumbe el resto.
+    api('/mis-permisos/estado_unidad').catch(() => ({})),
     api('/projects').catch(() => []),
     api('/clientes').catch(() => []),
     api('/maquinaria/reporte-clientes').catch(() => null),
@@ -8429,6 +8470,8 @@ async function renderMaquinaria(view) {
     // "Operador asignado" del catálogo, mismo patrón .catch que el resto de
     // fetches opcionales de esta función.
     api('/maquinaria/operadores').catch(() => []),
+    // 403 esperado para residente (arriba) — mismo .catch.
+    api('/maquinaria/estado-unidad').catch(() => []),
   ]);
   maquinariaEquiposCache = equipos;
   const puedeCrear = !!misPermisos.puede_crear; // equipos — sección 'maquinaria', sin cambio (CN-002)
@@ -8465,6 +8508,11 @@ async function renderMaquinaria(view) {
   // roles con puede_editar por default en la sección 'maquinaria' (server/
   // auth.js), se reutiliza en vez de crear una constante nueva.
   const puedeReasignarClienteMaq = !!misPermisos.puede_editar && ROLES_BITACORA_TALLER_MAQ.includes(effectivePuesto());
+  // prompt-6-estado-unidad-operador.md: mismo AND que las constantes ROLES_*
+  // de arriba, por la misma razón (bypass admin/desarrollador no distingue
+  // "Vista como").
+  const puedeCrearEstadoUnidad = !!misPermisosEstadoUnidad.puede_crear && ROLES_CAPTURAN_ESTADO_UNIDAD_MAQ.includes(effectivePuesto());
+  const puedeSupervisarEstadoUnidad = !!misPermisosEstadoUnidad.puede_ver && ROLES_SUPERVISAN_ESTADO_UNIDAD_MAQ.includes(effectivePuesto());
 
   // Cifras de presupuesto (total/gastado/%/sugerido por cliente) — solo
   // admin/desarrollador; backend ya las envía null para el resto de roles,
@@ -8491,9 +8539,11 @@ async function renderMaquinaria(view) {
       ${puedeCrearCombustible ? '<button class="btn" id="btnCombustibleMaq">+ Combustible</button>' : ''}
       ${puedeCrearBitacora ? '<button class="btn" id="btnMantenimientoMaq">+ Registrar en bitácora</button>' : ''}
       ${puedeCrearHoras ? '<button class="btn" id="btnHorasMaq">+ Capturar horas</button>' : ''}
+      ${puedeCrearEstadoUnidad && equipos.length ? '<button class="btn" id="btnEstadoUnidadMaq">+ Estado de la unidad</button>' : ''}
     </div>
     <div id="reportesHorasMaqSection"></div>
     <div id="bitacoraTallerSection"></div>
+    <div id="estadoUnidadSection"></div>
 
     ${!esOperador ? `
     <h3 class="section-title mt-16">Equipos por cliente</h3>
@@ -8517,8 +8567,10 @@ async function renderMaquinaria(view) {
   $('#btnCombustibleMaq')?.addEventListener('click', () => openCombustibleMaqModal(equipos));
   $('#btnMantenimientoMaq')?.addEventListener('click', () => openMantenimientoMaqModal(equipos));
   $('#btnHorasMaq')?.addEventListener('click', () => openHorasMaqModal(equipos, proyectos));
+  $('#btnEstadoUnidadMaq')?.addEventListener('click', () => openEstadoUnidadMaqModal(equipos));
   paintReportesHorasMaq(horasMaq, { puedeAutorizarHoras, esOperador });
   paintBitacoraTaller(bitacoraTaller, equipos, { puedeVerBitacora });
+  paintEstadoUnidadMaq(estadoUnidadList, { puedeSupervisarEstadoUnidad, esOperador });
   { const fill = $('.progress-bar > span[data-pct]', view); if (fill) fill.style.width = fill.dataset.pct + '%'; }
 
   // prompt-p2-aislamiento-operador.md: "Equipos por cliente" y "Catálogo de
@@ -9168,6 +9220,206 @@ function openHorasMaqModal(equipos, proyectos) {
       btn.disabled = false;
     }
   });
+}
+
+// =========================================================================
+// Estado de la unidad (prompt-6-estado-unidad-operador.md) — checklist de
+// seguridad/preventivos, captura exclusiva de operador sobre su unidad
+// asignada; cabo/jefe_maquinaria/admin/desarrollador ven el estado de todas
+// las unidades (paintEstadoUnidadMaq, más abajo) sin capturar por esta vía.
+// =========================================================================
+function estadoUnidadItemRowHtml(item) {
+  return `
+    <div class="eu-item" data-eu-item="${item.clave}">
+      <div class="eu-item-row">
+        <span class="eu-item-label">${esc(item.etiqueta)}</span>
+        <div class="eu-estado-group">
+          <button type="button" class="eu-estado-btn" data-eu-estado="ok">OK</button>
+          <button type="button" class="eu-estado-btn" data-eu-estado="atencion">Atención</button>
+          <button type="button" class="eu-estado-btn" data-eu-estado="critico">Crítico</button>
+        </div>
+      </div>
+      <div class="eu-item-nota hidden-initial"><input type="text" placeholder="Nota (opcional)" maxlength="200" /></div>
+    </div>
+  `;
+}
+
+function estadoUnidadBadgeHtml(estado) {
+  return `<span class="eu-mini-badge ${estado}">${esc(ESTADO_ITEM_LABELS[estado] || estado)}</span>`;
+}
+
+// equipos ya viene filtrado a solo los asignados a este operador (mismo
+// criterio que equipoSelectOptions/openHorasMaqModal, vía listEquipos(operadorId)
+// en el backend) — el <select> no necesita filtrar de nuevo.
+function openEstadoUnidadMaqModal(equipos) {
+  const equipoInicial = equipos[0];
+  openModal(`
+    <h3>Estado de la unidad</h3>
+    <div class="field"><label>Equipo *</label>
+      <select id="euEquipo">${equipos.map((e) => `<option value="${e.id}" data-categoria="${e.categoria}">${esc(e.nombre)}${e.identificador ? ` (${esc(e.identificador)})` : ''}</option>`).join('')}</select>
+    </div>
+    <div class="field"><label>Fecha *</label><input id="euFecha" type="date" value="${new Date().toISOString().slice(0, 10)}" /></div>
+    <div class="field"><label id="euLecturaLabel">${esc(LECTURA_LABEL_POR_CATEGORIA[equipoInicial.categoria] || 'Lectura')} *</label><input id="euLectura" type="number" min="0" step="0.1" /></div>
+    <div id="euChecklist" class="eu-checklist"></div>
+    <div class="field"><label>Observaciones</label><textarea id="euObservaciones" rows="2" maxlength="500"></textarea></div>
+    <div class="modal-actions">
+      <button class="btn" id="btnCancelEu">Cerrar</button>
+      <button class="btn btn-primary" id="btnSaveEu">Guardar</button>
+    </div>
+  `);
+
+  function pintarChecklist(categoria) {
+    const catalogo = CHECKLIST_ESTADO_UNIDAD[categoria] || [];
+    $('#euChecklist').innerHTML = catalogo.map(estadoUnidadItemRowHtml).join('');
+    $('#euLecturaLabel').textContent = `${LECTURA_LABEL_POR_CATEGORIA[categoria] || 'Lectura'} *`;
+    $$('[data-eu-item]', $('#euChecklist')).forEach((itemEl) => {
+      $$('[data-eu-estado]', itemEl).forEach((btn) => {
+        btn.addEventListener('click', () => {
+          $$('[data-eu-estado]', itemEl).forEach((b) => b.classList.remove('selected', 'ok', 'atencion', 'critico'));
+          btn.classList.add('selected', btn.dataset.euEstado);
+          itemEl.classList.toggle('eu-item-critico', btn.dataset.euEstado === 'critico');
+          itemEl.querySelector('.eu-item-nota').classList.toggle('hidden-initial', btn.dataset.euEstado === 'ok');
+        });
+      });
+    });
+  }
+  pintarChecklist(equipoInicial.categoria);
+
+  $('#euEquipo').addEventListener('change', () => {
+    pintarChecklist($('#euEquipo').selectedOptions[0].dataset.categoria);
+  });
+
+  $('#btnCancelEu').addEventListener('click', closeModal);
+  $('#btnSaveEu').addEventListener('click', async () => {
+    const itemEls = $$('[data-eu-item]', $('#euChecklist'));
+    const items = itemEls.map((itemEl) => {
+      const sel = itemEl.querySelector('.eu-estado-btn.selected');
+      return {
+        clave: itemEl.dataset.euItem,
+        estado: sel ? sel.dataset.euEstado : null,
+        nota: itemEl.querySelector('.eu-item-nota input').value.trim() || undefined,
+      };
+    });
+    if (items.some((it) => !it.estado)) {
+      toast('Completa el estado de todos los puntos del checklist', 'danger'); return;
+    }
+    const fecha = $('#euFecha').value;
+    const lectura = $('#euLectura').value;
+    if (!fecha || !(Number(lectura) >= 0)) {
+      toast('Completa fecha y una lectura válida', 'danger'); return;
+    }
+    const body = {
+      equipo_id: Number($('#euEquipo').value), fecha, lectura: Number(lectura),
+      observaciones: $('#euObservaciones').value.trim() || undefined,
+      items,
+    };
+    const btn = $('#btnSaveEu');
+    btn.disabled = true;
+    try {
+      const res = await api('/maquinaria/estado-unidad', { method: 'POST', body });
+      toast(res.tiene_critico ? 'Guardado — hay un punto marcado como Crítico' : 'Estado registrado', res.tiene_critico ? 'danger' : 'success');
+      closeModal();
+      renderView();
+    } catch (err) {
+      toast(err.message, 'danger');
+      btn.disabled = false;
+    }
+  });
+}
+
+// list ya viene con el ÚLTIMO estado por equipo (o ninguno) y `tiene_critico`
+// resuelto por el backend (server/maquinaria.js listEstadoUnidadResumen) —
+// esta función solo pinta, sin recalcular nada. Para operador ya viene
+// filtrada a solo sus unidades (mismo criterio que "Mis reportes de horas");
+// para cabo/jefe_maquinaria/admin/desarrollador trae TODAS.
+function paintEstadoUnidadMaq(list, { puedeSupervisarEstadoUnidad, esOperador }) {
+  const el = $('#estadoUnidadSection');
+  if (!el || (!puedeSupervisarEstadoUnidad && !esOperador)) { if (el) el.innerHTML = ''; return; }
+
+  let html = '';
+
+  if (esOperador) {
+    html += `
+      <h3 class="section-title mt-16">Estado de mis unidades</h3>
+      ${!list.length ? '<p class="muted">No tienes unidades asignadas.</p>' : `
+      <div class="eu-cards-grid mt-8">
+        ${list.map((u) => `
+          <div class="eu-card ${u.tiene_critico ? 'eu-card-critico' : ''}">
+            <div class="eu-card-head">
+              <span class="eu-card-title">${esc(u.equipo_nombre)}</span>
+              ${u.estado_id ? `<span class="muted fs-08">${fmtDate(u.fecha)}</span>` : ''}
+            </div>
+            ${!u.estado_id ? '<span class="eu-card-sin-captura">Sin captura todavía</span>' : `
+              <div class="eu-mini-badges">${(u.items || []).map((it) => estadoUnidadBadgeHtml(it.estado)).join('')}</div>
+              ${u.observaciones ? `<div class="muted fs-08 mt-4">${esc(u.observaciones)}</div>` : ''}
+            `}
+          </div>
+        `).join('')}
+      </div>
+      `}
+    `;
+  }
+
+  if (puedeSupervisarEstadoUnidad) {
+    const criticos = list.filter((u) => u.tiene_critico).length;
+    html += `
+      <h3 class="section-title mt-16">Estado de las unidades${criticos ? ` — ⚠️ ${criticos} con punto crítico` : ''}</h3>
+      ${!list.length ? '<p class="muted">No hay equipos registrados.</p>' : `
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Equipo</th><th>Categoría</th><th>Último estado</th><th>Fecha</th><th>Operador</th><th></th></tr></thead>
+          <tbody>
+            ${list.map((u) => `
+              <tr class="${u.tiene_critico ? 'eu-row-critico' : ''}">
+                <td>${esc(u.equipo_nombre)}</td>
+                <td>${u.categoria === 'camioneta' ? 'Camioneta' : 'Máquina'}</td>
+                <td>${u.estado_id ? `<div class="eu-mini-badges">${(u.items || []).map((it) => estadoUnidadBadgeHtml(it.estado)).join('')}</div>` : '<span class="muted">Sin captura</span>'}</td>
+                <td>${u.estado_id ? fmtDate(u.fecha) : '—'}</td>
+                <td>${esc(u.operador_nombre || '—')}</td>
+                <td>${u.estado_id ? `<button class="btn small" data-ver-historico-eu="${u.equipo_id}" data-nombre-eu="${esc(u.equipo_nombre)}">Histórico</button>` : ''}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+      `}
+    `;
+  }
+
+  el.innerHTML = html;
+  $$('[data-ver-historico-eu]', el).forEach((btn) => {
+    btn.addEventListener('click', () => openHistoricoEstadoUnidadMaqModal(Number(btn.dataset.verHistoricoEu), btn.dataset.nombreEu));
+  });
+}
+
+// Histórico completo de un equipo (no solo la última captura, a diferencia
+// de la tabla de arriba) — CP4 del prompt.
+async function openHistoricoEstadoUnidadMaqModal(equipoId, equipoNombre) {
+  openModal(`<h3>Histórico — ${esc(equipoNombre)}</h3><div id="euHistoricoBody"><p class="muted">Cargando…</p></div><div class="modal-actions"><button class="btn" id="btnCerrarEuHistorico">Cerrar</button></div>`);
+  $('#btnCerrarEuHistorico').addEventListener('click', closeModal);
+  try {
+    const historico = await api(`/maquinaria/estado-unidad/${equipoId}`);
+    $('#euHistoricoBody').innerHTML = !historico.length ? '<p class="muted">Sin capturas todavía.</p>' : `
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Fecha</th><th>Operador</th><th>Checklist</th><th>Lectura</th><th>Observaciones</th></tr></thead>
+          <tbody>
+            ${historico.map((h) => `
+              <tr class="${h.tiene_critico ? 'eu-row-critico' : ''}">
+                <td>${fmtDate(h.fecha)}</td>
+                <td>${esc(h.operador_nombre || '—')}</td>
+                <td><div class="eu-mini-badges">${(h.items || []).map((it) => estadoUnidadBadgeHtml(it.estado)).join('')}</div></td>
+                <td class="num">${fmtNum(h.lectura, 1)}</td>
+                <td>${esc(h.observaciones || '—')}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+    `;
+  } catch (err) {
+    $('#euHistoricoBody').innerHTML = `<p class="muted">${esc(err.message)}</p>`;
+  }
 }
 
 // =========================================================================

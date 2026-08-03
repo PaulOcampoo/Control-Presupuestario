@@ -2988,3 +2988,44 @@ body.a11y-reduce-motion *::after {
   }
   .perm-check-informativo:hover .perm-check-track { border-color: #38bdf8; }
 }
+
+/* Estado de la unidad (prompt-6-estado-unidad-operador.md) — checklist de
+   seguridad/preventivos. Selector de 3 estados como grupo de botones (no
+   <select>, para que el estado se lea de un vistazo sin abrir nada) y
+   resaltado de fila/tarjeta cuando el punto quedó en Crítico. */
+.eu-checklist { display: flex; flex-direction: column; gap: 10px; margin: 10px 0; }
+.eu-item {
+  border: 1px solid var(--border-color); border-radius: 8px; padding: 10px 12px;
+  background: var(--bg-surface);
+}
+.eu-item.eu-item-critico { border-color: var(--red); background: color-mix(in srgb, var(--red) 8%, var(--bg-surface)); }
+.eu-item-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.eu-item-label { font-weight: 600; font-size: 0.88rem; }
+.eu-estado-group { display: flex; gap: 6px; }
+.eu-estado-btn {
+  border: 1px solid var(--border-color); background: transparent; color: var(--text-secondary);
+  border-radius: 999px; padding: 4px 12px; font-size: 0.72rem; font-weight: 700;
+  letter-spacing: 0.02em; text-transform: uppercase; cursor: pointer;
+}
+.eu-estado-btn:hover { border-color: var(--text-secondary); }
+.eu-estado-btn.selected.ok { background: rgba(34,197,94,0.16); border-color: var(--green); color: var(--green); }
+.eu-estado-btn.selected.atencion { background: rgba(234,179,8,0.18); border-color: var(--yellow); color: var(--yellow); }
+.eu-estado-btn.selected.critico { background: rgba(239,68,68,0.18); border-color: var(--red); color: var(--red); }
+.eu-item-nota { margin-top: 8px; }
+.eu-item-nota input { font-size: 0.82rem; }
+
+.eu-card {
+  border: 1px solid var(--border-color); border-radius: 10px; padding: 12px 14px;
+  background: var(--bg-surface); display: flex; flex-direction: column; gap: 4px;
+}
+.eu-card.eu-card-critico { border-color: var(--red); background: color-mix(in srgb, var(--red) 7%, var(--bg-surface)); }
+.eu-card-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.eu-card-title { font-weight: 700; }
+.eu-card-sin-captura { color: var(--text-secondary); font-size: 0.85rem; }
+.eu-mini-badges { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 2px; }
+.eu-mini-badge { font-size: 0.66rem; font-weight: 700; padding: 1px 7px; border-radius: 999px; }
+.eu-mini-badge.ok { background: rgba(34,197,94,0.15); color: var(--green); }
+.eu-mini-badge.atencion { background: rgba(234,179,8,0.18); color: var(--yellow); }
+.eu-mini-badge.critico { background: rgba(239,68,68,0.18); color: var(--red); }
+.eu-cards-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
+tr.eu-row-critico td { background: color-mix(in srgb, var(--red) 9%, transparent); }

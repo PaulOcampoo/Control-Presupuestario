@@ -1489,6 +1489,119 @@ app.delete('/api/maquinaria/horas/:id', h(auth.checkPermiso('maquinaria', 'puede
   res.json({ ok: true });
 }));
 
+// =========================================================================
+// Estado de la unidad (prompt-6-estado-unidad-operador.md) — checklist
+// rápido de seguridad/preventivos capturado por el operador sobre SU unidad
+// asignada. Catálogo fijo por categoría (mismo criterio que
+// ACTIVIDADES_MAQUINARIA arriba): el backend es quien valida de verdad, el
+// frontend solo pinta un espejo exacto de estas listas.
+// =========================================================================
+const CHECKLIST_ESTADO_UNIDAD = {
+  maquina: [
+    { clave: 'fluidos', etiqueta: 'Niveles de fluidos' },
+    { clave: 'fugas', etiqueta: 'Fugas visibles' },
+    { clave: 'orugas_llantas', etiqueta: 'Estado de orugas/llantas' },
+    { clave: 'frenos', etiqueta: 'Frenos' },
+    { clave: 'luces_torreta', etiqueta: 'Luces y torreta' },
+    { clave: 'alarma_reversa', etiqueta: 'Alarma de reversa' },
+    { clave: 'cinturon', etiqueta: 'Cinturón' },
+    { clave: 'espejos', etiqueta: 'Espejos' },
+    { clave: 'extintor', etiqueta: 'Extintor' },
+  ],
+  camioneta: [
+    { clave: 'fluidos', etiqueta: 'Niveles de fluidos' },
+    { clave: 'fugas', etiqueta: 'Fugas visibles' },
+    { clave: 'llantas_refaccion', etiqueta: 'Llantas y refacción' },
+    { clave: 'frenos', etiqueta: 'Frenos' },
+    { clave: 'luces_direccionales', etiqueta: 'Luces y direccionales' },
+    { clave: 'cinturones', etiqueta: 'Cinturones' },
+    { clave: 'espejos', etiqueta: 'Espejos' },
+    { clave: 'extintor', etiqueta: 'Extintor' },
+    { clave: 'herramienta_gato', etiqueta: 'Herramienta/gato' },
+  ],
+};
+const ESTADOS_ITEM_VALIDOS = ['ok', 'atencion', 'critico'];
+
+// Listado (cabo/jefe_maquinaria/admin/desarrollador: TODAS las unidades con
+// su último estado; operador: solo la(s) suya(s) — mismo criterio de
+// aislamiento que listEquipos, prompt-p2-aislamiento-operador.md).
+app.get('/api/maquinaria/estado-unidad', h(auth.checkPermiso('estado_unidad', 'puede_ver')), h(async (req, res) => {
+  const operadorId = req.user.puesto === 'operador' ? req.user.id : null;
+  res.json(await maquinaria.listEstadoUnidadResumen(operadorId));
+}));
+
+// Histórico de un equipo específico — mismo patrón 403 (no 404, no exponer
+// el equipo) que GET /api/maquinaria/equipos/:id cuando un operador pide
+// una unidad que no es la suya.
+app.get('/api/maquinaria/estado-unidad/:equipoId', h(auth.checkPermiso('estado_unidad', 'puede_ver')), h(async (req, res) => {
+  const equipoId = Number(req.params.equipoId);
+  const equipo = await maquinaria.getEquipoById(equipoId);
+  if (!equipo) return res.status(404).json({ error: 'Equipo no encontrado' });
+  if (req.user.puesto === 'operador' && equipo.operador_asignado_id !== req.user.id) {
+    return res.status(403).json({ error: 'No tienes permiso para realizar esta acción' });
+  }
+  res.json(await maquinaria.listEstadoUnidadHistorico(equipoId));
+}));
+
+// Captura — exclusiva de operador sobre SU unidad asignada. Ownership se
+// valida en backend ANTES del INSERT (nunca solo en el frontend, mismo
+// patrón IDOR que equipos/:id): 403 si equipo_id no es el asignado a este
+// operador. items se valida contra el catálogo fijo de la categoría real
+// del equipo (no la que mande el cliente) — exactamente las claves
+// esperadas, ni de más ni de menos, y solo los 3 estados controlados.
+app.post('/api/maquinaria/estado-unidad', h(auth.checkPermiso('estado_unidad', 'puede_crear')), h(async (req, res) => {
+  const { equipo_id, fecha, items, lectura, observaciones } = req.body || {};
+  if (!equipo_id || !fecha) {
+    return res.status(400).json({ error: 'Indica equipo y fecha' });
+  }
+  const equipo = await maquinaria.getEquipoById(Number(equipo_id));
+  if (!equipo) return res.status(404).json({ error: 'Equipo no encontrado' });
+  if (equipo.operador_asignado_id !== req.user.id) {
+    return res.status(403).json({ error: 'No tienes permiso para realizar esta acción' });
+  }
+  const catalogo = CHECKLIST_ESTADO_UNIDAD[equipo.categoria];
+  if (!catalogo) return res.status(400).json({ error: `Categoría de equipo no soportada: ${equipo.categoria}` });
+  if (!(lectura >= 0)) {
+    return res.status(400).json({ error: 'Indica una lectura válida (horómetro/kilometraje)' });
+  }
+  if (!Array.isArray(items) || items.length !== catalogo.length) {
+    return res.status(400).json({ error: 'Completa todos los puntos del checklist' });
+  }
+  const clavesEsperadas = new Set(catalogo.map((c) => c.clave));
+  const clavesRecibidas = new Set(items.map((it) => it?.clave));
+  const itemsValidos = items.every((it) =>
+    clavesEsperadas.has(it?.clave) && ESTADOS_ITEM_VALIDOS.includes(it?.estado)
+  );
+  if (!itemsValidos || clavesRecibidas.size !== catalogo.length) {
+    return res.status(400).json({ error: 'Checklist incompleto o con valores inválidos' });
+  }
+  const itemsNormalizados = catalogo.map((c) => {
+    const capturado = items.find((it) => it.clave === c.clave);
+    return {
+      clave: c.clave, etiqueta: c.etiqueta, estado: capturado.estado,
+      nota: typeof capturado.nota === 'string' && capturado.nota.trim() ? capturado.nota.trim() : undefined,
+    };
+  });
+  const registro = await maquinaria.createEstadoUnidad({
+    equipo_id: equipo.id, operador_id: req.user.id, fecha, tipo_unidad: equipo.categoria,
+    items: itemsNormalizados, lectura: Number(lectura), observaciones: observaciones?.trim(),
+  });
+  const tieneCritico = itemsNormalizados.some((it) => it.estado === 'critico');
+  if (tieneCritico) {
+    // Mismo criterio que maquinaria_horas_pendiente arriba: avisa a todos los
+    // cabo y jefe_maquinaria activos (sin scoping por obra, mismo alcance
+    // sin asignación por-obra que el resto del módulo).
+    const { rows: supervisores } = await db.pool.query(
+      "SELECT id FROM usuarios WHERE puesto IN ('cabo', 'jefe_maquinaria') AND activo = true"
+    );
+    await Promise.all(supervisores.map((s) => crearNotificacion(
+      s.id, equipo.obra_id || null, 'estado_unidad_critico', registro.id,
+      `${req.user.nombre} reportó un punto CRÍTICO en el estado de "${equipo.nombre}"`
+    )));
+  }
+  res.status(201).json({ ...registro, tiene_critico: tieneCritico });
+}));
+
 // Cifras de presupuesto (monto total, gastado, % consumido) — solo
 // admin/desarrollador; el resto de roles con acceso a Maquinaria ve el
 // catálogo/combustible/mantenimiento/horas pero no estos montos.

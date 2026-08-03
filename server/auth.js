@@ -186,6 +186,15 @@ const SECCIONES_PERMISOS = [
   // 'maquinaria' existente (misma pantalla), no es un tab nuevo — mismo
   // criterio que 'maquinaria_captura'/'maquinaria_combustible' arriba.
   'estado_unidad',
+  // prompt-10-programa-consumibles.md: registro de consumo de aceites
+  // (motor/hidráulico/transmisión) por el operador sobre su unidad — diesel
+  // NO vive aquí (decisión consultada: se captura vía 'maquinaria_combustible'
+  // existente, ver server/app.js). Sección propia y separada de
+  // 'maquinaria_combustible' a propósito: esa sección sigue siendo solo
+  // jefe_maquinaria, y también gatea mantenimientos_maquinaria — darle a
+  // operador puede_crear ahí le habría abierto esa tabla también (Forbidden
+  // Action explícita del prompt).
+  'maquinaria_consumibles',
 ];
 const ACCIONES_PERMISOS = ['puede_ver', 'puede_crear', 'puede_editar', 'puede_editar_precios', 'puede_eliminar'];
 
@@ -318,6 +327,13 @@ function defaultPermisosParaRol(puesto) {
       seccion: 'estado_unidad', puede_ver: true, puede_crear: false,
       puede_editar: false, puede_editar_precios: false, puede_eliminar: false,
     });
+    // prompt-10-programa-consumibles.md: cabo solo ve el consumo de
+    // aceites/diesel de todas las unidades, no captura por esta vía — mismo
+    // criterio que estado_unidad arriba.
+    filas.push({
+      seccion: 'maquinaria_consumibles', puede_ver: true, puede_crear: false,
+      puede_editar: false, puede_editar_precios: false, puede_eliminar: false,
+    });
   }
   if (puesto === 'compras') {
     // compras podía crear/editar/eliminar requisiciones de cualquier obra por
@@ -380,6 +396,13 @@ function defaultPermisosParaRol(puesto) {
       seccion: 'estado_unidad', puede_ver: true, puede_crear: false,
       puede_editar: false, puede_editar_precios: false, puede_eliminar: false,
     });
+    // prompt-10-programa-consumibles.md: jefe_maquinaria solo ve el consumo
+    // de aceites/diesel de todas las unidades — su propia captura de diesel
+    // sigue siendo por 'maquinaria_combustible' (arriba), sin cambios.
+    filas.push({
+      seccion: 'maquinaria_consumibles', puede_ver: true, puede_crear: false,
+      puede_editar: false, puede_editar_precios: false, puede_eliminar: false,
+    });
   }
   if (puesto === 'operador') {
     // Solo captura de horas/actividad (prompt-2-rol-operador-actividades.md)
@@ -395,6 +418,15 @@ function defaultPermisosParaRol(puesto) {
     // asignado_id) antes de cualquier INSERT, esto solo habilita el intento.
     filas.push({
       seccion: 'estado_unidad', puede_ver: true, puede_crear: true,
+      puede_editar: false, puede_editar_precios: false, puede_eliminar: false,
+    });
+    // prompt-10-programa-consumibles.md: operador captura consumo de aceites
+    // Y de diesel (diesel vía POST /api/maquinaria/consumibles, que escribe
+    // en combustible_maquinaria con su propia validación de ownership — NO
+    // vía 'maquinaria_combustible', que sigue siendo solo jefe_maquinaria y
+    // también gatea mantenimientos_maquinaria).
+    filas.push({
+      seccion: 'maquinaria_consumibles', puede_ver: true, puede_crear: true,
       puede_editar: false, puede_editar_precios: false, puede_eliminar: false,
     });
   }

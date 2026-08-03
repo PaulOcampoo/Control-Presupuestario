@@ -762,7 +762,7 @@ const SCHEMA = `
       'nominas','sugerencias','programa','estimaciones','maquinaria',
       'trabajadores_global','nominas_global','trabajadores','estado_resultados','maquinaria_captura','maquinaria_combustible',
       'costos','trabajadores_docs','trabajadores_contrato','trabajadores_bancarios',
-      'cotizador','estado_resultados_global','estado_unidad'
+      'cotizador','estado_resultados_global','estado_unidad','maquinaria_consumibles'
     )),
     puede_ver BOOLEAN NOT NULL DEFAULT false,
     puede_crear BOOLEAN NOT NULL DEFAULT false,
@@ -791,6 +791,12 @@ const SCHEMA = `
   -- viola el CHECK, mismo bug ya documentado arriba con cada sección nueva.
   -- 'estado_unidad' agregado en prompt-6-estado-unidad-operador.md — mismo
   -- patrón, sección propia para el checklist de operador.
+  -- 'maquinaria_consumibles' agregado en prompt-10-programa-consumibles.md —
+  -- sección propia y separada de 'maquinaria_combustible' a propósito: esta
+  -- última sigue siendo solo jefe_maquinaria (combustible oficial +
+  -- bitácora de mantenimiento); darle a operador puede_crear ahí también le
+  -- habría abierto la puerta a mantenimientos_maquinaria (Forbidden Action
+  -- explícita de este prompt: no ampliar quién escribe esa tabla).
   ALTER TABLE permisos_usuario DROP CONSTRAINT IF EXISTS permisos_usuario_seccion_check;
   ALTER TABLE permisos_usuario ADD CONSTRAINT permisos_usuario_seccion_check CHECK (seccion IN (
     'presupuestos','requisiciones','proveedores','ordenes_compra','avance',
@@ -798,7 +804,7 @@ const SCHEMA = `
     'nominas','sugerencias','programa','estimaciones','maquinaria',
     'trabajadores_global','nominas_global','trabajadores','estado_resultados','maquinaria_captura','maquinaria_combustible',
     'costos','trabajadores_docs','trabajadores_contrato','trabajadores_bancarios',
-    'cotizador','estado_resultados_global','estado_unidad'
+    'cotizador','estado_resultados_global','estado_unidad','maquinaria_consumibles'
   ));
 
   -- Contador de folios por obra + tipo de documento. INSERT...ON CONFLICT DO
@@ -927,6 +933,40 @@ const SCHEMA = `
     creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW()
   );
   CREATE INDEX IF NOT EXISTS idx_combustible_maquinaria_equipo ON combustible_maquinaria(equipo_id);
+
+  -- Programa de consumibles (prompt-10-programa-consumibles.md) — decisión
+  -- consultada: 'diesel' NO se duplica en una tabla nueva porque
+  -- combustible_maquinaria (arriba) ya lo cubre exactamente (litros/fecha/
+  -- equipo/costo); el operador captura diesel EN esta misma tabla vía un
+  -- endpoint nuevo con su propia validación de ownership (equipo_id debe ser
+  -- el operador_asignado_id del operador) — costo/registrado_por se resuelven
+  -- igual, sin tocar el flujo existente de jefe_maquinaria. 'lectura'
+  -- (horómetro/km opcional en el momento de la captura) no existía en esta
+  -- tabla — se agrega nullable para no afectar las filas ya capturadas por
+  -- jefe_maquinaria, que nunca la usó.
+  ALTER TABLE combustible_maquinaria ADD COLUMN IF NOT EXISTS lectura DOUBLE PRECISION;
+
+  -- Los otros 3 consumibles (aceite_motor/hidraulico/transmision) sí son
+  -- tabla nueva — no tienen ningún equivalente existente. insumo_id
+  -- referencia el insumo de Insumos usado para resolver costo_estimado (si
+  -- lo hay — Insumos solo tiene 'ACEITE' genérico, sin distinguir motor/
+  -- hidráulico/transmisión, confirmado en diagnóstico) — nullable porque la
+  -- captura NO debe bloquearse por falta de catálogo (Forbidden Actions).
+  CREATE TABLE IF NOT EXISTS consumibles_maquinaria (
+    id SERIAL PRIMARY KEY,
+    equipo_id INTEGER NOT NULL REFERENCES equipos_maquinaria(id) ON DELETE CASCADE,
+    tipo TEXT NOT NULL CHECK (tipo IN ('aceite_motor', 'aceite_hidraulico', 'aceite_transmision')),
+    cantidad DOUBLE PRECISION NOT NULL,
+    unidad TEXT NOT NULL DEFAULT 'litros',
+    lectura DOUBLE PRECISION,
+    operador_id INTEGER NOT NULL REFERENCES usuarios(id),
+    fecha DATE NOT NULL,
+    costo_estimado DOUBLE PRECISION,
+    insumo_id INTEGER REFERENCES insumos(id) ON DELETE SET NULL,
+    activo BOOLEAN NOT NULL DEFAULT true,
+    creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
+  CREATE INDEX IF NOT EXISTS idx_consumibles_maquinaria_equipo ON consumibles_maquinaria(equipo_id, creado_en DESC);
 
   CREATE TABLE IF NOT EXISTS mantenimientos_maquinaria (
     id SERIAL PRIMARY KEY,
@@ -1168,6 +1208,18 @@ const SCHEMA = `
     AND NOT EXISTS (
       SELECT 1 FROM permisos_usuario pu
       WHERE pu.usuario_id = u.id AND pu.proyecto_id IS NULL AND pu.seccion = 'estado_unidad'
+    );
+
+  -- prompt-10-programa-consumibles.md: mismo backfill, mismo criterio, para
+  -- 'maquinaria_consumibles' — operador ver+crear, cabo/jefe_maquinaria solo
+  -- ver (igual que estado_unidad arriba).
+  INSERT INTO permisos_usuario (usuario_id, proyecto_id, seccion, puede_ver, puede_crear, puede_editar, puede_editar_precios, puede_eliminar)
+  SELECT u.id, NULL, 'maquinaria_consumibles', true, (u.puesto = 'operador'), false, false, false
+  FROM usuarios u
+  WHERE u.puesto IN ('operador', 'cabo', 'jefe_maquinaria')
+    AND NOT EXISTS (
+      SELECT 1 FROM permisos_usuario pu
+      WHERE pu.usuario_id = u.id AND pu.proyecto_id IS NULL AND pu.seccion = 'maquinaria_consumibles'
     );
 `;
 

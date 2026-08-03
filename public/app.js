@@ -8417,6 +8417,14 @@ const LECTURA_LABEL_POR_CATEGORIA = { maquina: 'Horómetro (hrs)', camioneta: 'K
 // corresponden al rol que se está simulando.
 const ROLES_CAPTURAN_ESTADO_UNIDAD_MAQ = ['operador', 'admin', 'desarrollador'];
 const ROLES_SUPERVISAN_ESTADO_UNIDAD_MAQ = ['cabo', 'jefe_maquinaria', 'admin', 'desarrollador'];
+// Programa de consumibles (prompt-10-programa-consumibles.md) — espejo
+// exacto de TIPOS_CONSUMIBLE en server/app.js. 'diesel' se captura por esta
+// misma pantalla pero físicamente vive en combustible_maquinaria (decisión
+// consultada) — el frontend no necesita saber eso, el backend lo resuelve.
+const TIPOS_CONSUMIBLE_LABELS = {
+  diesel: 'Diésel', aceite_motor: 'Aceite de motor',
+  aceite_hidraulico: 'Aceite hidráulico', aceite_transmision: 'Aceite de transmisión',
+};
 
 // Bug encontrado en revisión de dispositivo real (prompt-fix-cabo-operador-
 // permisos-simulacion.md): un admin/desarrollador usando "vista simulada"
@@ -8442,7 +8450,7 @@ const ROLES_CAPTURAN_HORAS_MAQ = ['operador', 'admin', 'desarrollador'];
 const ROLES_BITACORA_TALLER_MAQ = ['jefe_maquinaria', 'admin', 'desarrollador'];
 
 async function renderMaquinaria(view) {
-  const [equipos, resumen, misPermisos, misPermisosCaptura, misPermisosCombustible, misPermisosEstadoUnidad, proyectos, clientesMaq, reporteClientes, horasMaq, bitacoraTaller, operadoresMaq, estadoUnidadList] = await Promise.all([
+  const [equipos, resumen, misPermisos, misPermisosCaptura, misPermisosCombustible, misPermisosEstadoUnidad, misPermisosConsumibles, proyectos, clientesMaq, reporteClientes, horasMaq, bitacoraTaller, operadoresMaq, estadoUnidadList, consumiblesData] = await Promise.all([
     api('/maquinaria/equipos'),
     api('/maquinaria/resumen'),
     api('/mis-permisos/maquinaria'),
@@ -8452,6 +8460,9 @@ async function renderMaquinaria(view) {
     // 'estado_unidad' (default-deny real, a propósito: no forma parte del
     // alcance de este checklist), el .catch evita que ese 403 tumbe el resto.
     api('/mis-permisos/estado_unidad').catch(() => ({})),
+    // prompt-10-programa-consumibles.md — mismo criterio, residente no tiene
+    // fila en 'maquinaria_consumibles'.
+    api('/mis-permisos/maquinaria_consumibles').catch(() => ({})),
     api('/projects').catch(() => []),
     api('/clientes').catch(() => []),
     api('/maquinaria/reporte-clientes').catch(() => null),
@@ -8472,6 +8483,8 @@ async function renderMaquinaria(view) {
     api('/maquinaria/operadores').catch(() => []),
     // 403 esperado para residente (arriba) — mismo .catch.
     api('/maquinaria/estado-unidad').catch(() => []),
+    // 403 esperado para residente (arriba) — mismo .catch.
+    api('/maquinaria/consumibles').catch(() => ({ registros: [], resumen: [] })),
   ]);
   maquinariaEquiposCache = equipos;
   const puedeCrear = !!misPermisos.puede_crear; // equipos — sección 'maquinaria', sin cambio (CN-002)
@@ -8513,6 +8526,9 @@ async function renderMaquinaria(view) {
   // "Vista como").
   const puedeCrearEstadoUnidad = !!misPermisosEstadoUnidad.puede_crear && ROLES_CAPTURAN_ESTADO_UNIDAD_MAQ.includes(effectivePuesto());
   const puedeSupervisarEstadoUnidad = !!misPermisosEstadoUnidad.puede_ver && ROLES_SUPERVISAN_ESTADO_UNIDAD_MAQ.includes(effectivePuesto());
+  // prompt-10-programa-consumibles.md: mismo AND que estado_unidad arriba.
+  const puedeCrearConsumibles = !!misPermisosConsumibles.puede_crear && ROLES_CAPTURAN_ESTADO_UNIDAD_MAQ.includes(effectivePuesto());
+  const puedeSupervisarConsumibles = !!misPermisosConsumibles.puede_ver && ROLES_SUPERVISAN_ESTADO_UNIDAD_MAQ.includes(effectivePuesto());
 
   // Cifras de presupuesto (total/gastado/%/sugerido por cliente) — solo
   // admin/desarrollador; backend ya las envía null para el resto de roles,
@@ -8540,10 +8556,12 @@ async function renderMaquinaria(view) {
       ${puedeCrearBitacora ? '<button class="btn" id="btnMantenimientoMaq">+ Registrar en bitácora</button>' : ''}
       ${puedeCrearHoras ? '<button class="btn" id="btnHorasMaq">+ Capturar horas</button>' : ''}
       ${puedeCrearEstadoUnidad && equipos.length ? '<button class="btn" id="btnEstadoUnidadMaq">+ Estado de la unidad</button>' : ''}
+      ${puedeCrearConsumibles && equipos.length ? '<button class="btn" id="btnConsumiblesMaq">+ Consumibles</button>' : ''}
     </div>
     <div id="reportesHorasMaqSection"></div>
     <div id="bitacoraTallerSection"></div>
     <div id="estadoUnidadSection"></div>
+    <div id="consumiblesMaqSection"></div>
 
     ${!esOperador ? `
     <h3 class="section-title mt-16">Equipos por cliente</h3>
@@ -8568,9 +8586,11 @@ async function renderMaquinaria(view) {
   $('#btnMantenimientoMaq')?.addEventListener('click', () => openMantenimientoMaqModal(equipos));
   $('#btnHorasMaq')?.addEventListener('click', () => openHorasMaqModal(equipos, proyectos));
   $('#btnEstadoUnidadMaq')?.addEventListener('click', () => openEstadoUnidadMaqModal(equipos));
+  $('#btnConsumiblesMaq')?.addEventListener('click', () => openConsumiblesMaqModal(equipos));
   paintReportesHorasMaq(horasMaq, { puedeAutorizarHoras, esOperador });
   paintBitacoraTaller(bitacoraTaller, equipos, { puedeVerBitacora });
   paintEstadoUnidadMaq(estadoUnidadList, { puedeSupervisarEstadoUnidad, esOperador });
+  paintConsumiblesMaq(consumiblesData, { puedeSupervisarConsumibles, esOperador });
   { const fill = $('.progress-bar > span[data-pct]', view); if (fill) fill.style.width = fill.dataset.pct + '%'; }
 
   // prompt-p2-aislamiento-operador.md: "Equipos por cliente" y "Catálogo de
@@ -9420,6 +9440,158 @@ async function openHistoricoEstadoUnidadMaqModal(equipoId, equipoNombre) {
   } catch (err) {
     $('#euHistoricoBody').innerHTML = `<p class="muted">${esc(err.message)}</p>`;
   }
+}
+
+// =========================================================================
+// Programa de consumibles (prompt-10-programa-consumibles.md) — diesel + 3
+// aceites, captura exclusiva de operador sobre su unidad asignada;
+// cabo/jefe_maquinaria/admin/desarrollador solo consultan (mismo patrón que
+// estado_unidad, arriba). Alcance de este PR: registro + consulta, SIN
+// alertas de vencimiento de servicio — no existe el concepto de "intervalo"
+// en el sistema (confirmado en diagnóstico), inventar una regla de negocio
+// que Paul no ha definido era una Forbidden Action explícita del prompt.
+// =========================================================================
+function openConsumiblesMaqModal(equipos) {
+  openModal(`
+    <h3>Registrar consumible</h3>
+    <div class="field"><label>Equipo *</label>
+      <select id="cmEquipo">${equipos.map((e) => `<option value="${e.id}">${esc(e.nombre)}${e.identificador ? ` (${esc(e.identificador)})` : ''}</option>`).join('')}</select>
+    </div>
+    <div class="field"><label>Tipo de consumible *</label>
+      <select id="cmTipo">${Object.entries(TIPOS_CONSUMIBLE_LABELS).map(([v, l]) => `<option value="${v}">${esc(l)}</option>`).join('')}</select>
+    </div>
+    <div class="field"><label>Fecha *</label><input id="cmFecha" type="date" value="${new Date().toISOString().slice(0, 10)}" /></div>
+    <div class="field"><label>Cantidad (litros) *</label><input id="cmCantidad" type="number" min="0" step="0.1" /></div>
+    <div class="field"><label>Lectura de horómetro/kilometraje (opcional)</label><input id="cmLectura" type="number" min="0" step="0.1" /></div>
+    <div class="modal-actions">
+      <button class="btn" id="btnCancelCm">Cerrar</button>
+      <button class="btn btn-primary" id="btnSaveCm">Guardar</button>
+    </div>
+  `);
+  $('#btnCancelCm').addEventListener('click', closeModal);
+  $('#btnSaveCm').addEventListener('click', async () => {
+    const body = {
+      equipo_id: Number($('#cmEquipo').value), tipo: $('#cmTipo').value,
+      fecha: $('#cmFecha').value, cantidad: Number($('#cmCantidad').value),
+      lectura: $('#cmLectura').value ? Number($('#cmLectura').value) : null,
+    };
+    if (!body.equipo_id || !body.fecha || !(body.cantidad > 0)) {
+      toast('Completa equipo, fecha y una cantidad válida', 'danger'); return;
+    }
+    const btn = $('#btnSaveCm');
+    btn.disabled = true;
+    try {
+      await api('/maquinaria/consumibles', { method: 'POST', body });
+      toast('Consumible registrado', 'success');
+      closeModal();
+      renderView();
+    } catch (err) {
+      toast(err.message, 'danger');
+      btn.disabled = false;
+    }
+  });
+}
+
+// Rango de fechas para los filtros rápidos de periodo — "Esta semana"
+// arranca en lunes (mismo criterio ya usado en avances_semanales, no
+// domingo) para no introducir un segundo criterio de "semana" en la app.
+function rangoPeriodoConsumibles(periodo) {
+  const hoy = new Date();
+  const fmt = (d) => d.toISOString().slice(0, 10);
+  if (periodo === 'semana') {
+    const dow = (hoy.getUTCDay() + 6) % 7; // 0 = lunes
+    const inicio = new Date(hoy); inicio.setUTCDate(hoy.getUTCDate() - dow);
+    return { desde: fmt(inicio), hasta: fmt(hoy) };
+  }
+  if (periodo === 'mes') {
+    const inicio = new Date(Date.UTC(hoy.getUTCFullYear(), hoy.getUTCMonth(), 1));
+    return { desde: fmt(inicio), hasta: fmt(hoy) };
+  }
+  return { desde: null, hasta: null }; // 'todo'
+}
+
+async function paintConsumiblesMaq(dataInicial, { puedeSupervisarConsumibles, esOperador }) {
+  const el = $('#consumiblesMaqSection');
+  if (!el || (!puedeSupervisarConsumibles && !esOperador)) { if (el) el.innerHTML = ''; return; }
+
+  let periodo = 'todo'; // 'semana' | 'mes' | 'todo' | 'rango'
+
+  function tablaResumenHtml(resumen) {
+    if (!resumen.length) return '<p class="muted">Sin consumo registrado en este periodo.</p>';
+    return `
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Equipo</th><th>Consumible</th><th class="num">Total (L)</th><th class="num">Costo estimado</th><th class="num"># capturas</th></tr></thead>
+          <tbody>
+            ${resumen.map((r) => `
+              <tr>
+                <td>${esc(r.equipo_nombre)}</td>
+                <td>${esc(TIPOS_CONSUMIBLE_LABELS[r.tipo] || r.tipo)}</td>
+                <td class="num">${fmtNum(r.total_cantidad, 1)}</td>
+                <td class="num">${r.total_costo_estimado > 0 ? fmtMoney(r.total_costo_estimado) : '<span class="muted">Sin costo (sin insumo)</span>'}</td>
+                <td class="num">${r.n_registros}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+    `;
+  }
+
+  function misCapturasHtml(registros) {
+    const propias = registros.filter((r) => r.operador_id === state.user.id);
+    if (!propias.length) return '<p class="muted">Aún no has capturado ningún consumible.</p>';
+    return `
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Fecha</th><th>Equipo</th><th>Consumible</th><th class="num">Cantidad (L)</th><th class="num">Lectura</th></tr></thead>
+          <tbody>
+            ${propias.map((r) => `
+              <tr>
+                <td>${fmtDate(r.fecha)}</td>
+                <td>${esc(r.equipo_nombre)}</td>
+                <td>${esc(TIPOS_CONSUMIBLE_LABELS[r.tipo] || r.tipo)}</td>
+                <td class="num">${fmtNum(r.cantidad, 1)}</td>
+                <td class="num">${r.lectura != null ? fmtNum(r.lectura, 1) : '—'}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+    `;
+  }
+
+  async function pintar(data) {
+    let html = `<h3 class="section-title mt-16">Consumibles</h3>`;
+    if (puedeSupervisarConsumibles) {
+      html += `
+        <div class="section-actions">
+          <button class="btn ${periodo === 'semana' ? 'btn-primary' : ''}" data-periodo-cm="semana">Esta semana</button>
+          <button class="btn ${periodo === 'mes' ? 'btn-primary' : ''}" data-periodo-cm="mes">Este mes</button>
+          <button class="btn ${periodo === 'todo' ? 'btn-primary' : ''}" data-periodo-cm="todo">Todo</button>
+        </div>
+        <div id="cmResumenTabla" class="mt-8">${tablaResumenHtml(data.resumen)}</div>
+      `;
+    }
+    if (esOperador) {
+      html += `<h4 class="mt-12">Mis consumibles capturados</h4>${misCapturasHtml(data.registros)}`;
+    }
+    el.innerHTML = html;
+    $$('[data-periodo-cm]', el).forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        periodo = btn.dataset.periodoCm;
+        const { desde, hasta } = rangoPeriodoConsumibles(periodo);
+        try {
+          const nuevaData = await api(`/maquinaria/consumibles${desde ? `?desde=${desde}&hasta=${hasta}` : ''}`);
+          await pintar(nuevaData);
+        } catch (err) {
+          toast(err.message, 'danger');
+        }
+      });
+    });
+  }
+
+  await pintar(dataInicial);
 }
 
 // =========================================================================

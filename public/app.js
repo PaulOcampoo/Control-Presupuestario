@@ -4488,6 +4488,7 @@ async function renderInsumos(view) {
     <p class="muted">Cantidades y precios presupuestados por insumo. Las barras y etiquetas muestran lo ya requisitado contra lo presupuestado.</p>
     <div class="section-actions">
       <button class="btn" id="btnExportInsumos">⭳ Exportar a Excel</button>
+      ${effectivePuesto() === 'residente' || isAdmin() ? '<button class="btn btn-primary" id="btnMaterialesDisponibles">📋 Programa de materiales disponibles</button>' : ''}
     </div>
     <div class="sticky-filters">
       <div class="search-bar">
@@ -4502,6 +4503,7 @@ async function renderInsumos(view) {
   `;
 
   wireExportButton('#btnExportInsumos', `/projects/${state.projectId}/insumos/export${queryString(insumosFilter)}`);
+  $('#btnMaterialesDisponibles')?.addEventListener('click', openMaterialesDisponiblesModal);
 
   $('#insumoSearch').addEventListener('input', debounce((e) => {
     insumosFilter.q = e.target.value.trim();
@@ -4573,6 +4575,88 @@ function paintInsumos(insumos) {
       } catch (err) { toast(err.message, 'danger'); }
     });
   });
+}
+
+// Programa de materiales disponibles (prompt-11-programa-materiales-
+// disponibles.md, residente) — decisión consultada tras diagnóstico: dos
+// cifras lado a lado, nunca fusionadas: "Disponible (sin solicitar)" (ya
+// existe en Insumos: presupuestado − ya solicitado en requisiciones) y
+// "Recibido en obra" (nueva: confirmado vía recepción de Orden de Compra,
+// lo más cercano a "llegó físicamente" que tiene el sistema hoy). Se genera
+// en vivo (sin tabla nueva) — Insumos/OC/recepciones cambian con frecuencia,
+// persistir un snapshot se habría desactualizado de inmediato.
+function materialesDisponiblesTablaHtml(materiales) {
+  if (!materiales.length) return '<p class="muted">Sin insumos en esta obra.</p>';
+  return `
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>Código</th><th>Concepto</th><th class="num">Disponible (sin solicitar)</th><th class="num">Recibido en obra</th></tr></thead>
+        <tbody>
+          ${materiales.map((i) => `
+            <tr>
+              <td>${esc(i.codigo)}</td>
+              <td>${esc(i.concepto)}</td>
+              <td class="num">${fmtNum(i.cantidad_disponible, 2)} ${esc(i.unidad || '')}</td>
+              <td class="num">${i.cantidad_recibida > 0 ? `${fmtNum(i.cantidad_recibida, 2)} ${esc(i.unidad || '')}` : '<span class="muted">—</span>'}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function openMaterialesDisponiblesModal() {
+  const proyectoActual = state.projects.find((p) => p.id === state.projectId);
+  const clienteId = proyectoActual?.cliente_id;
+  const obrasDelCliente = clienteId ? state.projects.filter((p) => p.cliente_id === clienteId) : [];
+  const puedeAgruparPorCliente = obrasDelCliente.length > 1;
+  let modo = 'obra'; // 'obra' | 'cliente'
+
+  function bind() {
+    $('#btnMatDispCerrar').addEventListener('click', closeModal);
+    $('#btnMatDispObra')?.addEventListener('click', () => { modo = 'obra'; render(); });
+    $('#btnMatDispCliente')?.addEventListener('click', () => { modo = 'cliente'; render(); });
+    $('#btnMatDispExport').addEventListener('click', async () => {
+      try {
+        if (modo === 'obra') await downloadExport(`/projects/${state.projectId}/materiales-disponibles/export`);
+        else await downloadExport(`/materiales-disponibles/por-cliente/export?cliente_id=${clienteId}`);
+      } catch (err) { toast(err.message, 'danger'); }
+    });
+  }
+
+  async function render() {
+    openModal(`
+      <h3>Programa de materiales disponibles</h3>
+      <p class="muted fs-08">"Disponible (sin solicitar)" = presupuestado menos ya solicitado en requisiciones (mismo dato que ya ves en Insumos). "Recibido en obra" = confirmado por recepción de Orden de Compra.</p>
+      ${puedeAgruparPorCliente ? `
+      <div class="nominas-subnav">
+        <button class="btn ${modo === 'obra' ? 'btn-primary' : ''}" id="btnMatDispObra">Esta obra</button>
+        <button class="btn ${modo === 'cliente' ? 'btn-primary' : ''}" id="btnMatDispCliente">Todo el cliente (${obrasDelCliente.length} obras)</button>
+      </div>` : ''}
+      <div class="section-actions mt-8">
+        <button class="btn" id="btnMatDispExport">⭳ Exportar a Excel</button>
+      </div>
+      <div id="matDispResult" class="mt-8"><div class="spinner"></div></div>
+      <div class="modal-actions"><button class="btn" id="btnMatDispCerrar">Cerrar</button></div>
+    `);
+    bind();
+    try {
+      if (modo === 'obra') {
+        const materiales = await api(`/projects/${state.projectId}/materiales-disponibles`);
+        $('#matDispResult').innerHTML = materialesDisponiblesTablaHtml(materiales);
+      } else {
+        const data = await api(`/materiales-disponibles/por-cliente?cliente_id=${clienteId}`);
+        $('#matDispResult').innerHTML = data.obras.length
+          ? data.obras.map((o) => `<h4 class="mt-8">${esc(o.obra_nombre)}</h4>${materialesDisponiblesTablaHtml(o.materiales)}`).join('')
+          : '<p class="muted">Sin obras de este cliente asignadas.</p>';
+      }
+    } catch (err) {
+      $('#matDispResult').innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+    }
+  }
+
+  render();
 }
 
 function queryString(obj) {

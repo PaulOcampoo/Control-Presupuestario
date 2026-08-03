@@ -3494,6 +3494,127 @@ app.get('/api/projects/:id/insumos/export', h(auth.allow('residente', 'cabo', 'c
   });
 }));
 
+// ---------------------------------------------------------------------------
+// Programa de materiales disponibles (prompt-11-programa-materiales-
+// disponibles.md) — residente. Decisión consultada tras diagnóstico: sin
+// tabla nueva (se genera en vivo, coherente con que Insumos/OC/recepciones
+// cambian con frecuencia); reutiliza la sección de permiso 'insumos' que
+// residente YA tiene (sin ampliar acceso).
+//
+// "Disponible" ya tenía un significado establecido en getInsumosData (arriba):
+// presupuestado − ya solicitado en requisiciones. Este módulo agrega una
+// SEGUNDA cifra, 'cantidad_recibida' (vía recepcion_items — lo más cercano a
+// "llegó físicamente a obra" que tiene el sistema hoy), SIN pisar ni
+// renombrar la original — decisión consultada: mostrar ambas cifras lado a
+// lado, nunca fusionarlas en un solo número.
+async function getRecibidoPorInsumo(pid) {
+  const { rows } = await db.pool.query(`
+    SELECT reqi.insumo_id, SUM(ri.cantidad_recibida) AS cantidad_recibida
+    FROM recepcion_items ri
+    JOIN orden_compra_items oci ON oci.id = ri.orden_compra_item_id
+    JOIN requisicion_items reqi ON reqi.id = oci.requisicion_item_id
+    JOIN requisiciones r ON r.id = reqi.requisicion_id
+    WHERE r.project_id = $1
+    GROUP BY reqi.insumo_id
+  `, [pid]);
+  return new Map(rows.map((r) => [r.insumo_id, Number(r.cantidad_recibida)]));
+}
+
+async function getMaterialesDisponiblesData(pid, query) {
+  const [insumos, recibidoMap] = await Promise.all([
+    getInsumosData(pid, query),
+    getRecibidoPorInsumo(pid),
+  ]);
+  return insumos.map((i) => ({ ...i, cantidad_recibida: recibidoMap.get(i.id) || 0 }));
+}
+
+function materialesDisponiblesExportSheet(materiales, sheetName) {
+  return {
+    sheetName,
+    columns: [
+      { header: 'Código', key: 'codigo', width: 14 },
+      { header: 'Concepto', key: 'concepto', width: 40 },
+      { header: 'Unidad', key: 'unidad', width: 10 },
+      { header: 'Categoría', key: 'categoria', width: 18 },
+      { header: 'Cantidad presupuestada', key: 'cantidad_presupuesto', width: 20, format: 'int' },
+      { header: 'Disponible (sin solicitar)', key: 'cantidad_disponible', width: 22, format: 'int' },
+      { header: 'Recibido en obra', key: 'cantidad_recibida', width: 18, format: 'int' },
+      { header: 'Precio unitario presupuestado', key: 'precio_presupuesto', width: 22, format: 'money' },
+    ],
+    rows: materiales.map((i) => ({
+      codigo: i.codigo, concepto: i.concepto, unidad: i.unidad, categoria: i.categoria,
+      cantidad_presupuesto: Number(i.cantidad_presupuesto),
+      cantidad_disponible: Number(i.cantidad_disponible),
+      cantidad_recibida: Number(i.cantidad_recibida),
+      precio_presupuesto: Number(i.precio_presupuesto),
+    })),
+  };
+}
+
+// Solo residente (+ admin/desarrollador vía bypass automático de
+// auth.allow()) — a diferencia de /insumos (arriba), que también incluye
+// cabo/compras/logistica; este programa es explícitamente para residente
+// (título del prompt). Ownership real: requireProject + verificarAccesoObra
+// ya dan 403 si el residente pide una obra que no tiene asignada — mismo
+// patrón que /insumos, sin código adicional.
+app.get('/api/projects/:id/materiales-disponibles', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('insumos', 'puede_ver')), h(async (req, res) => {
+  res.json(await getMaterialesDisponiblesData(req.project.id, req.query));
+}));
+
+app.get('/api/projects/:id/materiales-disponibles/export', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('insumos', 'puede_ver')), h(async (req, res) => {
+  const materiales = await getMaterialesDisponiblesData(req.project.id, req.query);
+  await sendXlsxExport(res, {
+    filename: buildExportFilename('Materiales-Disponibles', req.project.nombre),
+    sheets: [materialesDisponiblesExportSheet(materiales, 'Materiales')],
+  });
+}));
+
+// Agrupación por cliente (Target State #1: "cuando el residente tiene
+// acceso a más de una obra del mismo cliente") — cada fila queda anclada a
+// su obra de origen (obra_id/obra_nombre), nunca fusionada entre obras: un
+// mismo código puede tener precio/disponibilidad distinta por obra, fusionar
+// habría sido engañoso. Ownership manual (no hay un solo :id de req para
+// requireProject): admin/desarrollador ven todas las obras del cliente;
+// residente solo las suyas (usuario_proyectos), silenciosamente — mismo
+// criterio que getReportePorCliente (server/maquinaria.js), sin 403 para una
+// vista agregada (a diferencia del endpoint de una sola obra, arriba).
+async function getObrasDelClienteParaUsuario(clienteId, req) {
+  const esAdmin = req.user.puesto === 'admin' || req.user.puesto === 'desarrollador';
+  const { rows } = await db.pool.query(`
+    SELECT p.id, p.nombre
+    FROM proyectos p
+    ${esAdmin ? '' : 'JOIN usuario_proyectos up ON up.project_id = p.id AND up.usuario_id = $2'}
+    WHERE p.cliente_id = $1
+    ORDER BY p.nombre
+  `, esAdmin ? [clienteId] : [clienteId, req.user.id]);
+  return rows;
+}
+
+app.get('/api/materiales-disponibles/por-cliente', h(auth.allow('residente')), h(async (req, res) => {
+  const clienteId = Number(req.query.cliente_id);
+  if (!clienteId) return res.status(400).json({ error: 'Indica cliente_id' });
+  const obras = await getObrasDelClienteParaUsuario(clienteId, req);
+  const porObra = await Promise.all(obras.map(async (o) => ({
+    obra_id: o.id, obra_nombre: o.nombre,
+    materiales: await getMaterialesDisponiblesData(o.id, req.query),
+  })));
+  res.json({ obras: porObra });
+}));
+
+app.get('/api/materiales-disponibles/por-cliente/export', h(auth.allow('residente')), h(async (req, res) => {
+  const clienteId = Number(req.query.cliente_id);
+  if (!clienteId) return res.status(400).json({ error: 'Indica cliente_id' });
+  const { rows: clienteRows } = await db.pool.query('SELECT nombre FROM clientes WHERE id = $1', [clienteId]);
+  const obras = await getObrasDelClienteParaUsuario(clienteId, req);
+  const sheets = await Promise.all(obras.map(async (o) => materialesDisponiblesExportSheet(
+    await getMaterialesDisponiblesData(o.id, req.query), o.nombre
+  )));
+  await sendXlsxExport(res, {
+    filename: buildExportFilename('Materiales-Disponibles', clienteRows[0]?.nombre || 'Cliente'),
+    sheets: sheets.length ? sheets : [{ sheetName: 'Materiales', columns: [{ header: 'Sin obras', key: 'x', width: 20 }], rows: [] }],
+  });
+}));
+
 app.get('/api/projects/:id/insumos/categorias', h(auth.allow('residente', 'cabo', 'compras', 'logistica')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('insumos', 'puede_ver')), h(async (req, res) => {
   const { rows } = await db.pool.query(
     "SELECT DISTINCT categoria FROM insumos WHERE project_id = $1 AND categoria IS NOT NULL AND (codigo IS NULL OR codigo NOT ILIKE 'MO%') ORDER BY categoria",

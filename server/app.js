@@ -2356,6 +2356,186 @@ app.post('/api/costos/crear-presupuesto', h(auth.checkPermiso('costos', 'puede_c
 }));
 
 // ---------------------------------------------------------------------------
+// Gasto de nómina por cliente (prompt-9-reporte-nomina-por-cliente.md) —
+// origen: diagnósticos de prompt-7/prompt-8, confirmados contra Producción.
+// Mismo patrón de agregación que getReportePorCliente (server/maquinaria.js):
+// varias queries simples + merge en un Map, con bucket explícito para "sin
+// cliente asignado" (a diferencia de /api/avance-por-cliente, que usa JOIN
+// interno y descarta esos proyectos en silencio — decisión consciente de NO
+// repetir ese patrón aquí).
+//
+// Solo 2 componentes son "reales" y se suman a total_real:
+//   - jornal_real: SUM(nomina_items.monto_jornal) de nóminas YA aprobadas
+//     únicamente — 'borrador' no es un pago confirmado.
+//   - destajo_ejecutado: mismo cálculo exacto que destajo_ejecutado en
+//     server/finanzas.js (cantidad_ejecutada × precio_destajo), agregado por
+//     cliente en vez de por proyecto. Incluye TODO el destajo ejecutado,
+//     tenga o no trabajador vinculado — es el número que Finanzas ya trata
+//     como confiable.
+// destajo_huerfano es un SUBCONJUNTO informativo de destajo_ejecutado (la
+// parte de destajistas sin trabajador vinculado — prompt-8, $27,786.62
+// confirmado en Producción) — se muestra aparte para explicar por qué esa
+// porción nunca aparecerá en el módulo Nómina, NO se sube dos veces al total.
+// carga_social_estimada NUNCA se suma a total_real — porcentaje de
+// referencia (porcentajes_referencia_costo, mismo criterio que Composición
+// de Costos) × jornal_real, siempre rotulado como estimado en el payload.
+async function getGastoNominaPorCliente() {
+  const [jornalRows, destajoRows, huerfanoRows, borradorRows, clientesRows, refRows] = await Promise.all([
+    db.pool.query(`
+      SELECT p.cliente_id, COALESCE(SUM(ni.monto_jornal), 0) AS jornal_real
+      FROM nomina_items ni
+      JOIN nominas n ON n.id = ni.nomina_id AND n.estado = 'aprobada'
+      JOIN proyectos p ON p.id = n.project_id
+      GROUP BY p.cliente_id
+    `),
+    db.pool.query(`
+      SELECT p.cliente_id, COALESCE(SUM(ad.cantidad_ejecutada * di.precio_destajo), 0) AS destajo_ejecutado
+      FROM destajo_items di
+      JOIN avance_destajo ad ON ad.destajo_item_id = di.id
+      JOIN proyectos p ON p.id = di.project_id
+      GROUP BY p.cliente_id
+    `),
+    db.pool.query(`
+      SELECT p.cliente_id, COALESCE(SUM(ad.cantidad_ejecutada * di.precio_destajo), 0) AS destajo_huerfano
+      FROM destajo_items di
+      JOIN avance_destajo ad ON ad.destajo_item_id = di.id
+      JOIN proyectos p ON p.id = di.project_id
+      WHERE NOT EXISTS (SELECT 1 FROM trabajadores t WHERE t.destajista_id = di.destajista_id)
+      GROUP BY p.cliente_id
+    `),
+    db.pool.query(`
+      SELECT p.cliente_id, COUNT(DISTINCT n.id) AS n_nominas_borrador,
+        COALESCE(SUM(ni.monto_jornal + ni.monto_destajo), 0) AS monto_borrador
+      FROM nominas n
+      JOIN proyectos p ON p.id = n.project_id
+      LEFT JOIN nomina_items ni ON ni.nomina_id = n.id
+      WHERE n.estado = 'borrador'
+      GROUP BY p.cliente_id
+    `),
+    db.pool.query('SELECT id, nombre FROM clientes ORDER BY nombre'),
+    db.pool.query("SELECT porcentaje FROM porcentajes_referencia_costo WHERE categoria = 'carga_social'"),
+  ]);
+
+  const cargaSocialPct = Number(refRows.rows[0]?.porcentaje || 0);
+  const nombrePorCliente = new Map(clientesRows.rows.map((c) => [c.id, c.nombre]));
+
+  // Clave 'sin_cliente' agrupa cliente_id NULL (bucket explícito, nunca
+  // descartado) — separado de los ids reales para no chocar con un cliente
+  // real cuyo id pudiera coincidir con algún valor centinela.
+  const claveDe = (clienteId) => (clienteId == null ? 'sin_cliente' : clienteId);
+  const porCliente = new Map();
+  function fila(clienteId) {
+    const k = claveDe(clienteId);
+    if (!porCliente.has(k)) {
+      porCliente.set(k, {
+        cliente_id: clienteId,
+        cliente_nombre: clienteId == null ? 'Sin cliente asignado' : (nombrePorCliente.get(clienteId) || `Cliente ${clienteId}`),
+        jornal_real: 0, destajo_ejecutado: 0, destajo_huerfano: 0,
+        carga_social_estimada: 0, total_real: 0,
+        nominas_borrador: { n: 0, monto: 0 },
+      });
+    }
+    return porCliente.get(k);
+  }
+
+  for (const r of jornalRows.rows) { fila(r.cliente_id).jornal_real += Number(r.jornal_real); }
+  for (const r of destajoRows.rows) { fila(r.cliente_id).destajo_ejecutado += Number(r.destajo_ejecutado); }
+  for (const r of huerfanoRows.rows) { fila(r.cliente_id).destajo_huerfano += Number(r.destajo_huerfano); }
+  for (const r of borradorRows.rows) {
+    const f = fila(r.cliente_id);
+    f.nominas_borrador.n += Number(r.n_nominas_borrador);
+    f.nominas_borrador.monto += Number(r.monto_borrador);
+  }
+
+  for (const f of porCliente.values()) {
+    f.carga_social_estimada = Number((f.jornal_real * cargaSocialPct / 100).toFixed(2));
+    f.total_real = Number((f.jornal_real + f.destajo_ejecutado).toFixed(2));
+    f.jornal_real = Number(f.jornal_real.toFixed(2));
+    f.destajo_ejecutado = Number(f.destajo_ejecutado.toFixed(2));
+    f.destajo_huerfano = Number(f.destajo_huerfano.toFixed(2));
+    f.nominas_borrador.monto = Number(f.nominas_borrador.monto.toFixed(2));
+  }
+
+  const sinClienteAsignado = porCliente.get('sin_cliente') || null;
+  porCliente.delete('sin_cliente');
+
+  const porClienteArr = [...porCliente.values()].sort((a, b) => a.cliente_nombre.localeCompare(b.cliente_nombre));
+
+  const global = porClienteArr.reduce((acc, c) => ({
+    jornal_real: acc.jornal_real + c.jornal_real,
+    destajo_ejecutado: acc.destajo_ejecutado + c.destajo_ejecutado,
+    destajo_huerfano: acc.destajo_huerfano + c.destajo_huerfano,
+    carga_social_estimada: acc.carga_social_estimada + c.carga_social_estimada,
+    total_real: acc.total_real + c.total_real,
+    nominas_borrador: {
+      n: acc.nominas_borrador.n + c.nominas_borrador.n,
+      monto: acc.nominas_borrador.monto + c.nominas_borrador.monto,
+    },
+  }), { jornal_real: 0, destajo_ejecutado: 0, destajo_huerfano: 0, carga_social_estimada: 0, total_real: 0, nominas_borrador: { n: 0, monto: 0 } });
+  // sin_cliente_asignado también cuenta para el total global — es dinero real,
+  // solo no tiene cliente resuelto todavía.
+  if (sinClienteAsignado) {
+    global.jornal_real += sinClienteAsignado.jornal_real;
+    global.destajo_ejecutado += sinClienteAsignado.destajo_ejecutado;
+    global.destajo_huerfano += sinClienteAsignado.destajo_huerfano;
+    global.carga_social_estimada += sinClienteAsignado.carga_social_estimada;
+    global.total_real += sinClienteAsignado.total_real;
+    global.nominas_borrador.n += sinClienteAsignado.nominas_borrador.n;
+    global.nominas_borrador.monto += sinClienteAsignado.nominas_borrador.monto;
+  }
+  for (const k of ['jornal_real', 'destajo_ejecutado', 'destajo_huerfano', 'carga_social_estimada', 'total_real']) {
+    global[k] = Number(global[k].toFixed(2));
+  }
+  global.nominas_borrador.monto = Number(global.nominas_borrador.monto.toFixed(2));
+
+  return {
+    carga_social_pct_referencia: cargaSocialPct,
+    por_cliente: porClienteArr,
+    sin_cliente_asignado: sinClienteAsignado,
+    global,
+  };
+}
+
+app.get('/api/costos/nomina-por-cliente', h(auth.checkPermiso('costos', 'puede_ver')), h(async (req, res) => {
+  res.json(await getGastoNominaPorCliente());
+}));
+
+function gastoNominaExportSheet(filas, sheetName) {
+  return {
+    sheetName,
+    columns: [
+      { header: 'Cliente', key: 'cliente_nombre', width: 26 },
+      { header: 'Jornal real', key: 'jornal_real', width: 16, format: 'money' },
+      { header: 'Destajo ejecutado', key: 'destajo_ejecutado', width: 18, format: 'money' },
+      { header: 'Destajo huérfano (sin trabajador vinculado)', key: 'destajo_huerfano', width: 26, format: 'money' },
+      { header: 'Carga Social (estimada, sin dato real)', key: 'carga_social_estimada', width: 22, format: 'money' },
+      { header: 'Total real (jornal + destajo)', key: 'total_real', width: 20, format: 'money' },
+      { header: 'Nóminas en borrador (informativo, no incluido)', key: 'monto_borrador', width: 26, format: 'money' },
+    ],
+    rows: filas.map((f) => ({
+      cliente_nombre: f.cliente_nombre,
+      jornal_real: f.jornal_real,
+      destajo_ejecutado: f.destajo_ejecutado,
+      destajo_huerfano: f.destajo_huerfano,
+      carga_social_estimada: f.carga_social_estimada,
+      total_real: f.total_real,
+      monto_borrador: f.nominas_borrador.monto,
+    })),
+  };
+}
+
+app.get('/api/costos/nomina-por-cliente/export', h(auth.checkPermiso('costos', 'puede_ver')), h(async (req, res) => {
+  const data = await getGastoNominaPorCliente();
+  const filas = [...data.por_cliente];
+  if (data.sin_cliente_asignado) filas.push(data.sin_cliente_asignado);
+  filas.push({ ...data.global, cliente_nombre: 'GLOBAL (todos los clientes)' });
+  await sendXlsxExport(res, {
+    filename: buildExportFilename('Gasto-Nomina-Por-Cliente'),
+    sheets: [gastoNominaExportSheet(filas, 'Gasto de Nómina')],
+  });
+}));
+
+// ---------------------------------------------------------------------------
 // Bienvenida — resumen ligero por proyecto para la pantalla de bienvenida
 // ---------------------------------------------------------------------------
 app.get('/api/bienvenida', h(auth.allow('residente', 'cabo', 'compras', 'tesoreria', 'administracion', 'logistica', 'jefe_maquinaria', 'operador')), h(async (req, res) => {

@@ -64,6 +64,36 @@ incrementar `SW_VERSION` en `public/sw.js` (`ctrl-ppto-vN` → `ctrl-ppto-v(N+1)
 Se evaluó la propuesta de omitir el bump en commits backend-only y fue **rechazada**.
 La regla no tiene excepciones.
 
+## Toda sección nueva de `permisos_usuario` se registra en 5 lugares, no 4
+
+Confirmado con un bug real (prompt-13-fix-permisos-operador.md, PRs #90 y
+#92): agregar una sección nueva al catálogo de permisos granulares
+(`permisos_usuario.seccion`) requiere tocar **cinco** puntos, no cuatro.
+`estado_unidad` y `maquinaria_consumibles` se dieron de alta correctamente
+en los primeros cuatro, pero el quinto (la matriz de administración en
+`public/app.js`) se quedó fuera — resultado: el permiso se guardaba y se
+exigía de verdad en el backend (`checkPermiso` devolvía `403` correctamente
+si se revocaba por API), pero **Paul no podía verlo ni tocarlo desde la
+UI** para ningún rol (operador, cabo, jefe_maquinaria) — la fila
+simplemente nunca se pintaba en la matriz.
+
+Checklist completo para dar de alta una sección nueva:
+
+1. `SECCIONES_PERMISOS` en `server/auth.js` (catálogo backend).
+2. CHECK constraint del `CREATE TABLE permisos_usuario` en `server/db.js`.
+3. CHECK constraint del `ALTER TABLE ... ADD CONSTRAINT` en `server/db.js`
+   (bases ya existentes en Preview/producción — el `CREATE TABLE` no vuelve
+   a correr sobre una tabla que ya existe).
+4. Allow-lists hardcodeadas de bootstrap (`/api/bienvenida`, `/api/clientes`,
+   `/api/projects`) si la sección necesita que el rol cargue la app.
+5. **`public/app.js`: `PERMISOS_SECCION_LABELS`, el grupo correspondiente en
+   `PERMISOS_GRUPOS`, y `SECCIONES_CON_ENFORCEMENT`** (si la sección tiene
+   `checkPermiso` real aplicado en algún endpoint) — sin esto la fila no
+   aparece en la matriz de administración, aunque el resto de la cadena
+   (guardado + enforcement) funcione perfecto. Fácil de pasar por alto
+   porque no truena nada — el síntoma es "otorgo el permiso y no se
+   refleja", indistinguible a simple vista de un bug real de guardado.
+
 ## Backup semanal de Neon a Vercel Blob
 
 Además del point-in-time recovery de corto plazo que Neon ya da por defecto,

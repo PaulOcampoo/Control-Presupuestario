@@ -50,7 +50,7 @@ const { calcularDiasRestantes, determinarUmbral, construirMensaje } = require('.
 const maquinaria = require('./maquinaria');
 const cotizador = require('./cotizador');
 const { metaToObject, presupuestoTotalDe, getFinanzasResumenData } = require('./finanzas');
-const { calcularJornal, calcularDestajo } = require('./calculos');
+const { calcularJornal, calcularDestajo, totalConIvaEsValido } = require('./calculos');
 const { validarClabe } = require('./catalogoBancos');
 const estadoResultados = require('./estadoResultados');
 const { emparejarConceptos, calcularCambios } = require('./reintegracionPresupuesto');
@@ -5284,6 +5284,11 @@ app.get('/api/projects/:id/resumen', h(auth.allow('tesoreria', 'administracion')
     [pid]
   );
   const total = meta.total_sin_iva ? Number(meta.total_sin_iva) : (totalRows[0] ? totalRows[0].importe : 0);
+  // prompt-12-fix-totales-iva-invertidos.md: "Total sin IVA" y "Total con
+  // IVA" vienen de 2 filas distintas del Excel origen (nunca se derivan uno
+  // del otro) — si el Excel de una obra puntual capturó mal la celda del
+  // total con IVA, no lo mostramos como si fuera confiable.
+  const totalConIvaValido = totalConIvaEsValido(total, meta.total_con_iva);
 
   const { rows: ultimoRows } = await db.pool.query(`
     SELECT * FROM avances_semanales
@@ -5327,6 +5332,7 @@ app.get('/api/projects/:id/resumen', h(auth.allow('tesoreria', 'administracion')
     meta,
     tiene_contrato_pdf: contratoRows.length > 0,
     presupuesto_total: total,
+    total_con_iva_valido: totalConIvaValido,
     avance_financiero_programado_actual: pctProgramado,
     avance_financiero_ejecutado_actual: pctEjecutado,
     importe_ejecutado: Number((total * (pctEjecutado / 100)).toFixed(2)),

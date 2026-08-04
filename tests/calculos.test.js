@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { calcularJornal, calcularDestajo, montoSinIva } from '../server/calculos.js';
+import { calcularJornal, calcularDestajo, montoSinIva, totalConIvaEsValido } from '../server/calculos.js';
 
 describe('calcularJornal (tarifa_diaria × días presentes)', () => {
   it('caso normal: 6 días presentes a $350/día', () => {
@@ -60,5 +60,27 @@ describe('montoSinIva (ajuste IVA /1.16 para Erogado Real)', () => {
 
   it('datos faltantes: montoConIva undefined produce NaN (comportamiento actual, sin guardas)', () => {
     expect(Number.isNaN(montoSinIva(undefined, 0.16))).toBe(true);
+  });
+});
+
+describe('totalConIvaEsValido (prompt-12-fix-totales-iva-invertidos.md)', () => {
+  it('caso normal: con IVA mayor que sin IVA (razón 1.16 típica) es válido', () => {
+    expect(totalConIvaEsValido(1000, 1160)).toBe(true);
+  });
+
+  it('caso del bug real (obra "Presupuestos Vinte"): con IVA menor que sin IVA es inválido', () => {
+    expect(totalConIvaEsValido(2372159.39, 1876426.39)).toBe(false);
+  });
+
+  it('caso edge: con IVA igual a sin IVA (IVA 0%) es válido (límite inclusive)', () => {
+    expect(totalConIvaEsValido(1000, 1000)).toBe(true);
+  });
+
+  it('caso edge: total_con_iva null (obra sin ese dato capturado) no se marca inválido', () => {
+    expect(totalConIvaEsValido(1000, null)).toBe(true);
+  });
+
+  it('caso edge: total_con_iva undefined (mismo tratamiento que null) no se marca inválido', () => {
+    expect(totalConIvaEsValido(1000, undefined)).toBe(true);
   });
 });

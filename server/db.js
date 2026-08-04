@@ -346,6 +346,18 @@ const SCHEMA = `
   ALTER TABLE requisiciones ADD COLUMN IF NOT EXISTS usuario_id INTEGER REFERENCES usuarios(id);
   CREATE INDEX IF NOT EXISTS idx_requisiciones_usuario ON requisiciones(usuario_id);
 
+  -- Fecha de suministro requerida (prompt-15-fecha-suministro-y-programa.md)
+  -- — a nivel de requisición completa, no por renglón: el dato real (folios
+  -- ya usados como 'sem-7', 'SEMANA-01') confirma que el equipo ya arma cada
+  -- requisición pensando en una sola semana de necesidad, nunca mezclando
+  -- fechas distintas dentro de la misma. Nullable y NO retroactivo a
+  -- propósito: las requisiciones existentes se quedan sin fecha, siguen
+  -- consultables sin bloqueo — el frontend las marca "Sin fecha de
+  -- suministro" en vez de ocultarlas (decisión consultada: ese hueco es
+  -- justo lo que el Programa de suministros debe ayudar a detectar).
+  ALTER TABLE requisiciones ADD COLUMN IF NOT EXISTS fecha_suministro DATE;
+  CREATE INDEX IF NOT EXISTS idx_requisiciones_fecha_suministro ON requisiciones(fecha_suministro);
+
   -- Cliente (agrupador de proyectos) — agregado después de que 'proyectos' ya
   -- existía en producción. cliente_id es nullable para no romper proyectos
   -- existentes sin cliente asignado (los 2 originales se migraron a "VINTE"

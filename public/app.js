@@ -3876,7 +3876,20 @@ async function renderInicio(view) {
         <div class="card-row"><span class="k">Fin de obra</span><span class="v">${fmtDate(m.fin_obra)}</span></div>
         ${m.fin_obra_actualizado_por ? `<div class="card-row"><span class="k muted fs-078">Última actualización</span><span class="v muted fs-078">${esc(m.fin_obra_actualizado_por)} · ${fmtDateShort(m.fin_obra_actualizado_en)}</span></div>` : ''}
         <div class="card-row"><span class="k">Total sin IVA</span><span class="v">${fmtMoney(resumen.presupuesto_total)}</span></div>
-        ${m.total_con_iva ? `<div class="card-row"><span class="k">Total con IVA</span><span class="v">${fmtMoney(m.total_con_iva)}</span></div>` : ''}
+        ${m.total_con_iva ? (
+          resumen.total_con_iva_valido
+            ? `<div class="card-row"><span class="k">Total con IVA</span><span class="v">${fmtMoney(m.total_con_iva)}</span></div>`
+            // prompt-12-fix-totales-iva-invertidos.md: "Total sin IVA" y
+            // "Total con IVA" se extraen de 2 filas distintas del Excel
+            // origen, nunca se derivan una de otra — cuando "con IVA" queda
+            // guardado menor que "sin IVA" es un dato mal capturado en ESA
+            // obra puntual (confirmado: el resto de obras reales sí da la
+            // razón 1.16 esperada), no un error de cálculo que se pueda
+            // corregir con una fórmula aquí. Se avisa en vez de mostrar la
+            // cifra imposible en silencio — decisión consultada con Paul:
+            // no tocar el valor guardado en este PR.
+            : `<div class="card-row"><span class="k">Total con IVA</span><span class="v"><span class="badge red" title="El valor guardado ($${fmtMoney(m.total_con_iva)}) es menor que el Total sin IVA — dato capturado incorrectamente al subir el presupuesto, revisar con el equipo antes de confiar en esta cifra.">⚠️ Dato inconsistente</span></span></div>`
+        ) : ''}
         <div class="row end mt-10"><button class="btn small" id="btnEditFechasObra">Corregir inicio/fin de obra</button></div>
         <p class="muted inicio-fechas-note">Úsalo si el archivo traía esas fechas vacías o incorrectas — al guardar se regenera todo el Programa y la curva de Avance con las fechas correctas.</p>
       </div>

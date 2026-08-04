@@ -164,7 +164,7 @@ function issueFullSession(res, user, extra = {}) {
   res.json({
     token,
     user: { id: user.id, nombre: user.nombre, usuario: user.usuario, puesto: user.puesto, totp_enabled: !!user.totp_enabled, solicitud_eliminacion_datos: !!user.solicitud_eliminacion_datos },
-    tabs: auth.PERMISSIONS[user.puesto] ? auth.PERMISSIONS[user.puesto].tabs : [],
+    tabs: auth.tabsParaUsuario(user),
     must_change_password: user.must_change_password || false,
     ...extra,
   });
@@ -538,7 +538,7 @@ app.get('/api/auth/me', h(async (req, res) => {
   if (!rows[0]) return res.status(401).json({ error: 'Sesión inválida' });
   res.json({
     user: { id: rows[0].id, nombre: rows[0].nombre, usuario: rows[0].usuario, puesto: rows[0].puesto, totp_enabled: !!rows[0].totp_enabled, solicitud_eliminacion_datos: !!rows[0].solicitud_eliminacion_datos },
-    tabs: auth.PERMISSIONS[rows[0].puesto] ? auth.PERMISSIONS[rows[0].puesto].tabs : [],
+    tabs: auth.tabsParaUsuario(rows[0]),
     must_change_password: rows[0].must_change_password || false,
     needsTotpReminder: shouldShowTotpReminder(rows[0]),
   });
@@ -1050,7 +1050,7 @@ const SECCION_A_TAB = Object.fromEntries(
 // comportamiento ni consulta a la tabla.
 app.get('/api/projects/:id/nav-tabs', h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
   if (req.user.puesto === 'admin' || req.user.puesto === 'desarrollador') {
-    return res.json({ tabs: auth.PERMISSIONS[req.user.puesto].tabs });
+    return res.json({ tabs: auth.tabsParaUsuario(req.user) });
   }
   const { rows } = await db.pool.query(
     `SELECT seccion, puede_ver FROM permisos_usuario
@@ -2427,6 +2427,139 @@ app.post('/api/costos/crear-presupuesto', h(auth.checkPermiso('costos', 'puede_c
   });
 
   res.status(201).json({ id: record.id, nombre: record.nombre, num_conceptos: items.length, total_sin_iva: totalSinIva });
+}));
+
+// ---------------------------------------------------------------------------
+// Control de Cuentas (prompt-control-cuentas.md) — control personal de
+// saldo bancario de Paul/Fer, SIN relación con Costos/Finanzas/Nómina.
+// Gateado por auth.requireControlCuentasAccess (whitelist de usuario_id,
+// server/auth.js) en TODAS las rutas — nunca por rol ni por checkPermiso.
+// ---------------------------------------------------------------------------
+async function getSaldoActual(cuentaId) {
+  const { rows } = await db.pool.query(`
+    SELECT c.saldo_inicial, COALESCE(SUM(m.monto), 0) AS total_gastado
+    FROM cuentas_control c
+    LEFT JOIN movimientos_control m ON m.cuenta_id = c.id
+    WHERE c.id = $1
+    GROUP BY c.saldo_inicial
+  `, [cuentaId]);
+  if (!rows[0]) return null;
+  return Number(rows[0].saldo_inicial) - Number(rows[0].total_gastado);
+}
+
+app.get('/api/control-cuentas/cuentas', h(auth.requireControlCuentasAccess), h(async (req, res) => {
+  const { rows: cuentas } = await db.pool.query(`
+    SELECT c.*, COALESCE(SUM(m.monto), 0) AS total_gastado
+    FROM cuentas_control c
+    LEFT JOIN movimientos_control m ON m.cuenta_id = c.id
+    WHERE c.activo = true
+    GROUP BY c.id
+    ORDER BY c.nombre
+  `);
+  res.json(cuentas.map((c) => ({
+    ...c,
+    saldo_actual: Number(c.saldo_inicial) - Number(c.total_gastado),
+  })));
+}));
+
+app.post('/api/control-cuentas/cuentas', h(auth.requireControlCuentasAccess), h(async (req, res) => {
+  const { nombre, banco, saldo_inicial, fecha_saldo_inicial } = req.body || {};
+  if (!nombre?.trim()) return res.status(400).json({ error: 'El nombre de la cuenta es requerido' });
+  if (!fecha_saldo_inicial) return res.status(400).json({ error: 'Indica la fecha del saldo inicial' });
+  if (!(Number(saldo_inicial) >= 0)) return res.status(400).json({ error: 'Indica un saldo inicial válido' });
+  const { rows } = await db.pool.query(
+    `INSERT INTO cuentas_control (nombre, banco, saldo_inicial, fecha_saldo_inicial)
+     VALUES ($1, $2, $3, $4) RETURNING *`,
+    [nombre.trim(), banco?.trim() || null, Number(saldo_inicial), fecha_saldo_inicial]
+  );
+  res.status(201).json({ ...rows[0], saldo_actual: Number(rows[0].saldo_inicial) });
+}));
+
+// Desglose semanal (lunes-domingo, mismo criterio que el calendario de
+// Asistencia y avances_semanales — confirmado en diagnóstico, no inventado
+// aquí). date_trunc('week', fecha) en Postgres ya trunca a lunes (ISO 8601),
+// coincide exactamente con el cálculo manual que usa el resto de la app.
+app.get('/api/control-cuentas/cuentas/:id/movimientos', h(auth.requireControlCuentasAccess), h(async (req, res) => {
+  const cuentaId = Number(req.params.id);
+  const { rows: cuentaRows } = await db.pool.query('SELECT * FROM cuentas_control WHERE id = $1', [cuentaId]);
+  if (!cuentaRows[0]) return res.status(404).json({ error: 'Cuenta no encontrada' });
+  const cuenta = cuentaRows[0];
+
+  const { rows: movimientos } = await db.pool.query(`
+    SELECT m.*, u.nombre AS registrado_por_nombre
+    FROM movimientos_control m
+    LEFT JOIN usuarios u ON u.id = m.registrado_por
+    WHERE m.cuenta_id = $1
+    ORDER BY m.fecha DESC, m.id DESC
+  `, [cuentaId]);
+
+  const { rows: semanas } = await db.pool.query(`
+    SELECT date_trunc('week', fecha)::date AS semana_inicio,
+      (date_trunc('week', fecha)::date + 6) AS semana_fin,
+      SUM(monto) AS gasto_semana
+    FROM movimientos_control
+    WHERE cuenta_id = $1
+    GROUP BY date_trunc('week', fecha)
+    ORDER BY semana_inicio
+  `, [cuentaId]);
+
+  // Saldo acumulado al cierre de cada semana — corre desde saldo_inicial,
+  // restando el gasto de cada semana en orden cronológico (no una resta
+  // independiente por semana, para que el saldo de cada corte refleje TODO
+  // lo gastado hasta ese punto, no solo esa semana).
+  let acumulado = Number(cuenta.saldo_inicial);
+  const semanasConSaldo = semanas.map((s) => {
+    acumulado -= Number(s.gasto_semana);
+    return {
+      semana_inicio: s.semana_inicio, semana_fin: s.semana_fin,
+      gasto_semana: Number(s.gasto_semana), saldo_al_cierre: acumulado,
+    };
+  });
+
+  res.json({
+    cuenta: { ...cuenta, saldo_actual: acumulado },
+    movimientos,
+    semanas: semanasConSaldo,
+  });
+}));
+
+app.post('/api/control-cuentas/movimientos', h(auth.requireControlCuentasAccess), h(async (req, res) => {
+  const { cuenta_id, fecha, concepto, monto } = req.body || {};
+  if (!cuenta_id || !fecha) return res.status(400).json({ error: 'Indica cuenta y fecha' });
+  if (!concepto?.trim()) return res.status(400).json({ error: 'Indica un concepto' });
+  if (!(Number(monto) > 0)) return res.status(400).json({ error: 'Indica un monto válido' });
+  const { rows: cuentaRows } = await db.pool.query('SELECT id FROM cuentas_control WHERE id = $1 AND activo = true', [Number(cuenta_id)]);
+  if (!cuentaRows[0]) return res.status(404).json({ error: 'Cuenta no encontrada' });
+  const { rows } = await db.pool.query(
+    `INSERT INTO movimientos_control (cuenta_id, fecha, concepto, monto, registrado_por)
+     VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+    [Number(cuenta_id), fecha, concepto.trim(), Number(monto), req.user.id]
+  );
+  const saldo_actual = await getSaldoActual(Number(cuenta_id));
+  res.status(201).json({ ...rows[0], saldo_actual });
+}));
+
+// Vista consolidada — suma de todas las cuentas activas.
+app.get('/api/control-cuentas/consolidado', h(auth.requireControlCuentasAccess), h(async (req, res) => {
+  const { rows: cuentas } = await db.pool.query(`
+    SELECT c.id, c.nombre, c.banco, c.saldo_inicial, COALESCE(SUM(m.monto), 0) AS total_gastado
+    FROM cuentas_control c
+    LEFT JOIN movimientos_control m ON m.cuenta_id = c.id
+    WHERE c.activo = true
+    GROUP BY c.id
+    ORDER BY c.nombre
+  `);
+  const porCuenta = cuentas.map((c) => ({
+    ...c, saldo_actual: Number(c.saldo_inicial) - Number(c.total_gastado),
+  }));
+  const totalSaldoInicial = porCuenta.reduce((s, c) => s + Number(c.saldo_inicial), 0);
+  const totalGastado = porCuenta.reduce((s, c) => s + Number(c.total_gastado), 0);
+  res.json({
+    cuentas: porCuenta,
+    total_saldo_inicial: totalSaldoInicial,
+    total_gastado: totalGastado,
+    total_saldo_actual: totalSaldoInicial - totalGastado,
+  });
 }));
 
 // ---------------------------------------------------------------------------

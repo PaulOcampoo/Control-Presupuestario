@@ -1221,6 +1221,40 @@ const SCHEMA = `
       SELECT 1 FROM permisos_usuario pu
       WHERE pu.usuario_id = u.id AND pu.proyecto_id IS NULL AND pu.seccion = 'maquinaria_consumibles'
     );
+
+  -- Control de Cuentas (control personal de saldo bancario de Paul/Fer,
+  -- prompt-control-cuentas.md) — DELIBERADAMENTE fuera del sistema de
+  -- permisos_usuario/checkPermiso: acceso gateado por una whitelist de
+  -- usuario_id hardcodeada en server/auth.js (USUARIOS_CONTROL_CUENTAS),
+  -- no por rol — confirmado en diagnóstico que admin/desarrollador bypassean
+  -- checkPermiso por PUESTO, no por usuario, y hoy existen 5 cuentas con esos
+  -- roles (no solo Paul/Fer) — una sección de permiso normal habría expuesto
+  -- saldo personal a esas otras cuentas. Sin relación con ninguna tabla
+  -- financiera del negocio (Costos/Finanzas/Nómina) a propósito — es un
+  -- control personal separado.
+  CREATE TABLE IF NOT EXISTS cuentas_control (
+    id SERIAL PRIMARY KEY,
+    nombre TEXT NOT NULL,
+    banco TEXT,
+    saldo_inicial DOUBLE PRECISION NOT NULL DEFAULT 0,
+    fecha_saldo_inicial DATE NOT NULL,
+    activo BOOLEAN NOT NULL DEFAULT true,
+    creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
+
+  -- Todos los movimientos son gastos (monto > 0 resta del saldo) — sin
+  -- ingresos/depósitos en este PR (confirmado en diagnóstico: Paul no pidió
+  -- esa lectura, y el prompt exigía pausar si aparecía esa necesidad).
+  CREATE TABLE IF NOT EXISTS movimientos_control (
+    id SERIAL PRIMARY KEY,
+    cuenta_id INTEGER NOT NULL REFERENCES cuentas_control(id) ON DELETE CASCADE,
+    fecha DATE NOT NULL,
+    concepto TEXT NOT NULL,
+    monto DOUBLE PRECISION NOT NULL CHECK (monto > 0),
+    registrado_por INTEGER NOT NULL REFERENCES usuarios(id),
+    creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
+  CREATE INDEX IF NOT EXISTS idx_movimientos_control_cuenta ON movimientos_control(cuenta_id, fecha);
 `;
 
 // prompt-fix-error-permiso-trabajadores.md → el diagnóstico de ese prompt no

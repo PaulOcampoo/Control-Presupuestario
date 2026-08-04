@@ -668,6 +668,43 @@ function allow(...puestos) {
   };
 }
 
+// Control de Cuentas (prompt-control-cuentas.md) — control personal de
+// saldo bancario de Paul y Fer, NO del negocio en general. Whitelist por
+// usuario_id EXPLÍCITA, deliberadamente separada de allow('admin',
+// 'desarrollador'): el bypass normal de esos 2 roles es por PUESTO (ver
+// allow() arriba), y hoy existen 5 cuentas con esos roles (confirmado en
+// diagnóstico: 'admin' bootstrap genérico, Rodolfo Ocampo, y una segunda
+// cuenta "Fernando Olvera" que NO es la de Fer) — cualquier futuro alta de
+// usuario admin/desarrollador habría visto este saldo personal sin este
+// candado adicional. 46 = Paul (paul.ocmp, desarrollador). 8 = Fer (folvera,
+// Fernando Olvera Monroy, admin) — confirmado explícitamente con Paul, NO
+// el id=105 "Fernando Olvera Herrera" (apellido distinto, cuenta distinta).
+// Cambiar esta lista requiere editar código + nuevo commit a propósito (sin
+// UI de gestión — decisión consultada: 1-2 personas, cambia rarísima vez).
+const USUARIOS_CONTROL_CUENTAS = [46, 8];
+function requireControlCuentasAccess(req, res, next) {
+  if (!USUARIOS_CONTROL_CUENTAS.includes(req.user.id)) {
+    logDenied(req, 'sin acceso a Control de Cuentas (whitelist)');
+    return res.status(403).json({ error: 'No tienes permiso para realizar esta acción' });
+  }
+  next();
+}
+
+// Agrega el tab 'cuentas' a la lista SOLO para los 2 usuarios en la
+// whitelist — el resto de admin/desarrollador (incluida la cuenta bootstrap
+// genérica y cualquier alta futura) ni siquiera ve el link en el sidebar.
+// Ocultar el tab es solo cortesía de UI (nunca el gate real — ver
+// requireControlCuentasAccess arriba, que es lo único que de verdad
+// protege los datos); por eso vive como wrapper sobre PERMISSIONS.tabs en
+// vez de duplicar la lista de tabs por usuario.
+function tabsParaUsuario(user) {
+  const base = PERMISSIONS[user.puesto] ? PERMISSIONS[user.puesto].tabs : [];
+  if (USUARIOS_CONTROL_CUENTAS.includes(user.id) && !base.includes('cuentas')) {
+    return [...base, 'cuentas'];
+  }
+  return base;
+}
+
 // Restringe el acceso a la obra (proyecto) cargada por requireProject: el
 // admin siempre pasa; el resto solo si tiene una fila en usuario_proyectos
 // para ese project_id. Debe ir después de requireProject en la cadena.
@@ -726,6 +763,8 @@ module.exports = {
   findBackupCodeIndex,
   requireAuth,
   allow,
+  requireControlCuentasAccess,
+  tabsParaUsuario,
   verificarAccesoObra,
   ensureBootstrapAdmin,
   SECCIONES_PERMISOS,

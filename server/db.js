@@ -81,6 +81,54 @@ const SCHEMA = `
   CREATE INDEX IF NOT EXISTS idx_conceptoinsumos_concepto ON concepto_insumos(concepto_id);
   CREATE INDEX IF NOT EXISTS idx_conceptoinsumos_insumo ON concepto_insumos(insumo_id);
 
+  -- Matrices de precio unitario (prompt-14-matrices-precio-unitario.md).
+  -- Diagnóstico confirmado con Paul: tabla propia, NUNCA concepto_insumos —
+  -- esa tabla es el mapeo admin-curado que alimenta "avance requiere entrega"
+  -- (insumosPendientesPorConcepto, server/app.js); poblarla con renglones de
+  -- Mano de Obra/Herramienta (que nunca pasan por requisición→OC→recepción)
+  -- habría bloqueado esos conceptos para siempre en captura de avance.
+  -- Además concepto_insumos no tiene columna cantidad — no serviría ni
+  -- aunque quisiéramos.
+  -- Fórmula en cascada (estándar MX, confirmada con Paul — utilidad sobre el
+  -- costo ya indirectado, no sobre el directo):
+  --   CD = materiales + mano_obra + herramienta_equipo (por insumos.categoria)
+  --   precio_unitario = CD × (1 + %indirecto/100) × (1 + %utilidad/100)
+  -- pct_indirecto/pct_utilidad se guardan POR MATRIZ (snapshot) — actualizar
+  -- porcentajes_referencia_costo (PR #48) o porcentajes_matriz_obra (abajo)
+  -- nunca altera retroactivamente una matriz ya creada.
+  CREATE TABLE IF NOT EXISTS matrices_precio_unitario (
+    id SERIAL PRIMARY KEY,
+    concepto_id INTEGER NOT NULL UNIQUE REFERENCES conceptos(id) ON DELETE CASCADE,
+    pct_indirecto DOUBLE PRECISION NOT NULL DEFAULT 0,
+    pct_utilidad DOUBLE PRECISION NOT NULL DEFAULT 0,
+    creado_por INTEGER REFERENCES usuarios(id),
+    creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    actualizado_por INTEGER REFERENCES usuarios(id),
+    actualizado_en TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
+
+  CREATE TABLE IF NOT EXISTS matriz_precio_items (
+    id SERIAL PRIMARY KEY,
+    matriz_id INTEGER NOT NULL REFERENCES matrices_precio_unitario(id) ON DELETE CASCADE,
+    insumo_id INTEGER NOT NULL REFERENCES insumos(id) ON DELETE CASCADE,
+    cantidad DOUBLE PRECISION NOT NULL DEFAULT 0,
+    UNIQUE (matriz_id, insumo_id)
+  );
+  CREATE INDEX IF NOT EXISTS idx_matrizitems_matriz ON matriz_precio_items(matriz_id);
+  CREATE INDEX IF NOT EXISTS idx_matrizitems_insumo ON matriz_precio_items(insumo_id);
+
+  -- % de indirecto/utilidad por defecto de una obra (cada contrato se cotiza
+  -- distinto — porcentajes_referencia_costo de PR #48 es un set global único,
+  -- no sirve como default por obra). Se usa SOLO para prellenar una matriz
+  -- NUEVA; nunca se lee retroactivamente desde una matriz ya creada.
+  CREATE TABLE IF NOT EXISTS porcentajes_matriz_obra (
+    project_id INTEGER PRIMARY KEY REFERENCES proyectos(id) ON DELETE CASCADE,
+    pct_indirecto DOUBLE PRECISION NOT NULL DEFAULT 0,
+    pct_utilidad DOUBLE PRECISION NOT NULL DEFAULT 0,
+    actualizado_por INTEGER REFERENCES usuarios(id),
+    actualizado_en TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
+
   CREATE TABLE IF NOT EXISTS requisiciones (
     id SERIAL PRIMARY KEY,
     project_id INTEGER NOT NULL REFERENCES proyectos(id) ON DELETE CASCADE,

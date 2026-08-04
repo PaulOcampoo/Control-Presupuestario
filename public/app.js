@@ -14,9 +14,9 @@ const PUESTO_LABELS = {
 // Mirror de PERMISSIONS en server/auth.js — para calcular allowedTabs en vista simulada.
 // Actualizar aquí si se agregan roles o pestañas en auth.js.
 const ROLE_TABS = {
-  admin:          ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'finanzas', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', 'maquinaria', 'cotizador', 'costos', 'avance_clientes', 'composicion_costos'],
-  desarrollador:  ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'finanzas', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', 'maquinaria', 'cotizador', 'costos', 'avance_clientes', 'composicion_costos'],
-  residente:      ['programa', 'avance', 'destajo', 'requisiciones', 'insumos', 'ordenes', 'nominas', 'trabajadores', 'estimaciones'],
+  admin:          ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'finanzas', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', 'maquinaria', 'cotizador', 'costos', 'matrices', 'avance_clientes', 'composicion_costos'],
+  desarrollador:  ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'finanzas', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', 'maquinaria', 'cotizador', 'costos', 'matrices', 'avance_clientes', 'composicion_costos'],
+  residente:      ['programa', 'avance', 'destajo', 'requisiciones', 'insumos', 'ordenes', 'nominas', 'trabajadores', 'estimaciones', 'matrices'],
   cabo:           ['destajo', 'insumos', 'avance', 'requisiciones', 'maquinaria', 'trabajadores', 'nominas'],
   compras:        ['programa', 'requisiciones', 'insumos', 'ordenes', 'proveedores', 'cotizador'],
   tesoreria:      ['resumen', 'finanzas', 'ordenes', 'contrato', 'impuestos', 'proveedores'],
@@ -93,6 +93,7 @@ const ICON_SVG = {
   phone:         '<path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.88 10.3 19.79 19.79 0 0 1 2 1.63 2 2 0 0 1 4.11 0h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 7.91A16 16 0 0 0 15.1 15l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 23 16.92z"/>',
   list:          '<line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>',
   'layout-grid': '<rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/>',
+  matrices:      '<rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><line x1="10" y1="6.5" x2="14" y2="6.5"/><line x1="10" y1="17.5" x2="14" y2="17.5"/>',
   search:        '<circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>',
   folder:        '<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>',
   building:      '<rect x="4" y="2" width="16" height="20"/><path d="M9 22V12h6v10"/><path d="M2 22h20"/><line x1="9" y1="7" x2="9.01" y2="7"/><line x1="15" y1="7" x2="15.01" y2="7"/>',
@@ -1038,7 +1039,7 @@ const TAB_POR_TIPO_NOTIF = {
 // def.tabs.length === 0 es 100% futura (hoy solo Maquinaria).
 // ---------------------------------------------------------------------------
 const SECTION_DEFS = {
-  obra:          { label: 'Obra',           icon: 'obra',           emoji: '🏗️',  tabs: ['programa', 'avance', 'destajo', 'estimaciones'],     proximamente: [] },
+  obra:          { label: 'Obra',           icon: 'obra',           emoji: '🏗️',  tabs: ['programa', 'avance', 'destajo', 'estimaciones', 'matrices'],     proximamente: [] },
   compras:       { label: 'Compras',        icon: 'compras',        emoji: '🛒',   tabs: ['requisiciones', 'insumos', 'proveedores', 'ordenes', 'cotizador'], proximamente: ['Subcontratos'] },
   tesoreria:     { label: 'Tesorería',      icon: 'tesoreria',      emoji: '💰',   tabs: ['finanzas', 'estadoResultados', 'estadoResultadosGlobal', 'impuestos'], proximamente: [] },
   administracion:{ label: 'Administración', icon: 'administracion', emoji: '📂',  tabs: ['mapeo', 'contrato', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'costos', 'avance_clientes', 'composicion_costos', 'usuarios', 'cuentas'], proximamente: ['Almacenes'] },
@@ -1051,7 +1052,7 @@ const TAB_ICONS = {
   finanzas: '💰', mapeo: '🔗', usuarios: '👤', trabajadores: '👷', nominas: '💵', estimaciones: '🧮',
   maquinaria: '🚜', nominas_global: '💵', trabajadores_global: '👷', cotizador: '🔍',
   estadoResultados: '📈', estadoResultadosGlobal: '📈', costos: '💲', avance_clientes: '📈', composicion_costos: '🧮',
-  cuentas: '🏦',
+  cuentas: '🏦', matrices: '🧱',
 };
 const TAB_LABELS = {
   resumen: 'Resumen', contrato: 'Contrato', impuestos: 'Impuestos', insumos: 'Insumos', requisiciones: 'Requisiciones',
@@ -1060,7 +1061,7 @@ const TAB_LABELS = {
   maquinaria: 'Maquinaria', nominas_global: 'Nómina (todas las obras)', trabajadores_global: 'Trabajadores (todas las obras)',
   cotizador: 'Cotizador', estadoResultados: 'Estado de Resultados', estadoResultadosGlobal: 'Estado de Resultados (todas las obras)',
   costos: 'Costos', avance_clientes: 'Avance por cliente', composicion_costos: 'Composición de costos',
-  cuentas: 'Cuentas',
+  cuentas: 'Cuentas', matrices: 'Matrices de precio unitario',
 };
 
 const VIEW_TO_SECTION = {};
@@ -3750,6 +3751,7 @@ async function renderView() {
       case 'trabajadores': await renderTrabajadores(view); break;
       case 'nominas': await renderNominas(view); break;
       case 'estimaciones': await renderEstimaciones(view); break;
+      case 'matrices': await renderMatrices(view); break;
       default: view.innerHTML = '';
     }
   } catch (err) {
@@ -7379,7 +7381,11 @@ const PERMISOS_SECCION_LABELS = {
   maquinaria: 'Maquinaria (equipos)', maquinaria_captura: 'Maquinaria (horas: captura/autorización)',
   maquinaria_combustible: 'Maquinaria (combustible/mantenimiento)', trabajadores: 'Trabajadores',
   trabajadores_global: 'Trabajadores (Todas las Obras)', nominas_global: 'Nóminas (Todas las Obras)',
-  costos: 'Costos (catálogo de precios)',
+  // prompt-14-matrices-precio-unitario.md: 'costos' ahora también gatea
+  // Matrices de precio unitario (puede_editar/puede_editar_precios/
+  // puede_eliminar dejan de ser informativos aquí — ver SECCIONES_CON_
+  // ENFORCEMENT más abajo, ya incluye 'costos').
+  costos: 'Costos (catálogo de precios + matrices de precio unitario)',
   // Distintas de 'contrato' (el contrato de la OBRA) — estas son sobre el
   // expediente de CADA trabajador: documentos de identidad y contratos
   // laborales (incluye salario). Nombre explícito para no confundirlas en
@@ -7417,7 +7423,11 @@ const PERMISOS_ACCIONES = [
 // alcanzable todavía), aquí SON la sección que este prompt expone para que
 // Paul las conceda de verdad — dejarlas fuera las mostraría como
 // "informativas: sin efecto real" cuando ver/crear/eliminar SÍ lo tienen.
-const SECCIONES_CON_ENFORCEMENT = ['nominas', 'avance', 'maquinaria', 'maquinaria_captura', 'maquinaria_combustible', 'trabajadores_global', 'nominas_global', 'trabajadores', 'destajo', 'requisiciones', 'proveedores', 'ordenes_compra', 'trabajadores_docs', 'trabajadores_contrato'];
+// 'costos' agregado (prompt-14-matrices-precio-unitario.md): antes solo
+// puede_ver/puede_crear tenían enforcement real (catálogo); ahora
+// puede_editar/puede_editar_precios/puede_eliminar también lo tienen vía
+// Matrices de precio unitario — los 5 toggles de esta sección ya son reales.
+const SECCIONES_CON_ENFORCEMENT = ['nominas', 'avance', 'maquinaria', 'maquinaria_captura', 'maquinaria_combustible', 'trabajadores_global', 'nominas_global', 'trabajadores', 'destajo', 'requisiciones', 'proveedores', 'ordenes_compra', 'trabajadores_docs', 'trabajadores_contrato', 'costos'];
 // 'ordenes_compra' SÍ se agrega completa (prompt-checkpermiso-ordenes-compra.md):
 // a diferencia de presupuestos/finanzas/mapeo, las 4 acciones (ver/crear/
 // editar/eliminar) tienen checkPermiso real — listar/detalle/export, generar
@@ -7516,6 +7526,10 @@ const TAB_A_SECCION = {
   estadoResultados: 'estado_resultados',
   mapeo: 'mapeo', nominas: 'nominas', estimaciones: 'estimaciones',
   maquinaria: 'maquinaria', trabajadores: 'trabajadores',
+  // Mirror de server/auth.js TAB_A_SECCION (prompt-14-matrices-precio-
+  // unitario.md) — a diferencia del tab GLOBAL 'costos', 'matrices' es
+  // por-obra y sí debe resolverse aquí.
+  matrices: 'costos',
 };
 function defaultPermisosParaRolFrontend(puesto) {
   const tabs = ROLE_TABS[puesto] || [];
@@ -10952,6 +10966,313 @@ function openCrearPresupuestoModal(catalogoOriginal) {
       toast(err.message, 'danger');
       btn.disabled = false; btn.textContent = 'Crear presupuesto';
     }
+  });
+}
+
+// =========================================================================
+// VISTA: Matrices de precio unitario (prompt-14-matrices-precio-unitario.md)
+// Por obra. Reusa el permiso 'costos' en el backend — sin gate granular por
+// acción en el frontend (no hay fetch de permisos_usuario aquí, igual que
+// el resto de la app): los botones se muestran siempre para quien ve la
+// pestaña y un 403 real del backend se atrapa como toast, mismo patrón que
+// el resto de las vistas de esta SPA.
+// =========================================================================
+let matricesSelectedConceptoId = null;
+let matricesSeleccionadas = new Set(); // concepto_ids marcados para % en lote — se limpia al salir de la vista
+
+async function renderMatrices(view) {
+  const [{ matrices }, defaultsObra] = await Promise.all([
+    cached('matrices', () => api(`/projects/${state.projectId}/matrices`)),
+    cached('matricesDefaultsObra', () => api(`/projects/${state.projectId}/matrices/porcentajes-obra`)),
+  ]);
+
+  if (matricesSelectedConceptoId && !matrices.some((m) => m.concepto_id === matricesSelectedConceptoId)) {
+    matricesSelectedConceptoId = null;
+  }
+  if (!matricesSelectedConceptoId && matrices.length) matricesSelectedConceptoId = matrices[0].concepto_id;
+
+  view.innerHTML = `
+    <h2 class="section-title">Matrices de precio unitario</h2>
+    <p class="muted">Desglosa el precio unitario de un concepto en Materiales, Mano de Obra y Herramienta y Equipo, a partir de insumos ya cargados en esta obra. Fórmula en cascada: Precio unitario = Costo directo × (1 + %Indirecto) × (1 + %Utilidad).</p>
+
+    <div class="card mb-12">
+      <div class="card-row">
+        <span class="k">% Indirecto por defecto de la obra</span>
+        <span class="v"><input id="matDefIndirecto" type="number" step="0.01" min="0" class="matriz-input-num" value="${defaultsObra.pct_indirecto}" /> %</span>
+      </div>
+      <div class="card-row">
+        <span class="k">% Utilidad por defecto de la obra</span>
+        <span class="v"><input id="matDefUtilidad" type="number" step="0.01" min="0" class="matriz-input-num" value="${defaultsObra.pct_utilidad}" /> %</span>
+      </div>
+      <p class="muted fs-08 mt-6">Solo prellena matrices NUEVAS de esta obra — nunca cambia una matriz ya creada. Referencia PR#48 (10% combinado, set global único, no por obra): ${defaultsObra.referencia_pr48_combinado != null ? fmtPct(defaultsObra.referencia_pr48_combinado) : '—'}.</p>
+      <div class="row end mt-8"><button class="btn" id="btnMatDefaultsGuardar">Guardar</button></div>
+    </div>
+
+    <div class="section-actions mb-8">
+      <button class="btn" id="btnMatricesExport">⭳ Exportar a Excel</button>
+      <button class="btn" id="btnMatricesLote" ${matricesSeleccionadas.size ? '' : 'disabled'}>Aplicar % en lote (${matricesSeleccionadas.size})</button>
+    </div>
+
+    ${matrices.length ? `
+      <div class="table-scroll">
+        <table>
+          <thead><tr>
+            <th></th><th>Código</th><th>Concepto</th>
+            <th class="num">Precio actual</th><th class="num">Costo directo</th><th class="num">Precio (matriz)</th>
+          </tr></thead>
+          <tbody>
+            ${matrices.map((m) => `
+              <tr class="matriz-row ${m.concepto_id === matricesSelectedConceptoId ? 'active' : ''}" data-concepto="${m.concepto_id}">
+                <td><input type="checkbox" class="matSelCheck" data-concepto-check="${m.concepto_id}" ${matricesSeleccionadas.has(m.concepto_id) ? 'checked' : ''} /></td>
+                <td>${esc(m.codigo || '—')}</td>
+                <td>${esc(m.concepto)}</td>
+                <td class="num">${fmtMoney(m.precio_unitario_actual)}</td>
+                <td class="num">${m.tiene_matriz ? fmtMoney(m.costo_directo) : '—'}</td>
+                <td class="num">${m.tiene_matriz ? fmtMoney(m.precio_unitario_calculado) : '<span class="muted">Sin matriz</span>'}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+    ` : '<div class="empty-state">Este presupuesto no tiene conceptos.</div>'}
+
+    <div id="matricesDetalle" class="mt-16"><div class="spinner"></div></div>
+  `;
+
+  $('#btnMatDefaultsGuardar').addEventListener('click', async () => {
+    try {
+      await api(`/projects/${state.projectId}/matrices/porcentajes-obra`, {
+        method: 'PUT',
+        body: { pct_indirecto: Number($('#matDefIndirecto').value) || 0, pct_utilidad: Number($('#matDefUtilidad').value) || 0 },
+      });
+      invalidate('matricesDefaultsObra');
+      toast('Defaults de la obra guardados', 'success');
+    } catch (err) { toast(err.message, 'danger'); }
+  });
+
+  $('#btnMatricesExport').addEventListener('click', async () => {
+    try { await downloadExport(`/projects/${state.projectId}/matrices/export`); }
+    catch (err) { toast(err.message, 'danger'); }
+  });
+
+  $$('.matSelCheck').forEach((chk) => {
+    chk.addEventListener('click', (e) => e.stopPropagation());
+    chk.addEventListener('change', (e) => {
+      const id = Number(e.target.dataset.conceptoCheck);
+      if (e.target.checked) matricesSeleccionadas.add(id); else matricesSeleccionadas.delete(id);
+      renderMatrices(view);
+    });
+  });
+
+  $$('.matriz-row').forEach((row) => row.addEventListener('click', () => {
+    matricesSelectedConceptoId = Number(row.dataset.concepto);
+    renderMatrices(view);
+  }));
+
+  $('#btnMatricesLote')?.addEventListener('click', () => {
+    if (!matricesSeleccionadas.size) return;
+    openModal(`
+      <h3>Aplicar % en lote (${matricesSeleccionadas.size} conceptos)</h3>
+      <p class="muted">Se aplica solo a conceptos que YA tienen matriz. Los seleccionados sin matriz se ignoran.</p>
+      <div class="field"><label>% Indirecto</label><input id="loteIndirecto" type="number" step="0.01" min="0" value="0" /></div>
+      <div class="field"><label>% Utilidad</label><input id="loteUtilidad" type="number" step="0.01" min="0" value="0" /></div>
+      <div class="modal-actions">
+        <button class="btn" id="btnLoteCancelar">Cancelar</button>
+        <button class="btn btn-primary" id="btnLoteAplicar">Aplicar</button>
+      </div>
+    `);
+    $('#btnLoteCancelar').addEventListener('click', closeModal);
+    $('#btnLoteAplicar').addEventListener('click', async () => {
+      try {
+        const r = await api(`/projects/${state.projectId}/matrices/porcentajes/lote`, {
+          method: 'PUT',
+          body: {
+            concepto_ids: [...matricesSeleccionadas],
+            pct_indirecto: Number($('#loteIndirecto').value) || 0,
+            pct_utilidad: Number($('#loteUtilidad').value) || 0,
+          },
+        });
+        closeModal();
+        matricesSeleccionadas.clear();
+        invalidate('matrices');
+        toast(`% actualizado en ${r.actualizadas.length} matriz(ces)`, 'success');
+        renderMatrices(view);
+      } catch (err) { toast(err.message, 'danger'); }
+    });
+  });
+
+  await paintMatrizDetalle(view);
+}
+
+async function paintMatrizDetalle(view) {
+  const box = $('#matricesDetalle');
+  if (!box) return;
+  if (!matricesSelectedConceptoId) { box.innerHTML = '<div class="empty-state">Selecciona un concepto de la tabla.</div>'; return; }
+  box.innerHTML = '<div class="spinner"></div>';
+  let data;
+  try {
+    data = await api(`/projects/${state.projectId}/matrices/${matricesSelectedConceptoId}`);
+  } catch (err) { box.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`; return; }
+
+  const { concepto, matriz } = data;
+  const existeMatriz = !!matriz;
+  // Copia de trabajo local (insumo_id, cantidad + datos de display) — se
+  // manda completa al guardar (POST crea, PUT items reemplaza todo el set,
+  // nunca un PATCH renglón por renglón, más simple y sin estado a medias).
+  const itemsWorking = existeMatriz
+    ? matriz.items.map((it) => ({ ...it }))
+    : [];
+
+  function pintarItemsTabla() {
+    const tabla = $('#matItemsTabla');
+    if (!tabla) return;
+    tabla.innerHTML = itemsWorking.length ? `
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Categoría</th><th>Insumo</th><th class="num">Cantidad</th><th class="num">Precio</th><th class="num">Importe</th><th></th></tr></thead>
+          <tbody>${itemsWorking.map((it, idx) => `
+            <tr>
+              <td>${esc(it.categoria || '—')}</td>
+              <td>${esc(it.codigo)} — ${esc(it.concepto)}</td>
+              <td class="num"><input type="number" step="0.0001" min="0.0001" class="matriz-input-num matItemCantidad" data-idx="${idx}" value="${it.cantidad}" /></td>
+              <td class="num">${fmtMoney(it.precio_presupuesto)}</td>
+              <td class="num">${fmtMoney(Number(it.cantidad) * Number(it.precio_presupuesto))}</td>
+              <td><button class="icon-btn-inline" data-remove="${idx}" type="button" title="Quitar" aria-label="Quitar">✕</button></td>
+            </tr>
+          `).join('')}</tbody>
+        </table>
+      </div>
+    ` : '<p class="muted">Sin insumos agregados todavía.</p>';
+    $$('.matItemCantidad', tabla).forEach((inp) => inp.addEventListener('change', (e) => {
+      itemsWorking[Number(e.target.dataset.idx)].cantidad = Math.max(0.0001, Number(e.target.value) || 0);
+      pintarItemsTabla();
+    }));
+    $$('[data-remove]', tabla).forEach((btn) => btn.addEventListener('click', () => {
+      itemsWorking.splice(Number(btn.dataset.remove), 1);
+      pintarItemsTabla();
+    }));
+  }
+
+  box.innerHTML = `
+    <h3 class="section-title">${esc(concepto.codigo || '')} — ${esc(concepto.concepto)}</h3>
+    <p class="muted">Precio unitario actual del concepto: <strong>${fmtMoney(Number(concepto.precio_unitario))}</strong></p>
+
+    ${existeMatriz ? `
+      <div class="card mb-12">
+        ${matriz.categorias.map((c) => `
+          <div class="card-row">
+            <span class="k">${esc(c.label)}</span>
+            <span class="v">${c.subtotal != null ? fmtMoney(c.subtotal) : 'No disponible'}</span>
+          </div>
+        `).join('')}
+        <div class="card-row"><span class="k"><strong>Costo directo</strong></span><span class="v"><strong>${fmtMoney(matriz.costo_directo)}</strong></span></div>
+        <div class="card-row">
+          <span class="k">% Indirecto</span>
+          <span class="v"><input id="matPctIndirecto" type="number" step="0.01" min="0" class="matriz-input-num" value="${matriz.pct_indirecto}" /> %</span>
+        </div>
+        <div class="card-row">
+          <span class="k">% Utilidad</span>
+          <span class="v"><input id="matPctUtilidad" type="number" step="0.01" min="0" class="matriz-input-num" value="${matriz.pct_utilidad}" /> %</span>
+        </div>
+        <div class="card-row"><span class="k">% combinado efectivo</span><span class="v">${fmtPct(matriz.pct_combinado_efectivo)}</span></div>
+        <div class="row end mt-8"><button class="btn" id="btnMatActualizarPct">Actualizar %</button></div>
+        <div class="card-row"><span class="k"><strong>Precio unitario (matriz)</strong></span><span class="v"><strong>${fmtMoney(matriz.precio_unitario_calculado)}</strong></span></div>
+        ${!matriz.completa ? '<p class="muted fs-08">Matriz incompleta — hay categorías "No disponible". No se puede aplicar todavía.</p>' : ''}
+      </div>
+      <div class="row mb-8">
+        <button class="btn btn-primary" id="btnMatAplicar" ${matriz.completa ? '' : 'disabled'}>Aplicar precio a este concepto</button>
+        <button class="btn btn-danger" id="btnMatEliminar">Eliminar matriz</button>
+      </div>
+    ` : '<p class="muted">Este concepto no tiene matriz todavía. Agrega insumos abajo para crearla.</p>'}
+
+    <h4 class="mt-16">Composición (insumos)</h4>
+    <div class="field">
+      <input type="search" id="matInsumoSearch" placeholder="Buscar insumo por código o nombre…" />
+    </div>
+    <div id="matSearchResults"></div>
+    <div id="matItemsTabla" class="mt-8"></div>
+    <div class="row end mt-8"><button class="btn btn-primary" id="btnMatGuardarComposicion">${existeMatriz ? 'Guardar composición' : 'Crear matriz'}</button></div>
+  `;
+
+  pintarItemsTabla();
+
+  if (existeMatriz) {
+    $('#btnMatActualizarPct').addEventListener('click', async () => {
+      try {
+        await api(`/projects/${state.projectId}/matrices/${matricesSelectedConceptoId}/porcentajes`, {
+          method: 'PUT',
+          body: { pct_indirecto: Number($('#matPctIndirecto').value) || 0, pct_utilidad: Number($('#matPctUtilidad').value) || 0 },
+        });
+        invalidate('matrices');
+        toast('Porcentajes actualizados', 'success');
+        await renderMatrices(view);
+      } catch (err) { toast(err.message, 'danger'); }
+    });
+    $('#btnMatAplicar').addEventListener('click', async () => {
+      const ok = await confirmDialog(
+        `Precio actual del concepto: ${fmtMoney(Number(concepto.precio_unitario))}. Precio calculado por la matriz: ${fmtMoney(matriz.precio_unitario_calculado)}. ¿Aplicar el precio de la matriz a este concepto?`,
+        { titulo: 'Aplicar precio de la matriz', textoAceptar: 'Aplicar' }
+      );
+      if (!ok) return;
+      try {
+        await api(`/projects/${state.projectId}/matrices/${matricesSelectedConceptoId}/aplicar`, { method: 'POST' });
+        invalidate('matrices');
+        toast('Precio aplicado al concepto', 'success');
+        await renderMatrices(view);
+      } catch (err) { toast(err.message, 'danger'); }
+    });
+    $('#btnMatEliminar').addEventListener('click', async () => {
+      const ok = await confirmDialog('¿Eliminar esta matriz? Esta acción no se puede deshacer. El precio_unitario del concepto NO se modifica.', { titulo: 'Eliminar matriz', claseAceptar: 'btn-danger', textoAceptar: 'Eliminar' });
+      if (!ok) return;
+      try {
+        await api(`/projects/${state.projectId}/matrices/${matricesSelectedConceptoId}`, { method: 'DELETE' });
+        invalidate('matrices');
+        toast('Matriz eliminada', 'success');
+        await renderMatrices(view);
+      } catch (err) { toast(err.message, 'danger'); }
+    });
+  }
+
+  $('#matInsumoSearch').addEventListener('input', debounce(async (e) => {
+    const q = e.target.value.trim();
+    const results = $('#matSearchResults');
+    if (!q) { results.innerHTML = ''; return; }
+    try {
+      const found = await api(`/projects/${state.projectId}/insumos${queryString({ q })}`);
+      results.innerHTML = found.slice(0, 8).map((i) => `
+        <div class="project-item" data-add="${i.id}">
+          <span class="pname">${esc(i.concepto)}</span>
+          <span class="pmeta">${esc(i.codigo)} · ${esc(i.categoria || '—')} · ${fmtMoney(i.precio_presupuesto)}</span>
+        </div>`).join('') || '<p class="muted">Sin resultados.</p>';
+      $$('[data-add]', results).forEach((row) => row.addEventListener('click', () => {
+        const id = Number(row.dataset.add);
+        if (itemsWorking.some((it) => it.insumo_id === id)) { toast('Ese insumo ya está en la matriz', ''); return; }
+        const insumo = found.find((f) => f.id === id);
+        itemsWorking.push({
+          insumo_id: id, codigo: insumo.codigo, concepto: insumo.concepto,
+          categoria: insumo.categoria, unidad: insumo.unidad,
+          precio_presupuesto: insumo.precio_presupuesto, cantidad: 1,
+        });
+        $('#matInsumoSearch').value = '';
+        results.innerHTML = '';
+        pintarItemsTabla();
+      }));
+    } catch (err) { toast(err.message, 'danger'); }
+  }, 280));
+
+  $('#btnMatGuardarComposicion').addEventListener('click', async () => {
+    if (!itemsWorking.length) { toast('Agrega al menos un insumo', ''); return; }
+    const payload = { items: itemsWorking.map((it) => ({ insumo_id: it.insumo_id, cantidad: it.cantidad })) };
+    try {
+      if (existeMatriz) {
+        await api(`/projects/${state.projectId}/matrices/${matricesSelectedConceptoId}/items`, { method: 'PUT', body: payload });
+      } else {
+        await api(`/projects/${state.projectId}/matrices`, { method: 'POST', body: { concepto_id: matricesSelectedConceptoId, ...payload } });
+      }
+      invalidate('matrices');
+      toast('Composición guardada', 'success');
+      await renderMatrices(view);
+    } catch (err) { toast(err.message, 'danger'); }
   });
 }
 

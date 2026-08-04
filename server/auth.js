@@ -26,8 +26,8 @@ const TOTP_ISSUER = 'Grupo Roforb — Control Presupuestal';
 // Puestos y qué pestañas puede ver cada uno. 'admin' tiene acceso total
 // (se resuelve aparte en allow(), no necesita listarse en cada pestaña).
 const PERMISSIONS = {
-  admin:          { label: 'Administrador', tabs: ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'finanzas', 'estadoResultados', 'estadoResultadosGlobal', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', 'maquinaria', 'cotizador', 'costos', 'avance_clientes', 'composicion_costos'] },
-  desarrollador:  { label: 'Desarrollador', tabs: ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'finanzas', 'estadoResultados', 'estadoResultadosGlobal', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', 'maquinaria', 'cotizador', 'costos', 'avance_clientes', 'composicion_costos'] },
+  admin:          { label: 'Administrador', tabs: ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'finanzas', 'estadoResultados', 'estadoResultadosGlobal', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', 'maquinaria', 'cotizador', 'costos', 'matrices', 'avance_clientes', 'composicion_costos'] },
+  desarrollador:  { label: 'Desarrollador', tabs: ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'finanzas', 'estadoResultados', 'estadoResultadosGlobal', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', 'maquinaria', 'cotizador', 'costos', 'matrices', 'avance_clientes', 'composicion_costos'] },
   // 'trabajadores' agregado aquí (prompts-cotizador-sidebar-permisos-
   // estimaciones.md, Prompt 3) para que el residente reciba la pestaña al
   // hacer login — el acceso REAL a los datos de cada obra lo sigue
@@ -43,7 +43,12 @@ const PERMISSIONS = {
   // (viene de esta lista, no de la matriz) así que nunca veían el tile. Igual
   // que 'trabajadores': agregar el tab no otorga el permiso por sí solo, sigue
   // decidiéndolo checkPermiso vía permisos_usuario (sin fila = 403).
-  residente:      { label: 'Residente',     tabs: ['programa', 'avance', 'destajo', 'requisiciones', 'insumos', 'ordenes', 'nominas', 'trabajadores', 'estimaciones', 'maquinaria'] },
+  // 'matrices' agregado (prompt-14-matrices-precio-unitario.md): mismo gap ya
+  // documentado arriba para 'trabajadores'/'maquinaria' — agregar el tab NO
+  // otorga el permiso por sí solo, checkPermiso('costos', ...) sigue siendo
+  // el gate real vía permisos_usuario (sin fila = 403, default-deny de
+  // 'costos', ver SECCIONES_PERMISOS más abajo).
+  residente:      { label: 'Residente',     tabs: ['programa', 'avance', 'destajo', 'requisiciones', 'insumos', 'ordenes', 'nominas', 'trabajadores', 'estimaciones', 'maquinaria', 'matrices'] },
   // 'trabajadores' agregado aquí (prompt-c-checkpermiso-trabajadores.md,
   // fix de visibilidad en nav): mismo gap ya documentado para 'costos' más
   // abajo — el permiso puede_ver otorgado vía la matriz a UN cabo específico
@@ -217,6 +222,18 @@ const TAB_A_SECCION = {
   // descartaba en silencio los tabs 'cotizador' (compras) y
   // 'estadoResultadosGlobal' (tesorería) por no tener sección mapeada.
   cotizador: 'cotizador', estadoResultadosGlobal: 'estado_resultados_global',
+  // prompt-14-matrices-precio-unitario.md: 'matrices' reusa la sección
+  // 'costos' (mismo tipo de dato). A diferencia del tab GLOBAL 'costos'
+  // (catálogo cross-obra, deliberadamente SIN entrada aquí — ver comentario
+  // de 'costos' en SECCIONES_PERMISOS), 'matrices' SÍ es por-obra, así que
+  // sí debe resolverse por esta vía para que GET /api/projects/:id/nav-tabs
+  // (server/app.js, fuente de verdad de navegación por-obra para roles
+  // no-admin) le otorgue el tab a un residente con puede_ver=true en
+  // 'costos' — sin este mapeo, el permiso quedaba concedido a nivel API
+  // pero el tab nunca aparecía en su sidebar (confirmado con Playwright:
+  // contenido servía 200 vía navegación directa, pero SECCION_A_TAB
+  // descartaba 'costos' por no tener tab reverso, dejando el tab invisible).
+  matrices: 'costos',
 };
 
 // Set de permisos default al dar de alta un usuario: puede_ver=true en las

@@ -3987,9 +3987,19 @@ app.get('/api/projects/:id/requisiciones/:reqId', h(auth.allow('residente', 'cab
 
 app.post('/api/projects/:id/requisiciones', h(auth.allow('residente', 'cabo', 'compras')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('requisiciones', 'puede_crear')), h(async (req, res) => {
   const pid = req.project.id;
-  const { folio, fecha, observaciones, items } = req.body || {};
+  const { folio, fecha, fecha_suministro, observaciones, items } = req.body || {};
   if (!Array.isArray(items) || items.length === 0) {
     return res.status(400).json({ error: 'La requisición debe incluir al menos un insumo' });
+  }
+  // Opcional a propósito (no retroactivo, no bloquea captura) — ver
+  // prompt-15-fecha-suministro-y-programa.md. Cuando sí se manda, no puede
+  // ser anterior a la fecha de la requisición (la misma que se está
+  // guardando en este INSERT, incluyendo el default CURRENT_DATE).
+  if (fecha_suministro) {
+    const fechaBase = fecha || new Date().toISOString().slice(0, 10);
+    if (fecha_suministro < fechaBase) {
+      return res.status(400).json({ error: 'La fecha de suministro no puede ser anterior a la fecha de la requisición' });
+    }
   }
   // Residente/cabo solo anexan cantidades — el precio siempre lo determina
   // el presupuesto (computeAlertsAndTotals cae a insumo.precio_presupuesto
@@ -4001,9 +4011,9 @@ app.post('/api/projects/:id/requisiciones', h(auth.allow('residente', 'cabo', 'c
     const computed = await computeAlertsAndTotals(pid, items);
     const created = await db.withTransaction(async (client) => {
       const { rows } = await client.query(
-        `INSERT INTO requisiciones (project_id, folio, fecha, estado, observaciones, usuario_id)
-         VALUES ($1, $2, COALESCE($3::date, CURRENT_DATE), 'borrador', $4, $5) RETURNING *`,
-        [pid, folio || null, fecha || null, observaciones || null, req.user.id]
+        `INSERT INTO requisiciones (project_id, folio, fecha, fecha_suministro, estado, observaciones, usuario_id)
+         VALUES ($1, $2, COALESCE($3::date, CURRENT_DATE), $4::date, 'borrador', $5, $6) RETURNING *`,
+        [pid, folio || null, fecha || null, fecha_suministro || null, observaciones || null, req.user.id]
       );
       const reqId = rows[0].id;
       for (const c of computed) {
@@ -4037,9 +4047,21 @@ app.put('/api/projects/:id/requisiciones/:reqId', h(auth.allow('residente', 'cab
   if (existRows[0].estado !== 'borrador') {
     return res.status(400).json({ error: 'Solo se pueden editar requisiciones en estado "borrador"' });
   }
-  const { folio, fecha, observaciones, items } = req.body || {};
+  const { folio, fecha, fecha_suministro, observaciones, items } = req.body || {};
   if (!Array.isArray(items) || items.length === 0) {
     return res.status(400).json({ error: 'La requisición debe incluir al menos un insumo' });
+  }
+  // Mismo candado que en POST — cuando se manda, no puede ser anterior a la
+  // fecha efectiva de la requisición (la nueva si se cambió, si no la ya
+  // guardada). fecha_suministro NO usa COALESCE al guardar (más abajo): a
+  // diferencia de 'fecha', debe poderse limpiar mandando null explícito —
+  // decisión consultada: el campo es opcional pero visible, y un residente
+  // debe poder corregir/quitar una fecha capturada por error.
+  if (fecha_suministro) {
+    const fechaBase = fecha || existRows[0].fecha;
+    if (fecha_suministro < fechaBase) {
+      return res.status(400).json({ error: 'La fecha de suministro no puede ser anterior a la fecha de la requisición' });
+    }
   }
   // Ver mismo candado en POST /requisiciones — residente/cabo no manipulan precios.
   if (['residente', 'cabo'].includes(req.user.puesto)) {
@@ -4049,9 +4071,9 @@ app.put('/api/projects/:id/requisiciones/:reqId', h(auth.allow('residente', 'cab
     const computed = await computeAlertsAndTotals(pid, items, reqId);
     const updated = await db.withTransaction(async (client) => {
       const { rows } = await client.query(
-        `UPDATE requisiciones SET folio = $1, fecha = COALESCE($2::date, fecha), observaciones = $3
-         WHERE id = $4 RETURNING *`,
-        [folio || null, fecha || null, observaciones || null, reqId]
+        `UPDATE requisiciones SET folio = $1, fecha = COALESCE($2::date, fecha), fecha_suministro = $3::date, observaciones = $4
+         WHERE id = $5 RETURNING *`,
+        [folio || null, fecha || null, fecha_suministro || null, observaciones || null, reqId]
       );
       await client.query('DELETE FROM requisicion_items WHERE requisicion_id = $1', [reqId]);
       for (const c of computed) {
@@ -4140,6 +4162,171 @@ app.post('/api/projects/:id/requisiciones/preview', h(auth.allow('residente', 'c
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
+}));
+
+// ---------------------------------------------------------------------------
+// Programa de suministros (prompt-15-fecha-suministro-y-programa.md):
+// consolida, cross-obra, todas las requisiciones cuya fecha_suministro cae
+// en un rango — base del futuro módulo de Logística pendiente en backlog,
+// SIN construir su calendario visual (solo tabla consolidada con filtros).
+// IDOR: mismo criterio ya usado en getObrasDelClienteParaUsuario (PR91,
+// materiales disponibles) — admin/desarrollador ven todas las obras, el
+// resto solo las de usuario_proyectos, en silencio para el agregado sin
+// filtro; si se pide un obra_id puntual sin acceso, 403 explícito (igual que
+// cualquier endpoint de una sola obra).
+// ---------------------------------------------------------------------------
+const UMBRAL_RIESGO_SUMINISTRO_DIAS = 3;
+const OC_ESTADOS_CONFIRMADA = ['confirmada', 'recibida_parcial', 'recibida_completa'];
+
+async function getProgramaSuministrosData(req) {
+  const esAdmin = req.user.puesto === 'admin' || req.user.puesto === 'desarrollador';
+  const { desde: desdeQuery, hasta: hastaQuery, obra_id, cliente_id } = req.query;
+
+  let desde = desdeQuery, hasta = hastaQuery;
+  if (!desde || !hasta) {
+    // Default: semana siguiente lunes-domingo, mismo criterio ya usado en
+    // Asistencia/avances_semanales — calculado en SQL (date_trunc) para no
+    // depender de la zona horaria del proceso Node.
+    const { rows } = await db.pool.query(
+      `SELECT (date_trunc('week', CURRENT_DATE) + INTERVAL '7 days')::date AS desde,
+              (date_trunc('week', CURRENT_DATE) + INTERVAL '13 days')::date AS hasta`
+    );
+    desde = desde || rows[0].desde;
+    hasta = hasta || rows[0].hasta;
+  }
+  if (desde > hasta) {
+    const err = new Error('"desde" no puede ser posterior a "hasta"');
+    err.status = 400;
+    throw err;
+  }
+
+  if (obra_id && !esAdmin) {
+    const { rows } = await db.pool.query(
+      'SELECT 1 FROM usuario_proyectos WHERE usuario_id = $1 AND project_id = $2',
+      [req.user.id, Number(obra_id)]
+    );
+    if (!rows.length) {
+      const err = new Error('No tienes acceso a esta obra');
+      err.status = 403;
+      throw err;
+    }
+  }
+
+  const params = [desde, hasta];
+  let join = '';
+  if (!esAdmin) {
+    params.push(req.user.id);
+    join = `JOIN usuario_proyectos up ON up.project_id = p.id AND up.usuario_id = $${params.length}`;
+  }
+  let where = '';
+  if (obra_id) { params.push(Number(obra_id)); where += ` AND p.id = $${params.length}`; }
+  if (cliente_id) { params.push(Number(cliente_id)); where += ` AND p.cliente_id = $${params.length}`; }
+
+  const { rows } = await db.pool.query(`
+    SELECT p.id AS obra_id, p.nombre AS obra_nombre, p.cliente_id,
+           r.id AS requisicion_id, r.folio, r.fecha_suministro, r.estado AS requisicion_estado,
+           ri.cantidad_solicitada, i.codigo AS insumo_codigo, i.concepto AS insumo_concepto, i.unidad,
+           oc_agg.oc_estados
+    FROM requisiciones r
+    JOIN proyectos p ON p.id = r.project_id
+    JOIN requisicion_items ri ON ri.requisicion_id = r.id
+    JOIN insumos i ON i.id = ri.insumo_id
+    LEFT JOIN LATERAL (
+      SELECT array_agg(oc.estado) AS oc_estados FROM ordenes_compra oc WHERE oc.requisicion_id = r.id
+    ) oc_agg ON true
+    ${join}
+    WHERE r.fecha_suministro BETWEEN $1 AND $2 ${where}
+    ORDER BY p.nombre, r.fecha_suministro, r.id, ri.id
+  `, params);
+
+  const { rows: hoyRows } = await db.pool.query('SELECT CURRENT_DATE::text AS hoy');
+  const hoy = hoyRows[0].hoy;
+
+  const obrasMap = new Map();
+  for (const row of rows) {
+    if (!obrasMap.has(row.obra_id)) {
+      obrasMap.set(row.obra_id, { obra_id: row.obra_id, obra_nombre: row.obra_nombre, cliente_id: row.cliente_id, fechasMap: new Map() });
+    }
+    const obra = obrasMap.get(row.obra_id);
+    if (!obra.fechasMap.has(row.fecha_suministro)) obra.fechasMap.set(row.fecha_suministro, []);
+    const ocConfirmada = (row.oc_estados || []).some((e) => OC_ESTADOS_CONFIRMADA.includes(e));
+    const diasParaSuministro = Math.round((new Date(row.fecha_suministro) - new Date(hoy)) / 86400000);
+    const enRiesgo = diasParaSuministro <= UMBRAL_RIESGO_SUMINISTRO_DIAS && (row.requisicion_estado !== 'autorizada' || !ocConfirmada);
+    obra.fechasMap.get(row.fecha_suministro).push({
+      requisicion_id: row.requisicion_id,
+      folio: row.folio || `Requisición #${row.requisicion_id}`,
+      requisicion_estado: row.requisicion_estado,
+      insumo_codigo: row.insumo_codigo,
+      insumo_concepto: row.insumo_concepto,
+      unidad: row.unidad,
+      cantidad_solicitada: row.cantidad_solicitada,
+      oc_confirmada: ocConfirmada,
+      en_riesgo: enRiesgo,
+    });
+  }
+  const obras = [...obrasMap.values()].map((o) => ({
+    obra_id: o.obra_id,
+    obra_nombre: o.obra_nombre,
+    cliente_id: o.cliente_id,
+    fechas: [...o.fechasMap.entries()].map(([fecha_suministro, items]) => ({ fecha_suministro, items })),
+  }));
+
+  return { desde, hasta, umbral_riesgo_dias: UMBRAL_RIESGO_SUMINISTRO_DIAS, obras };
+}
+
+app.get('/api/requisiciones/programa', h(auth.allow('residente', 'cabo', 'compras', 'logistica')), h(auth.checkPermiso('requisiciones', 'puede_ver')), h(async (req, res) => {
+  try {
+    res.json(await getProgramaSuministrosData(req));
+  } catch (err) {
+    res.status(err.status || 400).json({ error: err.message });
+  }
+}));
+
+app.get('/api/requisiciones/programa/export', h(auth.allow('residente', 'cabo', 'compras', 'logistica')), h(auth.checkPermiso('requisiciones', 'puede_ver')), h(async (req, res) => {
+  let data;
+  try {
+    data = await getProgramaSuministrosData(req);
+  } catch (err) {
+    return res.status(err.status || 400).json({ error: err.message });
+  }
+  const rows = [];
+  for (const obra of data.obras) {
+    for (const f of obra.fechas) {
+      for (const it of f.items) {
+        rows.push({
+          obra: obra.obra_nombre,
+          fecha_suministro: f.fecha_suministro,
+          folio: it.folio,
+          insumo_codigo: it.insumo_codigo,
+          insumo_concepto: it.insumo_concepto,
+          unidad: it.unidad || '',
+          cantidad_solicitada: Number(it.cantidad_solicitada),
+          requisicion_estado: it.requisicion_estado,
+          oc_confirmada: it.oc_confirmada ? 'Sí' : 'No',
+          en_riesgo: it.en_riesgo ? 'Sí' : 'No',
+        });
+      }
+    }
+  }
+  await sendXlsxExport(res, {
+    filename: `Programa-Suministros_${data.desde}_a_${data.hasta}.xlsx`,
+    sheets: [{
+      sheetName: 'Programa',
+      columns: [
+        { header: 'Obra', key: 'obra', width: 26 },
+        { header: 'Fecha de suministro', key: 'fecha_suministro', width: 18 },
+        { header: 'Folio', key: 'folio', width: 18 },
+        { header: 'Código', key: 'insumo_codigo', width: 14 },
+        { header: 'Insumo', key: 'insumo_concepto', width: 34 },
+        { header: 'Unidad', key: 'unidad', width: 10 },
+        { header: 'Cantidad solicitada', key: 'cantidad_solicitada', width: 18 },
+        { header: 'Estado requisición', key: 'requisicion_estado', width: 18 },
+        { header: 'OC confirmada', key: 'oc_confirmada', width: 14 },
+        { header: 'En riesgo', key: 'en_riesgo', width: 12 },
+      ],
+      rows,
+    }],
+  });
 }));
 
 // Historial de qué hicieron residente/cabo sobre las requisiciones de esta

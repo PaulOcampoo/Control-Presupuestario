@@ -4983,53 +4983,216 @@ function addToDraft(insumoId, insumosList) {
 // =========================================================================
 // VISTA: Requisiciones
 // =========================================================================
-async function renderRequisiciones(view) {
-  const reqs = await api(`/projects/${state.projectId}/requisiciones`);
-  const draft = getDraft();
+// prompt-15-fecha-suministro-y-programa.md: sub-nav 'Lista'/'Programa de
+// suministros', mismo patrón ya usado en Usuarios (Cuentas/Permisos de
+// Acceso). El Programa es cross-obra (consolida TODAS las obras accesibles
+// al usuario, no solo la actual) — accesible desde cualquier obra porque no
+// tiene sentido acotarlo a una sola, ver getProgramaSuministrosData en el
+// backend.
+async function renderRequisiciones(view, initialSubView) {
+  let subView = initialSubView || 'lista';
+
+  function renderSubNav() {
+    return `
+      <div class="nominas-subnav">
+        <button class="btn ${subView === 'lista' ? 'btn-primary' : ''}" id="btnReqSubLista">Lista</button>
+        <button class="btn ${subView === 'programa' ? 'btn-primary' : ''}" id="btnReqSubPrograma">Programa de suministros</button>
+      </div>
+    `;
+  }
+  function bindSubNav() {
+    $('#btnReqSubLista').addEventListener('click', showLista);
+    $('#btnReqSubPrograma').addEventListener('click', showPrograma);
+  }
+
+  async function showLista() {
+    subView = 'lista';
+    const reqs = await api(`/projects/${state.projectId}/requisiciones`);
+    const draft = getDraft();
+
+    view.innerHTML = `
+      <h2 class="section-title">Requisiciones de compra ${renderHelpBtn('requisiciones')}</h2>
+      ${renderSubNav()}
+      ${draft.length ? `
+        <div class="card">
+          <div class="row between"><strong>Borrador en curso</strong><span class="badge muted">${draft.length} insumo${draft.length === 1 ? '' : 's'}</span></div>
+          <p class="muted">Insumos agregados desde el catálogo, listos para convertirse en una requisición.</p>
+          <div class="row end"><button class="btn btn-primary" id="btnOpenDraft">Revisar y crear requisición</button></div>
+        </div>` : ''}
+      <div class="section-actions">
+        <button class="btn" id="btnGoCatalogo">+ Agregar insumos desde el catálogo</button>
+        <button class="btn" id="btnExportRequisiciones">⭳ Exportar a Excel</button>
+        ${puedeGestionarUsuarios() ? `<button class="btn" id="btnReqHistorial">🕘 Historial</button>` : ''}
+      </div>
+      <div id="reqList"></div>
+    `;
+    bindSubNav();
+    $('#btnGoCatalogo').addEventListener('click', () => switchToView('insumos'));
+    wireExportButton('#btnExportRequisiciones', `/projects/${state.projectId}/requisiciones/export`);
+    if (puedeGestionarUsuarios()) $('#btnReqHistorial').addEventListener('click', openRequisicionesHistorialModal);
+    if (draft.length) $('#btnOpenDraft').addEventListener('click', openDraftModal);
+
+    const list = $('#reqList');
+    if (!reqs.length) {
+      list.innerHTML = `<div class="empty-state"><div class="big">🧾</div>Aún no hay requisiciones.<br>Agrega insumos desde el catálogo y crea tu primera requisición.</div>`;
+      return;
+    }
+    list.innerHTML = reqs.map((r) => {
+      const alertCount = r.alertas_cantidad + r.alertas_precio;
+      const estadoBadge = { borrador: 'muted', enviada: 'yellow', autorizada: 'green', rechazada: 'red', cancelada: 'red' }[r.estado] || 'muted';
+      return `
+      <div class="card" data-req="${r.id}">
+        <div class="row between">
+          <div>
+            <strong>${esc(r.folio || `Requisición #${r.id}`)}</strong>
+            <div class="muted">${fmtDate(r.fecha)} · ${r.num_items} insumo${r.num_items === 1 ? '' : 's'} · ${fmtMoney(r.importe_total)}</div>
+          </div>
+          <span class="badge ${estadoBadge}">${esc(r.estado)}</span>
+        </div>
+        ${!r.fecha_suministro ? `<div class="row"><span class="badge yellow" title="No aparecerá en el Programa de suministros hasta que se le agregue una fecha">Sin fecha de suministro</span></div>` : ''}
+        ${alertCount ? `<div class="alert-box warn">⚠️${alertCount} alerta${alertCount === 1 ? '' : 's'}: ${r.alertas_cantidad ? `${r.alertas_cantidad} de cantidad ` : ''}${r.alertas_precio ? `${r.alertas_precio} de precio` : ''}</div>` : ''}
+        <div class="row end"><button class="btn small" data-view-req="${r.id}">Ver detalle</button></div>
+      </div>`;
+    }).join('');
+
+    $$('[data-view-req]', list).forEach((btn) => btn.addEventListener('click', () => openRequisicionDetail(Number(btn.dataset.viewReq))));
+  }
+
+  async function showPrograma() {
+    subView = 'programa';
+    await renderProgramaSuministros(view, renderSubNav, bindSubNav);
+  }
+
+  if (subView === 'programa') await showPrograma();
+  else await showLista();
+}
+
+// Todas las obras a las que el usuario tiene acceso (usuario_proyectos) —
+// admin/desarrollador ven todas. Reutiliza state.projects, ya cargado al
+// entrar a la app (mismo GET /api/projects usado por el resto de la nav),
+// sin pegarle a un endpoint nuevo solo para poblar los filtros.
+function obrasAccesiblesParaFiltro() {
+  return (state.projects || []).map((p) => ({ id: p.id, nombre: p.nombre, cliente_id: p.cliente_id }));
+}
+
+async function renderProgramaSuministros(view, renderSubNav, bindSubNav) {
+  view.innerHTML = `<h2 class="section-title">Requisiciones de compra ${renderHelpBtn('requisiciones')}</h2>${renderSubNav()}<div class="spinner"></div>`;
+  bindSubNav();
+
+  const obras = obrasAccesiblesParaFiltro();
+  const clientesMap = new Map((state.clientes || []).map((c) => [c.id, c.nombre]));
+
+  let filtroObraId = '';
+  let filtroClienteId = '';
+  let filtroDesde = '';
+  let filtroHasta = '';
+
+  async function cargarYPintar() {
+    const q = queryString({
+      desde: filtroDesde || undefined,
+      hasta: filtroHasta || undefined,
+      obra_id: filtroObraId || undefined,
+      cliente_id: filtroClienteId || undefined,
+    });
+    let data;
+    try {
+      data = await api(`/requisiciones/programa${q}`);
+    } catch (err) {
+      $('#programaBody').innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+      return;
+    }
+    filtroDesde = data.desde; filtroHasta = data.hasta;
+    if ($('#programaDesde')) { $('#programaDesde').value = data.desde; $('#programaHasta').value = data.hasta; }
+
+    const totalItems = data.obras.reduce((acc, o) => acc + o.fechas.reduce((a2, f) => a2 + f.items.length, 0), 0);
+    const totalRiesgo = data.obras.reduce((acc, o) => acc + o.fechas.reduce((a2, f) => a2 + f.items.filter((it) => it.en_riesgo).length, 0), 0);
+
+    const body = $('#programaBody');
+    if (!totalItems) {
+      body.innerHTML = `<div class="empty-state"><div class="big">📦</div>Ninguna requisición con fecha de suministro en este periodo.<br>Recuerda: las requisiciones sin fecha de suministro no aparecen aquí — revisa la pestaña "Lista".</div>`;
+      return;
+    }
+    body.innerHTML = `
+      ${totalRiesgo ? `<div class="alert-box danger">⚠️ ${totalRiesgo} renglón${totalRiesgo === 1 ? '' : 'es'} en riesgo: fecha de suministro dentro de ${data.umbral_riesgo_dias} días y la requisición aún no está autorizada o no tiene Orden de Compra confirmada.</div>` : `<div class="alert-box info">✓ Sin renglones en riesgo (umbral: ${data.umbral_riesgo_dias} días antes de la fecha de suministro).</div>`}
+      ${data.obras.map((o) => `
+        <div class="card mt-12">
+          <h3 class="section-title">${esc(o.obra_nombre)}${o.cliente_id != null && clientesMap.has(o.cliente_id) ? ` <span class="muted fs-08">· ${esc(clientesMap.get(o.cliente_id))}</span>` : ''}</h3>
+          ${o.fechas.map((f) => `
+            <div class="mt-12">
+              <div class="row between"><strong>${fmtDate(f.fecha_suministro)}</strong><span class="muted fs-08">${f.items.length} renglón${f.items.length === 1 ? '' : 'es'}</span></div>
+              <div class="table-scroll">
+                <table class="nomina-table">
+                  <thead><tr><th>Insumo</th><th>Cantidad</th><th>Requisición</th><th>Estado</th><th>OC</th><th>Riesgo</th></tr></thead>
+                  <tbody>
+                    ${f.items.map((it) => `
+                    <tr>
+                      <td>${esc(it.insumo_concepto)} <span class="muted code">${esc(it.insumo_codigo)}</span></td>
+                      <td>${fmtNum(it.cantidad_solicitada, 3)} ${esc(it.unidad || '')}</td>
+                      <td>${esc(it.folio)}</td>
+                      <td><span class="badge ${it.requisicion_estado === 'autorizada' ? 'green' : 'muted'}">${esc(it.requisicion_estado)}</span></td>
+                      <td>${it.oc_confirmada ? '<span class="badge green">Confirmada</span>' : '<span class="badge muted">Sin OC</span>'}</td>
+                      <td>${it.en_riesgo ? '<span class="badge red">⚠️ En riesgo</span>' : ''}</td>
+                    </tr>
+                    `).join('')}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      `).join('')}
+    `;
+  }
 
   view.innerHTML = `
     <h2 class="section-title">Requisiciones de compra ${renderHelpBtn('requisiciones')}</h2>
-    ${draft.length ? `
-      <div class="card">
-        <div class="row between"><strong>Borrador en curso</strong><span class="badge muted">${draft.length} insumo${draft.length === 1 ? '' : 's'}</span></div>
-        <p class="muted">Insumos agregados desde el catálogo, listos para convertirse en una requisición.</p>
-        <div class="row end"><button class="btn btn-primary" id="btnOpenDraft">Revisar y crear requisición</button></div>
-      </div>` : ''}
+    ${renderSubNav()}
+    <p class="muted">Consolida las requisiciones cuyo material se necesita en el periodo seleccionado, en todas tus obras — te ayuda a detectar lo que está por vencerse sin estar autorizado o sin Orden de Compra confirmada.</p>
     <div class="section-actions">
-      <button class="btn" id="btnGoCatalogo">+ Agregar insumos desde el catálogo</button>
-      <button class="btn" id="btnExportRequisiciones">⭳ Exportar a Excel</button>
-      ${puedeGestionarUsuarios() ? `<button class="btn" id="btnReqHistorial">🕘 Historial</button>` : ''}
+      <div class="field"><label>Desde</label><input id="programaDesde" type="date" /></div>
+      <div class="field"><label>Hasta</label><input id="programaHasta" type="date" /></div>
+      ${obras.length > 1 ? `
+      <div class="field"><label>Obra</label>
+        <select id="programaObraSelect"><option value="">Todas mis obras</option>${obras.map((o) => `<option value="${o.id}">${esc(o.nombre)}</option>`).join('')}</select>
+      </div>` : ''}
+      ${(state.clientes || []).length > 1 ? `
+      <div class="field"><label>Cliente</label>
+        <select id="programaClienteSelect"><option value="">Todos</option>${(state.clientes || []).map((c) => `<option value="${c.id}">${esc(c.nombre)}</option>`).join('')}</select>
+      </div>` : ''}
+      <button class="btn" id="btnProgramaFiltrar">Filtrar</button>
+      <button class="btn" id="btnExportPrograma">⭳ Exportar a Excel</button>
     </div>
-    <div id="reqList"></div>
+    <div id="programaBody"><div class="spinner"></div></div>
   `;
-  $('#btnGoCatalogo').addEventListener('click', () => switchToView('insumos'));
-  wireExportButton('#btnExportRequisiciones', `/projects/${state.projectId}/requisiciones/export`);
-  if (puedeGestionarUsuarios()) $('#btnReqHistorial').addEventListener('click', openRequisicionesHistorialModal);
-  if (draft.length) $('#btnOpenDraft').addEventListener('click', openDraftModal);
+  bindSubNav();
 
-  const list = $('#reqList');
-  if (!reqs.length) {
-    list.innerHTML = `<div class="empty-state"><div class="big">🧾</div>Aún no hay requisiciones.<br>Agrega insumos desde el catálogo y crea tu primera requisición.</div>`;
-    return;
-  }
-  list.innerHTML = reqs.map((r) => {
-    const alertCount = r.alertas_cantidad + r.alertas_precio;
-    const estadoBadge = { borrador: 'muted', enviada: 'yellow', autorizada: 'green', rechazada: 'red', cancelada: 'red' }[r.estado] || 'muted';
-    return `
-    <div class="card" data-req="${r.id}">
-      <div class="row between">
-        <div>
-          <strong>${esc(r.folio || `Requisición #${r.id}`)}</strong>
-          <div class="muted">${fmtDate(r.fecha)} · ${r.num_items} insumo${r.num_items === 1 ? '' : 's'} · ${fmtMoney(r.importe_total)}</div>
-        </div>
-        <span class="badge ${estadoBadge}">${esc(r.estado)}</span>
-      </div>
-      ${alertCount ? `<div class="alert-box warn">⚠️${alertCount} alerta${alertCount === 1 ? '' : 's'}: ${r.alertas_cantidad ? `${r.alertas_cantidad} de cantidad ` : ''}${r.alertas_precio ? `${r.alertas_precio} de precio` : ''}</div>` : ''}
-      <div class="row end"><button class="btn small" data-view-req="${r.id}">Ver detalle</button></div>
-    </div>`;
-  }).join('');
+  $('#btnProgramaFiltrar').addEventListener('click', () => {
+    filtroDesde = $('#programaDesde').value || '';
+    filtroHasta = $('#programaHasta').value || '';
+    filtroObraId = $('#programaObraSelect')?.value || '';
+    filtroClienteId = $('#programaClienteSelect')?.value || '';
+    cargarYPintar();
+  });
+  // wireExportButton toma un path fijo al conectar el botón — aquí el path
+  // cambia con cada filtro aplicado, así que se arma en el propio handler
+  // (mismo try/finally de wireExportButton, pero evaluado al hacer clic).
+  $('#btnExportPrograma').addEventListener('click', async () => {
+    const btn = $('#btnExportPrograma');
+    const original = btn.textContent;
+    btn.disabled = true; btn.textContent = 'Exportando…';
+    try {
+      await downloadExport(`/requisiciones/programa/export${queryString({
+        desde: filtroDesde || undefined, hasta: filtroHasta || undefined,
+        obra_id: filtroObraId || undefined, cliente_id: filtroClienteId || undefined,
+      })}`);
+    } catch (err) {
+      toast(err.message, 'danger');
+    } finally {
+      btn.disabled = false; btn.textContent = original;
+    }
+  });
 
-  $$('[data-view-req]', list).forEach((btn) => btn.addEventListener('click', () => openRequisicionDetail(Number(btn.dataset.viewReq))));
+  await cargarYPintar();
 }
 
 const REQ_ACCION_LABEL = {
@@ -5077,6 +5240,11 @@ function openDraftModal() {
     <h3>Nueva requisición</h3>
     <div class="field"><label>Folio (opcional)</label><input id="reqFolio" placeholder="Ej. REQ-2026-001" /></div>
     <div class="field"><label>Fecha</label><input id="reqFecha" type="date" value="${new Date().toISOString().slice(0, 10)}" /></div>
+    <div class="field">
+      <label>Fecha de suministro requerida (opcional)</label>
+      <input id="reqFechaSuministro" type="date" />
+      <p class="muted fs-078">¿Cuándo se necesita este material en obra? Alimenta el Programa de suministros — sin esta fecha, la requisición no aparece ahí.</p>
+    </div>
     <div id="draftItems"></div>
     <div class="field"><label>Observaciones</label><textarea id="reqObs" rows="2" placeholder="Notas para esta requisición…"></textarea></div>
     <div id="previewAlerts"></div>
@@ -5165,12 +5333,18 @@ function openDraftModal() {
   $('#btnCancelDraft').addEventListener('click', closeModal);
   $('#btnSubmitDraft').addEventListener('click', async () => {
     const btn = $('#btnSubmitDraft');
+    const fecha = $('#reqFecha').value || new Date().toISOString().slice(0, 10);
+    const fechaSuministro = $('#reqFechaSuministro').value || null;
+    if (fechaSuministro && fechaSuministro < fecha) {
+      toast('La fecha de suministro no puede ser anterior a la fecha de la requisición', 'danger');
+      return;
+    }
     btn.disabled = true; btn.textContent = 'Creando…';
     try {
       const items = draft.map((d) => ({ insumo_id: d.insumo_id, cantidad_solicitada: d.cantidad_solicitada, precio_solicitado: d.precio_solicitado }));
       const result = await api(`/projects/${state.projectId}/requisiciones`, {
         method: 'POST',
-        body: { folio: $('#reqFolio').value.trim() || null, fecha: $('#reqFecha').value || null, observaciones: $('#reqObs').value.trim() || null, items },
+        body: { folio: $('#reqFolio').value.trim() || null, fecha: $('#reqFecha').value || null, fecha_suministro: fechaSuministro, observaciones: $('#reqObs').value.trim() || null, items },
       });
       getDraft().length = 0; // clear draft
       closeModal();
@@ -5196,6 +5370,7 @@ async function openRequisicionDetail(reqId) {
     openModal(`
       <h3>${esc(r.folio || `Requisición #${r.id}`)}</h3>
       <span class="muted">${fmtDate(r.fecha)}</span>
+      <div class="mt-6">${r.fecha_suministro ? `<span class="badge muted">Suministro requerido: ${fmtDate(r.fecha_suministro)}</span>` : `<span class="badge yellow">Sin fecha de suministro</span>`}</div>
       ${r.observaciones ? `<p class="muted">${esc(r.observaciones)}</p>` : ''}
       <div id="reqItemsDetail"></div>
       <div class="card mt-14">
@@ -5272,6 +5447,11 @@ function openEditRequisicionModal(requisicion) {
     <h3>Editar requisición</h3>
     <div class="field"><label>Folio (opcional)</label><input id="reqFolio" placeholder="Ej. REQ-2026-001" value="${esc(requisicion.folio || '')}" /></div>
     <div class="field"><label>Fecha</label><input id="reqFecha" type="date" value="${esc(String(requisicion.fecha || '').slice(0, 10))}" /></div>
+    <div class="field">
+      <label>Fecha de suministro requerida (opcional)</label>
+      <input id="reqFechaSuministro" type="date" value="${esc(String(requisicion.fecha_suministro || '').slice(0, 10))}" />
+      <p class="muted fs-078">¿Cuándo se necesita este material en obra? Alimenta el Programa de suministros — sin esta fecha, la requisición no aparece ahí.</p>
+    </div>
     <div id="editItems"></div>
     <div class="field">
       <label>Agregar insumo del catálogo (faltante)</label>
@@ -5390,12 +5570,18 @@ function openEditRequisicionModal(requisicion) {
   $('#btnSaveEdit').addEventListener('click', async () => {
     if (!items.length) { toast('Agrega al menos un insumo', 'danger'); return; }
     const btn = $('#btnSaveEdit');
+    const fecha = $('#reqFecha').value || String(requisicion.fecha || '').slice(0, 10);
+    const fechaSuministro = $('#reqFechaSuministro').value || null;
+    if (fechaSuministro && fechaSuministro < fecha) {
+      toast('La fecha de suministro no puede ser anterior a la fecha de la requisición', 'danger');
+      return;
+    }
     btn.disabled = true; btn.textContent = 'Guardando…';
     try {
       const payload = items.map((d) => ({ insumo_id: d.insumo_id, cantidad_solicitada: d.cantidad_solicitada, precio_solicitado: d.precio_solicitado }));
       const result = await api(`/projects/${state.projectId}/requisiciones/${requisicion.id}`, {
         method: 'PUT',
-        body: { folio: $('#reqFolio').value.trim() || null, fecha: $('#reqFecha').value || null, observaciones: $('#reqObs').value.trim() || null, items: payload },
+        body: { folio: $('#reqFolio').value.trim() || null, fecha: $('#reqFecha').value || null, fecha_suministro: fechaSuministro, observaciones: $('#reqObs').value.trim() || null, items: payload },
       });
       closeModal();
       invalidate('resumen');

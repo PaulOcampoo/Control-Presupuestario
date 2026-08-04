@@ -2430,6 +2430,319 @@ app.post('/api/costos/crear-presupuesto', h(auth.checkPermiso('costos', 'puede_c
 }));
 
 // ---------------------------------------------------------------------------
+// Matrices de precio unitario (prompt-14-matrices-precio-unitario.md) — por
+// obra, a partir de insumos YA cargados en esa obra. Tabla propia
+// (matrices_precio_unitario + matriz_precio_items), deliberadamente separada
+// de concepto_insumos: ver comentario en server/db.js — diagnóstico
+// confirmado con Paul, poblar concepto_insumos desde aquí habría roto
+// "avance requiere entrega" (insumosPendientesPorConcepto más abajo), además
+// esa tabla no tiene columna cantidad. Reusa el permiso 'costos' (mismo tipo
+// de dato: precios/presupuesto) — ya está en el CHECK de permisos_usuario,
+// no requiere sección nueva.
+const MATRIZ_CATS = [
+  { key: 'materiales', label: 'Materiales', insumoCat: 'MATERIALES' },
+  { key: 'mano_obra', label: 'Mano de Obra', insumoCat: 'MANO DE OBRA' },
+  { key: 'herramienta_equipo', label: 'Herramienta y Equipo', insumoCat: 'EQUIPO Y HERRAMIENTA' },
+];
+
+// Fórmula en cascada confirmada con Paul (estándar MX): la utilidad se aplica
+// sobre el costo directo YA indirectado, no sobre el costo directo solo.
+// Una categoría sin insumos asignados en ESTA matriz da subtotal=null
+// ("No disponible") — nunca se rellena con el % de referencia de PR #48,
+// mismo criterio de honestidad sobre datos faltantes que Composición de costos.
+function calcularMatriz(items, pctIndirecto, pctUtilidad) {
+  const categorias = MATRIZ_CATS.map((c) => {
+    const delaCat = items.filter((it) => it.categoria === c.insumoCat);
+    const subtotal = delaCat.length
+      ? Number(delaCat.reduce((s, it) => s + Number(it.cantidad) * Number(it.precio_presupuesto), 0).toFixed(4))
+      : null;
+    return { categoria: c.key, label: c.label, subtotal };
+  });
+  const completa = categorias.every((c) => c.subtotal != null);
+  const costoDirecto = Number(categorias.reduce((s, c) => s + (c.subtotal || 0), 0).toFixed(4));
+  const factorIndirecto = 1 + Number(pctIndirecto) / 100;
+  const factorUtilidad = 1 + Number(pctUtilidad) / 100;
+  const precioUnitarioCalculado = Number((costoDirecto * factorIndirecto * factorUtilidad).toFixed(4));
+  const pctCombinadoEfectivo = Number(((factorIndirecto * factorUtilidad - 1) * 100).toFixed(4));
+  return { categorias, costo_directo: costoDirecto, completa, precio_unitario_calculado: precioUnitarioCalculado, pct_combinado_efectivo: pctCombinadoEfectivo };
+}
+
+async function getMatrizConItems(conceptoId) {
+  const { rows: matrizRows } = await db.pool.query('SELECT * FROM matrices_precio_unitario WHERE concepto_id = $1', [conceptoId]);
+  if (!matrizRows[0]) return null;
+  const matriz = matrizRows[0];
+  const { rows: items } = await db.pool.query(`
+    SELECT mpi.id, mpi.insumo_id, mpi.cantidad, i.codigo, i.concepto, i.categoria, i.unidad, i.precio_presupuesto
+    FROM matriz_precio_items mpi
+    JOIN insumos i ON i.id = mpi.insumo_id
+    WHERE mpi.matriz_id = $1
+    ORDER BY i.categoria, i.concepto
+  `, [matriz.id]);
+  return { ...matriz, items, ...calcularMatriz(items, matriz.pct_indirecto, matriz.pct_utilidad) };
+}
+
+app.get('/api/projects/:id/matrices', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('costos', 'puede_ver')), h(async (req, res) => {
+  const pid = req.project.id;
+  const { rows: conceptoRows } = await db.pool.query(
+    'SELECT id, codigo, concepto, unidad, precio_unitario FROM conceptos WHERE project_id = $1 AND es_total = 0 AND activo = 1 ORDER BY orden', [pid]
+  );
+  const { rows: matrizRows } = await db.pool.query(`
+    SELECT m.* FROM matrices_precio_unitario m JOIN conceptos c ON c.id = m.concepto_id WHERE c.project_id = $1
+  `, [pid]);
+  const matrizPorConcepto = new Map(matrizRows.map((m) => [m.concepto_id, m]));
+  const matrizIds = matrizRows.map((m) => m.id);
+  const itemsPorMatriz = new Map();
+  if (matrizIds.length) {
+    const { rows: itemRows } = await db.pool.query(`
+      SELECT mpi.matriz_id, mpi.cantidad, i.categoria, i.precio_presupuesto
+      FROM matriz_precio_items mpi JOIN insumos i ON i.id = mpi.insumo_id
+      WHERE mpi.matriz_id = ANY($1)
+    `, [matrizIds]);
+    for (const r of itemRows) {
+      if (!itemsPorMatriz.has(r.matriz_id)) itemsPorMatriz.set(r.matriz_id, []);
+      itemsPorMatriz.get(r.matriz_id).push(r);
+    }
+  }
+  const matrices = conceptoRows.map((c) => {
+    const m = matrizPorConcepto.get(c.id);
+    if (!m) return { concepto_id: c.id, codigo: c.codigo, concepto: c.concepto, unidad: c.unidad, precio_unitario_actual: Number(c.precio_unitario), tiene_matriz: false };
+    return {
+      concepto_id: c.id, codigo: c.codigo, concepto: c.concepto, unidad: c.unidad,
+      precio_unitario_actual: Number(c.precio_unitario), tiene_matriz: true,
+      pct_indirecto: m.pct_indirecto, pct_utilidad: m.pct_utilidad,
+      ...calcularMatriz(itemsPorMatriz.get(m.id) || [], m.pct_indirecto, m.pct_utilidad),
+    };
+  });
+  res.json({ matrices });
+}));
+
+// Rutas literales (/export, /porcentajes-obra) ANTES de /matrices/:conceptoId
+// — Express no prioriza segmentos literales sobre params por especificidad,
+// solo por orden de registro; con el orden invertido "export"/"porcentajes-
+// obra" se habrían capturado como conceptoId.
+app.get('/api/projects/:id/matrices/export', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('costos', 'puede_ver')), h(async (req, res) => {
+  const pid = req.project.id;
+  const { rows: conceptoRows } = await db.pool.query(
+    "SELECT id, codigo, concepto, unidad, precio_unitario FROM conceptos WHERE project_id = $1 AND es_total = 0 AND activo = 1 ORDER BY orden", [pid]
+  );
+  const matrices = [];
+  for (const c of conceptoRows) {
+    const m = await getMatrizConItems(c.id);
+    if (m) matrices.push({ codigo: c.codigo, concepto: c.concepto, unidad: c.unidad, precio_unitario_actual: Number(c.precio_unitario), ...m });
+  }
+  await sendXlsxExport(res, {
+    filename: buildExportFilename('Matrices-Precio-Unitario', req.project.nombre),
+    sheets: [{
+      sheetName: 'Matrices',
+      columns: [
+        { header: 'Código', key: 'codigo', width: 14 },
+        { header: 'Concepto', key: 'concepto', width: 40 },
+        { header: 'Unidad', key: 'unidad', width: 10 },
+        { header: 'Costo directo', key: 'costo_directo', width: 16, format: 'money' },
+        { header: '% Indirecto', key: 'pct_indirecto', width: 12 },
+        { header: '% Utilidad', key: 'pct_utilidad', width: 12 },
+        { header: 'Precio unitario (matriz)', key: 'precio_unitario_calculado', width: 20, format: 'money' },
+        { header: 'Precio unitario (concepto)', key: 'precio_unitario_actual', width: 20, format: 'money' },
+      ],
+      rows: matrices.map((m) => ({
+        codigo: m.codigo, concepto: m.concepto, unidad: m.unidad,
+        costo_directo: m.costo_directo, pct_indirecto: m.pct_indirecto, pct_utilidad: m.pct_utilidad,
+        precio_unitario_calculado: m.precio_unitario_calculado, precio_unitario_actual: m.precio_unitario_actual,
+      })),
+    }],
+  });
+}));
+
+// % de indirecto/utilidad por defecto de la obra — solo para prellenar
+// matrices NUEVAS (porcentajes_referencia_costo de PR #48 es un set global
+// único, no por obra; se muestra aquí solo como referencia informativa).
+app.get('/api/projects/:id/matrices/porcentajes-obra', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('costos', 'puede_ver')), h(async (req, res) => {
+  const pid = req.project.id;
+  const [{ rows }, { rows: refRows }] = await Promise.all([
+    db.pool.query('SELECT pct_indirecto, pct_utilidad FROM porcentajes_matriz_obra WHERE project_id = $1', [pid]),
+    db.pool.query("SELECT porcentaje FROM porcentajes_referencia_costo WHERE categoria = 'indirecto_utilidad'"),
+  ]);
+  res.json({
+    pct_indirecto: rows[0]?.pct_indirecto ?? 0,
+    pct_utilidad: rows[0]?.pct_utilidad ?? 0,
+    referencia_pr48_combinado: refRows[0] ? Number(refRows[0].porcentaje) : null,
+  });
+}));
+
+app.put('/api/projects/:id/matrices/porcentajes-obra', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('costos', 'puede_editar_precios')), h(async (req, res) => {
+  const pid = req.project.id;
+  const { pct_indirecto, pct_utilidad } = req.body || {};
+  if (!(Number(pct_indirecto) >= 0) || !(Number(pct_utilidad) >= 0)) {
+    return res.status(400).json({ error: 'pct_indirecto y pct_utilidad deben ser números >= 0' });
+  }
+  await db.pool.query(`
+    INSERT INTO porcentajes_matriz_obra (project_id, pct_indirecto, pct_utilidad, actualizado_por)
+    VALUES ($1,$2,$3,$4)
+    ON CONFLICT (project_id) DO UPDATE SET pct_indirecto=$2, pct_utilidad=$3, actualizado_por=$4, actualizado_en=NOW()
+  `, [pid, Number(pct_indirecto), Number(pct_utilidad), req.user.id]);
+  res.json({ pct_indirecto: Number(pct_indirecto), pct_utilidad: Number(pct_utilidad) });
+}));
+
+app.put('/api/projects/:id/matrices/porcentajes/lote', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('costos', 'puede_editar_precios')), h(async (req, res) => {
+  const pid = req.project.id;
+  const { concepto_ids, pct_indirecto, pct_utilidad } = req.body || {};
+  if (!Array.isArray(concepto_ids) || !concepto_ids.length) return res.status(400).json({ error: 'concepto_ids es requerido' });
+  if (!(Number(pct_indirecto) >= 0) || !(Number(pct_utilidad) >= 0)) {
+    return res.status(400).json({ error: 'pct_indirecto y pct_utilidad deben ser números >= 0' });
+  }
+  const ids = concepto_ids.map(Number);
+  const { rows } = await db.pool.query(`
+    UPDATE matrices_precio_unitario m SET pct_indirecto=$1, pct_utilidad=$2, actualizado_por=$3, actualizado_en=NOW()
+    FROM conceptos c WHERE c.id = m.concepto_id AND m.concepto_id = ANY($4) AND c.project_id = $5
+    RETURNING m.concepto_id
+  `, [Number(pct_indirecto), Number(pct_utilidad), req.user.id, ids, pid]);
+  res.json({ actualizadas: rows.map((r) => r.concepto_id) });
+}));
+
+app.get('/api/projects/:id/matrices/:conceptoId', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('costos', 'puede_ver')), h(async (req, res) => {
+  const pid = req.project.id;
+  const conceptoId = Number(req.params.conceptoId);
+  const { rows: conceptoRows } = await db.pool.query(
+    'SELECT id, codigo, concepto, unidad, precio_unitario FROM conceptos WHERE id = $1 AND project_id = $2', [conceptoId, pid]
+  );
+  if (!conceptoRows[0]) return res.status(404).json({ error: 'Concepto no encontrado' });
+  const matriz = await getMatrizConItems(conceptoId);
+  res.json({ concepto: conceptoRows[0], matriz });
+}));
+
+app.post('/api/projects/:id/matrices', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('costos', 'puede_crear')), h(async (req, res) => {
+  const pid = req.project.id;
+  const { concepto_id, items } = req.body || {};
+  const conceptoId = Number(concepto_id);
+  if (!conceptoId) return res.status(400).json({ error: 'concepto_id es requerido' });
+  const { rows: conceptoRows } = await db.pool.query('SELECT id FROM conceptos WHERE id = $1 AND project_id = $2', [conceptoId, pid]);
+  if (!conceptoRows[0]) return res.status(404).json({ error: 'Concepto no encontrado' });
+  if (!Array.isArray(items) || !items.length) return res.status(400).json({ error: 'La matriz debe incluir al menos un insumo' });
+  for (const it of items) {
+    if (!Number(it.insumo_id) || !(Number(it.cantidad) > 0)) return res.status(400).json({ error: 'Cada renglón requiere insumo_id y una cantidad mayor a 0' });
+  }
+  const insumoIds = items.map((it) => Number(it.insumo_id));
+  const { rows: insumoRows } = await db.pool.query('SELECT id FROM insumos WHERE id = ANY($1) AND project_id = $2', [insumoIds, pid]);
+  if (insumoRows.length !== new Set(insumoIds).size) return res.status(400).json({ error: 'Uno o más insumos no pertenecen a esta obra' });
+
+  // % iniciales de la matriz nueva: default por obra (nunca el 10% combinado
+  // global de PR #48 — ese set no distingue indirecto de utilidad). Se
+  // guardan como snapshot en la fila de la matriz: cambiar el default de la
+  // obra después no altera esta matriz retroactivamente.
+  const { rows: defRows } = await db.pool.query('SELECT pct_indirecto, pct_utilidad FROM porcentajes_matriz_obra WHERE project_id = $1', [pid]);
+  const pctIndirecto = defRows[0]?.pct_indirecto ?? 0;
+  const pctUtilidad = defRows[0]?.pct_utilidad ?? 0;
+
+  let matrizId;
+  try {
+    await db.withTransaction(async (client) => {
+      const { rows } = await client.query(
+        `INSERT INTO matrices_precio_unitario (concepto_id, pct_indirecto, pct_utilidad, creado_por, actualizado_por)
+         VALUES ($1,$2,$3,$4,$4) RETURNING id`,
+        [conceptoId, pctIndirecto, pctUtilidad, req.user.id]
+      );
+      matrizId = rows[0].id;
+      for (const it of items) {
+        await client.query('INSERT INTO matriz_precio_items (matriz_id, insumo_id, cantidad) VALUES ($1,$2,$3)', [matrizId, Number(it.insumo_id), Number(it.cantidad)]);
+      }
+    });
+  } catch (err) {
+    if (err.code === '23505') return res.status(409).json({ error: 'Este concepto ya tiene una matriz de precio unitario' });
+    throw err;
+  }
+  res.status(201).json({ matriz: await getMatrizConItems(conceptoId) });
+}));
+
+app.put('/api/projects/:id/matrices/:conceptoId/items', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('costos', 'puede_editar')), h(async (req, res) => {
+  const pid = req.project.id;
+  const conceptoId = Number(req.params.conceptoId);
+  const { items } = req.body || {};
+  if (!Array.isArray(items) || !items.length) return res.status(400).json({ error: 'La matriz debe incluir al menos un insumo' });
+  for (const it of items) {
+    if (!Number(it.insumo_id) || !(Number(it.cantidad) > 0)) return res.status(400).json({ error: 'Cada renglón requiere insumo_id y una cantidad mayor a 0' });
+  }
+  const insumoIds = items.map((it) => Number(it.insumo_id));
+  const { rows: insumoRows } = await db.pool.query('SELECT id FROM insumos WHERE id = ANY($1) AND project_id = $2', [insumoIds, pid]);
+  if (insumoRows.length !== new Set(insumoIds).size) return res.status(400).json({ error: 'Uno o más insumos no pertenecen a esta obra' });
+
+  const { rows: matrizRows } = await db.pool.query(`
+    SELECT m.id FROM matrices_precio_unitario m JOIN conceptos c ON c.id = m.concepto_id
+    WHERE m.concepto_id = $1 AND c.project_id = $2
+  `, [conceptoId, pid]);
+  if (!matrizRows[0]) return res.status(404).json({ error: 'Este concepto no tiene matriz. Créala primero.' });
+  const matrizId = matrizRows[0].id;
+
+  await db.withTransaction(async (client) => {
+    await client.query('DELETE FROM matriz_precio_items WHERE matriz_id = $1', [matrizId]);
+    for (const it of items) {
+      await client.query('INSERT INTO matriz_precio_items (matriz_id, insumo_id, cantidad) VALUES ($1,$2,$3)', [matrizId, Number(it.insumo_id), Number(it.cantidad)]);
+    }
+    await client.query('UPDATE matrices_precio_unitario SET actualizado_por=$1, actualizado_en=NOW() WHERE id=$2', [req.user.id, matrizId]);
+  });
+  res.json({ matriz: await getMatrizConItems(conceptoId) });
+}));
+
+app.put('/api/projects/:id/matrices/:conceptoId/porcentajes', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('costos', 'puede_editar_precios')), h(async (req, res) => {
+  const pid = req.project.id;
+  const conceptoId = Number(req.params.conceptoId);
+  const { pct_indirecto, pct_utilidad } = req.body || {};
+  if (!(Number(pct_indirecto) >= 0) || !(Number(pct_utilidad) >= 0)) {
+    return res.status(400).json({ error: 'pct_indirecto y pct_utilidad deben ser números >= 0' });
+  }
+  const { rows } = await db.pool.query(`
+    UPDATE matrices_precio_unitario m SET pct_indirecto=$1, pct_utilidad=$2, actualizado_por=$3, actualizado_en=NOW()
+    FROM conceptos c WHERE c.id = m.concepto_id AND m.concepto_id = $4 AND c.project_id = $5
+    RETURNING m.id
+  `, [Number(pct_indirecto), Number(pct_utilidad), req.user.id, conceptoId, pid]);
+  if (!rows[0]) return res.status(404).json({ error: 'Este concepto no tiene matriz' });
+  res.json({ matriz: await getMatrizConItems(conceptoId) });
+}));
+
+// Aplicar el precio calculado de la matriz a conceptos.precio_unitario —
+// SIEMPRE explícito (Forbidden Action: nunca sobrescribir en silencio).
+// Recalcula server-side (no confía en un precio_unitario_calculado que venga
+// del cliente) y bloquea si la matriz está incompleta (categoría "No
+// disponible") — aplicar un precio construido con datos faltantes sería
+// fabricar el faltante como si fuera $0.
+app.post('/api/projects/:id/matrices/:conceptoId/aplicar', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('costos', 'puede_editar_precios')), h(async (req, res) => {
+  const pid = req.project.id;
+  const conceptoId = Number(req.params.conceptoId);
+  const matriz = await getMatrizConItems(conceptoId);
+  if (!matriz) return res.status(404).json({ error: 'Este concepto no tiene matriz' });
+  if (!matriz.completa) return res.status(400).json({ error: 'La matriz está incompleta (hay categorías "No disponible") — no se puede aplicar todavía.' });
+
+  const { rows: conceptoRows } = await db.pool.query('SELECT id, cantidad, precio_unitario FROM conceptos WHERE id = $1 AND project_id = $2', [conceptoId, pid]);
+  if (!conceptoRows[0]) return res.status(404).json({ error: 'Concepto no encontrado' });
+  const concepto = conceptoRows[0];
+  const precioAnterior = Number(concepto.precio_unitario);
+  const precioNuevo = matriz.precio_unitario_calculado;
+  const importe = Number(concepto.cantidad) * precioNuevo;
+
+  await db.withTransaction(async (client) => {
+    await client.query('UPDATE conceptos SET precio_unitario=$1, importe=$2 WHERE id=$3', [precioNuevo, importe, conceptoId]);
+    const ip = auth.getIp(req);
+    await client.query(
+      `INSERT INTO audit_log (actor_id, actor_usuario, accion, target_id, project_id, ip, detalle)
+       VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+      [req.user.id, req.user.usuario, 'aplicar_matriz_precio_unitario', conceptoId, pid, ip,
+        JSON.stringify({ precio_anterior: precioAnterior, precio_nuevo: precioNuevo })]
+    );
+  });
+  res.json({ concepto_id: conceptoId, precio_anterior: precioAnterior, precio_nuevo: precioNuevo });
+}));
+
+app.delete('/api/projects/:id/matrices/:conceptoId', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('costos', 'puede_eliminar')), h(async (req, res) => {
+  const pid = req.project.id;
+  const conceptoId = Number(req.params.conceptoId);
+  const { rowCount } = await db.pool.query(`
+    DELETE FROM matrices_precio_unitario m USING conceptos c
+    WHERE c.id = m.concepto_id AND m.concepto_id = $1 AND c.project_id = $2
+  `, [conceptoId, pid]);
+  if (!rowCount) return res.status(404).json({ error: 'Este concepto no tiene matriz' });
+  res.json({ ok: true });
+}));
+
+// ---------------------------------------------------------------------------
 // Control de Cuentas (prompt-control-cuentas.md) — control personal de
 // saldo bancario de Paul/Fer, SIN relación con Costos/Finanzas/Nómina.
 // Gateado por auth.requireControlCuentasAccess (whitelist de usuario_id,

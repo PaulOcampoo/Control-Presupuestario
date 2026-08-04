@@ -7393,6 +7393,18 @@ const PERMISOS_SECCION_LABELS = {
   maquinaria_combustible: 'Maquinaria (combustible/mantenimiento)', trabajadores: 'Trabajadores',
   trabajadores_global: 'Trabajadores (Todas las Obras)', nominas_global: 'Nóminas (Todas las Obras)',
   costos: 'Costos (catálogo de precios)',
+  // prompt-13-fix-permisos-operador.md: 'estado_unidad' (PR #90) y
+  // 'maquinaria_consumibles' (PR #92) tenían enforcement real en el backend
+  // (checkPermiso en server/app.js) desde que se agregaron, pero nunca se
+  // dieron de alta aquí ni en PERMISOS_GRUPOS/SECCIONES_CON_ENFORCEMENT más
+  // abajo — la matriz nunca mostraba estas filas para NINGÚN rol (operador,
+  // cabo, jefe_maquinaria), así que Paul no podía verlas ni ajustarlas desde
+  // la UI aunque el permiso ya existiera y se aplicara de verdad en el
+  // backend. Confirmado con prueba real: revocar el permiso vía API sí
+  // producía 403 para el usuario real — el gap era solo de visibilidad en
+  // este catálogo, no de guardado ni de enforcement.
+  estado_unidad: 'Maquinaria (estado de unidad — checklist)',
+  maquinaria_consumibles: 'Maquinaria (consumo de aceites/diesel)',
   // Distintas de 'contrato' (el contrato de la OBRA) — estas son sobre el
   // expediente de CADA trabajador: documentos de identidad y contratos
   // laborales (incluye salario). Nombre explícito para no confundirlas en
@@ -7430,7 +7442,11 @@ const PERMISOS_ACCIONES = [
 // alcanzable todavía), aquí SON la sección que este prompt expone para que
 // Paul las conceda de verdad — dejarlas fuera las mostraría como
 // "informativas: sin efecto real" cuando ver/crear/eliminar SÍ lo tienen.
-const SECCIONES_CON_ENFORCEMENT = ['nominas', 'avance', 'maquinaria', 'maquinaria_captura', 'maquinaria_combustible', 'trabajadores_global', 'nominas_global', 'trabajadores', 'destajo', 'requisiciones', 'proveedores', 'ordenes_compra', 'trabajadores_docs', 'trabajadores_contrato'];
+// 'estado_unidad' y 'maquinaria_consumibles' (prompt-13-fix-permisos-operador.md):
+// checkPermiso real desde que se agregaron (PRs #90/#92), pero faltaban aquí
+// — sin esto la fila ni siquiera se pintaba en la matriz (ver PERMISOS_SECCION_LABELS/
+// PERMISOS_GRUPOS arriba), independientemente de este flag informativo.
+const SECCIONES_CON_ENFORCEMENT = ['nominas', 'avance', 'maquinaria', 'maquinaria_captura', 'maquinaria_combustible', 'trabajadores_global', 'nominas_global', 'trabajadores', 'destajo', 'requisiciones', 'proveedores', 'ordenes_compra', 'trabajadores_docs', 'trabajadores_contrato', 'estado_unidad', 'maquinaria_consumibles'];
 // 'ordenes_compra' SÍ se agrega completa (prompt-checkpermiso-ordenes-compra.md):
 // a diferencia de presupuestos/finanzas/mapeo, las 4 acciones (ver/crear/
 // editar/eliminar) tienen checkPermiso real — listar/detalle/export, generar
@@ -7513,7 +7529,7 @@ const PERMISOS_GRUPOS = [
   { label: 'Compras',        secciones: ['requisiciones', 'insumos', 'proveedores', 'ordenes_compra'] },
   { label: 'Tesorería',      secciones: ['finanzas', 'estado_resultados', 'impuestos'] },
   { label: 'Administración', secciones: ['mapeo', 'contrato', 'nominas', 'usuarios', 'trabajadores', 'trabajadores_docs', 'trabajadores_contrato', 'trabajadores_global', 'nominas_global', 'costos'] },
-  { label: 'Maquinaria',     secciones: ['maquinaria', 'maquinaria_captura', 'maquinaria_combustible'] },
+  { label: 'Maquinaria',     secciones: ['maquinaria', 'maquinaria_captura', 'maquinaria_combustible', 'estado_unidad', 'maquinaria_consumibles'] },
   { label: 'General',        secciones: ['sugerencias'] },
 ];
 // Mirror de TAB_A_SECCION/defaultPermisosParaRol en server/auth.js — solo se

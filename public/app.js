@@ -1041,7 +1041,7 @@ const SECTION_DEFS = {
   obra:          { label: 'Obra',           icon: 'obra',           emoji: '🏗️',  tabs: ['programa', 'avance', 'destajo', 'estimaciones'],     proximamente: [] },
   compras:       { label: 'Compras',        icon: 'compras',        emoji: '🛒',   tabs: ['requisiciones', 'insumos', 'proveedores', 'ordenes', 'cotizador'], proximamente: ['Subcontratos'] },
   tesoreria:     { label: 'Tesorería',      icon: 'tesoreria',      emoji: '💰',   tabs: ['finanzas', 'estadoResultados', 'estadoResultadosGlobal', 'impuestos'], proximamente: [] },
-  administracion:{ label: 'Administración', icon: 'administracion', emoji: '📂',  tabs: ['mapeo', 'contrato', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'costos', 'avance_clientes', 'composicion_costos', 'usuarios'], proximamente: ['Almacenes'] },
+  administracion:{ label: 'Administración', icon: 'administracion', emoji: '📂',  tabs: ['mapeo', 'contrato', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'costos', 'avance_clientes', 'composicion_costos', 'usuarios', 'cuentas'], proximamente: ['Almacenes'] },
   maquinaria:    { label: 'Maquinaria',     icon: 'maquinaria',     emoji: '🚜',   tabs: ['maquinaria'],                                        proximamente: [] },
 };
 
@@ -1051,6 +1051,7 @@ const TAB_ICONS = {
   finanzas: '💰', mapeo: '🔗', usuarios: '👤', trabajadores: '👷', nominas: '💵', estimaciones: '🧮',
   maquinaria: '🚜', nominas_global: '💵', trabajadores_global: '👷', cotizador: '🔍',
   estadoResultados: '📈', estadoResultadosGlobal: '📈', costos: '💲', avance_clientes: '📈', composicion_costos: '🧮',
+  cuentas: '🏦',
 };
 const TAB_LABELS = {
   resumen: 'Resumen', contrato: 'Contrato', impuestos: 'Impuestos', insumos: 'Insumos', requisiciones: 'Requisiciones',
@@ -1059,6 +1060,7 @@ const TAB_LABELS = {
   maquinaria: 'Maquinaria', nominas_global: 'Nómina (todas las obras)', trabajadores_global: 'Trabajadores (todas las obras)',
   cotizador: 'Cotizador', estadoResultados: 'Estado de Resultados', estadoResultadosGlobal: 'Estado de Resultados (todas las obras)',
   costos: 'Costos', avance_clientes: 'Avance por cliente', composicion_costos: 'Composición de costos',
+  cuentas: 'Cuentas',
 };
 
 const VIEW_TO_SECTION = {};
@@ -3680,9 +3682,10 @@ function destroyCharts() {
 async function renderView() {
   destroyCharts();
   const view = $('#view');
-  if (state.view === 'usuarios' || state.view === 'proveedores' || state.view === 'maquinaria' || state.view === 'nominas_global' || state.view === 'trabajadores_global' || state.view === 'cotizador' || state.view === 'estadoResultadosGlobal' || state.view === 'costos' || state.view === 'avance_clientes' || state.view === 'composicion_costos') {
+  if (state.view === 'usuarios' || state.view === 'proveedores' || state.view === 'maquinaria' || state.view === 'nominas_global' || state.view === 'trabajadores_global' || state.view === 'cotizador' || state.view === 'estadoResultadosGlobal' || state.view === 'costos' || state.view === 'avance_clientes' || state.view === 'composicion_costos' || state.view === 'cuentas') {
     try {
       if (state.view === 'usuarios') { await renderUsuarios(view, state.usuariosSubView); state.usuariosSubView = null; }
+      else if (state.view === 'cuentas') await renderControlCuentas(view);
       else if (state.view === 'proveedores') await renderProveedores(view);
       else if (state.view === 'nominas_global') await renderNominasGlobal(view);
       else if (state.view === 'trabajadores_global') await renderTrabajadoresGlobal(view);
@@ -10408,6 +10411,176 @@ function costosTablaHtml(catalogo) {
       </table>
     </div>
   `;
+}
+
+// =========================================================================
+// Control de Cuentas (prompt-control-cuentas.md) — control personal de
+// saldo bancario de Paul/Fer. La sección solo aparece en el sidebar de los
+// 2 usuarios en la whitelist (auth.tabsParaUsuario, server/auth.js) — esto
+// es cortesía de UI, el gate real es 100% backend
+// (auth.requireControlCuentasAccess en cada endpoint). Sin relación con
+// Costos/Finanzas/Nómina — control personal separado.
+// =========================================================================
+async function renderControlCuentas(view) {
+  const [cuentas, consolidado] = await Promise.all([
+    api('/control-cuentas/cuentas'),
+    api('/control-cuentas/consolidado'),
+  ]);
+
+  view.innerHTML = `
+    <h2 class="section-title">Cuentas</h2>
+    <p class="muted">Control personal de saldo por cuenta bancaria — gasto manual, agregado por semana.</p>
+    <div class="kpi-grid mt-8">
+      <div class="kpi accent"><div class="label">Saldo actual (todas las cuentas)</div><div class="value">${fmtMoney(consolidado.total_saldo_actual)}</div></div>
+      <div class="kpi"><div class="label">Gastado a la fecha</div><div class="value">${fmtMoney(consolidado.total_gastado)}</div></div>
+    </div>
+    <div class="section-actions mt-12">
+      <button class="btn btn-primary" id="btnNuevaCuentaCC">+ Nueva cuenta</button>
+      ${cuentas.length ? '<button class="btn" id="btnNuevoGastoCC">+ Registrar gasto</button>' : ''}
+    </div>
+    <div id="cuentasCCList" class="mt-12"></div>
+  `;
+
+  $('#btnNuevaCuentaCC').addEventListener('click', () => openNuevaCuentaCCModal());
+  $('#btnNuevoGastoCC')?.addEventListener('click', () => openNuevoGastoCCModal(cuentas));
+
+  const list = $('#cuentasCCList');
+  if (!cuentas.length) {
+    list.innerHTML = '<div class="empty-state">Sin cuentas registradas todavía.</div>';
+    return;
+  }
+  list.innerHTML = cuentas.map((c) => `
+    <div class="card cc-cuenta-card" data-ver-cuenta-cc="${c.id}">
+      <div class="card-row"><span class="k">${esc(c.nombre)}${c.banco ? ` · ${esc(c.banco)}` : ''}</span><span class="v">${fmtMoney(c.saldo_actual)}</span></div>
+      <div class="card-row"><span class="k muted fs-078">Saldo inicial (${fmtDate(c.fecha_saldo_inicial)})</span><span class="v muted fs-078">${fmtMoney(c.saldo_inicial)}</span></div>
+    </div>
+  `).join('');
+  $$('[data-ver-cuenta-cc]', list).forEach((card) => {
+    card.addEventListener('click', () => openDetalleCuentaCCModal(Number(card.dataset.verCuentaCc)));
+  });
+}
+
+function openNuevaCuentaCCModal() {
+  openModal(`
+    <h3>Nueva cuenta</h3>
+    <div class="field"><label>Nombre *</label><input id="ccNombre" placeholder="Ej. Cuenta operativa" /></div>
+    <div class="field"><label>Banco</label><input id="ccBanco" /></div>
+    <div class="field"><label>Saldo inicial *</label><input id="ccSaldoInicial" type="number" min="0" step="0.01" /></div>
+    <div class="field"><label>Fecha del saldo inicial *</label><input id="ccFechaSaldo" type="date" value="${new Date().toISOString().slice(0, 10)}" /></div>
+    <div class="modal-actions">
+      <button class="btn" id="btnCancelCcCuenta">Cerrar</button>
+      <button class="btn btn-primary" id="btnSaveCcCuenta">Guardar</button>
+    </div>
+  `);
+  $('#btnCancelCcCuenta').addEventListener('click', closeModal);
+  $('#btnSaveCcCuenta').addEventListener('click', async () => {
+    const body = {
+      nombre: $('#ccNombre').value.trim(), banco: $('#ccBanco').value.trim() || null,
+      saldo_inicial: Number($('#ccSaldoInicial').value), fecha_saldo_inicial: $('#ccFechaSaldo').value,
+    };
+    if (!body.nombre || !body.fecha_saldo_inicial || !(body.saldo_inicial >= 0)) {
+      toast('Completa nombre, saldo inicial y fecha', 'danger'); return;
+    }
+    const btn = $('#btnSaveCcCuenta');
+    btn.disabled = true;
+    try {
+      await api('/control-cuentas/cuentas', { method: 'POST', body });
+      toast('Cuenta creada', 'success');
+      closeModal();
+      renderView();
+    } catch (err) {
+      toast(err.message, 'danger');
+      btn.disabled = false;
+    }
+  });
+}
+
+function openNuevoGastoCCModal(cuentas) {
+  openModal(`
+    <h3>Registrar gasto</h3>
+    <div class="field"><label>Cuenta *</label>
+      <select id="ccGastoCuenta">${cuentas.map((c) => `<option value="${c.id}">${esc(c.nombre)}</option>`).join('')}</select>
+    </div>
+    <div class="field"><label>Fecha *</label><input id="ccGastoFecha" type="date" value="${new Date().toISOString().slice(0, 10)}" /></div>
+    <div class="field"><label>Concepto *</label><input id="ccGastoConcepto" /></div>
+    <div class="field"><label>Monto *</label><input id="ccGastoMonto" type="number" min="0" step="0.01" /></div>
+    <div class="modal-actions">
+      <button class="btn" id="btnCancelCcGasto">Cerrar</button>
+      <button class="btn btn-primary" id="btnSaveCcGasto">Guardar</button>
+    </div>
+  `);
+  $('#btnCancelCcGasto').addEventListener('click', closeModal);
+  $('#btnSaveCcGasto').addEventListener('click', async () => {
+    const body = {
+      cuenta_id: Number($('#ccGastoCuenta').value), fecha: $('#ccGastoFecha').value,
+      concepto: $('#ccGastoConcepto').value.trim(), monto: Number($('#ccGastoMonto').value),
+    };
+    if (!body.cuenta_id || !body.fecha || !body.concepto || !(body.monto > 0)) {
+      toast('Completa cuenta, fecha, concepto y un monto válido', 'danger'); return;
+    }
+    const btn = $('#btnSaveCcGasto');
+    btn.disabled = true;
+    try {
+      await api('/control-cuentas/movimientos', { method: 'POST', body });
+      toast('Gasto registrado', 'success');
+      closeModal();
+      renderView();
+    } catch (err) {
+      toast(err.message, 'danger');
+      btn.disabled = false;
+    }
+  });
+}
+
+async function openDetalleCuentaCCModal(cuentaId) {
+  openModal(`<h3>Detalle de cuenta</h3><div id="ccDetalleBody"><p class="muted">Cargando…</p></div><div class="modal-actions"><button class="btn" id="btnCerrarCcDetalle">Cerrar</button></div>`);
+  $('#btnCerrarCcDetalle').addEventListener('click', closeModal);
+  try {
+    const data = await api(`/control-cuentas/cuentas/${cuentaId}/movimientos`);
+    const { cuenta, semanas, movimientos } = data;
+    $('#ccDetalleBody').innerHTML = `
+      <h4>${esc(cuenta.nombre)}${cuenta.banco ? ` · ${esc(cuenta.banco)}` : ''}</h4>
+      <div class="kpi-grid">
+        <div class="kpi accent"><div class="label">Saldo actual</div><div class="value">${fmtMoney(cuenta.saldo_actual)}</div></div>
+        <div class="kpi"><div class="label">Saldo inicial</div><div class="value">${fmtMoney(cuenta.saldo_inicial)}</div></div>
+      </div>
+      <h4 class="mt-12">Desglose semanal</h4>
+      ${!semanas.length ? '<p class="muted">Sin gastos registrados todavía.</p>' : `
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Semana (lun-dom)</th><th class="num">Gasto de la semana</th><th class="num">Saldo al cierre</th></tr></thead>
+          <tbody>
+            ${semanas.map((s) => `
+              <tr>
+                <td>${fmtDate(s.semana_inicio)} – ${fmtDate(s.semana_fin)}</td>
+                <td class="num">${fmtMoney(s.gasto_semana)}</td>
+                <td class="num">${fmtMoney(s.saldo_al_cierre)}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>`}
+      <h4 class="mt-12">Movimientos</h4>
+      ${!movimientos.length ? '<p class="muted">Sin movimientos todavía.</p>' : `
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Fecha</th><th>Concepto</th><th class="num">Monto</th><th>Registrado por</th></tr></thead>
+          <tbody>
+            ${movimientos.map((m) => `
+              <tr>
+                <td>${fmtDate(m.fecha)}</td>
+                <td>${esc(m.concepto)}</td>
+                <td class="num">${fmtMoney(m.monto)}</td>
+                <td>${esc(m.registrado_por_nombre || '—')}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>`}
+    `;
+  } catch (err) {
+    $('#ccDetalleBody').innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+  }
 }
 
 async function renderCostos(view) {

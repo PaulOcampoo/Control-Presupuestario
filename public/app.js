@@ -7737,7 +7737,28 @@ const PERMISOS_SECCION_LABELS = {
 // esté seleccionada en el dropdown de la matriz (ver permisosParaProyecto y
 // el handler de #btnGuardarPermisos más abajo). Mismo criterio que
 // server/auth.js SECCIONES_PERMISOS.
-const SECCIONES_SIEMPRE_GLOBAL = ['trabajadores_global', 'nominas_global', 'costos'];
+//
+// Bug real (reportado por admin, diagnosticado con SELECT antes/después):
+// las 5 secciones de Maquinaria pertenecen aquí también — sus ~23 endpoints
+// nunca pasan por requireProject (prompt-5-fix-navegacion-operador-jefe-
+// maquinaria.md), así que auth.tienePermiso() SIEMPRE resuelve con
+// projectId=null sin importar la obra del usuario. Antes de este fix, la
+// matriz guardaba estas 5 secciones con proyecto_id = la obra activa en el
+// dropdown (si el usuario tenía 1+ obra asignada, que PR88 confirmó que es
+// lo común incluso para operador/jefe_maquinaria) — la fila quedaba
+// guardada correctamente, el checkbox se veía bien al recargar, pero
+// tienePermiso() (proyecto_id = NULL O proyecto_id IS NULL, con $1=null)
+// NUNCA la encontraba, porque "columna = NULL" nunca es verdadero en SQL:
+// solo "proyecto_id IS NULL" puede matchear. El permiso quedaba guardado
+// pero sin ningún efecto real — indistinguible en la UI de que "se
+// eliminó", porque otorgar/revocar desde la matriz simplemente no hacía
+// nada. Borrar y recrear el usuario sí funcionaba porque
+// defaultPermisosParaRol() en el backend siempre inserta con proyecto_id
+// NULL, sin pasar por este bug.
+const SECCIONES_SIEMPRE_GLOBAL = [
+  'trabajadores_global', 'nominas_global', 'costos',
+  'maquinaria', 'maquinaria_captura', 'maquinaria_combustible', 'estado_unidad', 'maquinaria_consumibles',
+];
 const PERMISOS_SECCIONES = Object.keys(PERMISOS_SECCION_LABELS);
 const PERMISOS_ACCIONES = [
   { key: 'puede_ver', label: 'Ver' },

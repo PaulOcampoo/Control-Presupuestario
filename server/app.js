@@ -42,6 +42,7 @@ const { ingest } = require('./ingest');
 const { generatePlanning } = require('./planning');
 const auth = require('./auth');
 const { sendXlsxExport, buildExportFilename } = require('./exportHelper');
+const { sendMatricesNeodataExport } = require('./matricesNeodataExport');
 const { extraerDatosContrato, CAMPOS_CONTRATO } = require('./extraccionContrato');
 const { crearNotificacion, notificarAdmins, CATEGORIAS_NOTIFICACION, TODOS_LOS_TIPOS } = require('./notificaciones');
 const { buildEstimacionPdf } = require('./estimacionesPdf');
@@ -2608,48 +2609,36 @@ app.get('/api/projects/:id/matrices', h(auth.allow('residente')), h(requireProje
 // — Express no prioriza segmentos literales sobre params por especificidad,
 // solo por orden de registro; con el orden invertido "export"/"porcentajes-
 // obra" se habrían capturado como conceptoId.
-// prompt-20-matrices-formato-neodata.md, CP6: el formato Neodata real (bloque
-// de encabezado formal + 3 categorías con subtotales + cascada de 4 niveles +
-// importe en letra, todo POR análisis, celdas combinadas) NO cabe en
-// sendXlsxExport (server/exportHelper.js) — esa función es deliberadamente
-// rígida: 1 hoja = 1 tabla plana con 1 fila de encabezado y columnas
-// uniformes, sin soporte de celdas combinadas ni de múltiples bloques por
-// hoja. Construir un generador propio con ExcelJS directo SÍ está permitido
-// por el prompt, pero solo "si el formato lo requiere" y con instrucción
-// explícita de reportarlo ANTES en vez de construirlo por decisión propia —
-// PAUSADO, evaluación reportada, generador NO construido en este PR. Este
-// export sigue siendo el resumen plano (interino, ya existía en PR #98),
-// NO el Análisis de Precios Unitarios formato Neodata que pide CP6.
+// prompt-20-matrices-formato-neodata.md, CP6: formato Neodata real (encabezado
+// de documento + un bloque de Análisis de Precios Unitarios completo por
+// concepto, con subtotales por categoría, cascada de 4 niveles e importe en
+// letra) vía server/matricesNeodataExport.js — sendXlsxExport (rígido, sin
+// celdas combinadas ni múltiples bloques por hoja) no lo soporta, ver
+// comentario de ese módulo. Todos los análisis de la obra caen en bloques
+// consecutivos de la misma hoja "Matrices", igual que el Excel de referencia.
+async function getClienteNombreDeProyecto(projectId) {
+  const { rows } = await db.pool.query(
+    'SELECT cl.nombre FROM proyectos p LEFT JOIN clientes cl ON cl.id = p.cliente_id WHERE p.id = $1',
+    [projectId]
+  );
+  return rows[0]?.nombre || null;
+}
+
 app.get('/api/projects/:id/matrices/export', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('costos', 'puede_ver')), h(async (req, res) => {
   const pid = req.project.id;
   const { rows: conceptoRows } = await db.pool.query(
-    "SELECT id, codigo, concepto, unidad, precio_unitario FROM conceptos WHERE project_id = $1 AND es_total = 0 AND activo = 1 ORDER BY orden", [pid]
+    "SELECT id, codigo, concepto, unidad, cantidad, importe, precio_unitario FROM conceptos WHERE project_id = $1 AND es_total = 0 AND activo = 1 ORDER BY orden", [pid]
   );
-  const matrices = [];
+  const analisis = [];
   for (const c of conceptoRows) {
-    const m = await getMatrizConRenglones(c.id);
-    if (m) matrices.push({ codigo: c.codigo, concepto: c.concepto, unidad: c.unidad, precio_unitario_actual: Number(c.precio_unitario), ...m });
+    const matriz = await getMatrizConRenglones(c.id);
+    if (matriz) analisis.push({ concepto: c, matriz });
   }
-  await sendXlsxExport(res, {
+  if (!analisis.length) return res.status(404).json({ error: 'Esta obra no tiene matrices creadas todavía' });
+  const clienteNombre = await getClienteNombreDeProyecto(pid);
+  await sendMatricesNeodataExport(res, {
     filename: buildExportFilename('Matrices-Precio-Unitario', req.project.nombre),
-    sheets: [{
-      sheetName: 'Matrices',
-      columns: [
-        { header: 'Código', key: 'codigo', width: 14 },
-        { header: 'Concepto', key: 'concepto', width: 40 },
-        { header: 'Unidad', key: 'unidad', width: 10 },
-        { header: 'Costo directo', key: 'costo_directo', width: 16, format: 'money' },
-        { header: '% Indirecto', key: 'pct_indirecto', width: 12 },
-        { header: '% Utilidad', key: 'pct_utilidad', width: 12 },
-        { header: 'Precio unitario (matriz)', key: 'precio_unitario_calculado', width: 20, format: 'money' },
-        { header: 'Precio unitario (concepto)', key: 'precio_unitario_actual', width: 20, format: 'money' },
-      ],
-      rows: matrices.map((m) => ({
-        codigo: m.codigo, concepto: m.concepto, unidad: m.unidad,
-        costo_directo: m.costo_directo, pct_indirecto: m.pct_indirecto, pct_utilidad: m.pct_utilidad,
-        precio_unitario_calculado: m.precio_unitario_calculado, precio_unitario_actual: m.precio_unitario_actual,
-      })),
-    }],
+    clienteNombre, obraNombre: req.project.nombre, analisis,
   });
 }));
 
@@ -2709,6 +2698,24 @@ app.get('/api/projects/:id/matrices/:conceptoId', h(auth.allow('residente')), h(
   if (!conceptoRows[0]) return res.status(404).json({ error: 'Concepto no encontrado' });
   const matriz = await getMatrizConRenglones(conceptoId);
   res.json({ concepto: conceptoRows[0], matriz });
+}));
+
+// Exporta un solo análisis (prompt-20-matrices-formato-neodata.md, CP6) —
+// mismo generador que la exportación de toda la obra, con un único bloque.
+app.get('/api/projects/:id/matrices/:conceptoId/export', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('costos', 'puede_ver')), h(async (req, res) => {
+  const pid = req.project.id;
+  const conceptoId = Number(req.params.conceptoId);
+  const { rows: conceptoRows } = await db.pool.query(
+    'SELECT id, codigo, concepto, unidad, cantidad, importe, precio_unitario FROM conceptos WHERE id = $1 AND project_id = $2', [conceptoId, pid]
+  );
+  if (!conceptoRows[0]) return res.status(404).json({ error: 'Concepto no encontrado' });
+  const matriz = await getMatrizConRenglones(conceptoId);
+  if (!matriz) return res.status(404).json({ error: 'Este concepto no tiene una matriz creada' });
+  const clienteNombre = await getClienteNombreDeProyecto(pid);
+  await sendMatricesNeodataExport(res, {
+    filename: buildExportFilename(`Matriz-${conceptoRows[0].codigo || conceptoId}`, req.project.nombre),
+    clienteNombre, obraNombre: req.project.nombre, analisis: [{ concepto: conceptoRows[0], matriz }],
+  });
 }));
 
 app.post('/api/projects/:id/matrices', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('costos', 'puede_crear')), h(async (req, res) => {

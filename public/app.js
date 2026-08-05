@@ -11766,6 +11766,7 @@ async function paintMatrizDetalle(view) {
       </div>
       <div class="row mb-8">
         <button class="btn btn-primary" id="btnMatAplicar" ${matriz.completa ? '' : 'disabled'}>Aplicar precio a este concepto</button>
+        <button class="btn" id="btnMatExportarUno">⭳ Exportar este análisis</button>
         <button class="btn btn-danger" id="btnMatEliminar">Eliminar matriz</button>
       </div>
     ` : '<p class="muted">Este concepto no tiene matriz todavía. Agrega renglones abajo para crearla.</p>'}
@@ -11819,6 +11820,10 @@ async function paintMatrizDetalle(view) {
         toast('Precio aplicado al concepto', 'success');
         await renderMatrices(view);
       } catch (err) { toast(err.message, 'danger'); }
+    });
+    $('#btnMatExportarUno').addEventListener('click', async () => {
+      try { await downloadExport(`/projects/${state.projectId}/matrices/${matricesSelectedConceptoId}/export`); }
+      catch (err) { toast(err.message, 'danger'); }
     });
     $('#btnMatEliminar').addEventListener('click', async () => {
       const ok = await confirmDialog('¿Eliminar esta matriz? Esta acción no se puede deshacer. El precio_unitario del concepto NO se modifica.', { titulo: 'Eliminar matriz', claseAceptar: 'btn-danger', textoAceptar: 'Eliminar' });

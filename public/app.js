@@ -566,26 +566,42 @@ $('#btnTotpReminderClose').addEventListener('click', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Aviso de Novedades (prompt-16-novedades-changelog.md) — mismo patrón de
-// posición/mecánica que el banner de 2FA (banner en el shell de #app, fuera
-// de #view y de la galería, calculado en applySession() antes de bootApp()
-// — así llega igual a las 2 rutas post-login, con y sin proyectos), pero
-// semántica de "visto" DISTINTA: 2FA reaparece cada 3 días, esto desaparece
-// para siempre tras marcarse visto (nunca vuelve, ver POST /novedades/
-// marcar-vistas). Consolidado: si hay varias sin ver, un solo aviso con la
-// más reciente + contador — nunca uno por cada novedad.
+// Aviso de Novedades (prompt-16-novedades-changelog.md) — semántica de
+// "visto" DISTINTA a la del banner de 2FA: 2FA reaparece cada 3 días, esto
+// desaparece para siempre tras marcarse visto (nunca vuelve, ver POST
+// /novedades/marcar-vistas). Consolidado: si hay varias sin ver, un solo
+// aviso con la más reciente + contador — nunca uno por cada novedad.
+//
+// DOS instancias en el DOM, no una: #novedadesBanner vive dentro de #app
+// (shell principal), que queda display:none mientras el usuario está en la
+// galería de clientes (#clientGalleryScreen) — es decir, para todo rol que
+// no sea operador/jefe_maquinaria (los únicos que saltan la galería, ver
+// prompt-5-fix-navegacion-operador-jefe-maquinaria.md), el aviso nunca
+// llegaba a verse "al iniciar sesión" como pide el spec, aunque el texto se
+// calculaba bien (bug real encontrado en CP6/CP7, verificado con
+// getComputedStyle: #app en display:none oculta a su descendiente pase lo
+// que pase con las clases del propio banner). #novedadesBannerGallery es el
+// duplicado dentro de .gallery-hero — mismo patrón ya usado por
+// #galleryDrawer como versión propia de los ajustes del sidebar real (ver
+// comentario en openGalleryDrawer()). Ambas instancias se actualizan juntas.
 // ---------------------------------------------------------------------------
 function updateNovedadesBanner() {
-  const banner = $('#novedadesBanner');
-  if (!banner) return;
   const aviso = state.avisoNovedades;
-  if (aviso) {
-    $('#novedadesBannerTexto').textContent = aviso.total_sin_ver > 1
+  const texto = aviso
+    ? (aviso.total_sin_ver > 1
       ? `🆕 ${aviso.total_sin_ver} novedades nuevas — la más reciente: "${aviso.mas_reciente.titulo}"`
-      : `🆕 Novedad: "${aviso.mas_reciente.titulo}"`;
-  }
-  banner.classList.remove('hidden-initial');
-  requestAnimationFrame(() => banner.classList.toggle('show', !!aviso));
+      : `🆕 Novedad: "${aviso.mas_reciente.titulo}"`)
+    : '';
+  [
+    ['#novedadesBanner', '#novedadesBannerTexto'],
+    ['#novedadesBannerGallery', '#novedadesBannerGalleryTexto'],
+  ].forEach(([bannerSel, textoSel]) => {
+    const banner = $(bannerSel);
+    if (!banner) return;
+    if (aviso) $(textoSel).textContent = texto;
+    banner.classList.remove('hidden-initial');
+    requestAnimationFrame(() => banner.classList.toggle('show', !!aviso));
+  });
 }
 async function marcarNovedadesVistas() {
   state.avisoNovedades = null;
@@ -594,6 +610,12 @@ async function marcarNovedadesVistas() {
 }
 $('#btnNovedadesBannerVer').addEventListener('click', () => { marcarNovedadesVistas(); switchToView('novedades'); });
 $('#btnNovedadesBannerClose').addEventListener('click', marcarNovedadesVistas);
+// Versión de galería: switchToView() no basta porque #app todavía está
+// display:none — hace falta goToGlobalAdminView() para entrar al shell
+// primero (mismo mecanismo que "🚜 Maquinaria" en este mismo drawer).
+$('#btnNovedadesBannerGalleryVer').addEventListener('click', () => { marcarNovedadesVistas(); goToGlobalAdminView('novedades'); });
+$('#btnNovedadesBannerGalleryClose').addEventListener('click', marcarNovedadesVistas);
+$('#btnGalleryGoNovedades').addEventListener('click', () => { closeGalleryDrawer(); goToGlobalAdminView('novedades'); });
 
 function installApp() {
   if (isStandalone()) { toast('La app ya está instalada en este dispositivo', 'success'); return; }

@@ -50,6 +50,23 @@
         <button id="btnGalleryLogout" class="btn small">Salir</button>
       </div>
       <div id="galleryGreeting" class="gallery-greeting"></div>
+
+      <!-- Duplicado de #novedadesBanner (prompt-16-novedades-changelog.md,
+           CP6/CP7): #novedadesBanner real vive dentro de #app, que queda
+           display:none en esta pantalla — mismo motivo por el que ya existe
+           #galleryDrawer como versión propia de los ajustes del sidebar (ver
+           comentario en openGalleryDrawer()). Sin este duplicado el aviso
+           "al iniciar sesión" nunca se veía para ningún rol que pasa por la
+           galería (todos salvo operador/jefe_maquinaria), aunque el texto se
+           calculaba bien — solo quedaba oculto tras un ancestro con
+           display:none. updateNovedadesBanner() actualiza ambos a la vez. -->
+      <div id="novedadesBannerGallery" class="alert-box info row between hidden-initial">
+        <span id="novedadesBannerGalleryTexto"></span>
+        <span class="row">
+          <button class="btn small btn-primary" id="btnNovedadesBannerGalleryVer">Ver novedades</button>
+          <button class="btn small btn-ghost" id="btnNovedadesBannerGalleryClose" title="Cerrar">✕</button>
+        </span>
+      </div>
     </div>
     <div class="gallery-body">
       <div class="gallery-body-layout">
@@ -170,6 +187,11 @@
       <button id="btnGalleryGoPermisos" class="btn full hidden-initial">🔐 Permisos</button>
       <button id="btnGalleryGoMaquinaria" class="btn full hidden-initial">🚜 Maquinaria</button>
       <hr class="ajustes-divider">
+      <!-- Novedades: informativa para TODOS los roles (mismo criterio que en
+           el sidebar real, ver renderSidebar() en app.js), por eso NO pasa
+           por updateGalleryDrawerGlobalLinks() — siempre visible, sin gate
+           de permiso. -->
+      <button id="btnGalleryGoNovedades" class="btn full">🆕 Novedades</button>
       <button id="btnMiCuentaGalleryDrawer" class="btn full">Mi cuenta</button>
       <button id="btnLogoutGalleryDrawer" class="btn full">Cerrar sesión</button>
     </aside>

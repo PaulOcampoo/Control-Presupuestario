@@ -586,6 +586,11 @@ input[type="date"] { color-scheme: dark; cursor: pointer; }
 label { display: block; font-size: 0.8rem; color: var(--text-secondary); margin: 10px 0 4px; }
 .field { margin-bottom: 6px; }
 .field-null input, .field-null select { border-color: var(--yellow); }
+/* prompt-20-matrices-formato-neodata.md: 2 .field lado a lado (Partida +
+   Análisis No., Cuadrilla + Rendimiento) — envuelve en mobile en vez de
+   forzar scroll horizontal, mismo criterio "mobile-first" del resto. */
+.field-row { display: flex; gap: 12px; flex-wrap: wrap; }
+.field-row .field { flex: 1 1 160px; }
 
 .search-bar { display: flex; gap: 8px; margin-bottom: 12px; }
 .search-bar input { flex: 1; }

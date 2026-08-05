@@ -11525,12 +11525,16 @@ async function renderMatrices(view) {
 
   view.innerHTML = `
     <h2 class="section-title">Matrices de precio unitario</h2>
-    <p class="muted">Desglosa el precio unitario de un concepto en Materiales, Mano de Obra y Herramienta y Equipo, a partir de insumos ya cargados en esta obra. Fórmula en cascada: Precio unitario = Costo directo × (1 + %Indirecto) × (1 + %Utilidad).</p>
+    <p class="muted">Análisis de Precios Unitarios formato Neodata — Materiales, Mano de Obra (cuadrilla ÷ rendimiento) y Equipo y Herramienta, a partir de insumos ya cargados en esta obra. Cascada: PU = ((CD + CI) + CF) + CU, donde CI/CF/CU son % sobre el subtotal acumulado previo.</p>
 
     <div class="card mb-12">
       <div class="card-row">
         <span class="k">% Indirecto por defecto de la obra</span>
         <span class="v"><input id="matDefIndirecto" type="number" step="0.01" min="0" class="matriz-input-num" value="${defaultsObra.pct_indirecto}" /> %</span>
+      </div>
+      <div class="card-row">
+        <span class="k">% Financiamiento por defecto de la obra</span>
+        <span class="v"><input id="matDefFinanciamiento" type="number" step="0.01" min="0" class="matriz-input-num" value="${defaultsObra.pct_financiamiento}" /> %</span>
       </div>
       <div class="card-row">
         <span class="k">% Utilidad por defecto de la obra</span>
@@ -11575,7 +11579,11 @@ async function renderMatrices(view) {
     try {
       await api(`/projects/${state.projectId}/matrices/porcentajes-obra`, {
         method: 'PUT',
-        body: { pct_indirecto: Number($('#matDefIndirecto').value) || 0, pct_utilidad: Number($('#matDefUtilidad').value) || 0 },
+        body: {
+          pct_indirecto: Number($('#matDefIndirecto').value) || 0,
+          pct_utilidad: Number($('#matDefUtilidad').value) || 0,
+          pct_financiamiento: Number($('#matDefFinanciamiento').value) || 0,
+        },
       });
       invalidate('matricesDefaultsObra');
       toast('Defaults de la obra guardados', 'success');
@@ -11607,6 +11615,7 @@ async function renderMatrices(view) {
       <h3>Aplicar % en lote (${matricesSeleccionadas.size} conceptos)</h3>
       <p class="muted">Se aplica solo a conceptos que YA tienen matriz. Los seleccionados sin matriz se ignoran.</p>
       <div class="field"><label>% Indirecto</label><input id="loteIndirecto" type="number" step="0.01" min="0" value="0" /></div>
+      <div class="field"><label>% Financiamiento</label><input id="loteFinanciamiento" type="number" step="0.01" min="0" value="0" /></div>
       <div class="field"><label>% Utilidad</label><input id="loteUtilidad" type="number" step="0.01" min="0" value="0" /></div>
       <div class="modal-actions">
         <button class="btn" id="btnLoteCancelar">Cancelar</button>
@@ -11622,6 +11631,7 @@ async function renderMatrices(view) {
             concepto_ids: [...matricesSeleccionadas],
             pct_indirecto: Number($('#loteIndirecto').value) || 0,
             pct_utilidad: Number($('#loteUtilidad').value) || 0,
+            pct_financiamiento: Number($('#loteFinanciamiento').value) || 0,
           },
         });
         closeModal();
@@ -11636,6 +11646,15 @@ async function renderMatrices(view) {
   await paintMatrizDetalle(view);
 }
 
+const MATRIZ_CATEGORIAS_UI = ['MATERIALES', 'MANO DE OBRA', 'EQUIPO Y HERRAMIENTA'];
+
+// prompt-20-matrices-formato-neodata.md — reemplaza el editor plano de PR #98
+// (una sola tabla insumo+cantidad) por el Análisis de Precios Unitarios
+// formato Neodata: encabezado del análisis, 3 categorías con subtotal propio
+// (Mano de Obra = cuadrilla ÷ rendimiento, no cantidad×precio), cascada de
+// 4 niveles (CD→CI→SUB1→CF→SUB2→CU→PU) e importe en letra — todo calculado
+// server-side (getMatrizConRenglones), esta vista solo pinta el resultado y
+// junta el payload de edición.
 async function paintMatrizDetalle(view) {
   const box = $('#matricesDetalle');
   if (!box) return;
@@ -11648,92 +11667,140 @@ async function paintMatrizDetalle(view) {
 
   const { concepto, matriz } = data;
   const existeMatriz = !!matriz;
-  // Copia de trabajo local (insumo_id, cantidad + datos de display) — se
-  // manda completa al guardar (POST crea, PUT items reemplaza todo el set,
-  // nunca un PATCH renglón por renglón, más simple y sin estado a medias).
-  const itemsWorking = existeMatriz
-    ? matriz.items.map((it) => ({ ...it }))
-    : [];
+  // Copia de trabajo local — se manda completa al guardar (POST crea, PUT
+  // renglones reemplaza todo el set, nunca un PATCH renglón por renglón).
+  const renglonesWorking = existeMatriz ? matriz.renglones.map((r) => ({ ...r })) : [];
+  const camposMatriz = {
+    partida: existeMatriz ? (matriz.partida || '') : '',
+    analisis_no: existeMatriz ? (matriz.analisis_no || '') : '',
+    cuadrilla_nombre: existeMatriz ? (matriz.cuadrilla_nombre || '') : '',
+    rendimiento: existeMatriz && matriz.rendimiento != null ? matriz.rendimiento : '',
+  };
 
-  function pintarItemsTabla() {
-    const tabla = $('#matItemsTabla');
+  function pintarRenglonesTabla() {
+    const tabla = $('#matRenglonesTabla');
     if (!tabla) return;
-    tabla.innerHTML = itemsWorking.length ? `
-      <div class="table-scroll">
-        <table>
-          <thead><tr><th>Categoría</th><th>Insumo</th><th class="num">Cantidad</th><th class="num">Precio</th><th class="num">Importe</th><th></th></tr></thead>
-          <tbody>${itemsWorking.map((it, idx) => `
-            <tr>
-              <td>${esc(it.categoria || '—')}</td>
-              <td>${esc(it.codigo)} — ${esc(it.concepto)}</td>
-              <td class="num"><input type="number" step="0.0001" min="0.0001" class="matriz-input-num matItemCantidad" data-idx="${idx}" value="${it.cantidad}" /></td>
-              <td class="num">${fmtMoney(it.precio_presupuesto)}</td>
-              <td class="num">${fmtMoney(Number(it.cantidad) * Number(it.precio_presupuesto))}</td>
-              <td><button class="icon-btn-inline" data-remove="${idx}" type="button" title="Quitar" aria-label="Quitar">✕</button></td>
-            </tr>
-          `).join('')}</tbody>
-        </table>
-      </div>
-    ` : '<p class="muted">Sin insumos agregados todavía.</p>';
-    $$('.matItemCantidad', tabla).forEach((inp) => inp.addEventListener('change', (e) => {
-      itemsWorking[Number(e.target.dataset.idx)].cantidad = Math.max(0.0001, Number(e.target.value) || 0);
-      pintarItemsTabla();
+    tabla.innerHTML = MATRIZ_CATEGORIAS_UI.map((cat) => {
+      const filas = renglonesWorking.map((r, idx) => ({ ...r, _idx: idx })).filter((r) => r.categoria === cat);
+      if (!filas.length) return '';
+      return `
+        <h5 class="mt-12">${esc(cat)}</h5>
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th>Código</th><th>Descripción</th><th class="num">Cantidad</th><th class="num">Precio</th><th class="num">Importe (aprox.)</th><th></th></tr></thead>
+            <tbody>${filas.map((r) => `
+              <tr>
+                <td>${esc(r.codigo || '—')}</td>
+                <td>${esc(r.descripcion || '—')}${r.tipo === 'factor_pct' ? `<div class="muted fs-07">Factor % sobre subtotal de ${esc(r.factor_referencia)}</div>` : ''}</td>
+                <td class="num">
+                  <input type="number" step="0.0001" min="0.0001" class="matriz-input-num matRenglonCantidad" data-idx="${r._idx}"
+                    value="${r.tipo === 'factor_pct' ? Number((Number(r.cantidad) * 100).toFixed(4)) : r.cantidad}" />${r.tipo === 'factor_pct' ? ' %' : ''}
+                </td>
+                <td class="num">${r.tipo === 'insumo' ? fmtMoney(r.precio_presupuesto) : '—'}</td>
+                <td class="num">${r.tipo === 'insumo' ? fmtMoney(Number(r.cantidad) * Number(r.precio_presupuesto)) : '<span class="muted fs-07">se calcula al guardar</span>'}</td>
+                <td><button class="icon-btn-inline" data-remove="${r._idx}" type="button" title="Quitar" aria-label="Quitar">✕</button></td>
+              </tr>
+            `).join('')}</tbody>
+          </table>
+        </div>
+      `;
+    }).join('') || '<p class="muted">Sin renglones agregados todavía.</p>';
+    $$('.matRenglonCantidad', tabla).forEach((inp) => inp.addEventListener('change', (e) => {
+      const idx = Number(e.target.dataset.idx);
+      const r = renglonesWorking[idx];
+      const val = Math.max(0.0001, Number(e.target.value) || 0);
+      r.cantidad = r.tipo === 'factor_pct' ? val / 100 : val;
+      pintarRenglonesTabla();
     }));
     $$('[data-remove]', tabla).forEach((btn) => btn.addEventListener('click', () => {
-      itemsWorking.splice(Number(btn.dataset.remove), 1);
-      pintarItemsTabla();
+      renglonesWorking.splice(Number(btn.dataset.remove), 1);
+      pintarRenglonesTabla();
     }));
   }
 
+  const tieneManoObra = renglonesWorking.some((r) => r.categoria === 'MANO DE OBRA');
+
   box.innerHTML = `
-    <h3 class="section-title">${esc(concepto.codigo || '')} — ${esc(concepto.concepto)}</h3>
-    <p class="muted">Precio unitario actual del concepto: <strong>${fmtMoney(Number(concepto.precio_unitario))}</strong></p>
+    <div class="card mb-12">
+      <p class="muted fs-08 mb-6">ANÁLISIS DE PRECIOS UNITARIOS · ART. 45 A.1 RLOPySRM</p>
+      <h3 class="section-title mt-0">${esc(concepto.codigo || '')} — ${esc(concepto.concepto)}</h3>
+      <div class="card-row"><span class="k">Unidad</span><span class="v">${esc(concepto.unidad || '—')}</span></div>
+      <div class="card-row"><span class="k">Precio unitario actual del concepto</span><span class="v">${fmtMoney(Number(concepto.precio_unitario))}</span></div>
+      <div class="field-row">
+        <div class="field"><label>Partida</label><input id="matPartida" value="${esc(camposMatriz.partida)}" placeholder="ej. EPA111" /></div>
+        <div class="field"><label>Análisis No.</label><input id="matAnalisisNo" value="${esc(camposMatriz.analisis_no)}" placeholder="ej. 10" /></div>
+      </div>
+    </div>
 
     ${existeMatriz ? `
       <div class="card mb-12">
         ${matriz.categorias.map((c) => `
           <div class="card-row">
-            <span class="k">${esc(c.label)}</span>
-            <span class="v">${c.subtotal != null ? fmtMoney(c.subtotal) : 'No disponible'}</span>
+            <span class="k">${esc(c.categoria)}</span>
+            <span class="v">${c.subtotal != null ? fmtMoney(c.subtotal) : 'No disponible'}${c.pct_incidencia != null ? ` <span class="muted fs-07">(${fmtPct(c.pct_incidencia * 100)})</span>` : ''}</span>
           </div>
+          ${c.categoria === 'MANO DE OBRA' && c.importe_jornada != null ? `
+            <div class="card-row"><span class="k muted fs-08">Importe cuadrilla (por jornada)</span><span class="v muted fs-08">${fmtMoney(c.importe_jornada)}</span></div>
+            <div class="card-row"><span class="k muted fs-08">Rendimiento (${esc(concepto.unidad || '')}/JOR)</span><span class="v muted fs-08">${matriz.rendimiento}</span></div>
+          ` : ''}
         `).join('')}
-        <div class="card-row"><span class="k"><strong>Costo directo</strong></span><span class="v"><strong>${fmtMoney(matriz.costo_directo)}</strong></span></div>
+        <div class="card-row"><span class="k"><strong>(CD) Costo directo</strong></span><span class="v"><strong>${fmtMoney(matriz.costo_directo)}</strong></span></div>
         <div class="card-row">
-          <span class="k">% Indirecto</span>
-          <span class="v"><input id="matPctIndirecto" type="number" step="0.01" min="0" class="matriz-input-num" value="${matriz.pct_indirecto}" /> %</span>
+          <span class="k">(CI) % Indirecto</span>
+          <span class="v"><input id="matPctIndirecto" type="number" step="0.01" min="0" class="matriz-input-num" value="${matriz.pct_indirecto}" /> % → ${fmtMoney(matriz.ci)}</span>
         </div>
+        <div class="card-row"><span class="k">SUBTOTAL1</span><span class="v">${fmtMoney(matriz.subtotal1)}</span></div>
         <div class="card-row">
-          <span class="k">% Utilidad</span>
-          <span class="v"><input id="matPctUtilidad" type="number" step="0.01" min="0" class="matriz-input-num" value="${matriz.pct_utilidad}" /> %</span>
+          <span class="k">(CF) % Financiamiento</span>
+          <span class="v"><input id="matPctFinanciamiento" type="number" step="0.01" min="0" class="matriz-input-num" value="${matriz.pct_financiamiento}" /> % → ${fmtMoney(matriz.cf)}</span>
         </div>
-        <div class="card-row"><span class="k">% combinado efectivo</span><span class="v">${fmtPct(matriz.pct_combinado_efectivo)}</span></div>
+        <div class="card-row"><span class="k">SUBTOTAL2</span><span class="v">${fmtMoney(matriz.subtotal2)}</span></div>
+        <div class="card-row">
+          <span class="k">(CU) % Utilidad</span>
+          <span class="v"><input id="matPctUtilidad" type="number" step="0.01" min="0" class="matriz-input-num" value="${matriz.pct_utilidad}" /> % → ${fmtMoney(matriz.cu)}</span>
+        </div>
         <div class="row end mt-8"><button class="btn" id="btnMatActualizarPct">Actualizar %</button></div>
-        <div class="card-row"><span class="k"><strong>Precio unitario (matriz)</strong></span><span class="v"><strong>${fmtMoney(matriz.precio_unitario_calculado)}</strong></span></div>
-        ${!matriz.completa ? '<p class="muted fs-08">Matriz incompleta — hay categorías "No disponible". No se puede aplicar todavía.</p>' : ''}
+        <div class="card-row"><span class="k"><strong>PRECIO UNITARIO (CD+CI+CF+CU)</strong></span><span class="v"><strong>${fmtMoney(matriz.precio_unitario_calculado)}</strong></span></div>
+        ${matriz.importe_en_letra ? `<p class="muted fs-08 mt-6">${esc(matriz.importe_en_letra)}</p>` : ''}
+        ${!matriz.completa ? '<p class="muted fs-08">Matriz incompleta — hay categorías "No disponible" (revisa si Mano de Obra tiene renglones pero falta el Rendimiento). No se puede aplicar todavía.</p>' : ''}
       </div>
       <div class="row mb-8">
         <button class="btn btn-primary" id="btnMatAplicar" ${matriz.completa ? '' : 'disabled'}>Aplicar precio a este concepto</button>
         <button class="btn btn-danger" id="btnMatEliminar">Eliminar matriz</button>
       </div>
-    ` : '<p class="muted">Este concepto no tiene matriz todavía. Agrega insumos abajo para crearla.</p>'}
+    ` : '<p class="muted">Este concepto no tiene matriz todavía. Agrega renglones abajo para crearla.</p>'}
 
-    <h4 class="mt-16">Composición (insumos)</h4>
+    <h4 class="mt-16">Composición (Materiales / Mano de Obra / Equipo y Herramienta)</h4>
+    <div class="field-row">
+      <div class="field"><label>Cuadrilla</label><input id="matCuadrillaNombre" value="${esc(camposMatriz.cuadrilla_nombre)}" placeholder='ej. CUADRILLA No 5 (1 ALBAÑIL+1 PEON)' /></div>
+      <div class="field"><label>Rendimiento (${esc(concepto.unidad || '?')}/JOR)</label><input id="matRendimiento" type="number" step="0.000001" min="0" value="${esc(String(camposMatriz.rendimiento))}" /></div>
+    </div>
+    ${tieneManoObra ? '<p class="muted fs-08">La Mano de Obra se calcula como (suma de renglones de cuadrilla) ÷ Rendimiento — sin un Rendimiento válido su subtotal queda "No disponible".</p>' : ''}
+
     <div class="field">
+      <label>Agregar insumo (Materiales / Mano de Obra / Equipo real)</label>
       <input type="search" id="matInsumoSearch" placeholder="Buscar insumo por código o nombre…" />
     </div>
     <div id="matSearchResults"></div>
-    <div id="matItemsTabla" class="mt-8"></div>
+
+    <div class="row end mt-8"><button class="btn" id="btnMatAgregarFactor">+ Agregar factor % (ej. %MO1 Herramienta Menor)</button></div>
+
+    <div id="matRenglonesTabla" class="mt-8"></div>
     <div class="row end mt-8"><button class="btn btn-primary" id="btnMatGuardarComposicion">${existeMatriz ? 'Guardar composición' : 'Crear matriz'}</button></div>
   `;
 
-  pintarItemsTabla();
+  pintarRenglonesTabla();
 
   if (existeMatriz) {
     $('#btnMatActualizarPct').addEventListener('click', async () => {
       try {
         await api(`/projects/${state.projectId}/matrices/${matricesSelectedConceptoId}/porcentajes`, {
           method: 'PUT',
-          body: { pct_indirecto: Number($('#matPctIndirecto').value) || 0, pct_utilidad: Number($('#matPctUtilidad').value) || 0 },
+          body: {
+            pct_indirecto: Number($('#matPctIndirecto').value) || 0,
+            pct_utilidad: Number($('#matPctUtilidad').value) || 0,
+            pct_financiamiento: Number($('#matPctFinanciamiento').value) || 0,
+          },
         });
         invalidate('matrices');
         toast('Porcentajes actualizados', 'success');
@@ -11778,26 +11845,76 @@ async function paintMatrizDetalle(view) {
         </div>`).join('') || '<p class="muted">Sin resultados.</p>';
       $$('[data-add]', results).forEach((row) => row.addEventListener('click', () => {
         const id = Number(row.dataset.add);
-        if (itemsWorking.some((it) => it.insumo_id === id)) { toast('Ese insumo ya está en la matriz', ''); return; }
+        if (renglonesWorking.some((r) => r.tipo === 'insumo' && r.insumo_id === id)) { toast('Ese insumo ya está en la matriz', ''); return; }
         const insumo = found.find((f) => f.id === id);
-        itemsWorking.push({
-          insumo_id: id, codigo: insumo.codigo, concepto: insumo.concepto,
+        if (!MATRIZ_CATEGORIAS_UI.includes(insumo.categoria)) {
+          toast(`Este insumo tiene categoría "${insumo.categoria}", fuera de Materiales/Mano de Obra/Equipo y Herramienta — no se puede agregar a la matriz`, 'danger');
+          return;
+        }
+        renglonesWorking.push({
+          insumo_id: id, codigo: insumo.codigo, descripcion: insumo.concepto,
           categoria: insumo.categoria, unidad: insumo.unidad,
-          precio_presupuesto: insumo.precio_presupuesto, cantidad: 1,
+          precio_presupuesto: insumo.precio_presupuesto, cantidad: 1, tipo: 'insumo',
         });
         $('#matInsumoSearch').value = '';
         results.innerHTML = '';
-        pintarItemsTabla();
+        pintarRenglonesTabla();
       }));
     } catch (err) { toast(err.message, 'danger'); }
   }, 280));
 
+  $('#btnMatAgregarFactor').addEventListener('click', () => {
+    openModal(`
+      <h3>Agregar factor %</h3>
+      <p class="muted">No es un insumo — su importe se calcula como (subtotal de otra categoría) × %. Ej. "%MO1" Herramienta Menor = 3% del subtotal de Mano de Obra.</p>
+      <div class="field"><label>Código</label><input id="factorCodigo" placeholder="ej. %MO1" /></div>
+      <div class="field"><label>Descripción</label><input id="factorDescripcion" placeholder="ej. HERRAMIENTA MENOR" /></div>
+      <div class="field"><label>Categoría donde aparece</label>
+        <select id="factorCategoria">${MATRIZ_CATEGORIAS_UI.map((c) => `<option value="${esc(c)}" ${c === 'EQUIPO Y HERRAMIENTA' ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select>
+      </div>
+      <div class="field"><label>% sobre el subtotal de</label>
+        <select id="factorReferencia">${MATRIZ_CATEGORIAS_UI.map((c) => `<option value="${esc(c)}" ${c === 'MANO DE OBRA' ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select>
+      </div>
+      <div class="field"><label>Porcentaje</label><input id="factorPct" type="number" step="0.01" min="0.01" placeholder="ej. 3 para 3%" /></div>
+      <div class="modal-actions">
+        <button class="btn" id="btnFactorCancelar">Cancelar</button>
+        <button class="btn btn-primary" id="btnFactorAgregar">Agregar</button>
+      </div>
+    `);
+    $('#btnFactorCancelar').addEventListener('click', closeModal);
+    $('#btnFactorAgregar').addEventListener('click', () => {
+      const codigo = $('#factorCodigo').value.trim();
+      const descripcion = $('#factorDescripcion').value.trim();
+      const pct = Number($('#factorPct').value);
+      if (!codigo || !descripcion || !(pct > 0)) { toast('Completa código, descripción y un % mayor a 0', ''); return; }
+      renglonesWorking.push({
+        tipo: 'factor_pct', codigo, descripcion,
+        categoria: $('#factorCategoria').value, factor_referencia: $('#factorReferencia').value,
+        cantidad: pct / 100,
+      });
+      closeModal();
+      pintarRenglonesTabla();
+    });
+  });
+
   $('#btnMatGuardarComposicion').addEventListener('click', async () => {
-    if (!itemsWorking.length) { toast('Agrega al menos un insumo', ''); return; }
-    const payload = { items: itemsWorking.map((it) => ({ insumo_id: it.insumo_id, cantidad: it.cantidad })) };
+    if (!renglonesWorking.length) { toast('Agrega al menos un renglón', ''); return; }
+    const payload = {
+      renglones: renglonesWorking.map((r) => ({
+        categoria: r.categoria, tipo: r.tipo, cantidad: r.cantidad,
+        insumo_id: r.tipo === 'insumo' ? r.insumo_id : undefined,
+        codigo: r.tipo === 'factor_pct' ? r.codigo : undefined,
+        descripcion: r.tipo === 'factor_pct' ? r.descripcion : undefined,
+        factor_referencia: r.tipo === 'factor_pct' ? r.factor_referencia : undefined,
+      })),
+      partida: $('#matPartida').value.trim() || null,
+      analisis_no: $('#matAnalisisNo').value.trim() || null,
+      cuadrilla_nombre: $('#matCuadrillaNombre').value.trim() || null,
+      rendimiento: $('#matRendimiento').value ? Number($('#matRendimiento').value) : null,
+    };
     try {
       if (existeMatriz) {
-        await api(`/projects/${state.projectId}/matrices/${matricesSelectedConceptoId}/items`, { method: 'PUT', body: payload });
+        await api(`/projects/${state.projectId}/matrices/${matricesSelectedConceptoId}/renglones`, { method: 'PUT', body: payload });
       } else {
         await api(`/projects/${state.projectId}/matrices`, { method: 'POST', body: { concepto_id: matricesSelectedConceptoId, ...payload } });
       }

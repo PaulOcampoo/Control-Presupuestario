@@ -26,6 +26,15 @@ const ROLE_TABS = {
   operador: ['maquinaria'],
 };
 
+// Vistas que no requieren ninguna obra/proyecto seleccionado — lista
+// EXPLÍCITA (prompt-5-fix-navegacion-operador-jefe-maquinaria.md), nunca por
+// inferencia de nombre. Usada en bootApp() para saltar la galería de
+// clientes cuando el usuario no tiene proyectos accesibles y todos sus tabs
+// caen aquí (hoy: operador, jefe_maquinaria). Debe reflejar el mismo
+// conjunto que el bloque de "vistas globales" en renderView() (~línea 3670)
+// — si se agrega una vista global nueva ahí, agregarla aquí también.
+const VISTAS_SIN_PROYECTO = ['usuarios', 'proveedores', 'maquinaria', 'nominas_global', 'trabajadores_global', 'cotizador', 'estadoResultadosGlobal', 'costos', 'avance_clientes', 'composicion_costos'];
+
 const state = {
   projects: [],
   projectId: null,
@@ -1303,6 +1312,11 @@ function updateGalleryDrawerGlobalLinks() {
     // "Permisos" es la subvista "Permisos de Acceso" dentro de Usuarios
     // (ver renderUsuarios/renderSubNav) — mismo gate ahí: isAdmin().
     ['btnGalleryGoPermisos', puedeVer('usuarios') && isAdmin()],
+    // prompt-5-fix-navegacion-operador-jefe-maquinaria.md: cubre al usuario
+    // que SÍ tiene proyectos (por eso bootApp() lo manda a la galería) pero
+    // necesita llegar a Maquinaria igual — esa vista es global, no depende
+    // de ninguna obra en particular.
+    ['btnGalleryGoMaquinaria', puedeVer('maquinaria')],
   ];
   let anyVisible = false;
   links.forEach(([id, visible]) => {
@@ -2039,6 +2053,29 @@ async function bootApp() {
     ]);
     state.favoritos = new Set(favoritos);
     state.favoritosOrden = favoritos;
+
+    // prompt-5-fix-navegacion-operador-jefe-maquinaria.md: operador y
+    // jefe_maquinaria no tienen proyectos por diseño, así que la galería les
+    // llegaba vacía y sin ninguna salida — aterrizaban en un callejón sin
+    // salida tras el login. applySession() ya calculaba state.view a la
+    // vista correcta para roles de un solo tab, pero ese valor nunca se
+    // usaba porque aquí siempre se mostraba la galería primero. Basado en
+    // PROYECTOS ACCESIBLES (no en tabs.length<=1) para seguir funcionando
+    // sin tocar este código si a futuro se le asigna una obra a un operador
+    // o se le agrega un segundo tab — en ese caso cae al camino normal de
+    // abajo, galería primero, igual que cualquier otro rol.
+    const sinProyectosAccesibles = state.projects.length === 0;
+    const todosLosTabsSinProyecto = state.allowedTabs.length > 0
+      && state.allowedTabs.every((t) => VISTAS_SIN_PROYECTO.includes(t));
+    if (sinProyectosAccesibles && todosLosTabsSinProyecto) {
+      state.clienteId = null;
+      state.projectId = null;
+      showApp();
+      $('#projectName').textContent = '';
+      switchToView(state.view);
+      return;
+    }
+
     showClientGallery();
     renderGalleryGreeting();
     renderFavoritosSection();
@@ -3438,6 +3475,7 @@ $('#btnGalleryGoUsuarios').addEventListener('click', () => goToGlobalAdminView('
 $('#btnGalleryGoTrabajadoresGlobal').addEventListener('click', () => goToGlobalAdminView('trabajadores_global'));
 $('#btnGalleryGoNominasGlobal').addEventListener('click', () => goToGlobalAdminView('nominas_global'));
 $('#btnGalleryGoPermisos').addEventListener('click', () => { state.usuariosSubView = 'permisos'; goToGlobalAdminView('usuarios'); });
+$('#btnGalleryGoMaquinaria').addEventListener('click', () => goToGlobalAdminView('maquinaria'));
 
 function openNuevoClienteModal() {
   openModal(`

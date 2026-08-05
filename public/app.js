@@ -11837,7 +11837,11 @@ async function paintMatrizDetalle(view) {
     const results = $('#matSearchResults');
     if (!q) { results.innerHTML = ''; return; }
     try {
-      const found = await api(`/projects/${state.projectId}/insumos${queryString({ q })}`);
+      // incluirManoObra: el catálogo general de Insumos/Compras excluye MO*
+      // (mano de obra no pasa por requisición→OC), pero este buscador SÍ
+      // necesita encontrarlos para armar la cuadrilla (prompt-20-matrices-
+      // formato-neodata.md, CP5 — bug real encontrado en verificación).
+      const found = await api(`/projects/${state.projectId}/insumos${queryString({ q, incluirManoObra: 1 })}`);
       results.innerHTML = found.slice(0, 8).map((i) => `
         <div class="project-item" data-add="${i.id}">
           <span class="pname">${esc(i.concepto)}</span>

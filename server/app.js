@@ -3982,8 +3982,16 @@ app.get('/api/projects/:id/concepto-insumos/resumen', h(auth.allow()), h(require
 // ---------------------------------------------------------------------------
 // Insumos
 // ---------------------------------------------------------------------------
-async function getInsumosData(pid, { categoria, q } = {}) {
-  let sql = "SELECT * FROM insumos WHERE project_id = $1 AND (codigo IS NULL OR codigo NOT ILIKE 'MO%')";
+// incluirManoObra: opt-in explícito (prompt-20-matrices-formato-neodata.md,
+// CP5) — el buscador de insumos del editor de Matrices reusa este mismo
+// endpoint pero SÍ necesita encontrar códigos MO* (cuadrilla de Mano de
+// Obra); el resto de llamadas (catálogo de Insumos/Compras, export,
+// programa de materiales) no lo mandan y siguen excluyendo MO* como antes
+// (commit 5667f42: mano de obra no pasa por requisición→OC).
+async function getInsumosData(pid, { categoria, q, incluirManoObra } = {}) {
+  let sql = incluirManoObra
+    ? 'SELECT * FROM insumos WHERE project_id = $1'
+    : "SELECT * FROM insumos WHERE project_id = $1 AND (codigo IS NULL OR codigo NOT ILIKE 'MO%')";
   const params = [pid];
   let idx = 2;
   if (categoria) { sql += ` AND categoria = $${idx++}`; params.push(categoria); }

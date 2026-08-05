@@ -648,6 +648,9 @@ tr.row-pendiente { background: rgba(234,179,8,0.10); }
   transition: border-color 0.15s;
 }
 .project-item.active { border-color: var(--accent-gold); }
+/* Novedades (prompt-16-novedades-changelog.md) */
+.novedad-items-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 6px; }
+.novedad-item { display: flex; align-items: baseline; gap: 8px; }
 /* Matrices de precio unitario (prompt-14-matrices-precio-unitario.md) */
 .matriz-input-num { width: 90px; text-align: right; }
 .matriz-row { cursor: pointer; }

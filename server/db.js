@@ -724,6 +724,48 @@ const SCHEMA = `
   );
   CREATE INDEX IF NOT EXISTS idx_sug_imgs ON sugerencia_imagenes(sugerencia_id);
 
+  -- Novedades (changelog in-app, prompt-16-novedades-changelog.md). Mismo
+  -- criterio de acceso que Sugerencias: informativo, sin sección de permiso
+  -- propia, sin auth.allow() para lectura — cualquier usuario autenticado
+  -- puede verlas. 'publicada' separa crear de publicar a propósito (Target
+  -- State #4): un borrador nunca aparece en el listado ni dispara aviso.
+  CREATE TABLE IF NOT EXISTS novedades (
+    id SERIAL PRIMARY KEY,
+    version TEXT,
+    fecha_publicacion DATE NOT NULL DEFAULT CURRENT_DATE,
+    titulo TEXT NOT NULL,
+    resumen TEXT,
+    publicada BOOLEAN NOT NULL DEFAULT false,
+    creado_por INTEGER REFERENCES usuarios(id),
+    creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
+  CREATE INDEX IF NOT EXISTS idx_novedades_publicada ON novedades(publicada, fecha_publicacion DESC);
+
+  CREATE TABLE IF NOT EXISTS novedades_items (
+    id SERIAL PRIMARY KEY,
+    novedad_id INTEGER NOT NULL REFERENCES novedades(id) ON DELETE CASCADE,
+    tipo TEXT NOT NULL CHECK (tipo IN ('nueva', 'mejora', 'correccion')),
+    texto TEXT NOT NULL,
+    orden INTEGER DEFAULT 0
+  );
+  CREATE INDEX IF NOT EXISTS idx_novedades_items_novedad ON novedades_items(novedad_id);
+
+  -- Tabla puente, NO columna-cursor en usuarios (diagnóstico confirmado con
+  -- Paul): un cursor tipo "vista_hasta_id" se rompe si se publica una
+  -- novedad vieja (id bajo) DESPUÉS de que el usuario ya vio una más nueva
+  -- (id alto) — el borrador pudo quedarse días sin publicar mientras otras
+  -- novedades más nuevas sí se publicaban y veían. La tabla puente responde
+  -- "¿este usuario vio ESTA novedad" sin ambigüedad de orden, mismo patrón
+  -- N:N ya usado en el proyecto (concepto_insumos).
+  CREATE TABLE IF NOT EXISTS novedades_vistas (
+    id SERIAL PRIMARY KEY,
+    usuario_id INTEGER NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+    novedad_id INTEGER NOT NULL REFERENCES novedades(id) ON DELETE CASCADE,
+    visto_en TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (usuario_id, novedad_id)
+  );
+  CREATE INDEX IF NOT EXISTS idx_novedades_vistas_usuario ON novedades_vistas(usuario_id);
+
   -- Alta: campos adicionales en trabajadores (contacto de emergencia dividido).
   ALTER TABLE trabajadores ADD COLUMN IF NOT EXISTS contacto_emergencia_nombre TEXT;
   ALTER TABLE trabajadores ADD COLUMN IF NOT EXISTS contacto_emergencia_telefono TEXT;

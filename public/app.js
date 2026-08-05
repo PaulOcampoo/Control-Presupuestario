@@ -4289,6 +4289,17 @@ function vencimientoBadgeHtml(finObraIso) {
   return ` <span class="badge ${kind}">${esc(texto)}</span>`;
 }
 
+// prompt-22-fase0-auditoria-financiero.md: total_contratado_sospechoso lo
+// calcula el backend (GET /projects/:id/resumen) comparando contra el resto
+// de proyectos reales — aquí solo se pinta el aviso, nunca se corrige el
+// valor. Amarillo (no rojo) a propósito: es una sospecha fundada por
+// coincidencia exacta con otro proyecto, no una inconsistencia matemática
+// confirmada como la de total_con_iva_valido.
+function totalContratadoSospechosoBadgeHtml(sospechoso) {
+  if (!sospechoso) return '';
+  return ` <span class="badge yellow" title="Este mismo importe coincide exactamente con el de otro proyecto, mientras que Total sin IVA y Total con IVA sí son distintos entre ambos — no se pudo confirmar contra el contrato PDF original. El valor guardado no se modificó.">⚠️ Posible dato duplicado — pendiente de verificar contra el contrato original</span>`;
+}
+
 // Punto de entrada (a): galería de clientes → crea una obra nueva a partir del PDF
 function promptUploadContrato() {
   const options = state.clientes.map((c) => `<option value="${c.id}" ${c.id === state.clienteId ? 'selected' : ''}>${esc(c.nombre)}</option>`).join('');
@@ -4482,7 +4493,11 @@ async function renderContrato(view) {
     </div>` : (isAdmin() ? `<div class="mb-12"><button class="btn" id="btnCargarContratoTab2">Adjuntar PDF del contrato</button></div>` : '')}
     <div class="card">
       ${CONTRATO_FIELDS.map((f) => {
-        const badge = f.key === 'fecha_termino' ? vencimientoBadgeHtml(campos.fecha_termino) : '';
+        const badge = f.key === 'fecha_termino'
+          ? vencimientoBadgeHtml(campos.fecha_termino)
+          : f.key === 'total_contratado'
+            ? totalContratadoSospechosoBadgeHtml(resumen.total_contratado_sospechoso)
+            : '';
         const row = `<div class="card-row"><span class="k">${esc(f.label)}</span><span class="v">${formatContratoValor(f, campos[f.key])}${badge}</span></div>`;
         // Subtotal M.O.+C.S.: derivado por el backend al vuelo (nunca un
         // campo extraído/editable), se inserta aquí para respetar el orden

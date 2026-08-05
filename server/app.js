@@ -5795,6 +5795,28 @@ app.get('/api/projects/:id/resumen', h(auth.allow('tesoreria', 'administracion')
   // total con IVA, no lo mostramos como si fuera confiable.
   const totalConIvaValido = totalConIvaEsValido(total, meta.total_con_iva);
 
+  // prompt-22-fase0-auditoria-financiero.md: total_contratado idéntico al
+  // centavo entre 2 proyectos reales (30/32) mientras total_sin_iva/
+  // total_con_iva son genuinamente distintos entre ambos — estadísticamente
+  // muy poco probable por azar, pero SIN el PDF original no hay forma de
+  // confirmar cuál es el bug de extracción (no hay fila en `contratos` para
+  // ninguno de los 2 en el entorno donde se auditó). Mismo criterio que
+  // total_con_iva_valido arriba: se avisa, nunca se corrige/fabrica el
+  // valor guardado. Duplicado genérico (no hardcodeado a 30/32) para que
+  // cualquier par futuro de proyectos con el mismo total_contratado se
+  // detecte igual.
+  let totalContratadoSospechoso = false;
+  if (meta.total_contratado != null) {
+    const { rows: dupRows } = await db.pool.query(
+      `SELECT project_id FROM meta
+       WHERE clave = 'total_contratado' AND project_id != $1
+         AND valor IS NOT NULL AND valor::numeric = $2::numeric
+       LIMIT 1`,
+      [pid, meta.total_contratado]
+    );
+    totalContratadoSospechoso = dupRows.length > 0;
+  }
+
   const { rows: ultimoRows } = await db.pool.query(`
     SELECT * FROM avances_semanales
     WHERE project_id = $1 AND avance_financiero_real IS NOT NULL
@@ -5838,6 +5860,7 @@ app.get('/api/projects/:id/resumen', h(auth.allow('tesoreria', 'administracion')
     tiene_contrato_pdf: contratoRows.length > 0,
     presupuesto_total: total,
     total_con_iva_valido: totalConIvaValido,
+    total_contratado_sospechoso: totalContratadoSospechoso,
     avance_financiero_programado_actual: pctProgramado,
     avance_financiero_ejecutado_actual: pctEjecutado,
     importe_ejecutado: Number((total * (pctEjecutado / 100)).toFixed(2)),

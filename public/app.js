@@ -10867,21 +10867,108 @@ const TIPO_DOC_LABELS = { ine_frente: 'INE frente', ine_reverso: 'INE reverso', 
 // server/app.js): todos los trabajadores de todas las obras, con la obra y
 // el/los residente(s) a cargo. Solo lectura — dar de alta/editar sigue
 // siendo por obra, en la pestaña Trabajadores normal.
+// prompt-26-panel-general-trabajadores-fase3.md: convierte el panel de
+// solo-lectura en el panel de administración real — alta/edición/baja
+// reusando el mismo formulario y los mismos endpoints por-obra (con obraId
+// explícito, ver openTrabajadorModal/openBajaModal), más cuentas bancarias
+// bajo demanda. El modelo de datos NO cambia (trabajadores.project_id sigue
+// 1:1) — Fases 1-4 del diagnóstico de prompt-21 siguen pausadas.
+//
+// Botones Editar/Baja se muestran siempre y dejan que el backend sea la
+// única fuente de verdad (403 real + toast si el usuario no tiene acceso a
+// esa obra específica o el permiso granular ahí) — igual que ya pasa en
+// cualquier otra vista de esta SPA. "Ver cuenta" es la EXCEPCIÓN: por
+// Forbidden Action explícita del prompt, se oculta por completo (no solo se
+// deshabilita) a quien no tenga trabajadores_bancarios.puede_ver en la obra
+// de ESA fila — por eso se resuelve permiso por obra (no un solo flag
+// global), vía cache en memoria para no repetir el fetch.
 async function renderTrabajadoresGlobal(view) {
   view.innerHTML = '<div class="spinner"></div>';
   let mostrarInactivos = false;
-  async function repaint() {
-    const trabajadores = await api(`/trabajadores${mostrarInactivos ? '' : '?activo=1'}`);
-    pintarTabla(trabajadores);
+  let filtroObra = '';
+  let trabajadoresCache = [];
+  const permisosPorObraCache = new Map();
+
+  async function permisosDeObra(obraId) {
+    if (isAdmin()) return { trabajadores: { puede_crear: true, puede_editar: true }, trabajadores_bancarios: { puede_ver: true } };
+    if (permisosPorObraCache.has(obraId)) return permisosPorObraCache.get(obraId);
+    const p = await api(`/permisos/me?obra_id=${obraId}`).catch(() => ({}));
+    const resuelto = { trabajadores: p.trabajadores || {}, trabajadores_bancarios: p.trabajadores_bancarios || {} };
+    permisosPorObraCache.set(obraId, resuelto);
+    return resuelto;
   }
-  function pintarTabla(trabajadores) {
+
+  function obrasDisponibles() {
+    const map = new Map();
+    trabajadoresCache.forEach((t) => { if (!map.has(t.project_id)) map.set(t.project_id, { obra_nombre: t.obra_nombre, cliente_nombre: t.cliente_nombre }); });
+    return [...map.entries()].map(([id, v]) => ({ id, ...v })).sort((a, b) => a.obra_nombre.localeCompare(b.obra_nombre));
+  }
+
+  async function abrirVerCuenta(t) {
+    openModal(`<h3>Cuenta bancaria — ${esc(t.nombre)}</h3><div id="trabCuentaPopoverBody" class="mt-8"><div class="spinner"></div></div>`);
+    try {
+      const det = await api(`/projects/${t.project_id}/trabajadores/${t.id}`);
+      const linea = (label, cuenta, banco) => `
+        <div class="card-row"><span class="k">${label}</span><span class="v">${cuenta ? `${esc(cuenta)}${banco ? ` · ${esc(banco)}` : ''}` : 'Sin cuenta capturada'}</span></div>`;
+      $('#trabCuentaPopoverBody').innerHTML = linea('Nómina', det.cuenta_nomina_hsbc, det.banco_nomina) + linea('Alterna', det.cuenta_alterna, det.banco_alterna);
+    } catch (err) {
+      $('#trabCuentaPopoverBody').innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+    }
+  }
+
+  async function abrirNuevoDesdeGlobal() {
+    let proyectos = [];
+    try { proyectos = await api('/projects'); } catch (err) { toast(err.message, 'danger'); return; }
+    if (!proyectos.length) { toast('No tienes obras disponibles', ''); return; }
+    openModal(`
+      <h3>Nuevo trabajador</h3>
+      <div class="field"><label>Obra *</label>
+        <select id="trabNuevoObraSel">${proyectos.map((p) => `<option value="${p.id}">${esc(p.nombre)}</option>`).join('')}</select>
+      </div>
+      <div class="modal-actions">
+        <button class="btn" id="btnCancelNuevoObra">Cancelar</button>
+        <button class="btn btn-primary" id="btnContinuarNuevoObra">Continuar</button>
+      </div>
+    `);
+    $('#btnCancelNuevoObra').addEventListener('click', closeModal);
+    $('#btnContinuarNuevoObra').addEventListener('click', async () => {
+      const obraId = Number($('#trabNuevoObraSel').value);
+      const permisos = await permisosDeObra(obraId);
+      closeModal();
+      openTrabajadorModal(null, repaint, {
+        puedeVerBancarios: !!permisos.trabajadores_bancarios.puede_ver,
+        puedeEditarBancarios: !!permisos.trabajadores_bancarios.puede_editar,
+      }, obraId);
+    });
+  }
+
+  async function repaint() {
+    trabajadoresCache = await api(`/trabajadores${mostrarInactivos ? '' : '?activo=1'}`);
+    await pintarTabla();
+  }
+
+  async function pintarTabla() {
     const tbody = $('#trabGlobalTbody', view);
     if (!tbody) return;
-    if (!trabajadores.length) {
-      tbody.innerHTML = `<tr><td colspan="6" class="empty-state">No hay trabajadores registrados.</td></tr>`;
+    const filtrados = filtroObra ? trabajadoresCache.filter((t) => String(t.project_id) === filtroObra) : trabajadoresCache;
+    // Refresca el selector de filtro por obra sin perder la selección actual.
+    const filtroSel = $('#trabGlobalFiltroObra', view);
+    if (filtroSel) {
+      const actual = filtroSel.value;
+      filtroSel.innerHTML = `<option value="">Todas las obras</option>` +
+        obrasDisponibles().map((o) => `<option value="${o.id}">${esc(o.cliente_nombre || '—')} — ${esc(o.obra_nombre)}</option>`).join('');
+      filtroSel.value = actual;
+    }
+    if (!filtrados.length) {
+      tbody.innerHTML = `<tr><td colspan="8" class="empty-state">No hay trabajadores registrados.</td></tr>`;
       return;
     }
-    tbody.innerHTML = trabajadores.map((t) => `
+    const permisos = await Promise.all(filtrados.map((t) => permisosDeObra(t.project_id)));
+    tbody.innerHTML = filtrados.map((t, i) => {
+      const perm = permisos[i];
+      const puedeEditar = !!perm.trabajadores.puede_editar;
+      const puedeVerCuenta = !!perm.trabajadores_bancarios.puede_ver;
+      return `
       <tr>
         <td>${esc(t.nombre)}${!t.activo ? ' <span class="badge red">Inactivo</span>' : ''}</td>
         <td>${esc(t.puesto || '—')}</td>
@@ -10889,13 +10976,37 @@ async function renderTrabajadoresGlobal(view) {
         <td>${esc(t.obra_nombre)}</td>
         <td>${esc(t.residentes_a_cargo || '—')}</td>
         <td>${esc(TIPO_PAGO_LABELS[t.tipo_pago] || t.tipo_pago)}</td>
-      </tr>
-    `).join('');
+        <td>${puedeVerCuenta ? `<button class="btn small" data-ver-cuenta="${t.id}">Ver cuenta</button>` : '—'}</td>
+        <td><div class="row">
+          ${puedeEditar ? `<button class="icon-btn-inline" data-editar="${t.id}" title="Editar">✎</button>` : ''}
+          ${puedeEditar && t.activo ? `<button class="icon-btn-inline" data-baja="${t.id}" title="Dar de baja">🚫</button>` : ''}
+        </div></td>
+      </tr>`;
+    }).join('');
+    $$('[data-ver-cuenta]', tbody).forEach((btn) => btn.addEventListener('click', () => {
+      const t = filtrados.find((x) => x.id === Number(btn.dataset.verCuenta));
+      abrirVerCuenta(t);
+    }));
+    $$('[data-editar]', tbody).forEach((btn) => btn.addEventListener('click', async () => {
+      const t = filtrados.find((x) => x.id === Number(btn.dataset.editar));
+      const perm = await permisosDeObra(t.project_id);
+      openTrabajadorModal(t, repaint, {
+        puedeVerBancarios: !!perm.trabajadores_bancarios.puede_ver,
+        puedeEditarBancarios: !!perm.trabajadores_bancarios.puede_editar,
+      }, t.project_id);
+    }));
+    $$('[data-baja]', tbody).forEach((btn) => btn.addEventListener('click', () => {
+      const t = filtrados.find((x) => x.id === Number(btn.dataset.baja));
+      openBajaModal(t.id, t.nombre, repaint, t.project_id);
+    }));
   }
+
   view.innerHTML = `
     <h2 class="section-title">Trabajadores — todas las obras</h2>
-    <p class="muted">Vista de solo lectura. Para dar de alta o editar un trabajador, entra a la pestaña Trabajadores de su obra.</p>
+    <p class="muted">Panel de administración: alta, edición y baja de trabajadores de cualquier obra a la que tengas acceso.</p>
     <div class="section-actions">
+      <button class="btn btn-primary" id="btnTrabGlobalNuevo">+ Nuevo trabajador</button>
+      <select id="trabGlobalFiltroObra" class="w-auto"><option value="">Todas las obras</option></select>
       <label class="checkbox-label-inline">
         <input type="checkbox" id="chkTrabGlobalInactivos" class="w-auto"> Ver inactivos
       </label>
@@ -10910,15 +11021,22 @@ async function renderTrabajadoresGlobal(view) {
             <th>Obra</th>
             <th>Residente(s) a cargo</th>
             <th>Tipo de pago</th>
+            <th>Cuenta</th>
+            <th>Acciones</th>
           </tr>
         </thead>
-        <tbody id="trabGlobalTbody"><tr><td colspan="6" class="empty-state">Cargando…</td></tr></tbody>
+        <tbody id="trabGlobalTbody"><tr><td colspan="8" class="empty-state">Cargando…</td></tr></tbody>
       </table>
     </div>
   `;
+  $('#btnTrabGlobalNuevo').addEventListener('click', abrirNuevoDesdeGlobal);
   $('#chkTrabGlobalInactivos').addEventListener('change', async (e) => {
     mostrarInactivos = e.target.checked;
     await repaint();
+  });
+  $('#trabGlobalFiltroObra').addEventListener('change', async (e) => {
+    filtroObra = e.target.value;
+    await pintarTabla();
   });
   await repaint();
 }
@@ -12094,12 +12212,17 @@ function wireDeteccionBancoClabe(inputCuentaId, inputBancoId, errorId, badgeId) 
   });
 }
 
-async function openTrabajadorModal(trab, repaint, permisosBancarios) {
+// obraId (prompt-26-panel-general-trabajadores-fase3.md): opcional, default
+// state.projectId — el panel global de Trabajadores no tiene una obra
+// "actual" en el estado de la SPA, así que necesita mandarla explícita en
+// vez de asumirla. Los call-sites por-obra existentes no cambian (siguen
+// sin pasar el argumento, cae al default).
+async function openTrabajadorModal(trab, repaint, permisosBancarios, obraId = state.projectId) {
   const isEdit = !!trab;
   const { puedeVerBancarios, puedeEditarBancarios } = permisosBancarios || {};
   // Load destajistas for optional linking
   let destajistas = [];
-  try { destajistas = await api(`/projects/${state.projectId}/destajistas`); } catch (_) {}
+  try { destajistas = await api(`/projects/${obraId}/destajistas`); } catch (_) {}
 
   const tipoPagoOpts = Object.entries(TIPO_PAGO_LABELS)
     .map(([v, l]) => `<option value="${v}" ${trab && trab.tipo_pago === v ? 'selected' : ''}>${l}</option>`).join('');
@@ -12202,9 +12325,9 @@ async function openTrabajadorModal(trab, repaint, permisosBancarios) {
     btn.disabled = true;
     try {
       if (isEdit) {
-        await api(`/projects/${state.projectId}/trabajadores/${trab.id}`, { method: 'PUT', body });
+        await api(`/projects/${obraId}/trabajadores/${trab.id}`, { method: 'PUT', body });
       } else {
-        await api(`/projects/${state.projectId}/trabajadores`, { method: 'POST', body });
+        await api(`/projects/${obraId}/trabajadores`, { method: 'POST', body });
       }
       toast(isEdit ? 'Trabajador actualizado' : 'Trabajador creado', 'success');
       closeModal();
@@ -12222,7 +12345,9 @@ const MOTIVO_BAJA_LABELS = {
   otro: 'Otro (especificar en notas)',
 };
 
-async function openBajaModal(id, nombre, repaint) {
+// obraId opcional (prompt-26-panel-general-trabajadores-fase3.md) — mismo
+// criterio que openTrabajadorModal.
+async function openBajaModal(id, nombre, repaint, obraId = state.projectId) {
   openModal(`
     <h3>Dar de baja a ${esc(nombre)}</h3>
     <p class="muted">El trabajador quedará inactivo. Su expediente e historial se conservan. Puedes reactivarlo en cualquier momento.</p>
@@ -12260,7 +12385,7 @@ async function openBajaModal(id, nombre, repaint) {
     const btn = $('#btnConfirmBaja');
     btn.disabled = true;
     try {
-      await api(`/projects/${state.projectId}/trabajadores/${id}/baja`, {
+      await api(`/projects/${obraId}/trabajadores/${id}/baja`, {
         method: 'POST',
         body: { motivo_baja, notas, fecha_baja: $('#tFechaBaja').value || null },
       });

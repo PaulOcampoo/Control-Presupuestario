@@ -1115,15 +1115,24 @@ app.put('/api/permisos/:usuario_id', h(auth.allow()), h(async (req, res) => {
 
   await db.withTransaction(async (client) => {
     for (const p of permisos) {
+      // Defensa en profundidad (bug real diagnosticado con evidencia SQL):
+      // estas secciones nunca pasan por requireProject, así que
+      // tienePermiso() SIEMPRE resuelve projectId=null para ellas sin
+      // importar la obra activa del usuario — guardarlas con un proyecto_id
+      // real las deja sin efecto (la fila existe, pero tienePermiso() nunca
+      // la encuentra porque "proyecto_id = NULL" nunca es verdadero en SQL).
+      // Se normaliza aquí sin importar qué proyecto_id mande el caller,
+      // mismo criterio ya aplicado en el frontend (SECCIONES_SIEMPRE_GLOBAL).
+      const proyectoIdEfectivo = auth.SECCIONES_SIEMPRE_GLOBAL.includes(p.seccion) ? null : proyectoId;
       await client.query(
         'DELETE FROM permisos_usuario WHERE usuario_id = $1 AND seccion = $2 AND proyecto_id IS NOT DISTINCT FROM $3',
-        [usuarioId, p.seccion, proyectoId]
+        [usuarioId, p.seccion, proyectoIdEfectivo]
       );
       await client.query(
         `INSERT INTO permisos_usuario
            (usuario_id, proyecto_id, seccion, puede_ver, puede_crear, puede_editar, puede_editar_precios, puede_eliminar)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-        [usuarioId, proyectoId, p.seccion, !!p.puede_ver, !!p.puede_crear, !!p.puede_editar, !!p.puede_editar_precios, !!p.puede_eliminar]
+        [usuarioId, proyectoIdEfectivo, p.seccion, !!p.puede_ver, !!p.puede_crear, !!p.puede_editar, !!p.puede_editar_precios, !!p.puede_eliminar]
       );
     }
   });

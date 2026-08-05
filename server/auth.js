@@ -203,6 +203,22 @@ const SECCIONES_PERMISOS = [
 ];
 const ACCIONES_PERMISOS = ['puede_ver', 'puede_crear', 'puede_editar', 'puede_editar_precios', 'puede_eliminar'];
 
+// Mirror del SECCIONES_SIEMPRE_GLOBAL de public/app.js — hasta ahora solo
+// existía en el frontend, sin ningún guardrail del lado del servidor. Bug
+// real diagnosticado con SELECT antes/después: PUT /api/permisos/:usuario_id
+// confiaba ciegamente en el proyecto_id que mandara el caller; si la matriz
+// (u otro cliente futuro) guardaba una de estas secciones con la obra
+// activa en vez de NULL, tienePermiso() de abajo nunca la encontraba —
+// tienePermiso() SIEMPRE resuelve projectId=null para estas secciones
+// (ninguno de sus endpoints pasa por requireProject), y "proyecto_id = NULL"
+// nunca es verdadero en SQL, solo "proyecto_id IS NULL" — la fila quedaba
+// guardada pero sin ningún efecto real. Normalizado aquí como defensa en
+// profundidad, no solo en el frontend que ya se corrigió por separado.
+const SECCIONES_SIEMPRE_GLOBAL = [
+  'trabajadores_global', 'nominas_global', 'costos',
+  'maquinaria', 'maquinaria_captura', 'maquinaria_combustible', 'estado_unidad', 'maquinaria_consumibles',
+];
+
 // Traduce las pestañas de PERMISSIONS[puesto].tabs a secciones del sistema de
 // permisos granulares. 'programa' y 'estimaciones' tienen su propia sección
 // en el catálogo pero SIN enforcement real todavía (sus rutas siguen en
@@ -786,6 +802,7 @@ module.exports = {
   ensureBootstrapAdmin,
   SECCIONES_PERMISOS,
   ACCIONES_PERMISOS,
+  SECCIONES_SIEMPRE_GLOBAL,
   TAB_A_SECCION,
   defaultPermisosParaRol,
   checkPermiso,

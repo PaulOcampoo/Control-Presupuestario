@@ -156,7 +156,10 @@ async function requireProject(req, res, next) {
 // Emite la sesión completa (access token + refresh cookie) una vez pasado el
 // 2° factor (o durante enroll-confirm). Mismo shape que el login pre-2FA;
 // `extra` permite añadir campos puntuales (ej. backupCodes, solo en enroll).
-function issueFullSession(res, user, extra = {}) {
+// avisoNovedades se calcula SIEMPRE aquí (no vía `extra`) — mismo punto de
+// disparo en los 4 call-sites de issueFullSession, ninguno se puede olvidar
+// de pasarlo (prompt-16-novedades-changelog.md, getAvisoNovedades más abajo).
+async function issueFullSession(res, user, extra = {}) {
   trackServerEvent(user.id, 'login_success', { puesto: user.puesto });
   const token = auth.signToken(user);
   const refreshToken = auth.signRefreshToken(user);
@@ -166,6 +169,7 @@ function issueFullSession(res, user, extra = {}) {
     user: { id: user.id, nombre: user.nombre, usuario: user.usuario, puesto: user.puesto, totp_enabled: !!user.totp_enabled, solicitud_eliminacion_datos: !!user.solicitud_eliminacion_datos },
     tabs: auth.tabsParaUsuario(user),
     must_change_password: user.must_change_password || false,
+    avisoNovedades: await getAvisoNovedades(user.id),
     ...extra,
   });
 }
@@ -239,7 +243,7 @@ app.post('/api/auth/login', h(async (req, res) => {
   // no se bloquea en el login — entra directo. Si está inscrito, sigue exactamente
   // igual que antes: se le exige el 2° factor.
   if (!user.totp_enabled) {
-    return issueFullSession(res, user, { needsTotpReminder: shouldShowTotpReminder(user) });
+    return await issueFullSession(res, user, { needsTotpReminder: shouldShowTotpReminder(user) });
   }
 
   return res.json({ requiresTotp: true, preAuthToken: auth.signPreAuthToken(user, { enroll: false }) });
@@ -305,7 +309,7 @@ app.post('/api/auth/totp/enroll-confirm', h(async (req, res) => {
     [JSON.stringify(hashed), user.id]
   );
 
-  issueFullSession(res, { ...user, totp_enabled: true }, { backupCodes });
+  await issueFullSession(res, { ...user, totp_enabled: true }, { backupCodes });
 }));
 
 // Verifica el 2° factor en un login normal (usuario ya inscrito): código TOTP
@@ -337,7 +341,7 @@ app.post('/api/auth/totp/verify', h(async (req, res) => {
     const updated = [...user.totp_backup_codes];
     updated[idx] = { ...updated[idx], used: true };
     await db.pool.query('UPDATE usuarios SET totp_backup_codes = $1 WHERE id = $2', [JSON.stringify(updated), user.id]);
-    return issueFullSession(res, user);
+    return await issueFullSession(res, user);
   }
 
   let secretBase32;
@@ -356,7 +360,7 @@ app.post('/api/auth/totp/verify', h(async (req, res) => {
     await registerTotpFailure(user.id);
     return res.status(401).json({ error: 'Código incorrecto' });
   }
-  issueFullSession(res, user);
+  await issueFullSession(res, user);
 }));
 
 // Vercel Cron (ver vercel.json → "crons") — se autentican con CRON_SECRET en
@@ -541,6 +545,7 @@ app.get('/api/auth/me', h(async (req, res) => {
     tabs: auth.tabsParaUsuario(rows[0]),
     must_change_password: rows[0].must_change_password || false,
     needsTotpReminder: shouldShowTotpReminder(rows[0]),
+    avisoNovedades: await getAvisoNovedades(rows[0].id),
   });
 }));
 
@@ -7904,6 +7909,158 @@ Devuelve ÚNICAMENTE el prompt técnico, sin introducción ni cierre.`,
     [promptGenerado, id]
   );
   res.json(rows[0]);
+}));
+
+// ---------------------------------------------------------------------------
+// Novedades (changelog in-app, prompt-16-novedades-changelog.md) — mismo
+// criterio de acceso que Sugerencias: informativo, visible para cualquier
+// usuario autenticado, sin sección de permiso propia (no toca SECCIONES_
+// PERMISOS/TAB_A_SECCION/CHECK constraints — diagnóstico confirmado con
+// Paul). Administración (crear/editar/publicar/despublicar) sí gatea con
+// auth.allow('desarrollador') = admin o desarrollador, 403 real para
+// cualquier otro rol.
+// ---------------------------------------------------------------------------
+async function novedadesConItems(where, params) {
+  const { rows: novedades } = await db.pool.query(
+    `SELECT id, version, fecha_publicacion, titulo, resumen, publicada, creado_en
+     FROM novedades ${where} ORDER BY fecha_publicacion DESC, id DESC`,
+    params
+  );
+  if (!novedades.length) return [];
+  const ids = novedades.map((n) => n.id);
+  const { rows: items } = await db.pool.query(
+    `SELECT id, novedad_id, tipo, texto, orden FROM novedades_items WHERE novedad_id = ANY($1) ORDER BY novedad_id, orden, id`,
+    [ids]
+  );
+  const itemsPorNovedad = new Map();
+  for (const it of items) {
+    if (!itemsPorNovedad.has(it.novedad_id)) itemsPorNovedad.set(it.novedad_id, []);
+    itemsPorNovedad.get(it.novedad_id).push(it);
+  }
+  return novedades.map((n) => ({ ...n, items: itemsPorNovedad.get(n.id) || [] }));
+}
+
+// Usado en issueFullSession()/GET /auth/me (ver más arriba) — mismo punto de
+// disparo que shouldShowTotpReminder(), calculado en applySession() en el
+// frontend, sin ramificar por rol (diagnóstico confirmado: bootApp() tiene
+// 2 rutas post-login según si el usuario tiene proyectos, pero applySession()
+// corre ANTES de ambas, así que un solo cálculo aquí cubre las dos).
+async function getAvisoNovedades(usuarioId) {
+  const { rows } = await db.pool.query(
+    `SELECT n.id, n.version, n.fecha_publicacion, n.titulo, n.resumen
+     FROM novedades n
+     WHERE n.publicada = true
+       AND NOT EXISTS (SELECT 1 FROM novedades_vistas v WHERE v.usuario_id = $1 AND v.novedad_id = n.id)
+     ORDER BY n.fecha_publicacion DESC, n.id DESC`,
+    [usuarioId]
+  );
+  if (!rows.length) return null;
+  return { total_sin_ver: rows.length, mas_reciente: rows[0] };
+}
+
+app.get('/api/novedades', h(async (req, res) => {
+  res.json({ novedades: await novedadesConItems('WHERE publicada = true', []) });
+}));
+
+// Marca TODAS las novedades publicadas actuales como vistas por el usuario —
+// se llama al cerrar el aviso Y al abrir la sección completa (Target State
+// #3): un solo aviso consolidado, "vista" es por publicación existente al
+// momento del clic, no por ítem individual mostrado.
+app.post('/api/novedades/marcar-vistas', h(async (req, res) => {
+  await db.pool.query(
+    `INSERT INTO novedades_vistas (usuario_id, novedad_id)
+     SELECT $1, n.id FROM novedades n WHERE n.publicada = true
+     ON CONFLICT (usuario_id, novedad_id) DO NOTHING`,
+    [req.user.id]
+  );
+  res.json({ ok: true });
+}));
+
+app.get('/api/novedades/admin', h(auth.allow('desarrollador')), h(async (req, res) => {
+  res.json({ novedades: await novedadesConItems('', []) });
+}));
+
+function validarNovedadPayload(body) {
+  if (!body.titulo?.trim()) return 'El título es requerido';
+  if (!Array.isArray(body.items)) return 'items debe ser un arreglo';
+  for (const it of body.items) {
+    if (!['nueva', 'mejora', 'correccion'].includes(it.tipo)) return `Tipo de ítem inválido: ${it.tipo}`;
+    if (!it.texto?.trim()) return 'Cada ítem requiere texto';
+  }
+  return null;
+}
+
+app.post('/api/novedades', h(auth.allow('desarrollador')), h(async (req, res) => {
+  const body = req.body || {};
+  const error = validarNovedadPayload(body);
+  if (error) return res.status(400).json({ error });
+
+  let novedadId;
+  await db.withTransaction(async (client) => {
+    const { rows } = await client.query(
+      `INSERT INTO novedades (version, fecha_publicacion, titulo, resumen, creado_por)
+       VALUES ($1,$2,$3,$4,$5) RETURNING id`,
+      [body.version?.trim() || null, body.fecha_publicacion || new Date().toISOString().slice(0, 10),
+        body.titulo.trim(), body.resumen?.trim() || null, req.user.id]
+    );
+    novedadId = rows[0].id;
+    for (const [idx, it] of body.items.entries()) {
+      await client.query(
+        'INSERT INTO novedades_items (novedad_id, tipo, texto, orden) VALUES ($1,$2,$3,$4)',
+        [novedadId, it.tipo, it.texto.trim(), idx]
+      );
+    }
+  });
+  const [novedad] = await novedadesConItems('WHERE id = $1', [novedadId]);
+  res.status(201).json(novedad);
+}));
+
+app.put('/api/novedades/:id', h(auth.allow('desarrollador')), h(async (req, res) => {
+  const id = Number(req.params.id);
+  const body = req.body || {};
+  const error = validarNovedadPayload(body);
+  if (error) return res.status(400).json({ error });
+
+  const { rows: existRows } = await db.pool.query('SELECT id FROM novedades WHERE id = $1', [id]);
+  if (!existRows[0]) return res.status(404).json({ error: 'Novedad no encontrada' });
+
+  await db.withTransaction(async (client) => {
+    await client.query(
+      `UPDATE novedades SET version=$1, fecha_publicacion=$2, titulo=$3, resumen=$4 WHERE id=$5`,
+      [body.version?.trim() || null, body.fecha_publicacion || new Date().toISOString().slice(0, 10),
+        body.titulo.trim(), body.resumen?.trim() || null, id]
+    );
+    await client.query('DELETE FROM novedades_items WHERE novedad_id = $1', [id]);
+    for (const [idx, it] of body.items.entries()) {
+      await client.query(
+        'INSERT INTO novedades_items (novedad_id, tipo, texto, orden) VALUES ($1,$2,$3,$4)',
+        [id, it.tipo, it.texto.trim(), idx]
+      );
+    }
+  });
+  const [novedad] = await novedadesConItems('WHERE id = $1', [id]);
+  res.json(novedad);
+}));
+
+app.post('/api/novedades/:id/publicar', h(auth.allow('desarrollador')), h(async (req, res) => {
+  const id = Number(req.params.id);
+  const { rows } = await db.pool.query('UPDATE novedades SET publicada = true WHERE id = $1 RETURNING id', [id]);
+  if (!rows[0]) return res.status(404).json({ error: 'Novedad no encontrada' });
+  res.json({ ok: true });
+}));
+
+app.post('/api/novedades/:id/despublicar', h(auth.allow('desarrollador')), h(async (req, res) => {
+  const id = Number(req.params.id);
+  const { rows } = await db.pool.query('UPDATE novedades SET publicada = false WHERE id = $1 RETURNING id', [id]);
+  if (!rows[0]) return res.status(404).json({ error: 'Novedad no encontrada' });
+  res.json({ ok: true });
+}));
+
+app.delete('/api/novedades/:id', h(auth.allow('desarrollador')), h(async (req, res) => {
+  const id = Number(req.params.id);
+  const { rowCount } = await db.pool.query('DELETE FROM novedades WHERE id = $1', [id]);
+  if (!rowCount) return res.status(404).json({ error: 'Novedad no encontrada' });
+  res.json({ ok: true });
 }));
 
 // ---------------------------------------------------------------------------

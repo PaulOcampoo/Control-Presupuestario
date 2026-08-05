@@ -58,6 +58,8 @@ const state = {
   notifNoLeidas: 0,
   notifTimer: null,
   needsTotpReminder: false, // 2FA opcional: banner en Inicio pendiente de mostrarse esta sesión
+  avisoNovedades: null, // { total_sin_ver, mas_reciente } cuando hay novedades publicadas sin ver, o null
+  novedadesSubView: null, // 'administrar' cuando se entra a Novedades desde un acceso directo admin; se consume una vez en renderView()
   usuariosSubView: null, // 'permisos' cuando se entra desde el acceso directo del drawer de galería; se consume una vez en renderView()
 };
 
@@ -563,6 +565,58 @@ $('#btnTotpReminderClose').addEventListener('click', () => {
   api('/usuarios/totp-reminder-dismissed', { method: 'POST' }).catch(() => {});
 });
 
+// ---------------------------------------------------------------------------
+// Aviso de Novedades (prompt-16-novedades-changelog.md) — semántica de
+// "visto" DISTINTA a la del banner de 2FA: 2FA reaparece cada 3 días, esto
+// desaparece para siempre tras marcarse visto (nunca vuelve, ver POST
+// /novedades/marcar-vistas). Consolidado: si hay varias sin ver, un solo
+// aviso con la más reciente + contador — nunca uno por cada novedad.
+//
+// DOS instancias en el DOM, no una: #novedadesBanner vive dentro de #app
+// (shell principal), que queda display:none mientras el usuario está en la
+// galería de clientes (#clientGalleryScreen) — es decir, para todo rol que
+// no sea operador/jefe_maquinaria (los únicos que saltan la galería, ver
+// prompt-5-fix-navegacion-operador-jefe-maquinaria.md), el aviso nunca
+// llegaba a verse "al iniciar sesión" como pide el spec, aunque el texto se
+// calculaba bien (bug real encontrado en CP6/CP7, verificado con
+// getComputedStyle: #app en display:none oculta a su descendiente pase lo
+// que pase con las clases del propio banner). #novedadesBannerGallery es el
+// duplicado dentro de .gallery-hero — mismo patrón ya usado por
+// #galleryDrawer como versión propia de los ajustes del sidebar real (ver
+// comentario en openGalleryDrawer()). Ambas instancias se actualizan juntas.
+// ---------------------------------------------------------------------------
+function updateNovedadesBanner() {
+  const aviso = state.avisoNovedades;
+  const texto = aviso
+    ? (aviso.total_sin_ver > 1
+      ? `🆕 ${aviso.total_sin_ver} novedades nuevas — la más reciente: "${aviso.mas_reciente.titulo}"`
+      : `🆕 Novedad: "${aviso.mas_reciente.titulo}"`)
+    : '';
+  [
+    ['#novedadesBanner', '#novedadesBannerTexto'],
+    ['#novedadesBannerGallery', '#novedadesBannerGalleryTexto'],
+  ].forEach(([bannerSel, textoSel]) => {
+    const banner = $(bannerSel);
+    if (!banner) return;
+    if (aviso) $(textoSel).textContent = texto;
+    banner.classList.remove('hidden-initial');
+    requestAnimationFrame(() => banner.classList.toggle('show', !!aviso));
+  });
+}
+async function marcarNovedadesVistas() {
+  state.avisoNovedades = null;
+  updateNovedadesBanner();
+  try { await api('/novedades/marcar-vistas', { method: 'POST' }); } catch (_) { /* no crítico, se reintenta en el próximo login */ }
+}
+$('#btnNovedadesBannerVer').addEventListener('click', () => { marcarNovedadesVistas(); switchToView('novedades'); });
+$('#btnNovedadesBannerClose').addEventListener('click', marcarNovedadesVistas);
+// Versión de galería: switchToView() no basta porque #app todavía está
+// display:none — hace falta goToGlobalAdminView() para entrar al shell
+// primero (mismo mecanismo que "🚜 Maquinaria" en este mismo drawer).
+$('#btnNovedadesBannerGalleryVer').addEventListener('click', () => { marcarNovedadesVistas(); goToGlobalAdminView('novedades'); });
+$('#btnNovedadesBannerGalleryClose').addEventListener('click', marcarNovedadesVistas);
+$('#btnGalleryGoNovedades').addEventListener('click', () => { closeGalleryDrawer(); goToGlobalAdminView('novedades'); });
+
 function installApp() {
   if (isStandalone()) { toast('La app ya está instalada en este dispositivo', 'success'); return; }
   if (deferredInstallPrompt) {
@@ -887,13 +941,15 @@ function puedeVerEstimaciones() { return !!state.user && (isAdmin() || ['residen
 function puedeCapturarEstimacion() { return !!state.user && (isAdmin() || ['residente'].includes(effectivePuesto())); }
 function puedeAprobarEstimacion() { return isAdmin(); }
 
-function applySession(user, tabs, needsTotpReminder = false) {
+function applySession(user, tabs, needsTotpReminder = false, avisoNovedades = null) {
   state.user = user;
   state.allowedTabs = tabs;
   state._realAllowedTabs = tabs;
   state.needsTotpReminder = needsTotpReminder;
+  state.avisoNovedades = avisoNovedades;
   syncErrorTags();
   updateTotpReminderBanner();
+  updateNovedadesBanner();
   state.simulatedPuesto = null; // resetea simulación al re-autenticar
   const isAdminUser = user.puesto === 'admin' || user.puesto === 'desarrollador';
   $('#btnUpload').style.display = isAdminUser ? '' : 'none';
@@ -1391,8 +1447,17 @@ function renderSidebar() {
     html += '</div></div></div>';
   });
 
-  // Sugerencias y Desarrollador — al final de la lista
+  // Novedades, Sugerencias y Desarrollador — al final de la lista. Novedades
+  // es informativo para TODOS los roles (mismo criterio que Sugerencias,
+  // prompt-16-novedades-changelog.md), incondicional, fuera del loop de
+  // SECTION_DEFS/allowedTabs — así llega igual a operador/jefe_maquinaria
+  // (un solo tab, sin galería) que a cualquier otro rol.
   html += `<div class="sbar-divider"></div>`;
+  const activeNov = state.view === 'novedades' ? 'active' : '';
+  html += `<button class="sbar-item ${activeNov}" id="sbarNovedades" title="Novedades">
+    <span class="sbar-icon">🆕</span>
+    <span class="sbar-label">Novedades</span>
+  </button>`;
   const activeSug = state.view === 'sugerencias' ? 'active' : '';
   html += `<button class="sbar-item ${activeSug}" id="sbarSugerencias" title="Sugerencias">
     <span class="sbar-icon">💡</span>
@@ -1460,6 +1525,10 @@ function renderSidebar() {
   });
 
   // (el listener de "Volver a clientes" se registra una sola vez en la sección de init del sidebar)
+
+  // Novedades
+  const novBtn = $('#sbarNovedades', nav);
+  if (novBtn) novBtn.addEventListener('click', () => { switchToView('novedades'); closeSidebar(); });
 
   // Sugerencias
   const sugBtn = $('#sbarSugerencias', nav);
@@ -2057,7 +2126,7 @@ async function tryRestoreSession() {
   state.token = token;
   try {
     const data = await api('/auth/me');
-    applySession(data.user, data.tabs, data.needsTotpReminder);
+    applySession(data.user, data.tabs, data.needsTotpReminder, data.avisoNovedades);
     // Restaurar simulación activa antes del reload (solo si el usuario es desarrollador)
     const savedSim = sessionStorage.getItem('sim_puesto');
     if (savedSim && data.user.puesto === 'desarrollador' && ROLE_TABS[savedSim]) {
@@ -2109,7 +2178,7 @@ async function completeLogin(data) {
   }
   state.token = data.token;
   localStorage.setItem(TOKEN_KEY, data.token);
-  applySession(data.user, data.tabs, data.needsTotpReminder);
+  applySession(data.user, data.tabs, data.needsTotpReminder, data.avisoNovedades);
   await bootApp();
   if (data.must_change_password) {
     setTimeout(() => openMiCuentaModal(true), 400);
@@ -3740,6 +3809,11 @@ async function renderView() {
   }
   if (state.view === 'sugerencias') {
     try { await renderSugerencias(view); } catch (err) { view.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`; }
+    syncFab();
+    return;
+  }
+  if (state.view === 'novedades') {
+    try { await renderNovedades(view, state.novedadesSubView); state.novedadesSubView = null; } catch (err) { view.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`; }
     syncFab();
     return;
   }
@@ -7829,6 +7903,196 @@ function defaultPermisosParaRolFrontend(puesto) {
     };
   }
   return porSeccion;
+}
+
+// =========================================================================
+// VISTA: Novedades (changelog in-app, prompt-16-novedades-changelog.md) —
+// informativa para todos los roles (mismo criterio que Sugerencias: sin
+// sección de permiso, sin checkPermiso, sin project_id). Sub-nav
+// Novedades/Administrar visible solo si isAdmin() — administrar además
+// gatea 403 real en el backend, esto es solo UI.
+// =========================================================================
+const NOVEDAD_TIPO_LABELS = { nueva: 'Nuevo', mejora: 'Mejora', correccion: 'Corrección' };
+const NOVEDAD_TIPO_BADGE = { nueva: 'green', mejora: 'purple', correccion: 'red' };
+
+function novedadItemsHtml(items) {
+  return items.map((it) => `
+    <li class="novedad-item">
+      <span class="badge ${NOVEDAD_TIPO_BADGE[it.tipo] || 'muted'}">${esc(NOVEDAD_TIPO_LABELS[it.tipo] || it.tipo)}</span>
+      <span>${esc(it.texto)}</span>
+    </li>
+  `).join('');
+}
+
+function novedadesListaHtml(novedades) {
+  return novedades.map((n) => `
+    <div class="card mb-12">
+      <div class="row between">
+        <strong>${esc(n.titulo)}</strong>
+        <span class="muted fs-08">${n.version ? `v${esc(n.version)} · ` : ''}${fmtDate(n.fecha_publicacion)}</span>
+      </div>
+      ${n.resumen ? `<p class="muted mt-6">${esc(n.resumen)}</p>` : ''}
+      <ul class="novedad-items-list mt-8">${novedadItemsHtml(n.items)}</ul>
+    </div>
+  `).join('');
+}
+
+function novedadesAdminFilaHtml(n) {
+  return `
+    <tr>
+      <td>${n.version ? esc(n.version) : '—'}</td>
+      <td>${esc(n.titulo)}</td>
+      <td>${fmtDate(n.fecha_publicacion)}</td>
+      <td>${n.publicada ? '<span class="badge green">Publicada</span>' : '<span class="badge muted">Borrador</span>'}</td>
+      <td>
+        <button class="btn small" data-edit-novedad="${n.id}">Editar</button>
+        ${n.publicada
+          ? `<button class="btn small" data-despublicar-novedad="${n.id}">Despublicar</button>`
+          : `<button class="btn small btn-primary" data-publicar-novedad="${n.id}">Publicar</button>`}
+        <button class="btn small btn-danger" data-eliminar-novedad="${n.id}">Eliminar</button>
+      </td>
+    </tr>
+  `;
+}
+
+// Modal de creación/edición — items con tipo (<select>, auto-mejorado por
+// enhanceSelect vía el MutationObserver global, nunca <select> nativo a
+// simple vista) + texto, agregar/quitar en memoria, un solo guardado al
+// final (mismo patrón que la composición de Matrices de precio unitario).
+function openNovedadFormModal(novedad, onSaved) {
+  const esEdicion = !!novedad;
+  let items = esEdicion ? novedad.items.map((it) => ({ tipo: it.tipo, texto: it.texto })) : [];
+
+  function pintarItems() {
+    const box = $('#novFormItems');
+    box.innerHTML = items.length ? items.map((it, idx) => `
+      <div class="row mb-12-gap8" data-idx="${idx}">
+        <select class="novFormItemTipo" data-idx="${idx}">
+          <option value="nueva" ${it.tipo === 'nueva' ? 'selected' : ''}>Nuevo</option>
+          <option value="mejora" ${it.tipo === 'mejora' ? 'selected' : ''}>Mejora</option>
+          <option value="correccion" ${it.tipo === 'correccion' ? 'selected' : ''}>Corrección</option>
+        </select>
+        <input type="text" class="novFormItemTexto" data-idx="${idx}" value="${esc(it.texto)}" placeholder="Descripción en lenguaje de negocio…" />
+        <button class="icon-btn-inline" data-remove-item="${idx}" type="button" title="Quitar" aria-label="Quitar">✕</button>
+      </div>
+    `).join('') : '<p class="muted">Sin ítems agregados.</p>';
+    $$('.novFormItemTipo', box).forEach((sel) => sel.addEventListener('change', (e) => { items[Number(e.target.dataset.idx)].tipo = e.target.value; }));
+    $$('.novFormItemTexto', box).forEach((inp) => inp.addEventListener('input', (e) => { items[Number(e.target.dataset.idx)].texto = e.target.value; }));
+    $$('[data-remove-item]', box).forEach((btn) => btn.addEventListener('click', () => { items.splice(Number(btn.dataset.removeItem), 1); pintarItems(); }));
+  }
+
+  openModal(`
+    <h3>${esEdicion ? 'Editar novedad' : 'Nueva novedad'}</h3>
+    <div class="field"><label>Título</label><input id="novFormTitulo" value="${esEdicion ? esc(novedad.titulo) : ''}" /></div>
+    <div class="field"><label>Versión (opcional, informativo)</label><input id="novFormVersion" value="${esEdicion && novedad.version ? esc(novedad.version) : ''}" placeholder="p. ej. Agosto 2026" /></div>
+    <div class="field"><label>Fecha de publicación</label><input id="novFormFecha" type="date" value="${esEdicion ? novedad.fecha_publicacion : new Date().toISOString().slice(0, 10)}" /></div>
+    <div class="field"><label>Resumen (opcional, para el aviso al iniciar sesión)</label><textarea id="novFormResumen" rows="2">${esEdicion && novedad.resumen ? esc(novedad.resumen) : ''}</textarea></div>
+    <label>Ítems</label>
+    <div id="novFormItems" class="mt-6"></div>
+    <div class="row end mt-6"><button class="btn small" id="btnNovFormAgregarItem" type="button">+ Agregar ítem</button></div>
+    <div class="modal-actions">
+      <button class="btn" id="btnNovFormCancelar">Cancelar</button>
+      <button class="btn btn-primary" id="btnNovFormGuardar">Guardar</button>
+    </div>
+  `);
+  pintarItems();
+  $('#btnNovFormAgregarItem').addEventListener('click', () => { items.push({ tipo: 'nueva', texto: '' }); pintarItems(); });
+  $('#btnNovFormCancelar').addEventListener('click', closeModal);
+  $('#btnNovFormGuardar').addEventListener('click', async () => {
+    const body = {
+      titulo: $('#novFormTitulo').value.trim(),
+      version: $('#novFormVersion').value.trim() || null,
+      fecha_publicacion: $('#novFormFecha').value,
+      resumen: $('#novFormResumen').value.trim() || null,
+      items,
+    };
+    if (!body.titulo) { toast('El título es requerido', ''); return; }
+    if (!items.length) { toast('Agrega al menos un ítem', ''); return; }
+    try {
+      if (esEdicion) await api(`/novedades/${novedad.id}`, { method: 'PUT', body });
+      else await api('/novedades', { method: 'POST', body });
+      closeModal();
+      toast(esEdicion ? 'Novedad actualizada' : 'Novedad creada (borrador — publícala para que el equipo la vea)', 'success');
+      onSaved();
+    } catch (err) { toast(err.message, 'danger'); }
+  });
+}
+
+async function renderNovedades(view, initialSubView) {
+  let subView = (initialSubView === 'administrar' && isAdmin()) ? 'administrar' : 'lista';
+
+  function renderSubNav() {
+    if (!isAdmin()) return '';
+    return `
+      <div class="nominas-subnav">
+        <button class="btn ${subView === 'lista' ? 'btn-primary' : ''}" id="btnNovSubLista">Novedades</button>
+        <button class="btn ${subView === 'administrar' ? 'btn-primary' : ''}" id="btnNovSubAdministrar">Administrar</button>
+      </div>
+    `;
+  }
+  function bindSubNav() {
+    if (!isAdmin()) return;
+    $('#btnNovSubLista').addEventListener('click', showLista);
+    $('#btnNovSubAdministrar').addEventListener('click', showAdministrar);
+  }
+
+  async function showLista() {
+    subView = 'lista';
+    // Abrir la sección completa marca como vistas TODAS las publicadas
+    // actuales (Target State #3) — mismo endpoint que cierra el aviso.
+    marcarNovedadesVistas();
+    const { novedades } = await api('/novedades');
+    view.innerHTML = `
+      <h2 class="section-title">🆕 Novedades</h2>
+      <p class="muted">Funciones nuevas, mejoras y correcciones de cada actualización.</p>
+      ${renderSubNav()}
+      ${novedades.length ? novedadesListaHtml(novedades) : '<div class="empty-state">Todavía no hay novedades publicadas.</div>'}
+    `;
+    bindSubNav();
+  }
+
+  async function showAdministrar() {
+    if (!isAdmin()) return;
+    subView = 'administrar';
+    view.innerHTML = '<div class="spinner"></div>';
+    const { novedades } = await api('/novedades/admin');
+    view.innerHTML = `
+      <h2 class="section-title">🆕 Novedades</h2>
+      ${renderSubNav()}
+      <div class="row end mb-8"><button class="btn btn-primary" id="btnNovNueva">+ Nueva novedad</button></div>
+      ${novedades.length ? `
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th>Versión</th><th>Título</th><th>Fecha</th><th>Estado</th><th></th></tr></thead>
+            <tbody>${novedades.map(novedadesAdminFilaHtml).join('')}</tbody>
+          </table>
+        </div>
+      ` : '<div class="empty-state">Sin novedades creadas todavía.</div>'}
+    `;
+    bindSubNav();
+    $('#btnNovNueva').addEventListener('click', () => openNovedadFormModal(null, showAdministrar));
+    $$('[data-edit-novedad]').forEach((btn) => btn.addEventListener('click', () => {
+      const n = novedades.find((x) => x.id === Number(btn.dataset.editNovedad));
+      openNovedadFormModal(n, showAdministrar);
+    }));
+    $$('[data-publicar-novedad]').forEach((btn) => btn.addEventListener('click', async () => {
+      try { await api(`/novedades/${btn.dataset.publicarNovedad}/publicar`, { method: 'POST' }); toast('Novedad publicada', 'success'); showAdministrar(); }
+      catch (err) { toast(err.message, 'danger'); }
+    }));
+    $$('[data-despublicar-novedad]').forEach((btn) => btn.addEventListener('click', async () => {
+      try { await api(`/novedades/${btn.dataset.despublicarNovedad}/despublicar`, { method: 'POST' }); toast('Novedad despublicada', 'success'); showAdministrar(); }
+      catch (err) { toast(err.message, 'danger'); }
+    }));
+    $$('[data-eliminar-novedad]').forEach((btn) => btn.addEventListener('click', async () => {
+      const ok = await confirmDialog('¿Eliminar esta novedad? Esta acción no se puede deshacer.', { titulo: 'Eliminar novedad', claseAceptar: 'btn-danger', textoAceptar: 'Eliminar' });
+      if (!ok) return;
+      try { await api(`/novedades/${btn.dataset.eliminarNovedad}`, { method: 'DELETE' }); toast('Novedad eliminada', 'success'); showAdministrar(); }
+      catch (err) { toast(err.message, 'danger'); }
+    }));
+  }
+
+  if (subView === 'administrar') await showAdministrar();
+  else await showLista();
 }
 
 async function renderUsuarios(view, initialSubView) {

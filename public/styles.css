@@ -336,7 +336,7 @@ button, a, select, label,
 /* Revelación de altura + fundido para banners no bloqueantes (instalación
    PWA, recordatorio de TOTP) — reemplaza el corte duro de style.display,
    que hacía saltar de golpe el contenido de abajo. */
-#totpReminderBanner, #installBanner {
+#totpReminderBanner, #installBanner, #novedadesBanner, #novedadesBannerGallery {
   overflow: hidden;
   max-height: 0;
   opacity: 0;
@@ -346,6 +346,19 @@ button, a, select, label,
   max-height: 80px;
   opacity: 1;
 }
+/* #novedadesBanner / #novedadesBannerGallery: título curado por admin, largo
+   variable — mismo margen que #totpReminderBanner (140px) para que un
+   título largo envolviendo a 2-3 líneas en viewports angostos no se
+   recorte. */
+#novedadesBanner.show, #novedadesBannerGallery.show {
+  max-height: 140px;
+  opacity: 1;
+}
+/* #novedadesBannerGallery vive dentro de .gallery-hero (fondo degradado
+   accent-gold, no el área principal clara) — separación del bloque de
+   saludo de arriba, mismo criterio que el resto de .gallery-hero > *. */
+#novedadesBannerGallery { margin-top: 16px; }
+#novedadesBannerGallery.show { margin-top: 16px; }
 /* #totpReminderBanner tiene más contenido que #installBanner (mensaje de
    2 líneas + botón "Configurar ahora" + botón "✕", vs. una sola línea +
    un botón en installBanner) — 80px lo recortaba. 140px da margen para
@@ -648,6 +661,9 @@ tr.row-pendiente { background: rgba(234,179,8,0.10); }
   transition: border-color 0.15s;
 }
 .project-item.active { border-color: var(--accent-gold); }
+/* Novedades (prompt-16-novedades-changelog.md) */
+.novedad-items-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 6px; }
+.novedad-item { display: flex; align-items: baseline; gap: 8px; }
 /* Matrices de precio unitario (prompt-14-matrices-precio-unitario.md) */
 .matriz-input-num { width: 90px; text-align: right; }
 .matriz-row { cursor: pointer; }

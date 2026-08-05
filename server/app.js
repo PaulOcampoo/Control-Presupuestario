@@ -50,7 +50,7 @@ const { calcularDiasRestantes, determinarUmbral, construirMensaje } = require('.
 const maquinaria = require('./maquinaria');
 const cotizador = require('./cotizador');
 const { metaToObject, presupuestoTotalDe, getFinanzasResumenData } = require('./finanzas');
-const { calcularJornal, calcularDestajo } = require('./calculos');
+const { calcularJornal, calcularDestajo, totalConIvaEsValido } = require('./calculos');
 const { validarClabe } = require('./catalogoBancos');
 const estadoResultados = require('./estadoResultados');
 const { emparejarConceptos, calcularCambios } = require('./reintegracionPresupuesto');
@@ -164,7 +164,7 @@ function issueFullSession(res, user, extra = {}) {
   res.json({
     token,
     user: { id: user.id, nombre: user.nombre, usuario: user.usuario, puesto: user.puesto, totp_enabled: !!user.totp_enabled, solicitud_eliminacion_datos: !!user.solicitud_eliminacion_datos },
-    tabs: auth.PERMISSIONS[user.puesto] ? auth.PERMISSIONS[user.puesto].tabs : [],
+    tabs: auth.tabsParaUsuario(user),
     must_change_password: user.must_change_password || false,
     ...extra,
   });
@@ -538,7 +538,7 @@ app.get('/api/auth/me', h(async (req, res) => {
   if (!rows[0]) return res.status(401).json({ error: 'Sesión inválida' });
   res.json({
     user: { id: rows[0].id, nombre: rows[0].nombre, usuario: rows[0].usuario, puesto: rows[0].puesto, totp_enabled: !!rows[0].totp_enabled, solicitud_eliminacion_datos: !!rows[0].solicitud_eliminacion_datos },
-    tabs: auth.PERMISSIONS[rows[0].puesto] ? auth.PERMISSIONS[rows[0].puesto].tabs : [],
+    tabs: auth.tabsParaUsuario(rows[0]),
     must_change_password: rows[0].must_change_password || false,
     needsTotpReminder: shouldShowTotpReminder(rows[0]),
   });
@@ -1050,7 +1050,7 @@ const SECCION_A_TAB = Object.fromEntries(
 // comportamiento ni consulta a la tabla.
 app.get('/api/projects/:id/nav-tabs', h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
   if (req.user.puesto === 'admin' || req.user.puesto === 'desarrollador') {
-    return res.json({ tabs: auth.PERMISSIONS[req.user.puesto].tabs });
+    return res.json({ tabs: auth.tabsParaUsuario(req.user) });
   }
   const { rows } = await db.pool.query(
     `SELECT seccion, puede_ver FROM permisos_usuario
@@ -1487,6 +1487,193 @@ app.delete('/api/maquinaria/horas/:id', h(auth.checkPermiso('maquinaria', 'puede
   const ok = await maquinaria.softDeleteHoras(Number(req.params.id));
   if (!ok) return res.status(404).json({ error: 'Registro no encontrado' });
   res.json({ ok: true });
+}));
+
+// =========================================================================
+// Estado de la unidad (prompt-6-estado-unidad-operador.md) — checklist
+// rápido de seguridad/preventivos capturado por el operador sobre SU unidad
+// asignada. Catálogo fijo por categoría (mismo criterio que
+// ACTIVIDADES_MAQUINARIA arriba): el backend es quien valida de verdad, el
+// frontend solo pinta un espejo exacto de estas listas.
+// =========================================================================
+const CHECKLIST_ESTADO_UNIDAD = {
+  maquina: [
+    { clave: 'fluidos', etiqueta: 'Niveles de fluidos' },
+    { clave: 'fugas', etiqueta: 'Fugas visibles' },
+    { clave: 'orugas_llantas', etiqueta: 'Estado de orugas/llantas' },
+    { clave: 'frenos', etiqueta: 'Frenos' },
+    { clave: 'luces_torreta', etiqueta: 'Luces y torreta' },
+    { clave: 'alarma_reversa', etiqueta: 'Alarma de reversa' },
+    { clave: 'cinturon', etiqueta: 'Cinturón' },
+    { clave: 'espejos', etiqueta: 'Espejos' },
+    { clave: 'extintor', etiqueta: 'Extintor' },
+  ],
+  camioneta: [
+    { clave: 'fluidos', etiqueta: 'Niveles de fluidos' },
+    { clave: 'fugas', etiqueta: 'Fugas visibles' },
+    { clave: 'llantas_refaccion', etiqueta: 'Llantas y refacción' },
+    { clave: 'frenos', etiqueta: 'Frenos' },
+    { clave: 'luces_direccionales', etiqueta: 'Luces y direccionales' },
+    { clave: 'cinturones', etiqueta: 'Cinturones' },
+    { clave: 'espejos', etiqueta: 'Espejos' },
+    { clave: 'extintor', etiqueta: 'Extintor' },
+    { clave: 'herramienta_gato', etiqueta: 'Herramienta/gato' },
+  ],
+};
+const ESTADOS_ITEM_VALIDOS = ['ok', 'atencion', 'critico'];
+
+// Listado (cabo/jefe_maquinaria/admin/desarrollador: TODAS las unidades con
+// su último estado; operador: solo la(s) suya(s) — mismo criterio de
+// aislamiento que listEquipos, prompt-p2-aislamiento-operador.md).
+app.get('/api/maquinaria/estado-unidad', h(auth.checkPermiso('estado_unidad', 'puede_ver')), h(async (req, res) => {
+  const operadorId = req.user.puesto === 'operador' ? req.user.id : null;
+  res.json(await maquinaria.listEstadoUnidadResumen(operadorId));
+}));
+
+// Histórico de un equipo específico — mismo patrón 403 (no 404, no exponer
+// el equipo) que GET /api/maquinaria/equipos/:id cuando un operador pide
+// una unidad que no es la suya.
+app.get('/api/maquinaria/estado-unidad/:equipoId', h(auth.checkPermiso('estado_unidad', 'puede_ver')), h(async (req, res) => {
+  const equipoId = Number(req.params.equipoId);
+  const equipo = await maquinaria.getEquipoById(equipoId);
+  if (!equipo) return res.status(404).json({ error: 'Equipo no encontrado' });
+  if (req.user.puesto === 'operador' && equipo.operador_asignado_id !== req.user.id) {
+    return res.status(403).json({ error: 'No tienes permiso para realizar esta acción' });
+  }
+  res.json(await maquinaria.listEstadoUnidadHistorico(equipoId));
+}));
+
+// Captura — exclusiva de operador sobre SU unidad asignada. Ownership se
+// valida en backend ANTES del INSERT (nunca solo en el frontend, mismo
+// patrón IDOR que equipos/:id): 403 si equipo_id no es el asignado a este
+// operador. items se valida contra el catálogo fijo de la categoría real
+// del equipo (no la que mande el cliente) — exactamente las claves
+// esperadas, ni de más ni de menos, y solo los 3 estados controlados.
+app.post('/api/maquinaria/estado-unidad', h(auth.checkPermiso('estado_unidad', 'puede_crear')), h(async (req, res) => {
+  const { equipo_id, fecha, items, lectura, observaciones } = req.body || {};
+  if (!equipo_id || !fecha) {
+    return res.status(400).json({ error: 'Indica equipo y fecha' });
+  }
+  const equipo = await maquinaria.getEquipoById(Number(equipo_id));
+  if (!equipo) return res.status(404).json({ error: 'Equipo no encontrado' });
+  if (equipo.operador_asignado_id !== req.user.id) {
+    return res.status(403).json({ error: 'No tienes permiso para realizar esta acción' });
+  }
+  const catalogo = CHECKLIST_ESTADO_UNIDAD[equipo.categoria];
+  if (!catalogo) return res.status(400).json({ error: `Categoría de equipo no soportada: ${equipo.categoria}` });
+  if (!(lectura >= 0)) {
+    return res.status(400).json({ error: 'Indica una lectura válida (horómetro/kilometraje)' });
+  }
+  if (!Array.isArray(items) || items.length !== catalogo.length) {
+    return res.status(400).json({ error: 'Completa todos los puntos del checklist' });
+  }
+  const clavesEsperadas = new Set(catalogo.map((c) => c.clave));
+  const clavesRecibidas = new Set(items.map((it) => it?.clave));
+  const itemsValidos = items.every((it) =>
+    clavesEsperadas.has(it?.clave) && ESTADOS_ITEM_VALIDOS.includes(it?.estado)
+  );
+  if (!itemsValidos || clavesRecibidas.size !== catalogo.length) {
+    return res.status(400).json({ error: 'Checklist incompleto o con valores inválidos' });
+  }
+  const itemsNormalizados = catalogo.map((c) => {
+    const capturado = items.find((it) => it.clave === c.clave);
+    return {
+      clave: c.clave, etiqueta: c.etiqueta, estado: capturado.estado,
+      nota: typeof capturado.nota === 'string' && capturado.nota.trim() ? capturado.nota.trim() : undefined,
+    };
+  });
+  const registro = await maquinaria.createEstadoUnidad({
+    equipo_id: equipo.id, operador_id: req.user.id, fecha, tipo_unidad: equipo.categoria,
+    items: itemsNormalizados, lectura: Number(lectura), observaciones: observaciones?.trim(),
+  });
+  const tieneCritico = itemsNormalizados.some((it) => it.estado === 'critico');
+  if (tieneCritico) {
+    // Mismo criterio que maquinaria_horas_pendiente arriba: avisa a todos los
+    // cabo y jefe_maquinaria activos (sin scoping por obra, mismo alcance
+    // sin asignación por-obra que el resto del módulo).
+    const { rows: supervisores } = await db.pool.query(
+      "SELECT id FROM usuarios WHERE puesto IN ('cabo', 'jefe_maquinaria') AND activo = true"
+    );
+    await Promise.all(supervisores.map((s) => crearNotificacion(
+      s.id, equipo.obra_id || null, 'estado_unidad_critico', registro.id,
+      `${req.user.nombre} reportó un punto CRÍTICO en el estado de "${equipo.nombre}"`
+    )));
+  }
+  res.status(201).json({ ...registro, tiene_critico: tieneCritico });
+}));
+
+// =========================================================================
+// Programa de consumibles (prompt-10-programa-consumibles.md) — captura de
+// operador sobre su unidad: diesel + 3 aceites (motor/hidráulico/
+// transmisión). Diesel se guarda en combustible_maquinaria (decisión
+// consultada: NO se duplica una tabla nueva para algo que ya existe) con
+// ownership validado aquí — a diferencia de POST /api/maquinaria/combustible
+// (jefe_maquinaria, sin restricción de unidad), este endpoint es exclusivo
+// del operador dueño del equipo. Los 3 aceites sí son consumibles_maquinaria,
+// tabla nueva de verdad.
+// =========================================================================
+const TIPOS_CONSUMIBLE = ['diesel', 'aceite_motor', 'aceite_hidraulico', 'aceite_transmision'];
+
+app.get('/api/maquinaria/consumibles', h(auth.checkPermiso('maquinaria_consumibles', 'puede_ver')), h(async (req, res) => {
+  const operadorId = req.user.puesto === 'operador' ? req.user.id : null;
+  const equipoId = req.query.equipo_id ? Number(req.query.equipo_id) : null;
+  const registros = await maquinaria.listConsumibles({
+    equipoId, operadorId,
+    fechaDesde: req.query.desde || null, fechaHasta: req.query.hasta || null,
+  });
+  // Resumen acumulado por unidad+tipo — mismo criterio de agregación en JS
+  // que getResumen/getReportePorCliente (server/maquinaria.js), sin
+  // duplicar la query: se calcula sobre el mismo dataset ya filtrado.
+  const resumenMap = new Map();
+  for (const r of registros) {
+    const key = `${r.equipo_id}|${r.tipo}`;
+    if (!resumenMap.has(key)) {
+      resumenMap.set(key, {
+        equipo_id: r.equipo_id, equipo_nombre: r.equipo_nombre, tipo: r.tipo,
+        unidad: r.unidad, total_cantidad: 0, total_costo_estimado: 0, n_registros: 0,
+      });
+    }
+    const acc = resumenMap.get(key);
+    acc.total_cantidad += Number(r.cantidad);
+    acc.total_costo_estimado += Number(r.costo_estimado) || 0;
+    acc.n_registros += 1;
+  }
+  res.json({ registros, resumen: [...resumenMap.values()] });
+}));
+
+app.post('/api/maquinaria/consumibles', h(auth.checkPermiso('maquinaria_consumibles', 'puede_crear')), h(async (req, res) => {
+  const { equipo_id, tipo, cantidad, lectura, fecha } = req.body || {};
+  if (!equipo_id || !fecha) return res.status(400).json({ error: 'Indica equipo y fecha' });
+  if (!TIPOS_CONSUMIBLE.includes(tipo)) {
+    return res.status(400).json({ error: `Indica un tipo válido: ${TIPOS_CONSUMIBLE.join(', ')}` });
+  }
+  if (!(Number(cantidad) > 0)) return res.status(400).json({ error: 'Indica una cantidad válida' });
+
+  const equipo = await maquinaria.getEquipoById(Number(equipo_id));
+  if (!equipo) return res.status(404).json({ error: 'Equipo no encontrado' });
+  if (equipo.operador_asignado_id !== req.user.id) {
+    return res.status(403).json({ error: 'No tienes permiso para realizar esta acción' });
+  }
+
+  const insumo = await maquinaria.resolverCostoConsumible(tipo);
+  const lecturaNum = lectura != null && lectura !== '' ? Number(lectura) : null;
+
+  let registro;
+  if (tipo === 'diesel') {
+    registro = await maquinaria.createCombustible({
+      equipo_id: equipo.id, fecha, litros: Number(cantidad),
+      costo: insumo ? Number(insumo.precio_presupuesto) * Number(cantidad) : 0,
+      registrado_por: req.user.id, lectura: lecturaNum,
+    });
+  } else {
+    registro = await maquinaria.createConsumible({
+      equipo_id: equipo.id, tipo, cantidad: Number(cantidad), unidad: 'litros',
+      lectura: lecturaNum, operador_id: req.user.id, fecha,
+      costo_estimado: insumo ? Number(insumo.precio_presupuesto) * Number(cantidad) : null,
+      insumo_id: insumo ? insumo.id : null,
+    });
+  }
+  res.status(201).json({ ...registro, tipo, costo_resuelto_de_insumo: !!insumo });
 }));
 
 // Cifras de presupuesto (monto total, gastado, % consumido) — solo
@@ -2240,6 +2427,452 @@ app.post('/api/costos/crear-presupuesto', h(auth.checkPermiso('costos', 'puede_c
   });
 
   res.status(201).json({ id: record.id, nombre: record.nombre, num_conceptos: items.length, total_sin_iva: totalSinIva });
+}));
+
+// ---------------------------------------------------------------------------
+// Matrices de precio unitario (prompt-14-matrices-precio-unitario.md) — por
+// obra, a partir de insumos YA cargados en esa obra. Tabla propia
+// (matrices_precio_unitario + matriz_precio_items), deliberadamente separada
+// de concepto_insumos: ver comentario en server/db.js — diagnóstico
+// confirmado con Paul, poblar concepto_insumos desde aquí habría roto
+// "avance requiere entrega" (insumosPendientesPorConcepto más abajo), además
+// esa tabla no tiene columna cantidad. Reusa el permiso 'costos' (mismo tipo
+// de dato: precios/presupuesto) — ya está en el CHECK de permisos_usuario,
+// no requiere sección nueva.
+const MATRIZ_CATS = [
+  { key: 'materiales', label: 'Materiales', insumoCat: 'MATERIALES' },
+  { key: 'mano_obra', label: 'Mano de Obra', insumoCat: 'MANO DE OBRA' },
+  { key: 'herramienta_equipo', label: 'Herramienta y Equipo', insumoCat: 'EQUIPO Y HERRAMIENTA' },
+];
+
+// Fórmula en cascada confirmada con Paul (estándar MX): la utilidad se aplica
+// sobre el costo directo YA indirectado, no sobre el costo directo solo.
+// Una categoría sin insumos asignados en ESTA matriz da subtotal=null
+// ("No disponible") — nunca se rellena con el % de referencia de PR #48,
+// mismo criterio de honestidad sobre datos faltantes que Composición de costos.
+function calcularMatriz(items, pctIndirecto, pctUtilidad) {
+  const categorias = MATRIZ_CATS.map((c) => {
+    const delaCat = items.filter((it) => it.categoria === c.insumoCat);
+    const subtotal = delaCat.length
+      ? Number(delaCat.reduce((s, it) => s + Number(it.cantidad) * Number(it.precio_presupuesto), 0).toFixed(4))
+      : null;
+    return { categoria: c.key, label: c.label, subtotal };
+  });
+  const completa = categorias.every((c) => c.subtotal != null);
+  const costoDirecto = Number(categorias.reduce((s, c) => s + (c.subtotal || 0), 0).toFixed(4));
+  const factorIndirecto = 1 + Number(pctIndirecto) / 100;
+  const factorUtilidad = 1 + Number(pctUtilidad) / 100;
+  const precioUnitarioCalculado = Number((costoDirecto * factorIndirecto * factorUtilidad).toFixed(4));
+  const pctCombinadoEfectivo = Number(((factorIndirecto * factorUtilidad - 1) * 100).toFixed(4));
+  return { categorias, costo_directo: costoDirecto, completa, precio_unitario_calculado: precioUnitarioCalculado, pct_combinado_efectivo: pctCombinadoEfectivo };
+}
+
+async function getMatrizConItems(conceptoId) {
+  const { rows: matrizRows } = await db.pool.query('SELECT * FROM matrices_precio_unitario WHERE concepto_id = $1', [conceptoId]);
+  if (!matrizRows[0]) return null;
+  const matriz = matrizRows[0];
+  const { rows: items } = await db.pool.query(`
+    SELECT mpi.id, mpi.insumo_id, mpi.cantidad, i.codigo, i.concepto, i.categoria, i.unidad, i.precio_presupuesto
+    FROM matriz_precio_items mpi
+    JOIN insumos i ON i.id = mpi.insumo_id
+    WHERE mpi.matriz_id = $1
+    ORDER BY i.categoria, i.concepto
+  `, [matriz.id]);
+  return { ...matriz, items, ...calcularMatriz(items, matriz.pct_indirecto, matriz.pct_utilidad) };
+}
+
+app.get('/api/projects/:id/matrices', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('costos', 'puede_ver')), h(async (req, res) => {
+  const pid = req.project.id;
+  const { rows: conceptoRows } = await db.pool.query(
+    'SELECT id, codigo, concepto, unidad, precio_unitario FROM conceptos WHERE project_id = $1 AND es_total = 0 AND activo = 1 ORDER BY orden', [pid]
+  );
+  const { rows: matrizRows } = await db.pool.query(`
+    SELECT m.* FROM matrices_precio_unitario m JOIN conceptos c ON c.id = m.concepto_id WHERE c.project_id = $1
+  `, [pid]);
+  const matrizPorConcepto = new Map(matrizRows.map((m) => [m.concepto_id, m]));
+  const matrizIds = matrizRows.map((m) => m.id);
+  const itemsPorMatriz = new Map();
+  if (matrizIds.length) {
+    const { rows: itemRows } = await db.pool.query(`
+      SELECT mpi.matriz_id, mpi.cantidad, i.categoria, i.precio_presupuesto
+      FROM matriz_precio_items mpi JOIN insumos i ON i.id = mpi.insumo_id
+      WHERE mpi.matriz_id = ANY($1)
+    `, [matrizIds]);
+    for (const r of itemRows) {
+      if (!itemsPorMatriz.has(r.matriz_id)) itemsPorMatriz.set(r.matriz_id, []);
+      itemsPorMatriz.get(r.matriz_id).push(r);
+    }
+  }
+  const matrices = conceptoRows.map((c) => {
+    const m = matrizPorConcepto.get(c.id);
+    if (!m) return { concepto_id: c.id, codigo: c.codigo, concepto: c.concepto, unidad: c.unidad, precio_unitario_actual: Number(c.precio_unitario), tiene_matriz: false };
+    return {
+      concepto_id: c.id, codigo: c.codigo, concepto: c.concepto, unidad: c.unidad,
+      precio_unitario_actual: Number(c.precio_unitario), tiene_matriz: true,
+      pct_indirecto: m.pct_indirecto, pct_utilidad: m.pct_utilidad,
+      ...calcularMatriz(itemsPorMatriz.get(m.id) || [], m.pct_indirecto, m.pct_utilidad),
+    };
+  });
+  res.json({ matrices });
+}));
+
+// Rutas literales (/export, /porcentajes-obra) ANTES de /matrices/:conceptoId
+// — Express no prioriza segmentos literales sobre params por especificidad,
+// solo por orden de registro; con el orden invertido "export"/"porcentajes-
+// obra" se habrían capturado como conceptoId.
+app.get('/api/projects/:id/matrices/export', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('costos', 'puede_ver')), h(async (req, res) => {
+  const pid = req.project.id;
+  const { rows: conceptoRows } = await db.pool.query(
+    "SELECT id, codigo, concepto, unidad, precio_unitario FROM conceptos WHERE project_id = $1 AND es_total = 0 AND activo = 1 ORDER BY orden", [pid]
+  );
+  const matrices = [];
+  for (const c of conceptoRows) {
+    const m = await getMatrizConItems(c.id);
+    if (m) matrices.push({ codigo: c.codigo, concepto: c.concepto, unidad: c.unidad, precio_unitario_actual: Number(c.precio_unitario), ...m });
+  }
+  await sendXlsxExport(res, {
+    filename: buildExportFilename('Matrices-Precio-Unitario', req.project.nombre),
+    sheets: [{
+      sheetName: 'Matrices',
+      columns: [
+        { header: 'Código', key: 'codigo', width: 14 },
+        { header: 'Concepto', key: 'concepto', width: 40 },
+        { header: 'Unidad', key: 'unidad', width: 10 },
+        { header: 'Costo directo', key: 'costo_directo', width: 16, format: 'money' },
+        { header: '% Indirecto', key: 'pct_indirecto', width: 12 },
+        { header: '% Utilidad', key: 'pct_utilidad', width: 12 },
+        { header: 'Precio unitario (matriz)', key: 'precio_unitario_calculado', width: 20, format: 'money' },
+        { header: 'Precio unitario (concepto)', key: 'precio_unitario_actual', width: 20, format: 'money' },
+      ],
+      rows: matrices.map((m) => ({
+        codigo: m.codigo, concepto: m.concepto, unidad: m.unidad,
+        costo_directo: m.costo_directo, pct_indirecto: m.pct_indirecto, pct_utilidad: m.pct_utilidad,
+        precio_unitario_calculado: m.precio_unitario_calculado, precio_unitario_actual: m.precio_unitario_actual,
+      })),
+    }],
+  });
+}));
+
+// % de indirecto/utilidad por defecto de la obra — solo para prellenar
+// matrices NUEVAS (porcentajes_referencia_costo de PR #48 es un set global
+// único, no por obra; se muestra aquí solo como referencia informativa).
+app.get('/api/projects/:id/matrices/porcentajes-obra', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('costos', 'puede_ver')), h(async (req, res) => {
+  const pid = req.project.id;
+  const [{ rows }, { rows: refRows }] = await Promise.all([
+    db.pool.query('SELECT pct_indirecto, pct_utilidad FROM porcentajes_matriz_obra WHERE project_id = $1', [pid]),
+    db.pool.query("SELECT porcentaje FROM porcentajes_referencia_costo WHERE categoria = 'indirecto_utilidad'"),
+  ]);
+  res.json({
+    pct_indirecto: rows[0]?.pct_indirecto ?? 0,
+    pct_utilidad: rows[0]?.pct_utilidad ?? 0,
+    referencia_pr48_combinado: refRows[0] ? Number(refRows[0].porcentaje) : null,
+  });
+}));
+
+app.put('/api/projects/:id/matrices/porcentajes-obra', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('costos', 'puede_editar_precios')), h(async (req, res) => {
+  const pid = req.project.id;
+  const { pct_indirecto, pct_utilidad } = req.body || {};
+  if (!(Number(pct_indirecto) >= 0) || !(Number(pct_utilidad) >= 0)) {
+    return res.status(400).json({ error: 'pct_indirecto y pct_utilidad deben ser números >= 0' });
+  }
+  await db.pool.query(`
+    INSERT INTO porcentajes_matriz_obra (project_id, pct_indirecto, pct_utilidad, actualizado_por)
+    VALUES ($1,$2,$3,$4)
+    ON CONFLICT (project_id) DO UPDATE SET pct_indirecto=$2, pct_utilidad=$3, actualizado_por=$4, actualizado_en=NOW()
+  `, [pid, Number(pct_indirecto), Number(pct_utilidad), req.user.id]);
+  res.json({ pct_indirecto: Number(pct_indirecto), pct_utilidad: Number(pct_utilidad) });
+}));
+
+app.put('/api/projects/:id/matrices/porcentajes/lote', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('costos', 'puede_editar_precios')), h(async (req, res) => {
+  const pid = req.project.id;
+  const { concepto_ids, pct_indirecto, pct_utilidad } = req.body || {};
+  if (!Array.isArray(concepto_ids) || !concepto_ids.length) return res.status(400).json({ error: 'concepto_ids es requerido' });
+  if (!(Number(pct_indirecto) >= 0) || !(Number(pct_utilidad) >= 0)) {
+    return res.status(400).json({ error: 'pct_indirecto y pct_utilidad deben ser números >= 0' });
+  }
+  const ids = concepto_ids.map(Number);
+  const { rows } = await db.pool.query(`
+    UPDATE matrices_precio_unitario m SET pct_indirecto=$1, pct_utilidad=$2, actualizado_por=$3, actualizado_en=NOW()
+    FROM conceptos c WHERE c.id = m.concepto_id AND m.concepto_id = ANY($4) AND c.project_id = $5
+    RETURNING m.concepto_id
+  `, [Number(pct_indirecto), Number(pct_utilidad), req.user.id, ids, pid]);
+  res.json({ actualizadas: rows.map((r) => r.concepto_id) });
+}));
+
+app.get('/api/projects/:id/matrices/:conceptoId', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('costos', 'puede_ver')), h(async (req, res) => {
+  const pid = req.project.id;
+  const conceptoId = Number(req.params.conceptoId);
+  const { rows: conceptoRows } = await db.pool.query(
+    'SELECT id, codigo, concepto, unidad, precio_unitario FROM conceptos WHERE id = $1 AND project_id = $2', [conceptoId, pid]
+  );
+  if (!conceptoRows[0]) return res.status(404).json({ error: 'Concepto no encontrado' });
+  const matriz = await getMatrizConItems(conceptoId);
+  res.json({ concepto: conceptoRows[0], matriz });
+}));
+
+app.post('/api/projects/:id/matrices', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('costos', 'puede_crear')), h(async (req, res) => {
+  const pid = req.project.id;
+  const { concepto_id, items } = req.body || {};
+  const conceptoId = Number(concepto_id);
+  if (!conceptoId) return res.status(400).json({ error: 'concepto_id es requerido' });
+  const { rows: conceptoRows } = await db.pool.query('SELECT id FROM conceptos WHERE id = $1 AND project_id = $2', [conceptoId, pid]);
+  if (!conceptoRows[0]) return res.status(404).json({ error: 'Concepto no encontrado' });
+  if (!Array.isArray(items) || !items.length) return res.status(400).json({ error: 'La matriz debe incluir al menos un insumo' });
+  for (const it of items) {
+    if (!Number(it.insumo_id) || !(Number(it.cantidad) > 0)) return res.status(400).json({ error: 'Cada renglón requiere insumo_id y una cantidad mayor a 0' });
+  }
+  const insumoIds = items.map((it) => Number(it.insumo_id));
+  const { rows: insumoRows } = await db.pool.query('SELECT id FROM insumos WHERE id = ANY($1) AND project_id = $2', [insumoIds, pid]);
+  if (insumoRows.length !== new Set(insumoIds).size) return res.status(400).json({ error: 'Uno o más insumos no pertenecen a esta obra' });
+
+  // % iniciales de la matriz nueva: default por obra (nunca el 10% combinado
+  // global de PR #48 — ese set no distingue indirecto de utilidad). Se
+  // guardan como snapshot en la fila de la matriz: cambiar el default de la
+  // obra después no altera esta matriz retroactivamente.
+  const { rows: defRows } = await db.pool.query('SELECT pct_indirecto, pct_utilidad FROM porcentajes_matriz_obra WHERE project_id = $1', [pid]);
+  const pctIndirecto = defRows[0]?.pct_indirecto ?? 0;
+  const pctUtilidad = defRows[0]?.pct_utilidad ?? 0;
+
+  let matrizId;
+  try {
+    await db.withTransaction(async (client) => {
+      const { rows } = await client.query(
+        `INSERT INTO matrices_precio_unitario (concepto_id, pct_indirecto, pct_utilidad, creado_por, actualizado_por)
+         VALUES ($1,$2,$3,$4,$4) RETURNING id`,
+        [conceptoId, pctIndirecto, pctUtilidad, req.user.id]
+      );
+      matrizId = rows[0].id;
+      for (const it of items) {
+        await client.query('INSERT INTO matriz_precio_items (matriz_id, insumo_id, cantidad) VALUES ($1,$2,$3)', [matrizId, Number(it.insumo_id), Number(it.cantidad)]);
+      }
+    });
+  } catch (err) {
+    if (err.code === '23505') return res.status(409).json({ error: 'Este concepto ya tiene una matriz de precio unitario' });
+    throw err;
+  }
+  res.status(201).json({ matriz: await getMatrizConItems(conceptoId) });
+}));
+
+app.put('/api/projects/:id/matrices/:conceptoId/items', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('costos', 'puede_editar')), h(async (req, res) => {
+  const pid = req.project.id;
+  const conceptoId = Number(req.params.conceptoId);
+  const { items } = req.body || {};
+  if (!Array.isArray(items) || !items.length) return res.status(400).json({ error: 'La matriz debe incluir al menos un insumo' });
+  for (const it of items) {
+    if (!Number(it.insumo_id) || !(Number(it.cantidad) > 0)) return res.status(400).json({ error: 'Cada renglón requiere insumo_id y una cantidad mayor a 0' });
+  }
+  const insumoIds = items.map((it) => Number(it.insumo_id));
+  const { rows: insumoRows } = await db.pool.query('SELECT id FROM insumos WHERE id = ANY($1) AND project_id = $2', [insumoIds, pid]);
+  if (insumoRows.length !== new Set(insumoIds).size) return res.status(400).json({ error: 'Uno o más insumos no pertenecen a esta obra' });
+
+  const { rows: matrizRows } = await db.pool.query(`
+    SELECT m.id FROM matrices_precio_unitario m JOIN conceptos c ON c.id = m.concepto_id
+    WHERE m.concepto_id = $1 AND c.project_id = $2
+  `, [conceptoId, pid]);
+  if (!matrizRows[0]) return res.status(404).json({ error: 'Este concepto no tiene matriz. Créala primero.' });
+  const matrizId = matrizRows[0].id;
+
+  await db.withTransaction(async (client) => {
+    await client.query('DELETE FROM matriz_precio_items WHERE matriz_id = $1', [matrizId]);
+    for (const it of items) {
+      await client.query('INSERT INTO matriz_precio_items (matriz_id, insumo_id, cantidad) VALUES ($1,$2,$3)', [matrizId, Number(it.insumo_id), Number(it.cantidad)]);
+    }
+    await client.query('UPDATE matrices_precio_unitario SET actualizado_por=$1, actualizado_en=NOW() WHERE id=$2', [req.user.id, matrizId]);
+  });
+  res.json({ matriz: await getMatrizConItems(conceptoId) });
+}));
+
+app.put('/api/projects/:id/matrices/:conceptoId/porcentajes', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('costos', 'puede_editar_precios')), h(async (req, res) => {
+  const pid = req.project.id;
+  const conceptoId = Number(req.params.conceptoId);
+  const { pct_indirecto, pct_utilidad } = req.body || {};
+  if (!(Number(pct_indirecto) >= 0) || !(Number(pct_utilidad) >= 0)) {
+    return res.status(400).json({ error: 'pct_indirecto y pct_utilidad deben ser números >= 0' });
+  }
+  const { rows } = await db.pool.query(`
+    UPDATE matrices_precio_unitario m SET pct_indirecto=$1, pct_utilidad=$2, actualizado_por=$3, actualizado_en=NOW()
+    FROM conceptos c WHERE c.id = m.concepto_id AND m.concepto_id = $4 AND c.project_id = $5
+    RETURNING m.id
+  `, [Number(pct_indirecto), Number(pct_utilidad), req.user.id, conceptoId, pid]);
+  if (!rows[0]) return res.status(404).json({ error: 'Este concepto no tiene matriz' });
+  res.json({ matriz: await getMatrizConItems(conceptoId) });
+}));
+
+// Aplicar el precio calculado de la matriz a conceptos.precio_unitario —
+// SIEMPRE explícito (Forbidden Action: nunca sobrescribir en silencio).
+// Recalcula server-side (no confía en un precio_unitario_calculado que venga
+// del cliente) y bloquea si la matriz está incompleta (categoría "No
+// disponible") — aplicar un precio construido con datos faltantes sería
+// fabricar el faltante como si fuera $0.
+app.post('/api/projects/:id/matrices/:conceptoId/aplicar', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('costos', 'puede_editar_precios')), h(async (req, res) => {
+  const pid = req.project.id;
+  const conceptoId = Number(req.params.conceptoId);
+  const matriz = await getMatrizConItems(conceptoId);
+  if (!matriz) return res.status(404).json({ error: 'Este concepto no tiene matriz' });
+  if (!matriz.completa) return res.status(400).json({ error: 'La matriz está incompleta (hay categorías "No disponible") — no se puede aplicar todavía.' });
+
+  const { rows: conceptoRows } = await db.pool.query('SELECT id, cantidad, precio_unitario FROM conceptos WHERE id = $1 AND project_id = $2', [conceptoId, pid]);
+  if (!conceptoRows[0]) return res.status(404).json({ error: 'Concepto no encontrado' });
+  const concepto = conceptoRows[0];
+  const precioAnterior = Number(concepto.precio_unitario);
+  const precioNuevo = matriz.precio_unitario_calculado;
+  const importe = Number(concepto.cantidad) * precioNuevo;
+
+  await db.withTransaction(async (client) => {
+    await client.query('UPDATE conceptos SET precio_unitario=$1, importe=$2 WHERE id=$3', [precioNuevo, importe, conceptoId]);
+    const ip = auth.getIp(req);
+    await client.query(
+      `INSERT INTO audit_log (actor_id, actor_usuario, accion, target_id, project_id, ip, detalle)
+       VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+      [req.user.id, req.user.usuario, 'aplicar_matriz_precio_unitario', conceptoId, pid, ip,
+        JSON.stringify({ precio_anterior: precioAnterior, precio_nuevo: precioNuevo })]
+    );
+  });
+  res.json({ concepto_id: conceptoId, precio_anterior: precioAnterior, precio_nuevo: precioNuevo });
+}));
+
+app.delete('/api/projects/:id/matrices/:conceptoId', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('costos', 'puede_eliminar')), h(async (req, res) => {
+  const pid = req.project.id;
+  const conceptoId = Number(req.params.conceptoId);
+  const { rowCount } = await db.pool.query(`
+    DELETE FROM matrices_precio_unitario m USING conceptos c
+    WHERE c.id = m.concepto_id AND m.concepto_id = $1 AND c.project_id = $2
+  `, [conceptoId, pid]);
+  if (!rowCount) return res.status(404).json({ error: 'Este concepto no tiene matriz' });
+  res.json({ ok: true });
+}));
+
+// ---------------------------------------------------------------------------
+// Control de Cuentas (prompt-control-cuentas.md) — control personal de
+// saldo bancario de Paul/Fer, SIN relación con Costos/Finanzas/Nómina.
+// Gateado por auth.requireControlCuentasAccess (whitelist de usuario_id,
+// server/auth.js) en TODAS las rutas — nunca por rol ni por checkPermiso.
+// ---------------------------------------------------------------------------
+async function getSaldoActual(cuentaId) {
+  const { rows } = await db.pool.query(`
+    SELECT c.saldo_inicial, COALESCE(SUM(m.monto), 0) AS total_gastado
+    FROM cuentas_control c
+    LEFT JOIN movimientos_control m ON m.cuenta_id = c.id
+    WHERE c.id = $1
+    GROUP BY c.saldo_inicial
+  `, [cuentaId]);
+  if (!rows[0]) return null;
+  return Number(rows[0].saldo_inicial) - Number(rows[0].total_gastado);
+}
+
+app.get('/api/control-cuentas/cuentas', h(auth.requireControlCuentasAccess), h(async (req, res) => {
+  const { rows: cuentas } = await db.pool.query(`
+    SELECT c.*, COALESCE(SUM(m.monto), 0) AS total_gastado
+    FROM cuentas_control c
+    LEFT JOIN movimientos_control m ON m.cuenta_id = c.id
+    WHERE c.activo = true
+    GROUP BY c.id
+    ORDER BY c.nombre
+  `);
+  res.json(cuentas.map((c) => ({
+    ...c,
+    saldo_actual: Number(c.saldo_inicial) - Number(c.total_gastado),
+  })));
+}));
+
+app.post('/api/control-cuentas/cuentas', h(auth.requireControlCuentasAccess), h(async (req, res) => {
+  const { nombre, banco, saldo_inicial, fecha_saldo_inicial } = req.body || {};
+  if (!nombre?.trim()) return res.status(400).json({ error: 'El nombre de la cuenta es requerido' });
+  if (!fecha_saldo_inicial) return res.status(400).json({ error: 'Indica la fecha del saldo inicial' });
+  if (!(Number(saldo_inicial) >= 0)) return res.status(400).json({ error: 'Indica un saldo inicial válido' });
+  const { rows } = await db.pool.query(
+    `INSERT INTO cuentas_control (nombre, banco, saldo_inicial, fecha_saldo_inicial)
+     VALUES ($1, $2, $3, $4) RETURNING *`,
+    [nombre.trim(), banco?.trim() || null, Number(saldo_inicial), fecha_saldo_inicial]
+  );
+  res.status(201).json({ ...rows[0], saldo_actual: Number(rows[0].saldo_inicial) });
+}));
+
+// Desglose semanal (lunes-domingo, mismo criterio que el calendario de
+// Asistencia y avances_semanales — confirmado en diagnóstico, no inventado
+// aquí). date_trunc('week', fecha) en Postgres ya trunca a lunes (ISO 8601),
+// coincide exactamente con el cálculo manual que usa el resto de la app.
+app.get('/api/control-cuentas/cuentas/:id/movimientos', h(auth.requireControlCuentasAccess), h(async (req, res) => {
+  const cuentaId = Number(req.params.id);
+  const { rows: cuentaRows } = await db.pool.query('SELECT * FROM cuentas_control WHERE id = $1', [cuentaId]);
+  if (!cuentaRows[0]) return res.status(404).json({ error: 'Cuenta no encontrada' });
+  const cuenta = cuentaRows[0];
+
+  const { rows: movimientos } = await db.pool.query(`
+    SELECT m.*, u.nombre AS registrado_por_nombre
+    FROM movimientos_control m
+    LEFT JOIN usuarios u ON u.id = m.registrado_por
+    WHERE m.cuenta_id = $1
+    ORDER BY m.fecha DESC, m.id DESC
+  `, [cuentaId]);
+
+  const { rows: semanas } = await db.pool.query(`
+    SELECT date_trunc('week', fecha)::date AS semana_inicio,
+      (date_trunc('week', fecha)::date + 6) AS semana_fin,
+      SUM(monto) AS gasto_semana
+    FROM movimientos_control
+    WHERE cuenta_id = $1
+    GROUP BY date_trunc('week', fecha)
+    ORDER BY semana_inicio
+  `, [cuentaId]);
+
+  // Saldo acumulado al cierre de cada semana — corre desde saldo_inicial,
+  // restando el gasto de cada semana en orden cronológico (no una resta
+  // independiente por semana, para que el saldo de cada corte refleje TODO
+  // lo gastado hasta ese punto, no solo esa semana).
+  let acumulado = Number(cuenta.saldo_inicial);
+  const semanasConSaldo = semanas.map((s) => {
+    acumulado -= Number(s.gasto_semana);
+    return {
+      semana_inicio: s.semana_inicio, semana_fin: s.semana_fin,
+      gasto_semana: Number(s.gasto_semana), saldo_al_cierre: acumulado,
+    };
+  });
+
+  res.json({
+    cuenta: { ...cuenta, saldo_actual: acumulado },
+    movimientos,
+    semanas: semanasConSaldo,
+  });
+}));
+
+app.post('/api/control-cuentas/movimientos', h(auth.requireControlCuentasAccess), h(async (req, res) => {
+  const { cuenta_id, fecha, concepto, monto } = req.body || {};
+  if (!cuenta_id || !fecha) return res.status(400).json({ error: 'Indica cuenta y fecha' });
+  if (!concepto?.trim()) return res.status(400).json({ error: 'Indica un concepto' });
+  if (!(Number(monto) > 0)) return res.status(400).json({ error: 'Indica un monto válido' });
+  const { rows: cuentaRows } = await db.pool.query('SELECT id FROM cuentas_control WHERE id = $1 AND activo = true', [Number(cuenta_id)]);
+  if (!cuentaRows[0]) return res.status(404).json({ error: 'Cuenta no encontrada' });
+  const { rows } = await db.pool.query(
+    `INSERT INTO movimientos_control (cuenta_id, fecha, concepto, monto, registrado_por)
+     VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+    [Number(cuenta_id), fecha, concepto.trim(), Number(monto), req.user.id]
+  );
+  const saldo_actual = await getSaldoActual(Number(cuenta_id));
+  res.status(201).json({ ...rows[0], saldo_actual });
+}));
+
+// Vista consolidada — suma de todas las cuentas activas.
+app.get('/api/control-cuentas/consolidado', h(auth.requireControlCuentasAccess), h(async (req, res) => {
+  const { rows: cuentas } = await db.pool.query(`
+    SELECT c.id, c.nombre, c.banco, c.saldo_inicial, COALESCE(SUM(m.monto), 0) AS total_gastado
+    FROM cuentas_control c
+    LEFT JOIN movimientos_control m ON m.cuenta_id = c.id
+    WHERE c.activo = true
+    GROUP BY c.id
+    ORDER BY c.nombre
+  `);
+  const porCuenta = cuentas.map((c) => ({
+    ...c, saldo_actual: Number(c.saldo_inicial) - Number(c.total_gastado),
+  }));
+  const totalSaldoInicial = porCuenta.reduce((s, c) => s + Number(c.saldo_inicial), 0);
+  const totalGastado = porCuenta.reduce((s, c) => s + Number(c.total_gastado), 0);
+  res.json({
+    cuentas: porCuenta,
+    total_saldo_inicial: totalSaldoInicial,
+    total_gastado: totalGastado,
+    total_saldo_actual: totalSaldoInicial - totalGastado,
+  });
 }));
 
 // ---------------------------------------------------------------------------
@@ -3307,6 +3940,127 @@ app.get('/api/projects/:id/insumos/export', h(auth.allow('residente', 'cabo', 'c
   });
 }));
 
+// ---------------------------------------------------------------------------
+// Programa de materiales disponibles (prompt-11-programa-materiales-
+// disponibles.md) — residente. Decisión consultada tras diagnóstico: sin
+// tabla nueva (se genera en vivo, coherente con que Insumos/OC/recepciones
+// cambian con frecuencia); reutiliza la sección de permiso 'insumos' que
+// residente YA tiene (sin ampliar acceso).
+//
+// "Disponible" ya tenía un significado establecido en getInsumosData (arriba):
+// presupuestado − ya solicitado en requisiciones. Este módulo agrega una
+// SEGUNDA cifra, 'cantidad_recibida' (vía recepcion_items — lo más cercano a
+// "llegó físicamente a obra" que tiene el sistema hoy), SIN pisar ni
+// renombrar la original — decisión consultada: mostrar ambas cifras lado a
+// lado, nunca fusionarlas en un solo número.
+async function getRecibidoPorInsumo(pid) {
+  const { rows } = await db.pool.query(`
+    SELECT reqi.insumo_id, SUM(ri.cantidad_recibida) AS cantidad_recibida
+    FROM recepcion_items ri
+    JOIN orden_compra_items oci ON oci.id = ri.orden_compra_item_id
+    JOIN requisicion_items reqi ON reqi.id = oci.requisicion_item_id
+    JOIN requisiciones r ON r.id = reqi.requisicion_id
+    WHERE r.project_id = $1
+    GROUP BY reqi.insumo_id
+  `, [pid]);
+  return new Map(rows.map((r) => [r.insumo_id, Number(r.cantidad_recibida)]));
+}
+
+async function getMaterialesDisponiblesData(pid, query) {
+  const [insumos, recibidoMap] = await Promise.all([
+    getInsumosData(pid, query),
+    getRecibidoPorInsumo(pid),
+  ]);
+  return insumos.map((i) => ({ ...i, cantidad_recibida: recibidoMap.get(i.id) || 0 }));
+}
+
+function materialesDisponiblesExportSheet(materiales, sheetName) {
+  return {
+    sheetName,
+    columns: [
+      { header: 'Código', key: 'codigo', width: 14 },
+      { header: 'Concepto', key: 'concepto', width: 40 },
+      { header: 'Unidad', key: 'unidad', width: 10 },
+      { header: 'Categoría', key: 'categoria', width: 18 },
+      { header: 'Cantidad presupuestada', key: 'cantidad_presupuesto', width: 20, format: 'int' },
+      { header: 'Disponible (sin solicitar)', key: 'cantidad_disponible', width: 22, format: 'int' },
+      { header: 'Recibido en obra', key: 'cantidad_recibida', width: 18, format: 'int' },
+      { header: 'Precio unitario presupuestado', key: 'precio_presupuesto', width: 22, format: 'money' },
+    ],
+    rows: materiales.map((i) => ({
+      codigo: i.codigo, concepto: i.concepto, unidad: i.unidad, categoria: i.categoria,
+      cantidad_presupuesto: Number(i.cantidad_presupuesto),
+      cantidad_disponible: Number(i.cantidad_disponible),
+      cantidad_recibida: Number(i.cantidad_recibida),
+      precio_presupuesto: Number(i.precio_presupuesto),
+    })),
+  };
+}
+
+// Solo residente (+ admin/desarrollador vía bypass automático de
+// auth.allow()) — a diferencia de /insumos (arriba), que también incluye
+// cabo/compras/logistica; este programa es explícitamente para residente
+// (título del prompt). Ownership real: requireProject + verificarAccesoObra
+// ya dan 403 si el residente pide una obra que no tiene asignada — mismo
+// patrón que /insumos, sin código adicional.
+app.get('/api/projects/:id/materiales-disponibles', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('insumos', 'puede_ver')), h(async (req, res) => {
+  res.json(await getMaterialesDisponiblesData(req.project.id, req.query));
+}));
+
+app.get('/api/projects/:id/materiales-disponibles/export', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('insumos', 'puede_ver')), h(async (req, res) => {
+  const materiales = await getMaterialesDisponiblesData(req.project.id, req.query);
+  await sendXlsxExport(res, {
+    filename: buildExportFilename('Materiales-Disponibles', req.project.nombre),
+    sheets: [materialesDisponiblesExportSheet(materiales, 'Materiales')],
+  });
+}));
+
+// Agrupación por cliente (Target State #1: "cuando el residente tiene
+// acceso a más de una obra del mismo cliente") — cada fila queda anclada a
+// su obra de origen (obra_id/obra_nombre), nunca fusionada entre obras: un
+// mismo código puede tener precio/disponibilidad distinta por obra, fusionar
+// habría sido engañoso. Ownership manual (no hay un solo :id de req para
+// requireProject): admin/desarrollador ven todas las obras del cliente;
+// residente solo las suyas (usuario_proyectos), silenciosamente — mismo
+// criterio que getReportePorCliente (server/maquinaria.js), sin 403 para una
+// vista agregada (a diferencia del endpoint de una sola obra, arriba).
+async function getObrasDelClienteParaUsuario(clienteId, req) {
+  const esAdmin = req.user.puesto === 'admin' || req.user.puesto === 'desarrollador';
+  const { rows } = await db.pool.query(`
+    SELECT p.id, p.nombre
+    FROM proyectos p
+    ${esAdmin ? '' : 'JOIN usuario_proyectos up ON up.project_id = p.id AND up.usuario_id = $2'}
+    WHERE p.cliente_id = $1
+    ORDER BY p.nombre
+  `, esAdmin ? [clienteId] : [clienteId, req.user.id]);
+  return rows;
+}
+
+app.get('/api/materiales-disponibles/por-cliente', h(auth.allow('residente')), h(async (req, res) => {
+  const clienteId = Number(req.query.cliente_id);
+  if (!clienteId) return res.status(400).json({ error: 'Indica cliente_id' });
+  const obras = await getObrasDelClienteParaUsuario(clienteId, req);
+  const porObra = await Promise.all(obras.map(async (o) => ({
+    obra_id: o.id, obra_nombre: o.nombre,
+    materiales: await getMaterialesDisponiblesData(o.id, req.query),
+  })));
+  res.json({ obras: porObra });
+}));
+
+app.get('/api/materiales-disponibles/por-cliente/export', h(auth.allow('residente')), h(async (req, res) => {
+  const clienteId = Number(req.query.cliente_id);
+  if (!clienteId) return res.status(400).json({ error: 'Indica cliente_id' });
+  const { rows: clienteRows } = await db.pool.query('SELECT nombre FROM clientes WHERE id = $1', [clienteId]);
+  const obras = await getObrasDelClienteParaUsuario(clienteId, req);
+  const sheets = await Promise.all(obras.map(async (o) => materialesDisponiblesExportSheet(
+    await getMaterialesDisponiblesData(o.id, req.query), o.nombre
+  )));
+  await sendXlsxExport(res, {
+    filename: buildExportFilename('Materiales-Disponibles', clienteRows[0]?.nombre || 'Cliente'),
+    sheets: sheets.length ? sheets : [{ sheetName: 'Materiales', columns: [{ header: 'Sin obras', key: 'x', width: 20 }], rows: [] }],
+  });
+}));
+
 app.get('/api/projects/:id/insumos/categorias', h(auth.allow('residente', 'cabo', 'compras', 'logistica')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('insumos', 'puede_ver')), h(async (req, res) => {
   const { rows } = await db.pool.query(
     "SELECT DISTINCT categoria FROM insumos WHERE project_id = $1 AND categoria IS NOT NULL AND (codigo IS NULL OR codigo NOT ILIKE 'MO%') ORDER BY categoria",
@@ -3546,9 +4300,19 @@ app.get('/api/projects/:id/requisiciones/:reqId', h(auth.allow('residente', 'cab
 
 app.post('/api/projects/:id/requisiciones', h(auth.allow('residente', 'cabo', 'compras')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('requisiciones', 'puede_crear')), h(async (req, res) => {
   const pid = req.project.id;
-  const { folio, fecha, observaciones, items } = req.body || {};
+  const { folio, fecha, fecha_suministro, observaciones, items } = req.body || {};
   if (!Array.isArray(items) || items.length === 0) {
     return res.status(400).json({ error: 'La requisición debe incluir al menos un insumo' });
+  }
+  // Opcional a propósito (no retroactivo, no bloquea captura) — ver
+  // prompt-15-fecha-suministro-y-programa.md. Cuando sí se manda, no puede
+  // ser anterior a la fecha de la requisición (la misma que se está
+  // guardando en este INSERT, incluyendo el default CURRENT_DATE).
+  if (fecha_suministro) {
+    const fechaBase = fecha || new Date().toISOString().slice(0, 10);
+    if (fecha_suministro < fechaBase) {
+      return res.status(400).json({ error: 'La fecha de suministro no puede ser anterior a la fecha de la requisición' });
+    }
   }
   // Residente/cabo solo anexan cantidades — el precio siempre lo determina
   // el presupuesto (computeAlertsAndTotals cae a insumo.precio_presupuesto
@@ -3560,9 +4324,9 @@ app.post('/api/projects/:id/requisiciones', h(auth.allow('residente', 'cabo', 'c
     const computed = await computeAlertsAndTotals(pid, items);
     const created = await db.withTransaction(async (client) => {
       const { rows } = await client.query(
-        `INSERT INTO requisiciones (project_id, folio, fecha, estado, observaciones, usuario_id)
-         VALUES ($1, $2, COALESCE($3::date, CURRENT_DATE), 'borrador', $4, $5) RETURNING *`,
-        [pid, folio || null, fecha || null, observaciones || null, req.user.id]
+        `INSERT INTO requisiciones (project_id, folio, fecha, fecha_suministro, estado, observaciones, usuario_id)
+         VALUES ($1, $2, COALESCE($3::date, CURRENT_DATE), $4::date, 'borrador', $5, $6) RETURNING *`,
+        [pid, folio || null, fecha || null, fecha_suministro || null, observaciones || null, req.user.id]
       );
       const reqId = rows[0].id;
       for (const c of computed) {
@@ -3596,9 +4360,21 @@ app.put('/api/projects/:id/requisiciones/:reqId', h(auth.allow('residente', 'cab
   if (existRows[0].estado !== 'borrador') {
     return res.status(400).json({ error: 'Solo se pueden editar requisiciones en estado "borrador"' });
   }
-  const { folio, fecha, observaciones, items } = req.body || {};
+  const { folio, fecha, fecha_suministro, observaciones, items } = req.body || {};
   if (!Array.isArray(items) || items.length === 0) {
     return res.status(400).json({ error: 'La requisición debe incluir al menos un insumo' });
+  }
+  // Mismo candado que en POST — cuando se manda, no puede ser anterior a la
+  // fecha efectiva de la requisición (la nueva si se cambió, si no la ya
+  // guardada). fecha_suministro NO usa COALESCE al guardar (más abajo): a
+  // diferencia de 'fecha', debe poderse limpiar mandando null explícito —
+  // decisión consultada: el campo es opcional pero visible, y un residente
+  // debe poder corregir/quitar una fecha capturada por error.
+  if (fecha_suministro) {
+    const fechaBase = fecha || existRows[0].fecha;
+    if (fecha_suministro < fechaBase) {
+      return res.status(400).json({ error: 'La fecha de suministro no puede ser anterior a la fecha de la requisición' });
+    }
   }
   // Ver mismo candado en POST /requisiciones — residente/cabo no manipulan precios.
   if (['residente', 'cabo'].includes(req.user.puesto)) {
@@ -3608,9 +4384,9 @@ app.put('/api/projects/:id/requisiciones/:reqId', h(auth.allow('residente', 'cab
     const computed = await computeAlertsAndTotals(pid, items, reqId);
     const updated = await db.withTransaction(async (client) => {
       const { rows } = await client.query(
-        `UPDATE requisiciones SET folio = $1, fecha = COALESCE($2::date, fecha), observaciones = $3
-         WHERE id = $4 RETURNING *`,
-        [folio || null, fecha || null, observaciones || null, reqId]
+        `UPDATE requisiciones SET folio = $1, fecha = COALESCE($2::date, fecha), fecha_suministro = $3::date, observaciones = $4
+         WHERE id = $5 RETURNING *`,
+        [folio || null, fecha || null, fecha_suministro || null, observaciones || null, reqId]
       );
       await client.query('DELETE FROM requisicion_items WHERE requisicion_id = $1', [reqId]);
       for (const c of computed) {
@@ -3699,6 +4475,171 @@ app.post('/api/projects/:id/requisiciones/preview', h(auth.allow('residente', 'c
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
+}));
+
+// ---------------------------------------------------------------------------
+// Programa de suministros (prompt-15-fecha-suministro-y-programa.md):
+// consolida, cross-obra, todas las requisiciones cuya fecha_suministro cae
+// en un rango — base del futuro módulo de Logística pendiente en backlog,
+// SIN construir su calendario visual (solo tabla consolidada con filtros).
+// IDOR: mismo criterio ya usado en getObrasDelClienteParaUsuario (PR91,
+// materiales disponibles) — admin/desarrollador ven todas las obras, el
+// resto solo las de usuario_proyectos, en silencio para el agregado sin
+// filtro; si se pide un obra_id puntual sin acceso, 403 explícito (igual que
+// cualquier endpoint de una sola obra).
+// ---------------------------------------------------------------------------
+const UMBRAL_RIESGO_SUMINISTRO_DIAS = 3;
+const OC_ESTADOS_CONFIRMADA = ['confirmada', 'recibida_parcial', 'recibida_completa'];
+
+async function getProgramaSuministrosData(req) {
+  const esAdmin = req.user.puesto === 'admin' || req.user.puesto === 'desarrollador';
+  const { desde: desdeQuery, hasta: hastaQuery, obra_id, cliente_id } = req.query;
+
+  let desde = desdeQuery, hasta = hastaQuery;
+  if (!desde || !hasta) {
+    // Default: semana siguiente lunes-domingo, mismo criterio ya usado en
+    // Asistencia/avances_semanales — calculado en SQL (date_trunc) para no
+    // depender de la zona horaria del proceso Node.
+    const { rows } = await db.pool.query(
+      `SELECT (date_trunc('week', CURRENT_DATE) + INTERVAL '7 days')::date AS desde,
+              (date_trunc('week', CURRENT_DATE) + INTERVAL '13 days')::date AS hasta`
+    );
+    desde = desde || rows[0].desde;
+    hasta = hasta || rows[0].hasta;
+  }
+  if (desde > hasta) {
+    const err = new Error('"desde" no puede ser posterior a "hasta"');
+    err.status = 400;
+    throw err;
+  }
+
+  if (obra_id && !esAdmin) {
+    const { rows } = await db.pool.query(
+      'SELECT 1 FROM usuario_proyectos WHERE usuario_id = $1 AND project_id = $2',
+      [req.user.id, Number(obra_id)]
+    );
+    if (!rows.length) {
+      const err = new Error('No tienes acceso a esta obra');
+      err.status = 403;
+      throw err;
+    }
+  }
+
+  const params = [desde, hasta];
+  let join = '';
+  if (!esAdmin) {
+    params.push(req.user.id);
+    join = `JOIN usuario_proyectos up ON up.project_id = p.id AND up.usuario_id = $${params.length}`;
+  }
+  let where = '';
+  if (obra_id) { params.push(Number(obra_id)); where += ` AND p.id = $${params.length}`; }
+  if (cliente_id) { params.push(Number(cliente_id)); where += ` AND p.cliente_id = $${params.length}`; }
+
+  const { rows } = await db.pool.query(`
+    SELECT p.id AS obra_id, p.nombre AS obra_nombre, p.cliente_id,
+           r.id AS requisicion_id, r.folio, r.fecha_suministro, r.estado AS requisicion_estado,
+           ri.cantidad_solicitada, i.codigo AS insumo_codigo, i.concepto AS insumo_concepto, i.unidad,
+           oc_agg.oc_estados
+    FROM requisiciones r
+    JOIN proyectos p ON p.id = r.project_id
+    JOIN requisicion_items ri ON ri.requisicion_id = r.id
+    JOIN insumos i ON i.id = ri.insumo_id
+    LEFT JOIN LATERAL (
+      SELECT array_agg(oc.estado) AS oc_estados FROM ordenes_compra oc WHERE oc.requisicion_id = r.id
+    ) oc_agg ON true
+    ${join}
+    WHERE r.fecha_suministro BETWEEN $1 AND $2 ${where}
+    ORDER BY p.nombre, r.fecha_suministro, r.id, ri.id
+  `, params);
+
+  const { rows: hoyRows } = await db.pool.query('SELECT CURRENT_DATE::text AS hoy');
+  const hoy = hoyRows[0].hoy;
+
+  const obrasMap = new Map();
+  for (const row of rows) {
+    if (!obrasMap.has(row.obra_id)) {
+      obrasMap.set(row.obra_id, { obra_id: row.obra_id, obra_nombre: row.obra_nombre, cliente_id: row.cliente_id, fechasMap: new Map() });
+    }
+    const obra = obrasMap.get(row.obra_id);
+    if (!obra.fechasMap.has(row.fecha_suministro)) obra.fechasMap.set(row.fecha_suministro, []);
+    const ocConfirmada = (row.oc_estados || []).some((e) => OC_ESTADOS_CONFIRMADA.includes(e));
+    const diasParaSuministro = Math.round((new Date(row.fecha_suministro) - new Date(hoy)) / 86400000);
+    const enRiesgo = diasParaSuministro <= UMBRAL_RIESGO_SUMINISTRO_DIAS && (row.requisicion_estado !== 'autorizada' || !ocConfirmada);
+    obra.fechasMap.get(row.fecha_suministro).push({
+      requisicion_id: row.requisicion_id,
+      folio: row.folio || `Requisición #${row.requisicion_id}`,
+      requisicion_estado: row.requisicion_estado,
+      insumo_codigo: row.insumo_codigo,
+      insumo_concepto: row.insumo_concepto,
+      unidad: row.unidad,
+      cantidad_solicitada: row.cantidad_solicitada,
+      oc_confirmada: ocConfirmada,
+      en_riesgo: enRiesgo,
+    });
+  }
+  const obras = [...obrasMap.values()].map((o) => ({
+    obra_id: o.obra_id,
+    obra_nombre: o.obra_nombre,
+    cliente_id: o.cliente_id,
+    fechas: [...o.fechasMap.entries()].map(([fecha_suministro, items]) => ({ fecha_suministro, items })),
+  }));
+
+  return { desde, hasta, umbral_riesgo_dias: UMBRAL_RIESGO_SUMINISTRO_DIAS, obras };
+}
+
+app.get('/api/requisiciones/programa', h(auth.allow('residente', 'cabo', 'compras', 'logistica')), h(auth.checkPermiso('requisiciones', 'puede_ver')), h(async (req, res) => {
+  try {
+    res.json(await getProgramaSuministrosData(req));
+  } catch (err) {
+    res.status(err.status || 400).json({ error: err.message });
+  }
+}));
+
+app.get('/api/requisiciones/programa/export', h(auth.allow('residente', 'cabo', 'compras', 'logistica')), h(auth.checkPermiso('requisiciones', 'puede_ver')), h(async (req, res) => {
+  let data;
+  try {
+    data = await getProgramaSuministrosData(req);
+  } catch (err) {
+    return res.status(err.status || 400).json({ error: err.message });
+  }
+  const rows = [];
+  for (const obra of data.obras) {
+    for (const f of obra.fechas) {
+      for (const it of f.items) {
+        rows.push({
+          obra: obra.obra_nombre,
+          fecha_suministro: f.fecha_suministro,
+          folio: it.folio,
+          insumo_codigo: it.insumo_codigo,
+          insumo_concepto: it.insumo_concepto,
+          unidad: it.unidad || '',
+          cantidad_solicitada: Number(it.cantidad_solicitada),
+          requisicion_estado: it.requisicion_estado,
+          oc_confirmada: it.oc_confirmada ? 'Sí' : 'No',
+          en_riesgo: it.en_riesgo ? 'Sí' : 'No',
+        });
+      }
+    }
+  }
+  await sendXlsxExport(res, {
+    filename: `Programa-Suministros_${data.desde}_a_${data.hasta}.xlsx`,
+    sheets: [{
+      sheetName: 'Programa',
+      columns: [
+        { header: 'Obra', key: 'obra', width: 26 },
+        { header: 'Fecha de suministro', key: 'fecha_suministro', width: 18 },
+        { header: 'Folio', key: 'folio', width: 18 },
+        { header: 'Código', key: 'insumo_codigo', width: 14 },
+        { header: 'Insumo', key: 'insumo_concepto', width: 34 },
+        { header: 'Unidad', key: 'unidad', width: 10 },
+        { header: 'Cantidad solicitada', key: 'cantidad_solicitada', width: 18 },
+        { header: 'Estado requisición', key: 'requisicion_estado', width: 18 },
+        { header: 'OC confirmada', key: 'oc_confirmada', width: 14 },
+        { header: 'En riesgo', key: 'en_riesgo', width: 12 },
+      ],
+      rows,
+    }],
+  });
 }));
 
 // Historial de qué hicieron residente/cabo sobre las requisiciones de esta
@@ -4843,6 +5784,11 @@ app.get('/api/projects/:id/resumen', h(auth.allow('tesoreria', 'administracion')
     [pid]
   );
   const total = meta.total_sin_iva ? Number(meta.total_sin_iva) : (totalRows[0] ? totalRows[0].importe : 0);
+  // prompt-12-fix-totales-iva-invertidos.md: "Total sin IVA" y "Total con
+  // IVA" vienen de 2 filas distintas del Excel origen (nunca se derivan uno
+  // del otro) — si el Excel de una obra puntual capturó mal la celda del
+  // total con IVA, no lo mostramos como si fuera confiable.
+  const totalConIvaValido = totalConIvaEsValido(total, meta.total_con_iva);
 
   const { rows: ultimoRows } = await db.pool.query(`
     SELECT * FROM avances_semanales
@@ -4886,6 +5832,7 @@ app.get('/api/projects/:id/resumen', h(auth.allow('tesoreria', 'administracion')
     meta,
     tiene_contrato_pdf: contratoRows.length > 0,
     presupuesto_total: total,
+    total_con_iva_valido: totalConIvaValido,
     avance_financiero_programado_actual: pctProgramado,
     avance_financiero_ejecutado_actual: pctEjecutado,
     importe_ejecutado: Number((total * (pctEjecutado / 100)).toFixed(2)),

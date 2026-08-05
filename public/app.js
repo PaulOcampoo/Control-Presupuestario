@@ -14,9 +14,9 @@ const PUESTO_LABELS = {
 // Mirror de PERMISSIONS en server/auth.js — para calcular allowedTabs en vista simulada.
 // Actualizar aquí si se agregan roles o pestañas en auth.js.
 const ROLE_TABS = {
-  admin:          ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'finanzas', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', 'maquinaria', 'cotizador', 'costos', 'avance_clientes', 'composicion_costos'],
-  desarrollador:  ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'finanzas', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', 'maquinaria', 'cotizador', 'costos', 'avance_clientes', 'composicion_costos'],
-  residente:      ['programa', 'avance', 'destajo', 'requisiciones', 'insumos', 'ordenes', 'nominas', 'trabajadores', 'estimaciones'],
+  admin:          ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'finanzas', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', 'maquinaria', 'cotizador', 'costos', 'matrices', 'avance_clientes', 'composicion_costos'],
+  desarrollador:  ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'finanzas', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', 'maquinaria', 'cotizador', 'costos', 'matrices', 'avance_clientes', 'composicion_costos'],
+  residente:      ['programa', 'avance', 'destajo', 'requisiciones', 'insumos', 'ordenes', 'nominas', 'trabajadores', 'estimaciones', 'matrices'],
   cabo:           ['destajo', 'insumos', 'avance', 'requisiciones', 'maquinaria', 'trabajadores', 'nominas'],
   compras:        ['programa', 'requisiciones', 'insumos', 'ordenes', 'proveedores', 'cotizador'],
   tesoreria:      ['resumen', 'finanzas', 'ordenes', 'contrato', 'impuestos', 'proveedores'],
@@ -102,6 +102,7 @@ const ICON_SVG = {
   phone:         '<path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.88 10.3 19.79 19.79 0 0 1 2 1.63 2 2 0 0 1 4.11 0h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 7.91A16 16 0 0 0 15.1 15l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 23 16.92z"/>',
   list:          '<line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>',
   'layout-grid': '<rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/>',
+  matrices:      '<rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><line x1="10" y1="6.5" x2="14" y2="6.5"/><line x1="10" y1="17.5" x2="14" y2="17.5"/>',
   search:        '<circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>',
   folder:        '<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>',
   building:      '<rect x="4" y="2" width="16" height="20"/><path d="M9 22V12h6v10"/><path d="M2 22h20"/><line x1="9" y1="7" x2="9.01" y2="7"/><line x1="15" y1="7" x2="15.01" y2="7"/>',
@@ -670,6 +671,19 @@ async function tryRefreshToken() {
   return _refreshPromise;
 }
 
+// Extrae un mensaje de error legible del campo `error` de una respuesta
+// fallida. El backend de esta app siempre manda { error: "string" }, pero
+// capas externas delante de la app (ej. Vercel Deployment Protection, que
+// manda { error: { message, code } } en vez de un string) pueden mandar
+// otra forma. `new Error(objeto)` coerciona el valor con String(), y para
+// un objeto plano eso da literalmente "[object Object]" — este helper corta
+// esa coerción antes de que llegue a new Error().
+function extraerMensajeError(errorField, fallback) {
+  if (typeof errorField === 'string' && errorField) return errorField;
+  if (errorField && typeof errorField.message === 'string' && errorField.message) return errorField.message;
+  return fallback;
+}
+
 async function api(path, opts = {}) {
   const doFetch = (tkn) => {
     const headers = opts.body && !(opts.body instanceof FormData) ? { 'Content-Type': 'application/json' } : {};
@@ -692,10 +706,10 @@ async function api(path, opts = {}) {
     }
     if (res.status === 401) {
       handleSessionExpired();
-      throw new Error((data && data.error) || 'Sesión expirada');
+      throw new Error(extraerMensajeError(data && data.error, 'Sesión expirada'));
     }
   }
-  if (!res.ok) throw new Error((data && data.error) || `Error ${res.status}`);
+  if (!res.ok) throw new Error(extraerMensajeError(data && data.error, `Error ${res.status}`));
   return data;
 }
 
@@ -713,7 +727,7 @@ async function downloadExport(path) {
   }
   if (!res.ok) {
     let msg = `Error ${res.status}`;
-    try { const data = await res.json(); msg = (data && data.error) || msg; } catch { /* no body */ }
+    try { const data = await res.json(); msg = extraerMensajeError(data && data.error, msg); } catch { /* no body */ }
     throw new Error(msg);
   }
   const blob = await res.blob();
@@ -1034,10 +1048,10 @@ const TAB_POR_TIPO_NOTIF = {
 // def.tabs.length === 0 es 100% futura (hoy solo Maquinaria).
 // ---------------------------------------------------------------------------
 const SECTION_DEFS = {
-  obra:          { label: 'Obra',           icon: 'obra',           emoji: '🏗️',  tabs: ['programa', 'avance', 'destajo', 'estimaciones'],     proximamente: [] },
+  obra:          { label: 'Obra',           icon: 'obra',           emoji: '🏗️',  tabs: ['programa', 'avance', 'destajo', 'estimaciones', 'matrices'],     proximamente: [] },
   compras:       { label: 'Compras',        icon: 'compras',        emoji: '🛒',   tabs: ['requisiciones', 'insumos', 'proveedores', 'ordenes', 'cotizador'], proximamente: ['Subcontratos'] },
   tesoreria:     { label: 'Tesorería',      icon: 'tesoreria',      emoji: '💰',   tabs: ['finanzas', 'estadoResultados', 'estadoResultadosGlobal', 'impuestos'], proximamente: [] },
-  administracion:{ label: 'Administración', icon: 'administracion', emoji: '📂',  tabs: ['mapeo', 'contrato', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'costos', 'avance_clientes', 'composicion_costos', 'usuarios'], proximamente: ['Almacenes'] },
+  administracion:{ label: 'Administración', icon: 'administracion', emoji: '📂',  tabs: ['mapeo', 'contrato', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'costos', 'avance_clientes', 'composicion_costos', 'usuarios', 'cuentas'], proximamente: ['Almacenes'] },
   maquinaria:    { label: 'Maquinaria',     icon: 'maquinaria',     emoji: '🚜',   tabs: ['maquinaria'],                                        proximamente: [] },
 };
 
@@ -1047,6 +1061,7 @@ const TAB_ICONS = {
   finanzas: '💰', mapeo: '🔗', usuarios: '👤', trabajadores: '👷', nominas: '💵', estimaciones: '🧮',
   maquinaria: '🚜', nominas_global: '💵', trabajadores_global: '👷', cotizador: '🔍',
   estadoResultados: '📈', estadoResultadosGlobal: '📈', costos: '💲', avance_clientes: '📈', composicion_costos: '🧮',
+  cuentas: '🏦', matrices: '🧱',
 };
 const TAB_LABELS = {
   resumen: 'Resumen', contrato: 'Contrato', impuestos: 'Impuestos', insumos: 'Insumos', requisiciones: 'Requisiciones',
@@ -1055,6 +1070,7 @@ const TAB_LABELS = {
   maquinaria: 'Maquinaria', nominas_global: 'Nómina (todas las obras)', trabajadores_global: 'Trabajadores (todas las obras)',
   cotizador: 'Cotizador', estadoResultados: 'Estado de Resultados', estadoResultadosGlobal: 'Estado de Resultados (todas las obras)',
   costos: 'Costos', avance_clientes: 'Avance por cliente', composicion_costos: 'Composición de costos',
+  cuentas: 'Cuentas', matrices: 'Matrices de precio unitario',
 };
 
 const VIEW_TO_SECTION = {};
@@ -3705,9 +3721,10 @@ function destroyCharts() {
 async function renderView() {
   destroyCharts();
   const view = $('#view');
-  if (state.view === 'usuarios' || state.view === 'proveedores' || state.view === 'maquinaria' || state.view === 'nominas_global' || state.view === 'trabajadores_global' || state.view === 'cotizador' || state.view === 'estadoResultadosGlobal' || state.view === 'costos' || state.view === 'avance_clientes' || state.view === 'composicion_costos') {
+  if (state.view === 'usuarios' || state.view === 'proveedores' || state.view === 'maquinaria' || state.view === 'nominas_global' || state.view === 'trabajadores_global' || state.view === 'cotizador' || state.view === 'estadoResultadosGlobal' || state.view === 'costos' || state.view === 'avance_clientes' || state.view === 'composicion_costos' || state.view === 'cuentas') {
     try {
       if (state.view === 'usuarios') { await renderUsuarios(view, state.usuariosSubView); state.usuariosSubView = null; }
+      else if (state.view === 'cuentas') await renderControlCuentas(view);
       else if (state.view === 'proveedores') await renderProveedores(view);
       else if (state.view === 'nominas_global') await renderNominasGlobal(view);
       else if (state.view === 'trabajadores_global') await renderTrabajadoresGlobal(view);
@@ -3772,6 +3789,7 @@ async function renderView() {
       case 'trabajadores': await renderTrabajadores(view); break;
       case 'nominas': await renderNominas(view); break;
       case 'estimaciones': await renderEstimaciones(view); break;
+      case 'matrices': await renderMatrices(view); break;
       default: view.innerHTML = '';
     }
   } catch (err) {
@@ -3898,7 +3916,20 @@ async function renderInicio(view) {
         <div class="card-row"><span class="k">Fin de obra</span><span class="v">${fmtDate(m.fin_obra)}</span></div>
         ${m.fin_obra_actualizado_por ? `<div class="card-row"><span class="k muted fs-078">Última actualización</span><span class="v muted fs-078">${esc(m.fin_obra_actualizado_por)} · ${fmtDateShort(m.fin_obra_actualizado_en)}</span></div>` : ''}
         <div class="card-row"><span class="k">Total sin IVA</span><span class="v">${fmtMoney(resumen.presupuesto_total)}</span></div>
-        ${m.total_con_iva ? `<div class="card-row"><span class="k">Total con IVA</span><span class="v">${fmtMoney(m.total_con_iva)}</span></div>` : ''}
+        ${m.total_con_iva ? (
+          resumen.total_con_iva_valido
+            ? `<div class="card-row"><span class="k">Total con IVA</span><span class="v">${fmtMoney(m.total_con_iva)}</span></div>`
+            // prompt-12-fix-totales-iva-invertidos.md: "Total sin IVA" y
+            // "Total con IVA" se extraen de 2 filas distintas del Excel
+            // origen, nunca se derivan una de otra — cuando "con IVA" queda
+            // guardado menor que "sin IVA" es un dato mal capturado en ESA
+            // obra puntual (confirmado: el resto de obras reales sí da la
+            // razón 1.16 esperada), no un error de cálculo que se pueda
+            // corregir con una fórmula aquí. Se avisa en vez de mostrar la
+            // cifra imposible en silencio — decisión consultada con Paul:
+            // no tocar el valor guardado en este PR.
+            : `<div class="card-row"><span class="k">Total con IVA</span><span class="v"><span class="badge red" title="El valor guardado ($${fmtMoney(m.total_con_iva)}) es menor que el Total sin IVA — dato capturado incorrectamente al subir el presupuesto, revisar con el equipo antes de confiar en esta cifra.">⚠️ Dato inconsistente</span></span></div>`
+        ) : ''}
         <div class="row end mt-10"><button class="btn small" id="btnEditFechasObra">Corregir inicio/fin de obra</button></div>
         <p class="muted inicio-fechas-note">Úsalo si el archivo traía esas fechas vacías o incorrectas — al guardar se regenera todo el Programa y la curva de Avance con las fechas correctas.</p>
       </div>
@@ -4513,6 +4544,7 @@ async function renderInsumos(view) {
     <p class="muted">Cantidades y precios presupuestados por insumo. Las barras y etiquetas muestran lo ya requisitado contra lo presupuestado.</p>
     <div class="section-actions">
       <button class="btn" id="btnExportInsumos">⭳ Exportar a Excel</button>
+      ${effectivePuesto() === 'residente' || isAdmin() ? '<button class="btn btn-primary" id="btnMaterialesDisponibles">📋 Programa de materiales disponibles</button>' : ''}
     </div>
     <div class="sticky-filters">
       <div class="search-bar">
@@ -4527,6 +4559,7 @@ async function renderInsumos(view) {
   `;
 
   wireExportButton('#btnExportInsumos', `/projects/${state.projectId}/insumos/export${queryString(insumosFilter)}`);
+  $('#btnMaterialesDisponibles')?.addEventListener('click', openMaterialesDisponiblesModal);
 
   $('#insumoSearch').addEventListener('input', debounce((e) => {
     insumosFilter.q = e.target.value.trim();
@@ -4598,6 +4631,88 @@ function paintInsumos(insumos) {
       } catch (err) { toast(err.message, 'danger'); }
     });
   });
+}
+
+// Programa de materiales disponibles (prompt-11-programa-materiales-
+// disponibles.md, residente) — decisión consultada tras diagnóstico: dos
+// cifras lado a lado, nunca fusionadas: "Disponible (sin solicitar)" (ya
+// existe en Insumos: presupuestado − ya solicitado en requisiciones) y
+// "Recibido en obra" (nueva: confirmado vía recepción de Orden de Compra,
+// lo más cercano a "llegó físicamente" que tiene el sistema hoy). Se genera
+// en vivo (sin tabla nueva) — Insumos/OC/recepciones cambian con frecuencia,
+// persistir un snapshot se habría desactualizado de inmediato.
+function materialesDisponiblesTablaHtml(materiales) {
+  if (!materiales.length) return '<p class="muted">Sin insumos en esta obra.</p>';
+  return `
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>Código</th><th>Concepto</th><th class="num">Disponible (sin solicitar)</th><th class="num">Recibido en obra</th></tr></thead>
+        <tbody>
+          ${materiales.map((i) => `
+            <tr>
+              <td>${esc(i.codigo)}</td>
+              <td>${esc(i.concepto)}</td>
+              <td class="num">${fmtNum(i.cantidad_disponible, 2)} ${esc(i.unidad || '')}</td>
+              <td class="num">${i.cantidad_recibida > 0 ? `${fmtNum(i.cantidad_recibida, 2)} ${esc(i.unidad || '')}` : '<span class="muted">—</span>'}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function openMaterialesDisponiblesModal() {
+  const proyectoActual = state.projects.find((p) => p.id === state.projectId);
+  const clienteId = proyectoActual?.cliente_id;
+  const obrasDelCliente = clienteId ? state.projects.filter((p) => p.cliente_id === clienteId) : [];
+  const puedeAgruparPorCliente = obrasDelCliente.length > 1;
+  let modo = 'obra'; // 'obra' | 'cliente'
+
+  function bind() {
+    $('#btnMatDispCerrar').addEventListener('click', closeModal);
+    $('#btnMatDispObra')?.addEventListener('click', () => { modo = 'obra'; render(); });
+    $('#btnMatDispCliente')?.addEventListener('click', () => { modo = 'cliente'; render(); });
+    $('#btnMatDispExport').addEventListener('click', async () => {
+      try {
+        if (modo === 'obra') await downloadExport(`/projects/${state.projectId}/materiales-disponibles/export`);
+        else await downloadExport(`/materiales-disponibles/por-cliente/export?cliente_id=${clienteId}`);
+      } catch (err) { toast(err.message, 'danger'); }
+    });
+  }
+
+  async function render() {
+    openModal(`
+      <h3>Programa de materiales disponibles</h3>
+      <p class="muted fs-08">"Disponible (sin solicitar)" = presupuestado menos ya solicitado en requisiciones (mismo dato que ya ves en Insumos). "Recibido en obra" = confirmado por recepción de Orden de Compra.</p>
+      ${puedeAgruparPorCliente ? `
+      <div class="nominas-subnav">
+        <button class="btn ${modo === 'obra' ? 'btn-primary' : ''}" id="btnMatDispObra">Esta obra</button>
+        <button class="btn ${modo === 'cliente' ? 'btn-primary' : ''}" id="btnMatDispCliente">Todo el cliente (${obrasDelCliente.length} obras)</button>
+      </div>` : ''}
+      <div class="section-actions mt-8">
+        <button class="btn" id="btnMatDispExport">⭳ Exportar a Excel</button>
+      </div>
+      <div id="matDispResult" class="mt-8"><div class="spinner"></div></div>
+      <div class="modal-actions"><button class="btn" id="btnMatDispCerrar">Cerrar</button></div>
+    `);
+    bind();
+    try {
+      if (modo === 'obra') {
+        const materiales = await api(`/projects/${state.projectId}/materiales-disponibles`);
+        $('#matDispResult').innerHTML = materialesDisponiblesTablaHtml(materiales);
+      } else {
+        const data = await api(`/materiales-disponibles/por-cliente?cliente_id=${clienteId}`);
+        $('#matDispResult').innerHTML = data.obras.length
+          ? data.obras.map((o) => `<h4 class="mt-8">${esc(o.obra_nombre)}</h4>${materialesDisponiblesTablaHtml(o.materiales)}`).join('')
+          : '<p class="muted">Sin obras de este cliente asignadas.</p>';
+      }
+    } catch (err) {
+      $('#matDispResult').innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+    }
+  }
+
+  render();
 }
 
 function queryString(obj) {
@@ -4908,53 +5023,216 @@ function addToDraft(insumoId, insumosList) {
 // =========================================================================
 // VISTA: Requisiciones
 // =========================================================================
-async function renderRequisiciones(view) {
-  const reqs = await api(`/projects/${state.projectId}/requisiciones`);
-  const draft = getDraft();
+// prompt-15-fecha-suministro-y-programa.md: sub-nav 'Lista'/'Programa de
+// suministros', mismo patrón ya usado en Usuarios (Cuentas/Permisos de
+// Acceso). El Programa es cross-obra (consolida TODAS las obras accesibles
+// al usuario, no solo la actual) — accesible desde cualquier obra porque no
+// tiene sentido acotarlo a una sola, ver getProgramaSuministrosData en el
+// backend.
+async function renderRequisiciones(view, initialSubView) {
+  let subView = initialSubView || 'lista';
+
+  function renderSubNav() {
+    return `
+      <div class="nominas-subnav">
+        <button class="btn ${subView === 'lista' ? 'btn-primary' : ''}" id="btnReqSubLista">Lista</button>
+        <button class="btn ${subView === 'programa' ? 'btn-primary' : ''}" id="btnReqSubPrograma">Programa de suministros</button>
+      </div>
+    `;
+  }
+  function bindSubNav() {
+    $('#btnReqSubLista').addEventListener('click', showLista);
+    $('#btnReqSubPrograma').addEventListener('click', showPrograma);
+  }
+
+  async function showLista() {
+    subView = 'lista';
+    const reqs = await api(`/projects/${state.projectId}/requisiciones`);
+    const draft = getDraft();
+
+    view.innerHTML = `
+      <h2 class="section-title">Requisiciones de compra ${renderHelpBtn('requisiciones')}</h2>
+      ${renderSubNav()}
+      ${draft.length ? `
+        <div class="card">
+          <div class="row between"><strong>Borrador en curso</strong><span class="badge muted">${draft.length} insumo${draft.length === 1 ? '' : 's'}</span></div>
+          <p class="muted">Insumos agregados desde el catálogo, listos para convertirse en una requisición.</p>
+          <div class="row end"><button class="btn btn-primary" id="btnOpenDraft">Revisar y crear requisición</button></div>
+        </div>` : ''}
+      <div class="section-actions">
+        <button class="btn" id="btnGoCatalogo">+ Agregar insumos desde el catálogo</button>
+        <button class="btn" id="btnExportRequisiciones">⭳ Exportar a Excel</button>
+        ${puedeGestionarUsuarios() ? `<button class="btn" id="btnReqHistorial">🕘 Historial</button>` : ''}
+      </div>
+      <div id="reqList"></div>
+    `;
+    bindSubNav();
+    $('#btnGoCatalogo').addEventListener('click', () => switchToView('insumos'));
+    wireExportButton('#btnExportRequisiciones', `/projects/${state.projectId}/requisiciones/export`);
+    if (puedeGestionarUsuarios()) $('#btnReqHistorial').addEventListener('click', openRequisicionesHistorialModal);
+    if (draft.length) $('#btnOpenDraft').addEventListener('click', openDraftModal);
+
+    const list = $('#reqList');
+    if (!reqs.length) {
+      list.innerHTML = `<div class="empty-state"><div class="big">🧾</div>Aún no hay requisiciones.<br>Agrega insumos desde el catálogo y crea tu primera requisición.</div>`;
+      return;
+    }
+    list.innerHTML = reqs.map((r) => {
+      const alertCount = r.alertas_cantidad + r.alertas_precio;
+      const estadoBadge = { borrador: 'muted', enviada: 'yellow', autorizada: 'green', rechazada: 'red', cancelada: 'red' }[r.estado] || 'muted';
+      return `
+      <div class="card" data-req="${r.id}">
+        <div class="row between">
+          <div>
+            <strong>${esc(r.folio || `Requisición #${r.id}`)}</strong>
+            <div class="muted">${fmtDate(r.fecha)} · ${r.num_items} insumo${r.num_items === 1 ? '' : 's'} · ${fmtMoney(r.importe_total)}</div>
+          </div>
+          <span class="badge ${estadoBadge}">${esc(r.estado)}</span>
+        </div>
+        ${!r.fecha_suministro ? `<div class="row"><span class="badge yellow" title="No aparecerá en el Programa de suministros hasta que se le agregue una fecha">Sin fecha de suministro</span></div>` : ''}
+        ${alertCount ? `<div class="alert-box warn">⚠️${alertCount} alerta${alertCount === 1 ? '' : 's'}: ${r.alertas_cantidad ? `${r.alertas_cantidad} de cantidad ` : ''}${r.alertas_precio ? `${r.alertas_precio} de precio` : ''}</div>` : ''}
+        <div class="row end"><button class="btn small" data-view-req="${r.id}">Ver detalle</button></div>
+      </div>`;
+    }).join('');
+
+    $$('[data-view-req]', list).forEach((btn) => btn.addEventListener('click', () => openRequisicionDetail(Number(btn.dataset.viewReq))));
+  }
+
+  async function showPrograma() {
+    subView = 'programa';
+    await renderProgramaSuministros(view, renderSubNav, bindSubNav);
+  }
+
+  if (subView === 'programa') await showPrograma();
+  else await showLista();
+}
+
+// Todas las obras a las que el usuario tiene acceso (usuario_proyectos) —
+// admin/desarrollador ven todas. Reutiliza state.projects, ya cargado al
+// entrar a la app (mismo GET /api/projects usado por el resto de la nav),
+// sin pegarle a un endpoint nuevo solo para poblar los filtros.
+function obrasAccesiblesParaFiltro() {
+  return (state.projects || []).map((p) => ({ id: p.id, nombre: p.nombre, cliente_id: p.cliente_id }));
+}
+
+async function renderProgramaSuministros(view, renderSubNav, bindSubNav) {
+  view.innerHTML = `<h2 class="section-title">Requisiciones de compra ${renderHelpBtn('requisiciones')}</h2>${renderSubNav()}<div class="spinner"></div>`;
+  bindSubNav();
+
+  const obras = obrasAccesiblesParaFiltro();
+  const clientesMap = new Map((state.clientes || []).map((c) => [c.id, c.nombre]));
+
+  let filtroObraId = '';
+  let filtroClienteId = '';
+  let filtroDesde = '';
+  let filtroHasta = '';
+
+  async function cargarYPintar() {
+    const q = queryString({
+      desde: filtroDesde || undefined,
+      hasta: filtroHasta || undefined,
+      obra_id: filtroObraId || undefined,
+      cliente_id: filtroClienteId || undefined,
+    });
+    let data;
+    try {
+      data = await api(`/requisiciones/programa${q}`);
+    } catch (err) {
+      $('#programaBody').innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+      return;
+    }
+    filtroDesde = data.desde; filtroHasta = data.hasta;
+    if ($('#programaDesde')) { $('#programaDesde').value = data.desde; $('#programaHasta').value = data.hasta; }
+
+    const totalItems = data.obras.reduce((acc, o) => acc + o.fechas.reduce((a2, f) => a2 + f.items.length, 0), 0);
+    const totalRiesgo = data.obras.reduce((acc, o) => acc + o.fechas.reduce((a2, f) => a2 + f.items.filter((it) => it.en_riesgo).length, 0), 0);
+
+    const body = $('#programaBody');
+    if (!totalItems) {
+      body.innerHTML = `<div class="empty-state"><div class="big">📦</div>Ninguna requisición con fecha de suministro en este periodo.<br>Recuerda: las requisiciones sin fecha de suministro no aparecen aquí — revisa la pestaña "Lista".</div>`;
+      return;
+    }
+    body.innerHTML = `
+      ${totalRiesgo ? `<div class="alert-box danger">⚠️ ${totalRiesgo} renglón${totalRiesgo === 1 ? '' : 'es'} en riesgo: fecha de suministro dentro de ${data.umbral_riesgo_dias} días y la requisición aún no está autorizada o no tiene Orden de Compra confirmada.</div>` : `<div class="alert-box info">✓ Sin renglones en riesgo (umbral: ${data.umbral_riesgo_dias} días antes de la fecha de suministro).</div>`}
+      ${data.obras.map((o) => `
+        <div class="card mt-12">
+          <h3 class="section-title">${esc(o.obra_nombre)}${o.cliente_id != null && clientesMap.has(o.cliente_id) ? ` <span class="muted fs-08">· ${esc(clientesMap.get(o.cliente_id))}</span>` : ''}</h3>
+          ${o.fechas.map((f) => `
+            <div class="mt-12">
+              <div class="row between"><strong>${fmtDate(f.fecha_suministro)}</strong><span class="muted fs-08">${f.items.length} renglón${f.items.length === 1 ? '' : 'es'}</span></div>
+              <div class="table-scroll">
+                <table class="nomina-table">
+                  <thead><tr><th>Insumo</th><th>Cantidad</th><th>Requisición</th><th>Estado</th><th>OC</th><th>Riesgo</th></tr></thead>
+                  <tbody>
+                    ${f.items.map((it) => `
+                    <tr>
+                      <td>${esc(it.insumo_concepto)} <span class="muted code">${esc(it.insumo_codigo)}</span></td>
+                      <td>${fmtNum(it.cantidad_solicitada, 3)} ${esc(it.unidad || '')}</td>
+                      <td>${esc(it.folio)}</td>
+                      <td><span class="badge ${it.requisicion_estado === 'autorizada' ? 'green' : 'muted'}">${esc(it.requisicion_estado)}</span></td>
+                      <td>${it.oc_confirmada ? '<span class="badge green">Confirmada</span>' : '<span class="badge muted">Sin OC</span>'}</td>
+                      <td>${it.en_riesgo ? '<span class="badge red">⚠️ En riesgo</span>' : ''}</td>
+                    </tr>
+                    `).join('')}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      `).join('')}
+    `;
+  }
 
   view.innerHTML = `
     <h2 class="section-title">Requisiciones de compra ${renderHelpBtn('requisiciones')}</h2>
-    ${draft.length ? `
-      <div class="card">
-        <div class="row between"><strong>Borrador en curso</strong><span class="badge muted">${draft.length} insumo${draft.length === 1 ? '' : 's'}</span></div>
-        <p class="muted">Insumos agregados desde el catálogo, listos para convertirse en una requisición.</p>
-        <div class="row end"><button class="btn btn-primary" id="btnOpenDraft">Revisar y crear requisición</button></div>
-      </div>` : ''}
+    ${renderSubNav()}
+    <p class="muted">Consolida las requisiciones cuyo material se necesita en el periodo seleccionado, en todas tus obras — te ayuda a detectar lo que está por vencerse sin estar autorizado o sin Orden de Compra confirmada.</p>
     <div class="section-actions">
-      <button class="btn" id="btnGoCatalogo">+ Agregar insumos desde el catálogo</button>
-      <button class="btn" id="btnExportRequisiciones">⭳ Exportar a Excel</button>
-      ${puedeGestionarUsuarios() ? `<button class="btn" id="btnReqHistorial">🕘 Historial</button>` : ''}
+      <div class="field"><label>Desde</label><input id="programaDesde" type="date" /></div>
+      <div class="field"><label>Hasta</label><input id="programaHasta" type="date" /></div>
+      ${obras.length > 1 ? `
+      <div class="field"><label>Obra</label>
+        <select id="programaObraSelect"><option value="">Todas mis obras</option>${obras.map((o) => `<option value="${o.id}">${esc(o.nombre)}</option>`).join('')}</select>
+      </div>` : ''}
+      ${(state.clientes || []).length > 1 ? `
+      <div class="field"><label>Cliente</label>
+        <select id="programaClienteSelect"><option value="">Todos</option>${(state.clientes || []).map((c) => `<option value="${c.id}">${esc(c.nombre)}</option>`).join('')}</select>
+      </div>` : ''}
+      <button class="btn" id="btnProgramaFiltrar">Filtrar</button>
+      <button class="btn" id="btnExportPrograma">⭳ Exportar a Excel</button>
     </div>
-    <div id="reqList"></div>
+    <div id="programaBody"><div class="spinner"></div></div>
   `;
-  $('#btnGoCatalogo').addEventListener('click', () => switchToView('insumos'));
-  wireExportButton('#btnExportRequisiciones', `/projects/${state.projectId}/requisiciones/export`);
-  if (puedeGestionarUsuarios()) $('#btnReqHistorial').addEventListener('click', openRequisicionesHistorialModal);
-  if (draft.length) $('#btnOpenDraft').addEventListener('click', openDraftModal);
+  bindSubNav();
 
-  const list = $('#reqList');
-  if (!reqs.length) {
-    list.innerHTML = `<div class="empty-state"><div class="big">🧾</div>Aún no hay requisiciones.<br>Agrega insumos desde el catálogo y crea tu primera requisición.</div>`;
-    return;
-  }
-  list.innerHTML = reqs.map((r) => {
-    const alertCount = r.alertas_cantidad + r.alertas_precio;
-    const estadoBadge = { borrador: 'muted', enviada: 'yellow', autorizada: 'green', rechazada: 'red', cancelada: 'red' }[r.estado] || 'muted';
-    return `
-    <div class="card" data-req="${r.id}">
-      <div class="row between">
-        <div>
-          <strong>${esc(r.folio || `Requisición #${r.id}`)}</strong>
-          <div class="muted">${fmtDate(r.fecha)} · ${r.num_items} insumo${r.num_items === 1 ? '' : 's'} · ${fmtMoney(r.importe_total)}</div>
-        </div>
-        <span class="badge ${estadoBadge}">${esc(r.estado)}</span>
-      </div>
-      ${alertCount ? `<div class="alert-box warn">⚠️${alertCount} alerta${alertCount === 1 ? '' : 's'}: ${r.alertas_cantidad ? `${r.alertas_cantidad} de cantidad ` : ''}${r.alertas_precio ? `${r.alertas_precio} de precio` : ''}</div>` : ''}
-      <div class="row end"><button class="btn small" data-view-req="${r.id}">Ver detalle</button></div>
-    </div>`;
-  }).join('');
+  $('#btnProgramaFiltrar').addEventListener('click', () => {
+    filtroDesde = $('#programaDesde').value || '';
+    filtroHasta = $('#programaHasta').value || '';
+    filtroObraId = $('#programaObraSelect')?.value || '';
+    filtroClienteId = $('#programaClienteSelect')?.value || '';
+    cargarYPintar();
+  });
+  // wireExportButton toma un path fijo al conectar el botón — aquí el path
+  // cambia con cada filtro aplicado, así que se arma en el propio handler
+  // (mismo try/finally de wireExportButton, pero evaluado al hacer clic).
+  $('#btnExportPrograma').addEventListener('click', async () => {
+    const btn = $('#btnExportPrograma');
+    const original = btn.textContent;
+    btn.disabled = true; btn.textContent = 'Exportando…';
+    try {
+      await downloadExport(`/requisiciones/programa/export${queryString({
+        desde: filtroDesde || undefined, hasta: filtroHasta || undefined,
+        obra_id: filtroObraId || undefined, cliente_id: filtroClienteId || undefined,
+      })}`);
+    } catch (err) {
+      toast(err.message, 'danger');
+    } finally {
+      btn.disabled = false; btn.textContent = original;
+    }
+  });
 
-  $$('[data-view-req]', list).forEach((btn) => btn.addEventListener('click', () => openRequisicionDetail(Number(btn.dataset.viewReq))));
+  await cargarYPintar();
 }
 
 const REQ_ACCION_LABEL = {
@@ -5002,6 +5280,11 @@ function openDraftModal() {
     <h3>Nueva requisición</h3>
     <div class="field"><label>Folio (opcional)</label><input id="reqFolio" placeholder="Ej. REQ-2026-001" /></div>
     <div class="field"><label>Fecha</label><input id="reqFecha" type="date" value="${new Date().toISOString().slice(0, 10)}" /></div>
+    <div class="field">
+      <label>Fecha de suministro requerida (opcional)</label>
+      <input id="reqFechaSuministro" type="date" />
+      <p class="muted fs-078">¿Cuándo se necesita este material en obra? Alimenta el Programa de suministros — sin esta fecha, la requisición no aparece ahí.</p>
+    </div>
     <div id="draftItems"></div>
     <div class="field"><label>Observaciones</label><textarea id="reqObs" rows="2" placeholder="Notas para esta requisición…"></textarea></div>
     <div id="previewAlerts"></div>
@@ -5090,12 +5373,18 @@ function openDraftModal() {
   $('#btnCancelDraft').addEventListener('click', closeModal);
   $('#btnSubmitDraft').addEventListener('click', async () => {
     const btn = $('#btnSubmitDraft');
+    const fecha = $('#reqFecha').value || new Date().toISOString().slice(0, 10);
+    const fechaSuministro = $('#reqFechaSuministro').value || null;
+    if (fechaSuministro && fechaSuministro < fecha) {
+      toast('La fecha de suministro no puede ser anterior a la fecha de la requisición', 'danger');
+      return;
+    }
     btn.disabled = true; btn.textContent = 'Creando…';
     try {
       const items = draft.map((d) => ({ insumo_id: d.insumo_id, cantidad_solicitada: d.cantidad_solicitada, precio_solicitado: d.precio_solicitado }));
       const result = await api(`/projects/${state.projectId}/requisiciones`, {
         method: 'POST',
-        body: { folio: $('#reqFolio').value.trim() || null, fecha: $('#reqFecha').value || null, observaciones: $('#reqObs').value.trim() || null, items },
+        body: { folio: $('#reqFolio').value.trim() || null, fecha: $('#reqFecha').value || null, fecha_suministro: fechaSuministro, observaciones: $('#reqObs').value.trim() || null, items },
       });
       getDraft().length = 0; // clear draft
       closeModal();
@@ -5121,6 +5410,7 @@ async function openRequisicionDetail(reqId) {
     openModal(`
       <h3>${esc(r.folio || `Requisición #${r.id}`)}</h3>
       <span class="muted">${fmtDate(r.fecha)}</span>
+      <div class="mt-6">${r.fecha_suministro ? `<span class="badge muted">Suministro requerido: ${fmtDate(r.fecha_suministro)}</span>` : `<span class="badge yellow">Sin fecha de suministro</span>`}</div>
       ${r.observaciones ? `<p class="muted">${esc(r.observaciones)}</p>` : ''}
       <div id="reqItemsDetail"></div>
       <div class="card mt-14">
@@ -5197,6 +5487,11 @@ function openEditRequisicionModal(requisicion) {
     <h3>Editar requisición</h3>
     <div class="field"><label>Folio (opcional)</label><input id="reqFolio" placeholder="Ej. REQ-2026-001" value="${esc(requisicion.folio || '')}" /></div>
     <div class="field"><label>Fecha</label><input id="reqFecha" type="date" value="${esc(String(requisicion.fecha || '').slice(0, 10))}" /></div>
+    <div class="field">
+      <label>Fecha de suministro requerida (opcional)</label>
+      <input id="reqFechaSuministro" type="date" value="${esc(String(requisicion.fecha_suministro || '').slice(0, 10))}" />
+      <p class="muted fs-078">¿Cuándo se necesita este material en obra? Alimenta el Programa de suministros — sin esta fecha, la requisición no aparece ahí.</p>
+    </div>
     <div id="editItems"></div>
     <div class="field">
       <label>Agregar insumo del catálogo (faltante)</label>
@@ -5315,12 +5610,18 @@ function openEditRequisicionModal(requisicion) {
   $('#btnSaveEdit').addEventListener('click', async () => {
     if (!items.length) { toast('Agrega al menos un insumo', 'danger'); return; }
     const btn = $('#btnSaveEdit');
+    const fecha = $('#reqFecha').value || String(requisicion.fecha || '').slice(0, 10);
+    const fechaSuministro = $('#reqFechaSuministro').value || null;
+    if (fechaSuministro && fechaSuministro < fecha) {
+      toast('La fecha de suministro no puede ser anterior a la fecha de la requisición', 'danger');
+      return;
+    }
     btn.disabled = true; btn.textContent = 'Guardando…';
     try {
       const payload = items.map((d) => ({ insumo_id: d.insumo_id, cantidad_solicitada: d.cantidad_solicitada, precio_solicitado: d.precio_solicitado }));
       const result = await api(`/projects/${state.projectId}/requisiciones/${requisicion.id}`, {
         method: 'PUT',
-        body: { folio: $('#reqFolio').value.trim() || null, fecha: $('#reqFecha').value || null, observaciones: $('#reqObs').value.trim() || null, items: payload },
+        body: { folio: $('#reqFolio').value.trim() || null, fecha: $('#reqFecha').value || null, fecha_suministro: fechaSuministro, observaciones: $('#reqObs').value.trim() || null, items: payload },
       });
       closeModal();
       invalidate('resumen');
@@ -7317,7 +7618,23 @@ const PERMISOS_SECCION_LABELS = {
   maquinaria: 'Maquinaria (equipos)', maquinaria_captura: 'Maquinaria (horas: captura/autorización)',
   maquinaria_combustible: 'Maquinaria (combustible/mantenimiento)', trabajadores: 'Trabajadores',
   trabajadores_global: 'Trabajadores (Todas las Obras)', nominas_global: 'Nóminas (Todas las Obras)',
-  costos: 'Costos (catálogo de precios)',
+  // prompt-14-matrices-precio-unitario.md: 'costos' ahora también gatea
+  // Matrices de precio unitario (puede_editar/puede_editar_precios/
+  // puede_eliminar dejan de ser informativos aquí — ver SECCIONES_CON_
+  // ENFORCEMENT más abajo, ya incluye 'costos').
+  costos: 'Costos (catálogo de precios + matrices de precio unitario)',
+  // prompt-13-fix-permisos-operador.md: 'estado_unidad' (PR #90) y
+  // 'maquinaria_consumibles' (PR #92) tenían enforcement real en el backend
+  // (checkPermiso en server/app.js) desde que se agregaron, pero nunca se
+  // dieron de alta aquí ni en PERMISOS_GRUPOS/SECCIONES_CON_ENFORCEMENT más
+  // abajo — la matriz nunca mostraba estas filas para NINGÚN rol (operador,
+  // cabo, jefe_maquinaria), así que Paul no podía verlas ni ajustarlas desde
+  // la UI aunque el permiso ya existiera y se aplicara de verdad en el
+  // backend. Confirmado con prueba real: revocar el permiso vía API sí
+  // producía 403 para el usuario real — el gap era solo de visibilidad en
+  // este catálogo, no de guardado ni de enforcement.
+  estado_unidad: 'Maquinaria (estado de unidad — checklist)',
+  maquinaria_consumibles: 'Maquinaria (consumo de aceites/diesel)',
   // Distintas de 'contrato' (el contrato de la OBRA) — estas son sobre el
   // expediente de CADA trabajador: documentos de identidad y contratos
   // laborales (incluye salario). Nombre explícito para no confundirlas en
@@ -7355,7 +7672,15 @@ const PERMISOS_ACCIONES = [
 // alcanzable todavía), aquí SON la sección que este prompt expone para que
 // Paul las conceda de verdad — dejarlas fuera las mostraría como
 // "informativas: sin efecto real" cuando ver/crear/eliminar SÍ lo tienen.
-const SECCIONES_CON_ENFORCEMENT = ['nominas', 'avance', 'maquinaria', 'maquinaria_captura', 'maquinaria_combustible', 'trabajadores_global', 'nominas_global', 'trabajadores', 'destajo', 'requisiciones', 'proveedores', 'ordenes_compra', 'trabajadores_docs', 'trabajadores_contrato'];
+// 'costos' agregado (prompt-14-matrices-precio-unitario.md): antes solo
+// puede_ver/puede_crear tenían enforcement real (catálogo); ahora
+// puede_editar/puede_editar_precios/puede_eliminar también lo tienen vía
+// Matrices de precio unitario — los 5 toggles de esta sección ya son reales.
+// 'estado_unidad' y 'maquinaria_consumibles' (prompt-13-fix-permisos-operador.md):
+// checkPermiso real desde que se agregaron (PRs #90/#92), pero faltaban aquí
+// — sin esto la fila ni siquiera se pintaba en la matriz (ver PERMISOS_SECCION_LABELS/
+// PERMISOS_GRUPOS arriba), independientemente de este flag informativo.
+const SECCIONES_CON_ENFORCEMENT = ['nominas', 'avance', 'maquinaria', 'maquinaria_captura', 'maquinaria_combustible', 'trabajadores_global', 'nominas_global', 'trabajadores', 'destajo', 'requisiciones', 'proveedores', 'ordenes_compra', 'trabajadores_docs', 'trabajadores_contrato', 'costos', 'estado_unidad', 'maquinaria_consumibles'];
 // 'ordenes_compra' SÍ se agrega completa (prompt-checkpermiso-ordenes-compra.md):
 // a diferencia de presupuestos/finanzas/mapeo, las 4 acciones (ver/crear/
 // editar/eliminar) tienen checkPermiso real — listar/detalle/export, generar
@@ -7438,7 +7763,7 @@ const PERMISOS_GRUPOS = [
   { label: 'Compras',        secciones: ['requisiciones', 'insumos', 'proveedores', 'ordenes_compra'] },
   { label: 'Tesorería',      secciones: ['finanzas', 'estado_resultados', 'impuestos'] },
   { label: 'Administración', secciones: ['mapeo', 'contrato', 'nominas', 'usuarios', 'trabajadores', 'trabajadores_docs', 'trabajadores_contrato', 'trabajadores_global', 'nominas_global', 'costos'] },
-  { label: 'Maquinaria',     secciones: ['maquinaria', 'maquinaria_captura', 'maquinaria_combustible'] },
+  { label: 'Maquinaria',     secciones: ['maquinaria', 'maquinaria_captura', 'maquinaria_combustible', 'estado_unidad', 'maquinaria_consumibles'] },
   { label: 'General',        secciones: ['sugerencias'] },
 ];
 // Mirror de TAB_A_SECCION/defaultPermisosParaRol en server/auth.js — solo se
@@ -7454,6 +7779,10 @@ const TAB_A_SECCION = {
   estadoResultados: 'estado_resultados',
   mapeo: 'mapeo', nominas: 'nominas', estimaciones: 'estimaciones',
   maquinaria: 'maquinaria', trabajadores: 'trabajadores',
+  // Mirror de server/auth.js TAB_A_SECCION (prompt-14-matrices-precio-
+  // unitario.md) — a diferencia del tab GLOBAL 'costos', 'matrices' es
+  // por-obra y sí debe resolverse aquí.
+  matrices: 'costos',
 };
 function defaultPermisosParaRolFrontend(puesto) {
   const tabs = ROLE_TABS[puesto] || [];
@@ -8406,6 +8735,51 @@ const MAQUINARIA_TIPOS = ['retroexcavadora', 'equipo menor', 'herramienta eléct
 const ACTIVIDADES_MAQUINARIA = ['Excavaciones', 'Cepas', 'Rellenos', 'Acarreos', 'Carga de material', 'Limpiezas', 'Taller', 'Renta'];
 let maquinariaEquiposCache = [];
 
+// Checklist de "estado de la unidad" (prompt-6-estado-unidad-operador.md) —
+// espejo exacto de CHECKLIST_ESTADO_UNIDAD en server/app.js, que es quien
+// valida de verdad (mismo criterio que ACTIVIDADES_MAQUINARIA arriba).
+const CHECKLIST_ESTADO_UNIDAD = {
+  maquina: [
+    { clave: 'fluidos', etiqueta: 'Niveles de fluidos' },
+    { clave: 'fugas', etiqueta: 'Fugas visibles' },
+    { clave: 'orugas_llantas', etiqueta: 'Estado de orugas/llantas' },
+    { clave: 'frenos', etiqueta: 'Frenos' },
+    { clave: 'luces_torreta', etiqueta: 'Luces y torreta' },
+    { clave: 'alarma_reversa', etiqueta: 'Alarma de reversa' },
+    { clave: 'cinturon', etiqueta: 'Cinturón' },
+    { clave: 'espejos', etiqueta: 'Espejos' },
+    { clave: 'extintor', etiqueta: 'Extintor' },
+  ],
+  camioneta: [
+    { clave: 'fluidos', etiqueta: 'Niveles de fluidos' },
+    { clave: 'fugas', etiqueta: 'Fugas visibles' },
+    { clave: 'llantas_refaccion', etiqueta: 'Llantas y refacción' },
+    { clave: 'frenos', etiqueta: 'Frenos' },
+    { clave: 'luces_direccionales', etiqueta: 'Luces y direccionales' },
+    { clave: 'cinturones', etiqueta: 'Cinturones' },
+    { clave: 'espejos', etiqueta: 'Espejos' },
+    { clave: 'extintor', etiqueta: 'Extintor' },
+    { clave: 'herramienta_gato', etiqueta: 'Herramienta/gato' },
+  ],
+};
+const ESTADO_ITEM_LABELS = { ok: 'OK', atencion: 'Atención', critico: 'Crítico' };
+const LECTURA_LABEL_POR_CATEGORIA = { maquina: 'Horómetro (hrs)', camioneta: 'Kilometraje (km)' };
+// Mismo criterio que ROLES_CAPTURAN_HORAS_MAQ/ROLES_BITACORA_TALLER_MAQ
+// arriba: el permiso crudo del backend no distingue rol simulado del real
+// para admin/desarrollador (bypass siempre true), así que "Vista como"
+// necesita este AND explícito para no mostrar botones que no le
+// corresponden al rol que se está simulando.
+const ROLES_CAPTURAN_ESTADO_UNIDAD_MAQ = ['operador', 'admin', 'desarrollador'];
+const ROLES_SUPERVISAN_ESTADO_UNIDAD_MAQ = ['cabo', 'jefe_maquinaria', 'admin', 'desarrollador'];
+// Programa de consumibles (prompt-10-programa-consumibles.md) — espejo
+// exacto de TIPOS_CONSUMIBLE en server/app.js. 'diesel' se captura por esta
+// misma pantalla pero físicamente vive en combustible_maquinaria (decisión
+// consultada) — el frontend no necesita saber eso, el backend lo resuelve.
+const TIPOS_CONSUMIBLE_LABELS = {
+  diesel: 'Diésel', aceite_motor: 'Aceite de motor',
+  aceite_hidraulico: 'Aceite hidráulico', aceite_transmision: 'Aceite de transmisión',
+};
+
 // Bug encontrado en revisión de dispositivo real (prompt-fix-cabo-operador-
 // permisos-simulacion.md): un admin/desarrollador usando "vista simulada"
 // (state.simulatedPuesto) veía los botones Autorizar/Rechazar/+Capturar
@@ -8430,12 +8804,19 @@ const ROLES_CAPTURAN_HORAS_MAQ = ['operador', 'admin', 'desarrollador'];
 const ROLES_BITACORA_TALLER_MAQ = ['jefe_maquinaria', 'admin', 'desarrollador'];
 
 async function renderMaquinaria(view) {
-  const [equipos, resumen, misPermisos, misPermisosCaptura, misPermisosCombustible, proyectos, clientesMaq, reporteClientes, horasMaq, bitacoraTaller, operadoresMaq] = await Promise.all([
+  const [equipos, resumen, misPermisos, misPermisosCaptura, misPermisosCombustible, misPermisosEstadoUnidad, misPermisosConsumibles, proyectos, clientesMaq, reporteClientes, horasMaq, bitacoraTaller, operadoresMaq, estadoUnidadList, consumiblesData] = await Promise.all([
     api('/maquinaria/equipos'),
     api('/maquinaria/resumen'),
     api('/mis-permisos/maquinaria'),
     api('/mis-permisos/maquinaria_captura'),
     api('/mis-permisos/maquinaria_combustible'),
+    // prompt-6-estado-unidad-operador.md — residente no tiene fila en
+    // 'estado_unidad' (default-deny real, a propósito: no forma parte del
+    // alcance de este checklist), el .catch evita que ese 403 tumbe el resto.
+    api('/mis-permisos/estado_unidad').catch(() => ({})),
+    // prompt-10-programa-consumibles.md — mismo criterio, residente no tiene
+    // fila en 'maquinaria_consumibles'.
+    api('/mis-permisos/maquinaria_consumibles').catch(() => ({})),
     api('/projects').catch(() => []),
     api('/clientes').catch(() => []),
     api('/maquinaria/reporte-clientes').catch(() => null),
@@ -8454,6 +8835,10 @@ async function renderMaquinaria(view) {
     // "Operador asignado" del catálogo, mismo patrón .catch que el resto de
     // fetches opcionales de esta función.
     api('/maquinaria/operadores').catch(() => []),
+    // 403 esperado para residente (arriba) — mismo .catch.
+    api('/maquinaria/estado-unidad').catch(() => []),
+    // 403 esperado para residente (arriba) — mismo .catch.
+    api('/maquinaria/consumibles').catch(() => ({ registros: [], resumen: [] })),
   ]);
   maquinariaEquiposCache = equipos;
   const puedeCrear = !!misPermisos.puede_crear; // equipos — sección 'maquinaria', sin cambio (CN-002)
@@ -8490,6 +8875,14 @@ async function renderMaquinaria(view) {
   // roles con puede_editar por default en la sección 'maquinaria' (server/
   // auth.js), se reutiliza en vez de crear una constante nueva.
   const puedeReasignarClienteMaq = !!misPermisos.puede_editar && ROLES_BITACORA_TALLER_MAQ.includes(effectivePuesto());
+  // prompt-6-estado-unidad-operador.md: mismo AND que las constantes ROLES_*
+  // de arriba, por la misma razón (bypass admin/desarrollador no distingue
+  // "Vista como").
+  const puedeCrearEstadoUnidad = !!misPermisosEstadoUnidad.puede_crear && ROLES_CAPTURAN_ESTADO_UNIDAD_MAQ.includes(effectivePuesto());
+  const puedeSupervisarEstadoUnidad = !!misPermisosEstadoUnidad.puede_ver && ROLES_SUPERVISAN_ESTADO_UNIDAD_MAQ.includes(effectivePuesto());
+  // prompt-10-programa-consumibles.md: mismo AND que estado_unidad arriba.
+  const puedeCrearConsumibles = !!misPermisosConsumibles.puede_crear && ROLES_CAPTURAN_ESTADO_UNIDAD_MAQ.includes(effectivePuesto());
+  const puedeSupervisarConsumibles = !!misPermisosConsumibles.puede_ver && ROLES_SUPERVISAN_ESTADO_UNIDAD_MAQ.includes(effectivePuesto());
 
   // Cifras de presupuesto (total/gastado/%/sugerido por cliente) — solo
   // admin/desarrollador; backend ya las envía null para el resto de roles,
@@ -8516,9 +8909,13 @@ async function renderMaquinaria(view) {
       ${puedeCrearCombustible ? '<button class="btn" id="btnCombustibleMaq">+ Combustible</button>' : ''}
       ${puedeCrearBitacora ? '<button class="btn" id="btnMantenimientoMaq">+ Registrar en bitácora</button>' : ''}
       ${puedeCrearHoras ? '<button class="btn" id="btnHorasMaq">+ Capturar horas</button>' : ''}
+      ${puedeCrearEstadoUnidad && equipos.length ? '<button class="btn" id="btnEstadoUnidadMaq">+ Estado de la unidad</button>' : ''}
+      ${puedeCrearConsumibles && equipos.length ? '<button class="btn" id="btnConsumiblesMaq">+ Consumibles</button>' : ''}
     </div>
     <div id="reportesHorasMaqSection"></div>
     <div id="bitacoraTallerSection"></div>
+    <div id="estadoUnidadSection"></div>
+    <div id="consumiblesMaqSection"></div>
 
     ${!esOperador ? `
     <h3 class="section-title mt-16">Equipos por cliente</h3>
@@ -8542,8 +8939,12 @@ async function renderMaquinaria(view) {
   $('#btnCombustibleMaq')?.addEventListener('click', () => openCombustibleMaqModal(equipos));
   $('#btnMantenimientoMaq')?.addEventListener('click', () => openMantenimientoMaqModal(equipos));
   $('#btnHorasMaq')?.addEventListener('click', () => openHorasMaqModal(equipos, proyectos));
+  $('#btnEstadoUnidadMaq')?.addEventListener('click', () => openEstadoUnidadMaqModal(equipos));
+  $('#btnConsumiblesMaq')?.addEventListener('click', () => openConsumiblesMaqModal(equipos));
   paintReportesHorasMaq(horasMaq, { puedeAutorizarHoras, esOperador });
   paintBitacoraTaller(bitacoraTaller, equipos, { puedeVerBitacora });
+  paintEstadoUnidadMaq(estadoUnidadList, { puedeSupervisarEstadoUnidad, esOperador });
+  paintConsumiblesMaq(consumiblesData, { puedeSupervisarConsumibles, esOperador });
   { const fill = $('.progress-bar > span[data-pct]', view); if (fill) fill.style.width = fill.dataset.pct + '%'; }
 
   // prompt-p2-aislamiento-operador.md: "Equipos por cliente" y "Catálogo de
@@ -9193,6 +9594,358 @@ function openHorasMaqModal(equipos, proyectos) {
       btn.disabled = false;
     }
   });
+}
+
+// =========================================================================
+// Estado de la unidad (prompt-6-estado-unidad-operador.md) — checklist de
+// seguridad/preventivos, captura exclusiva de operador sobre su unidad
+// asignada; cabo/jefe_maquinaria/admin/desarrollador ven el estado de todas
+// las unidades (paintEstadoUnidadMaq, más abajo) sin capturar por esta vía.
+// =========================================================================
+function estadoUnidadItemRowHtml(item) {
+  return `
+    <div class="eu-item" data-eu-item="${item.clave}">
+      <div class="eu-item-row">
+        <span class="eu-item-label">${esc(item.etiqueta)}</span>
+        <div class="eu-estado-group">
+          <button type="button" class="eu-estado-btn" data-eu-estado="ok">OK</button>
+          <button type="button" class="eu-estado-btn" data-eu-estado="atencion">Atención</button>
+          <button type="button" class="eu-estado-btn" data-eu-estado="critico">Crítico</button>
+        </div>
+      </div>
+      <div class="eu-item-nota hidden-initial"><input type="text" placeholder="Nota (opcional)" maxlength="200" /></div>
+    </div>
+  `;
+}
+
+function estadoUnidadBadgeHtml(estado) {
+  return `<span class="eu-mini-badge ${estado}">${esc(ESTADO_ITEM_LABELS[estado] || estado)}</span>`;
+}
+
+// equipos ya viene filtrado a solo los asignados a este operador (mismo
+// criterio que equipoSelectOptions/openHorasMaqModal, vía listEquipos(operadorId)
+// en el backend) — el <select> no necesita filtrar de nuevo.
+function openEstadoUnidadMaqModal(equipos) {
+  const equipoInicial = equipos[0];
+  openModal(`
+    <h3>Estado de la unidad</h3>
+    <div class="field"><label>Equipo *</label>
+      <select id="euEquipo">${equipos.map((e) => `<option value="${e.id}" data-categoria="${e.categoria}">${esc(e.nombre)}${e.identificador ? ` (${esc(e.identificador)})` : ''}</option>`).join('')}</select>
+    </div>
+    <div class="field"><label>Fecha *</label><input id="euFecha" type="date" value="${new Date().toISOString().slice(0, 10)}" /></div>
+    <div class="field"><label id="euLecturaLabel">${esc(LECTURA_LABEL_POR_CATEGORIA[equipoInicial.categoria] || 'Lectura')} *</label><input id="euLectura" type="number" min="0" step="0.1" /></div>
+    <div id="euChecklist" class="eu-checklist"></div>
+    <div class="field"><label>Observaciones</label><textarea id="euObservaciones" rows="2" maxlength="500"></textarea></div>
+    <div class="modal-actions">
+      <button class="btn" id="btnCancelEu">Cerrar</button>
+      <button class="btn btn-primary" id="btnSaveEu">Guardar</button>
+    </div>
+  `);
+
+  function pintarChecklist(categoria) {
+    const catalogo = CHECKLIST_ESTADO_UNIDAD[categoria] || [];
+    $('#euChecklist').innerHTML = catalogo.map(estadoUnidadItemRowHtml).join('');
+    $('#euLecturaLabel').textContent = `${LECTURA_LABEL_POR_CATEGORIA[categoria] || 'Lectura'} *`;
+    $$('[data-eu-item]', $('#euChecklist')).forEach((itemEl) => {
+      $$('[data-eu-estado]', itemEl).forEach((btn) => {
+        btn.addEventListener('click', () => {
+          $$('[data-eu-estado]', itemEl).forEach((b) => b.classList.remove('selected', 'ok', 'atencion', 'critico'));
+          btn.classList.add('selected', btn.dataset.euEstado);
+          itemEl.classList.toggle('eu-item-critico', btn.dataset.euEstado === 'critico');
+          itemEl.querySelector('.eu-item-nota').classList.toggle('hidden-initial', btn.dataset.euEstado === 'ok');
+        });
+      });
+    });
+  }
+  pintarChecklist(equipoInicial.categoria);
+
+  $('#euEquipo').addEventListener('change', () => {
+    pintarChecklist($('#euEquipo').selectedOptions[0].dataset.categoria);
+  });
+
+  $('#btnCancelEu').addEventListener('click', closeModal);
+  $('#btnSaveEu').addEventListener('click', async () => {
+    const itemEls = $$('[data-eu-item]', $('#euChecklist'));
+    const items = itemEls.map((itemEl) => {
+      const sel = itemEl.querySelector('.eu-estado-btn.selected');
+      return {
+        clave: itemEl.dataset.euItem,
+        estado: sel ? sel.dataset.euEstado : null,
+        nota: itemEl.querySelector('.eu-item-nota input').value.trim() || undefined,
+      };
+    });
+    if (items.some((it) => !it.estado)) {
+      toast('Completa el estado de todos los puntos del checklist', 'danger'); return;
+    }
+    const fecha = $('#euFecha').value;
+    const lectura = $('#euLectura').value;
+    if (!fecha || !(Number(lectura) >= 0)) {
+      toast('Completa fecha y una lectura válida', 'danger'); return;
+    }
+    const body = {
+      equipo_id: Number($('#euEquipo').value), fecha, lectura: Number(lectura),
+      observaciones: $('#euObservaciones').value.trim() || undefined,
+      items,
+    };
+    const btn = $('#btnSaveEu');
+    btn.disabled = true;
+    try {
+      const res = await api('/maquinaria/estado-unidad', { method: 'POST', body });
+      toast(res.tiene_critico ? 'Guardado — hay un punto marcado como Crítico' : 'Estado registrado', res.tiene_critico ? 'danger' : 'success');
+      closeModal();
+      renderView();
+    } catch (err) {
+      toast(err.message, 'danger');
+      btn.disabled = false;
+    }
+  });
+}
+
+// list ya viene con el ÚLTIMO estado por equipo (o ninguno) y `tiene_critico`
+// resuelto por el backend (server/maquinaria.js listEstadoUnidadResumen) —
+// esta función solo pinta, sin recalcular nada. Para operador ya viene
+// filtrada a solo sus unidades (mismo criterio que "Mis reportes de horas");
+// para cabo/jefe_maquinaria/admin/desarrollador trae TODAS.
+function paintEstadoUnidadMaq(list, { puedeSupervisarEstadoUnidad, esOperador }) {
+  const el = $('#estadoUnidadSection');
+  if (!el || (!puedeSupervisarEstadoUnidad && !esOperador)) { if (el) el.innerHTML = ''; return; }
+
+  let html = '';
+
+  if (esOperador) {
+    html += `
+      <h3 class="section-title mt-16">Estado de mis unidades</h3>
+      ${!list.length ? '<p class="muted">No tienes unidades asignadas.</p>' : `
+      <div class="eu-cards-grid mt-8">
+        ${list.map((u) => `
+          <div class="eu-card ${u.tiene_critico ? 'eu-card-critico' : ''}">
+            <div class="eu-card-head">
+              <span class="eu-card-title">${esc(u.equipo_nombre)}</span>
+              ${u.estado_id ? `<span class="muted fs-08">${fmtDate(u.fecha)}</span>` : ''}
+            </div>
+            ${!u.estado_id ? '<span class="eu-card-sin-captura">Sin captura todavía</span>' : `
+              <div class="eu-mini-badges">${(u.items || []).map((it) => estadoUnidadBadgeHtml(it.estado)).join('')}</div>
+              ${u.observaciones ? `<div class="muted fs-08 mt-4">${esc(u.observaciones)}</div>` : ''}
+            `}
+          </div>
+        `).join('')}
+      </div>
+      `}
+    `;
+  }
+
+  if (puedeSupervisarEstadoUnidad) {
+    const criticos = list.filter((u) => u.tiene_critico).length;
+    html += `
+      <h3 class="section-title mt-16">Estado de las unidades${criticos ? ` — ⚠️ ${criticos} con punto crítico` : ''}</h3>
+      ${!list.length ? '<p class="muted">No hay equipos registrados.</p>' : `
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Equipo</th><th>Categoría</th><th>Último estado</th><th>Fecha</th><th>Operador</th><th></th></tr></thead>
+          <tbody>
+            ${list.map((u) => `
+              <tr class="${u.tiene_critico ? 'eu-row-critico' : ''}">
+                <td>${esc(u.equipo_nombre)}</td>
+                <td>${u.categoria === 'camioneta' ? 'Camioneta' : 'Máquina'}</td>
+                <td>${u.estado_id ? `<div class="eu-mini-badges">${(u.items || []).map((it) => estadoUnidadBadgeHtml(it.estado)).join('')}</div>` : '<span class="muted">Sin captura</span>'}</td>
+                <td>${u.estado_id ? fmtDate(u.fecha) : '—'}</td>
+                <td>${esc(u.operador_nombre || '—')}</td>
+                <td>${u.estado_id ? `<button class="btn small" data-ver-historico-eu="${u.equipo_id}" data-nombre-eu="${esc(u.equipo_nombre)}">Histórico</button>` : ''}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+      `}
+    `;
+  }
+
+  el.innerHTML = html;
+  $$('[data-ver-historico-eu]', el).forEach((btn) => {
+    btn.addEventListener('click', () => openHistoricoEstadoUnidadMaqModal(Number(btn.dataset.verHistoricoEu), btn.dataset.nombreEu));
+  });
+}
+
+// Histórico completo de un equipo (no solo la última captura, a diferencia
+// de la tabla de arriba) — CP4 del prompt.
+async function openHistoricoEstadoUnidadMaqModal(equipoId, equipoNombre) {
+  openModal(`<h3>Histórico — ${esc(equipoNombre)}</h3><div id="euHistoricoBody"><p class="muted">Cargando…</p></div><div class="modal-actions"><button class="btn" id="btnCerrarEuHistorico">Cerrar</button></div>`);
+  $('#btnCerrarEuHistorico').addEventListener('click', closeModal);
+  try {
+    const historico = await api(`/maquinaria/estado-unidad/${equipoId}`);
+    $('#euHistoricoBody').innerHTML = !historico.length ? '<p class="muted">Sin capturas todavía.</p>' : `
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Fecha</th><th>Operador</th><th>Checklist</th><th>Lectura</th><th>Observaciones</th></tr></thead>
+          <tbody>
+            ${historico.map((h) => `
+              <tr class="${h.tiene_critico ? 'eu-row-critico' : ''}">
+                <td>${fmtDate(h.fecha)}</td>
+                <td>${esc(h.operador_nombre || '—')}</td>
+                <td><div class="eu-mini-badges">${(h.items || []).map((it) => estadoUnidadBadgeHtml(it.estado)).join('')}</div></td>
+                <td class="num">${fmtNum(h.lectura, 1)}</td>
+                <td>${esc(h.observaciones || '—')}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+    `;
+  } catch (err) {
+    $('#euHistoricoBody').innerHTML = `<p class="muted">${esc(err.message)}</p>`;
+  }
+}
+
+// =========================================================================
+// Programa de consumibles (prompt-10-programa-consumibles.md) — diesel + 3
+// aceites, captura exclusiva de operador sobre su unidad asignada;
+// cabo/jefe_maquinaria/admin/desarrollador solo consultan (mismo patrón que
+// estado_unidad, arriba). Alcance de este PR: registro + consulta, SIN
+// alertas de vencimiento de servicio — no existe el concepto de "intervalo"
+// en el sistema (confirmado en diagnóstico), inventar una regla de negocio
+// que Paul no ha definido era una Forbidden Action explícita del prompt.
+// =========================================================================
+function openConsumiblesMaqModal(equipos) {
+  openModal(`
+    <h3>Registrar consumible</h3>
+    <div class="field"><label>Equipo *</label>
+      <select id="cmEquipo">${equipos.map((e) => `<option value="${e.id}">${esc(e.nombre)}${e.identificador ? ` (${esc(e.identificador)})` : ''}</option>`).join('')}</select>
+    </div>
+    <div class="field"><label>Tipo de consumible *</label>
+      <select id="cmTipo">${Object.entries(TIPOS_CONSUMIBLE_LABELS).map(([v, l]) => `<option value="${v}">${esc(l)}</option>`).join('')}</select>
+    </div>
+    <div class="field"><label>Fecha *</label><input id="cmFecha" type="date" value="${new Date().toISOString().slice(0, 10)}" /></div>
+    <div class="field"><label>Cantidad (litros) *</label><input id="cmCantidad" type="number" min="0" step="0.1" /></div>
+    <div class="field"><label>Lectura de horómetro/kilometraje (opcional)</label><input id="cmLectura" type="number" min="0" step="0.1" /></div>
+    <div class="modal-actions">
+      <button class="btn" id="btnCancelCm">Cerrar</button>
+      <button class="btn btn-primary" id="btnSaveCm">Guardar</button>
+    </div>
+  `);
+  $('#btnCancelCm').addEventListener('click', closeModal);
+  $('#btnSaveCm').addEventListener('click', async () => {
+    const body = {
+      equipo_id: Number($('#cmEquipo').value), tipo: $('#cmTipo').value,
+      fecha: $('#cmFecha').value, cantidad: Number($('#cmCantidad').value),
+      lectura: $('#cmLectura').value ? Number($('#cmLectura').value) : null,
+    };
+    if (!body.equipo_id || !body.fecha || !(body.cantidad > 0)) {
+      toast('Completa equipo, fecha y una cantidad válida', 'danger'); return;
+    }
+    const btn = $('#btnSaveCm');
+    btn.disabled = true;
+    try {
+      await api('/maquinaria/consumibles', { method: 'POST', body });
+      toast('Consumible registrado', 'success');
+      closeModal();
+      renderView();
+    } catch (err) {
+      toast(err.message, 'danger');
+      btn.disabled = false;
+    }
+  });
+}
+
+// Rango de fechas para los filtros rápidos de periodo — "Esta semana"
+// arranca en lunes (mismo criterio ya usado en avances_semanales, no
+// domingo) para no introducir un segundo criterio de "semana" en la app.
+function rangoPeriodoConsumibles(periodo) {
+  const hoy = new Date();
+  const fmt = (d) => d.toISOString().slice(0, 10);
+  if (periodo === 'semana') {
+    const dow = (hoy.getUTCDay() + 6) % 7; // 0 = lunes
+    const inicio = new Date(hoy); inicio.setUTCDate(hoy.getUTCDate() - dow);
+    return { desde: fmt(inicio), hasta: fmt(hoy) };
+  }
+  if (periodo === 'mes') {
+    const inicio = new Date(Date.UTC(hoy.getUTCFullYear(), hoy.getUTCMonth(), 1));
+    return { desde: fmt(inicio), hasta: fmt(hoy) };
+  }
+  return { desde: null, hasta: null }; // 'todo'
+}
+
+async function paintConsumiblesMaq(dataInicial, { puedeSupervisarConsumibles, esOperador }) {
+  const el = $('#consumiblesMaqSection');
+  if (!el || (!puedeSupervisarConsumibles && !esOperador)) { if (el) el.innerHTML = ''; return; }
+
+  let periodo = 'todo'; // 'semana' | 'mes' | 'todo' | 'rango'
+
+  function tablaResumenHtml(resumen) {
+    if (!resumen.length) return '<p class="muted">Sin consumo registrado en este periodo.</p>';
+    return `
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Equipo</th><th>Consumible</th><th class="num">Total (L)</th><th class="num">Costo estimado</th><th class="num"># capturas</th></tr></thead>
+          <tbody>
+            ${resumen.map((r) => `
+              <tr>
+                <td>${esc(r.equipo_nombre)}</td>
+                <td>${esc(TIPOS_CONSUMIBLE_LABELS[r.tipo] || r.tipo)}</td>
+                <td class="num">${fmtNum(r.total_cantidad, 1)}</td>
+                <td class="num">${r.total_costo_estimado > 0 ? fmtMoney(r.total_costo_estimado) : '<span class="muted">Sin costo (sin insumo)</span>'}</td>
+                <td class="num">${r.n_registros}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+    `;
+  }
+
+  function misCapturasHtml(registros) {
+    const propias = registros.filter((r) => r.operador_id === state.user.id);
+    if (!propias.length) return '<p class="muted">Aún no has capturado ningún consumible.</p>';
+    return `
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Fecha</th><th>Equipo</th><th>Consumible</th><th class="num">Cantidad (L)</th><th class="num">Lectura</th></tr></thead>
+          <tbody>
+            ${propias.map((r) => `
+              <tr>
+                <td>${fmtDate(r.fecha)}</td>
+                <td>${esc(r.equipo_nombre)}</td>
+                <td>${esc(TIPOS_CONSUMIBLE_LABELS[r.tipo] || r.tipo)}</td>
+                <td class="num">${fmtNum(r.cantidad, 1)}</td>
+                <td class="num">${r.lectura != null ? fmtNum(r.lectura, 1) : '—'}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+    `;
+  }
+
+  async function pintar(data) {
+    let html = `<h3 class="section-title mt-16">Consumibles</h3>`;
+    if (puedeSupervisarConsumibles) {
+      html += `
+        <div class="section-actions">
+          <button class="btn ${periodo === 'semana' ? 'btn-primary' : ''}" data-periodo-cm="semana">Esta semana</button>
+          <button class="btn ${periodo === 'mes' ? 'btn-primary' : ''}" data-periodo-cm="mes">Este mes</button>
+          <button class="btn ${periodo === 'todo' ? 'btn-primary' : ''}" data-periodo-cm="todo">Todo</button>
+        </div>
+        <div id="cmResumenTabla" class="mt-8">${tablaResumenHtml(data.resumen)}</div>
+      `;
+    }
+    if (esOperador) {
+      html += `<h4 class="mt-12">Mis consumibles capturados</h4>${misCapturasHtml(data.registros)}`;
+    }
+    el.innerHTML = html;
+    $$('[data-periodo-cm]', el).forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        periodo = btn.dataset.periodoCm;
+        const { desde, hasta } = rangoPeriodoConsumibles(periodo);
+        try {
+          const nuevaData = await api(`/maquinaria/consumibles${desde ? `?desde=${desde}&hasta=${hasta}` : ''}`);
+          await pintar(nuevaData);
+        } catch (err) {
+          toast(err.message, 'danger');
+        }
+      });
+    });
+  }
+
+  await pintar(dataInicial);
 }
 
 // =========================================================================
@@ -9927,6 +10680,176 @@ function costosTablaHtml(catalogo) {
   `;
 }
 
+// =========================================================================
+// Control de Cuentas (prompt-control-cuentas.md) — control personal de
+// saldo bancario de Paul/Fer. La sección solo aparece en el sidebar de los
+// 2 usuarios en la whitelist (auth.tabsParaUsuario, server/auth.js) — esto
+// es cortesía de UI, el gate real es 100% backend
+// (auth.requireControlCuentasAccess en cada endpoint). Sin relación con
+// Costos/Finanzas/Nómina — control personal separado.
+// =========================================================================
+async function renderControlCuentas(view) {
+  const [cuentas, consolidado] = await Promise.all([
+    api('/control-cuentas/cuentas'),
+    api('/control-cuentas/consolidado'),
+  ]);
+
+  view.innerHTML = `
+    <h2 class="section-title">Cuentas</h2>
+    <p class="muted">Control personal de saldo por cuenta bancaria — gasto manual, agregado por semana.</p>
+    <div class="kpi-grid mt-8">
+      <div class="kpi accent"><div class="label">Saldo actual (todas las cuentas)</div><div class="value">${fmtMoney(consolidado.total_saldo_actual)}</div></div>
+      <div class="kpi"><div class="label">Gastado a la fecha</div><div class="value">${fmtMoney(consolidado.total_gastado)}</div></div>
+    </div>
+    <div class="section-actions mt-12">
+      <button class="btn btn-primary" id="btnNuevaCuentaCC">+ Nueva cuenta</button>
+      ${cuentas.length ? '<button class="btn" id="btnNuevoGastoCC">+ Registrar gasto</button>' : ''}
+    </div>
+    <div id="cuentasCCList" class="mt-12"></div>
+  `;
+
+  $('#btnNuevaCuentaCC').addEventListener('click', () => openNuevaCuentaCCModal());
+  $('#btnNuevoGastoCC')?.addEventListener('click', () => openNuevoGastoCCModal(cuentas));
+
+  const list = $('#cuentasCCList');
+  if (!cuentas.length) {
+    list.innerHTML = '<div class="empty-state">Sin cuentas registradas todavía.</div>';
+    return;
+  }
+  list.innerHTML = cuentas.map((c) => `
+    <div class="card cc-cuenta-card" data-ver-cuenta-cc="${c.id}">
+      <div class="card-row"><span class="k">${esc(c.nombre)}${c.banco ? ` · ${esc(c.banco)}` : ''}</span><span class="v">${fmtMoney(c.saldo_actual)}</span></div>
+      <div class="card-row"><span class="k muted fs-078">Saldo inicial (${fmtDate(c.fecha_saldo_inicial)})</span><span class="v muted fs-078">${fmtMoney(c.saldo_inicial)}</span></div>
+    </div>
+  `).join('');
+  $$('[data-ver-cuenta-cc]', list).forEach((card) => {
+    card.addEventListener('click', () => openDetalleCuentaCCModal(Number(card.dataset.verCuentaCc)));
+  });
+}
+
+function openNuevaCuentaCCModal() {
+  openModal(`
+    <h3>Nueva cuenta</h3>
+    <div class="field"><label>Nombre *</label><input id="ccNombre" placeholder="Ej. Cuenta operativa" /></div>
+    <div class="field"><label>Banco</label><input id="ccBanco" /></div>
+    <div class="field"><label>Saldo inicial *</label><input id="ccSaldoInicial" type="number" min="0" step="0.01" /></div>
+    <div class="field"><label>Fecha del saldo inicial *</label><input id="ccFechaSaldo" type="date" value="${new Date().toISOString().slice(0, 10)}" /></div>
+    <div class="modal-actions">
+      <button class="btn" id="btnCancelCcCuenta">Cerrar</button>
+      <button class="btn btn-primary" id="btnSaveCcCuenta">Guardar</button>
+    </div>
+  `);
+  $('#btnCancelCcCuenta').addEventListener('click', closeModal);
+  $('#btnSaveCcCuenta').addEventListener('click', async () => {
+    const body = {
+      nombre: $('#ccNombre').value.trim(), banco: $('#ccBanco').value.trim() || null,
+      saldo_inicial: Number($('#ccSaldoInicial').value), fecha_saldo_inicial: $('#ccFechaSaldo').value,
+    };
+    if (!body.nombre || !body.fecha_saldo_inicial || !(body.saldo_inicial >= 0)) {
+      toast('Completa nombre, saldo inicial y fecha', 'danger'); return;
+    }
+    const btn = $('#btnSaveCcCuenta');
+    btn.disabled = true;
+    try {
+      await api('/control-cuentas/cuentas', { method: 'POST', body });
+      toast('Cuenta creada', 'success');
+      closeModal();
+      renderView();
+    } catch (err) {
+      toast(err.message, 'danger');
+      btn.disabled = false;
+    }
+  });
+}
+
+function openNuevoGastoCCModal(cuentas) {
+  openModal(`
+    <h3>Registrar gasto</h3>
+    <div class="field"><label>Cuenta *</label>
+      <select id="ccGastoCuenta">${cuentas.map((c) => `<option value="${c.id}">${esc(c.nombre)}</option>`).join('')}</select>
+    </div>
+    <div class="field"><label>Fecha *</label><input id="ccGastoFecha" type="date" value="${new Date().toISOString().slice(0, 10)}" /></div>
+    <div class="field"><label>Concepto *</label><input id="ccGastoConcepto" /></div>
+    <div class="field"><label>Monto *</label><input id="ccGastoMonto" type="number" min="0" step="0.01" /></div>
+    <div class="modal-actions">
+      <button class="btn" id="btnCancelCcGasto">Cerrar</button>
+      <button class="btn btn-primary" id="btnSaveCcGasto">Guardar</button>
+    </div>
+  `);
+  $('#btnCancelCcGasto').addEventListener('click', closeModal);
+  $('#btnSaveCcGasto').addEventListener('click', async () => {
+    const body = {
+      cuenta_id: Number($('#ccGastoCuenta').value), fecha: $('#ccGastoFecha').value,
+      concepto: $('#ccGastoConcepto').value.trim(), monto: Number($('#ccGastoMonto').value),
+    };
+    if (!body.cuenta_id || !body.fecha || !body.concepto || !(body.monto > 0)) {
+      toast('Completa cuenta, fecha, concepto y un monto válido', 'danger'); return;
+    }
+    const btn = $('#btnSaveCcGasto');
+    btn.disabled = true;
+    try {
+      await api('/control-cuentas/movimientos', { method: 'POST', body });
+      toast('Gasto registrado', 'success');
+      closeModal();
+      renderView();
+    } catch (err) {
+      toast(err.message, 'danger');
+      btn.disabled = false;
+    }
+  });
+}
+
+async function openDetalleCuentaCCModal(cuentaId) {
+  openModal(`<h3>Detalle de cuenta</h3><div id="ccDetalleBody"><p class="muted">Cargando…</p></div><div class="modal-actions"><button class="btn" id="btnCerrarCcDetalle">Cerrar</button></div>`);
+  $('#btnCerrarCcDetalle').addEventListener('click', closeModal);
+  try {
+    const data = await api(`/control-cuentas/cuentas/${cuentaId}/movimientos`);
+    const { cuenta, semanas, movimientos } = data;
+    $('#ccDetalleBody').innerHTML = `
+      <h4>${esc(cuenta.nombre)}${cuenta.banco ? ` · ${esc(cuenta.banco)}` : ''}</h4>
+      <div class="kpi-grid">
+        <div class="kpi accent"><div class="label">Saldo actual</div><div class="value">${fmtMoney(cuenta.saldo_actual)}</div></div>
+        <div class="kpi"><div class="label">Saldo inicial</div><div class="value">${fmtMoney(cuenta.saldo_inicial)}</div></div>
+      </div>
+      <h4 class="mt-12">Desglose semanal</h4>
+      ${!semanas.length ? '<p class="muted">Sin gastos registrados todavía.</p>' : `
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Semana (lun-dom)</th><th class="num">Gasto de la semana</th><th class="num">Saldo al cierre</th></tr></thead>
+          <tbody>
+            ${semanas.map((s) => `
+              <tr>
+                <td>${fmtDate(s.semana_inicio)} – ${fmtDate(s.semana_fin)}</td>
+                <td class="num">${fmtMoney(s.gasto_semana)}</td>
+                <td class="num">${fmtMoney(s.saldo_al_cierre)}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>`}
+      <h4 class="mt-12">Movimientos</h4>
+      ${!movimientos.length ? '<p class="muted">Sin movimientos todavía.</p>' : `
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Fecha</th><th>Concepto</th><th class="num">Monto</th><th>Registrado por</th></tr></thead>
+          <tbody>
+            ${movimientos.map((m) => `
+              <tr>
+                <td>${fmtDate(m.fecha)}</td>
+                <td>${esc(m.concepto)}</td>
+                <td class="num">${fmtMoney(m.monto)}</td>
+                <td>${esc(m.registrado_por_nombre || '—')}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>`}
+    `;
+  } catch (err) {
+    $('#ccDetalleBody').innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+  }
+}
+
 async function renderCostos(view) {
   let subView = 'porCliente'; // 'porCliente' | 'global'
   let clienteSeleccionado = null;
@@ -10296,6 +11219,313 @@ function openCrearPresupuestoModal(catalogoOriginal) {
       toast(err.message, 'danger');
       btn.disabled = false; btn.textContent = 'Crear presupuesto';
     }
+  });
+}
+
+// =========================================================================
+// VISTA: Matrices de precio unitario (prompt-14-matrices-precio-unitario.md)
+// Por obra. Reusa el permiso 'costos' en el backend — sin gate granular por
+// acción en el frontend (no hay fetch de permisos_usuario aquí, igual que
+// el resto de la app): los botones se muestran siempre para quien ve la
+// pestaña y un 403 real del backend se atrapa como toast, mismo patrón que
+// el resto de las vistas de esta SPA.
+// =========================================================================
+let matricesSelectedConceptoId = null;
+let matricesSeleccionadas = new Set(); // concepto_ids marcados para % en lote — se limpia al salir de la vista
+
+async function renderMatrices(view) {
+  const [{ matrices }, defaultsObra] = await Promise.all([
+    cached('matrices', () => api(`/projects/${state.projectId}/matrices`)),
+    cached('matricesDefaultsObra', () => api(`/projects/${state.projectId}/matrices/porcentajes-obra`)),
+  ]);
+
+  if (matricesSelectedConceptoId && !matrices.some((m) => m.concepto_id === matricesSelectedConceptoId)) {
+    matricesSelectedConceptoId = null;
+  }
+  if (!matricesSelectedConceptoId && matrices.length) matricesSelectedConceptoId = matrices[0].concepto_id;
+
+  view.innerHTML = `
+    <h2 class="section-title">Matrices de precio unitario</h2>
+    <p class="muted">Desglosa el precio unitario de un concepto en Materiales, Mano de Obra y Herramienta y Equipo, a partir de insumos ya cargados en esta obra. Fórmula en cascada: Precio unitario = Costo directo × (1 + %Indirecto) × (1 + %Utilidad).</p>
+
+    <div class="card mb-12">
+      <div class="card-row">
+        <span class="k">% Indirecto por defecto de la obra</span>
+        <span class="v"><input id="matDefIndirecto" type="number" step="0.01" min="0" class="matriz-input-num" value="${defaultsObra.pct_indirecto}" /> %</span>
+      </div>
+      <div class="card-row">
+        <span class="k">% Utilidad por defecto de la obra</span>
+        <span class="v"><input id="matDefUtilidad" type="number" step="0.01" min="0" class="matriz-input-num" value="${defaultsObra.pct_utilidad}" /> %</span>
+      </div>
+      <p class="muted fs-08 mt-6">Solo prellena matrices NUEVAS de esta obra — nunca cambia una matriz ya creada. Referencia PR#48 (10% combinado, set global único, no por obra): ${defaultsObra.referencia_pr48_combinado != null ? fmtPct(defaultsObra.referencia_pr48_combinado) : '—'}.</p>
+      <div class="row end mt-8"><button class="btn" id="btnMatDefaultsGuardar">Guardar</button></div>
+    </div>
+
+    <div class="section-actions mb-8">
+      <button class="btn" id="btnMatricesExport">⭳ Exportar a Excel</button>
+      <button class="btn" id="btnMatricesLote" ${matricesSeleccionadas.size ? '' : 'disabled'}>Aplicar % en lote (${matricesSeleccionadas.size})</button>
+    </div>
+
+    ${matrices.length ? `
+      <div class="table-scroll">
+        <table>
+          <thead><tr>
+            <th></th><th>Código</th><th>Concepto</th>
+            <th class="num">Precio actual</th><th class="num">Costo directo</th><th class="num">Precio (matriz)</th>
+          </tr></thead>
+          <tbody>
+            ${matrices.map((m) => `
+              <tr class="matriz-row ${m.concepto_id === matricesSelectedConceptoId ? 'active' : ''}" data-concepto="${m.concepto_id}">
+                <td><input type="checkbox" class="matSelCheck" data-concepto-check="${m.concepto_id}" ${matricesSeleccionadas.has(m.concepto_id) ? 'checked' : ''} /></td>
+                <td>${esc(m.codigo || '—')}</td>
+                <td>${esc(m.concepto)}</td>
+                <td class="num">${fmtMoney(m.precio_unitario_actual)}</td>
+                <td class="num">${m.tiene_matriz ? fmtMoney(m.costo_directo) : '—'}</td>
+                <td class="num">${m.tiene_matriz ? fmtMoney(m.precio_unitario_calculado) : '<span class="muted">Sin matriz</span>'}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+    ` : '<div class="empty-state">Este presupuesto no tiene conceptos.</div>'}
+
+    <div id="matricesDetalle" class="mt-16"><div class="spinner"></div></div>
+  `;
+
+  $('#btnMatDefaultsGuardar').addEventListener('click', async () => {
+    try {
+      await api(`/projects/${state.projectId}/matrices/porcentajes-obra`, {
+        method: 'PUT',
+        body: { pct_indirecto: Number($('#matDefIndirecto').value) || 0, pct_utilidad: Number($('#matDefUtilidad').value) || 0 },
+      });
+      invalidate('matricesDefaultsObra');
+      toast('Defaults de la obra guardados', 'success');
+    } catch (err) { toast(err.message, 'danger'); }
+  });
+
+  $('#btnMatricesExport').addEventListener('click', async () => {
+    try { await downloadExport(`/projects/${state.projectId}/matrices/export`); }
+    catch (err) { toast(err.message, 'danger'); }
+  });
+
+  $$('.matSelCheck').forEach((chk) => {
+    chk.addEventListener('click', (e) => e.stopPropagation());
+    chk.addEventListener('change', (e) => {
+      const id = Number(e.target.dataset.conceptoCheck);
+      if (e.target.checked) matricesSeleccionadas.add(id); else matricesSeleccionadas.delete(id);
+      renderMatrices(view);
+    });
+  });
+
+  $$('.matriz-row').forEach((row) => row.addEventListener('click', () => {
+    matricesSelectedConceptoId = Number(row.dataset.concepto);
+    renderMatrices(view);
+  }));
+
+  $('#btnMatricesLote')?.addEventListener('click', () => {
+    if (!matricesSeleccionadas.size) return;
+    openModal(`
+      <h3>Aplicar % en lote (${matricesSeleccionadas.size} conceptos)</h3>
+      <p class="muted">Se aplica solo a conceptos que YA tienen matriz. Los seleccionados sin matriz se ignoran.</p>
+      <div class="field"><label>% Indirecto</label><input id="loteIndirecto" type="number" step="0.01" min="0" value="0" /></div>
+      <div class="field"><label>% Utilidad</label><input id="loteUtilidad" type="number" step="0.01" min="0" value="0" /></div>
+      <div class="modal-actions">
+        <button class="btn" id="btnLoteCancelar">Cancelar</button>
+        <button class="btn btn-primary" id="btnLoteAplicar">Aplicar</button>
+      </div>
+    `);
+    $('#btnLoteCancelar').addEventListener('click', closeModal);
+    $('#btnLoteAplicar').addEventListener('click', async () => {
+      try {
+        const r = await api(`/projects/${state.projectId}/matrices/porcentajes/lote`, {
+          method: 'PUT',
+          body: {
+            concepto_ids: [...matricesSeleccionadas],
+            pct_indirecto: Number($('#loteIndirecto').value) || 0,
+            pct_utilidad: Number($('#loteUtilidad').value) || 0,
+          },
+        });
+        closeModal();
+        matricesSeleccionadas.clear();
+        invalidate('matrices');
+        toast(`% actualizado en ${r.actualizadas.length} matriz(ces)`, 'success');
+        renderMatrices(view);
+      } catch (err) { toast(err.message, 'danger'); }
+    });
+  });
+
+  await paintMatrizDetalle(view);
+}
+
+async function paintMatrizDetalle(view) {
+  const box = $('#matricesDetalle');
+  if (!box) return;
+  if (!matricesSelectedConceptoId) { box.innerHTML = '<div class="empty-state">Selecciona un concepto de la tabla.</div>'; return; }
+  box.innerHTML = '<div class="spinner"></div>';
+  let data;
+  try {
+    data = await api(`/projects/${state.projectId}/matrices/${matricesSelectedConceptoId}`);
+  } catch (err) { box.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`; return; }
+
+  const { concepto, matriz } = data;
+  const existeMatriz = !!matriz;
+  // Copia de trabajo local (insumo_id, cantidad + datos de display) — se
+  // manda completa al guardar (POST crea, PUT items reemplaza todo el set,
+  // nunca un PATCH renglón por renglón, más simple y sin estado a medias).
+  const itemsWorking = existeMatriz
+    ? matriz.items.map((it) => ({ ...it }))
+    : [];
+
+  function pintarItemsTabla() {
+    const tabla = $('#matItemsTabla');
+    if (!tabla) return;
+    tabla.innerHTML = itemsWorking.length ? `
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Categoría</th><th>Insumo</th><th class="num">Cantidad</th><th class="num">Precio</th><th class="num">Importe</th><th></th></tr></thead>
+          <tbody>${itemsWorking.map((it, idx) => `
+            <tr>
+              <td>${esc(it.categoria || '—')}</td>
+              <td>${esc(it.codigo)} — ${esc(it.concepto)}</td>
+              <td class="num"><input type="number" step="0.0001" min="0.0001" class="matriz-input-num matItemCantidad" data-idx="${idx}" value="${it.cantidad}" /></td>
+              <td class="num">${fmtMoney(it.precio_presupuesto)}</td>
+              <td class="num">${fmtMoney(Number(it.cantidad) * Number(it.precio_presupuesto))}</td>
+              <td><button class="icon-btn-inline" data-remove="${idx}" type="button" title="Quitar" aria-label="Quitar">✕</button></td>
+            </tr>
+          `).join('')}</tbody>
+        </table>
+      </div>
+    ` : '<p class="muted">Sin insumos agregados todavía.</p>';
+    $$('.matItemCantidad', tabla).forEach((inp) => inp.addEventListener('change', (e) => {
+      itemsWorking[Number(e.target.dataset.idx)].cantidad = Math.max(0.0001, Number(e.target.value) || 0);
+      pintarItemsTabla();
+    }));
+    $$('[data-remove]', tabla).forEach((btn) => btn.addEventListener('click', () => {
+      itemsWorking.splice(Number(btn.dataset.remove), 1);
+      pintarItemsTabla();
+    }));
+  }
+
+  box.innerHTML = `
+    <h3 class="section-title">${esc(concepto.codigo || '')} — ${esc(concepto.concepto)}</h3>
+    <p class="muted">Precio unitario actual del concepto: <strong>${fmtMoney(Number(concepto.precio_unitario))}</strong></p>
+
+    ${existeMatriz ? `
+      <div class="card mb-12">
+        ${matriz.categorias.map((c) => `
+          <div class="card-row">
+            <span class="k">${esc(c.label)}</span>
+            <span class="v">${c.subtotal != null ? fmtMoney(c.subtotal) : 'No disponible'}</span>
+          </div>
+        `).join('')}
+        <div class="card-row"><span class="k"><strong>Costo directo</strong></span><span class="v"><strong>${fmtMoney(matriz.costo_directo)}</strong></span></div>
+        <div class="card-row">
+          <span class="k">% Indirecto</span>
+          <span class="v"><input id="matPctIndirecto" type="number" step="0.01" min="0" class="matriz-input-num" value="${matriz.pct_indirecto}" /> %</span>
+        </div>
+        <div class="card-row">
+          <span class="k">% Utilidad</span>
+          <span class="v"><input id="matPctUtilidad" type="number" step="0.01" min="0" class="matriz-input-num" value="${matriz.pct_utilidad}" /> %</span>
+        </div>
+        <div class="card-row"><span class="k">% combinado efectivo</span><span class="v">${fmtPct(matriz.pct_combinado_efectivo)}</span></div>
+        <div class="row end mt-8"><button class="btn" id="btnMatActualizarPct">Actualizar %</button></div>
+        <div class="card-row"><span class="k"><strong>Precio unitario (matriz)</strong></span><span class="v"><strong>${fmtMoney(matriz.precio_unitario_calculado)}</strong></span></div>
+        ${!matriz.completa ? '<p class="muted fs-08">Matriz incompleta — hay categorías "No disponible". No se puede aplicar todavía.</p>' : ''}
+      </div>
+      <div class="row mb-8">
+        <button class="btn btn-primary" id="btnMatAplicar" ${matriz.completa ? '' : 'disabled'}>Aplicar precio a este concepto</button>
+        <button class="btn btn-danger" id="btnMatEliminar">Eliminar matriz</button>
+      </div>
+    ` : '<p class="muted">Este concepto no tiene matriz todavía. Agrega insumos abajo para crearla.</p>'}
+
+    <h4 class="mt-16">Composición (insumos)</h4>
+    <div class="field">
+      <input type="search" id="matInsumoSearch" placeholder="Buscar insumo por código o nombre…" />
+    </div>
+    <div id="matSearchResults"></div>
+    <div id="matItemsTabla" class="mt-8"></div>
+    <div class="row end mt-8"><button class="btn btn-primary" id="btnMatGuardarComposicion">${existeMatriz ? 'Guardar composición' : 'Crear matriz'}</button></div>
+  `;
+
+  pintarItemsTabla();
+
+  if (existeMatriz) {
+    $('#btnMatActualizarPct').addEventListener('click', async () => {
+      try {
+        await api(`/projects/${state.projectId}/matrices/${matricesSelectedConceptoId}/porcentajes`, {
+          method: 'PUT',
+          body: { pct_indirecto: Number($('#matPctIndirecto').value) || 0, pct_utilidad: Number($('#matPctUtilidad').value) || 0 },
+        });
+        invalidate('matrices');
+        toast('Porcentajes actualizados', 'success');
+        await renderMatrices(view);
+      } catch (err) { toast(err.message, 'danger'); }
+    });
+    $('#btnMatAplicar').addEventListener('click', async () => {
+      const ok = await confirmDialog(
+        `Precio actual del concepto: ${fmtMoney(Number(concepto.precio_unitario))}. Precio calculado por la matriz: ${fmtMoney(matriz.precio_unitario_calculado)}. ¿Aplicar el precio de la matriz a este concepto?`,
+        { titulo: 'Aplicar precio de la matriz', textoAceptar: 'Aplicar' }
+      );
+      if (!ok) return;
+      try {
+        await api(`/projects/${state.projectId}/matrices/${matricesSelectedConceptoId}/aplicar`, { method: 'POST' });
+        invalidate('matrices');
+        toast('Precio aplicado al concepto', 'success');
+        await renderMatrices(view);
+      } catch (err) { toast(err.message, 'danger'); }
+    });
+    $('#btnMatEliminar').addEventListener('click', async () => {
+      const ok = await confirmDialog('¿Eliminar esta matriz? Esta acción no se puede deshacer. El precio_unitario del concepto NO se modifica.', { titulo: 'Eliminar matriz', claseAceptar: 'btn-danger', textoAceptar: 'Eliminar' });
+      if (!ok) return;
+      try {
+        await api(`/projects/${state.projectId}/matrices/${matricesSelectedConceptoId}`, { method: 'DELETE' });
+        invalidate('matrices');
+        toast('Matriz eliminada', 'success');
+        await renderMatrices(view);
+      } catch (err) { toast(err.message, 'danger'); }
+    });
+  }
+
+  $('#matInsumoSearch').addEventListener('input', debounce(async (e) => {
+    const q = e.target.value.trim();
+    const results = $('#matSearchResults');
+    if (!q) { results.innerHTML = ''; return; }
+    try {
+      const found = await api(`/projects/${state.projectId}/insumos${queryString({ q })}`);
+      results.innerHTML = found.slice(0, 8).map((i) => `
+        <div class="project-item" data-add="${i.id}">
+          <span class="pname">${esc(i.concepto)}</span>
+          <span class="pmeta">${esc(i.codigo)} · ${esc(i.categoria || '—')} · ${fmtMoney(i.precio_presupuesto)}</span>
+        </div>`).join('') || '<p class="muted">Sin resultados.</p>';
+      $$('[data-add]', results).forEach((row) => row.addEventListener('click', () => {
+        const id = Number(row.dataset.add);
+        if (itemsWorking.some((it) => it.insumo_id === id)) { toast('Ese insumo ya está en la matriz', ''); return; }
+        const insumo = found.find((f) => f.id === id);
+        itemsWorking.push({
+          insumo_id: id, codigo: insumo.codigo, concepto: insumo.concepto,
+          categoria: insumo.categoria, unidad: insumo.unidad,
+          precio_presupuesto: insumo.precio_presupuesto, cantidad: 1,
+        });
+        $('#matInsumoSearch').value = '';
+        results.innerHTML = '';
+        pintarItemsTabla();
+      }));
+    } catch (err) { toast(err.message, 'danger'); }
+  }, 280));
+
+  $('#btnMatGuardarComposicion').addEventListener('click', async () => {
+    if (!itemsWorking.length) { toast('Agrega al menos un insumo', ''); return; }
+    const payload = { items: itemsWorking.map((it) => ({ insumo_id: it.insumo_id, cantidad: it.cantidad })) };
+    try {
+      if (existeMatriz) {
+        await api(`/projects/${state.projectId}/matrices/${matricesSelectedConceptoId}/items`, { method: 'PUT', body: payload });
+      } else {
+        await api(`/projects/${state.projectId}/matrices`, { method: 'POST', body: { concepto_id: matricesSelectedConceptoId, ...payload } });
+      }
+      invalidate('matrices');
+      toast('Composición guardada', 'success');
+      await renderMatrices(view);
+    } catch (err) { toast(err.message, 'danger'); }
   });
 }
 
@@ -11177,7 +12407,7 @@ async function apiDownload(path, fallbackName) {
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    throw new Error(err.error || `Error ${res.status}`);
+    throw new Error(extraerMensajeError(err.error, `Error ${res.status}`));
   }
   const blob = await res.blob();
   const disposition = res.headers.get('Content-Disposition') || '';

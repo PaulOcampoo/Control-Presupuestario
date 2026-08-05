@@ -117,11 +117,15 @@ async function listCombustible(equipoId) {
   return rows;
 }
 
-async function createCombustible({ equipo_id, fecha, litros, costo, registrado_por }) {
+// lectura (prompt-10-programa-consumibles.md): opcional, solo la usa el
+// registro de diesel del operador vía /api/maquinaria/consumibles — el flujo
+// existente de jefe_maquinaria (POST /api/maquinaria/combustible) sigue sin
+// mandarla, queda NULL igual que siempre.
+async function createCombustible({ equipo_id, fecha, litros, costo, registrado_por, lectura }) {
   const { rows } = await db.pool.query(
-    `INSERT INTO combustible_maquinaria (equipo_id, fecha, litros, costo, registrado_por)
-     VALUES ($1, $2, $3, $4, $5) RETURNING *`,
-    [equipo_id, fecha, litros, costo, registrado_por]
+    `INSERT INTO combustible_maquinaria (equipo_id, fecha, litros, costo, registrado_por, lectura)
+     VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+    [equipo_id, fecha, litros, costo, registrado_por, lectura ?? null]
   );
   return rows[0];
 }
@@ -390,6 +394,138 @@ async function getReportePorCliente() {
   };
 }
 
+// Estado de la unidad (prompt-6-estado-unidad-operador.md) — checklist de
+// seguridad/preventivos del operador, distinto de mantenimientos_maquinaria
+// (bitácora de taller de jefe_maquinaria).
+//
+// operadorId (mismo criterio que listEquipos arriba): cuando viene, filtra
+// en la propia consulta SQL a solo el/los equipo(s) asignados a ese
+// operador — usado cuando un operador consulta esta vista (tiene puede_ver,
+// ver defaultPermisosParaRol), nunca la flota completa de otros operadores.
+// LEFT JOIN LATERAL trae la ÚLTIMA captura por equipo (o ninguna, si nunca
+// se ha capturado) — un LEFT JOIN normal con MAX(creado_en) traería todas
+// las columnas desalineadas entre filas distintas.
+async function listEstadoUnidadResumen(operadorId = null) {
+  const { rows } = await db.pool.query(`
+    SELECT e.id AS equipo_id, e.nombre AS equipo_nombre, e.tipo, e.categoria, e.identificador,
+      eu.id AS estado_id, eu.fecha, eu.tipo_unidad, eu.items, eu.lectura, eu.observaciones, eu.creado_en,
+      u.nombre AS operador_nombre
+    FROM equipos_maquinaria e
+    LEFT JOIN LATERAL (
+      SELECT * FROM estado_unidad WHERE equipo_id = e.id ORDER BY creado_en DESC LIMIT 1
+    ) eu ON true
+    LEFT JOIN usuarios u ON u.id = eu.operador_id
+    WHERE e.activo = true ${operadorId ? 'AND e.operador_asignado_id = $1' : ''}
+    ORDER BY e.nombre
+  `, operadorId ? [operadorId] : []);
+  return rows.map((r) => ({
+    ...r,
+    tiene_critico: Array.isArray(r.items) && r.items.some((it) => it.estado === 'critico'),
+  }));
+}
+
+// Histórico completo (no solo la última) de un equipo — más reciente primero.
+async function listEstadoUnidadHistorico(equipoId) {
+  const { rows } = await db.pool.query(`
+    SELECT eu.*, u.nombre AS operador_nombre
+    FROM estado_unidad eu
+    LEFT JOIN usuarios u ON u.id = eu.operador_id
+    WHERE eu.equipo_id = $1
+    ORDER BY eu.creado_en DESC
+  `, [equipoId]);
+  return rows.map((r) => ({
+    ...r,
+    tiene_critico: Array.isArray(r.items) && r.items.some((it) => it.estado === 'critico'),
+  }));
+}
+
+async function createEstadoUnidad({ equipo_id, operador_id, fecha, tipo_unidad, items, lectura, observaciones }) {
+  const { rows } = await db.pool.query(
+    `INSERT INTO estado_unidad (equipo_id, operador_id, fecha, tipo_unidad, items, lectura, observaciones)
+     VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+    [equipo_id, operador_id, fecha, tipo_unidad, JSON.stringify(items), lectura, observaciones || null]
+  );
+  return rows[0];
+}
+
+// Programa de consumibles (prompt-10-programa-consumibles.md) — decisión
+// consultada: 'diesel' NO tiene fila propia aquí, usa createCombustible de
+// arriba (escribe en combustible_maquinaria, la misma tabla de siempre de
+// jefe_maquinaria) con su propia validación de ownership en el endpoint.
+// Esta tabla solo cubre los 3 aceites, que sí son nuevos de verdad.
+async function createConsumible({ equipo_id, tipo, cantidad, unidad, lectura, operador_id, fecha, costo_estimado, insumo_id }) {
+  const { rows } = await db.pool.query(
+    `INSERT INTO consumibles_maquinaria (equipo_id, tipo, cantidad, unidad, lectura, operador_id, fecha, costo_estimado, insumo_id)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
+    [equipo_id, tipo, cantidad, unidad || 'litros', lectura ?? null, operador_id, fecha, costo_estimado ?? null, insumo_id ?? null]
+  );
+  return rows[0];
+}
+
+// Resuelve costo/IVA desde Insumos para un tipo de consumible — mismo
+// criterio "precio más recio" que costosCatalogoQuery (server/app.js): toma
+// el insumo con ese concepto de la obra creada más recientemente entre
+// TODAS las obras (los equipos de Maquinaria no están estrictamente
+// atados a una sola obra vía obra_id, ver comentario en server/db.js).
+// Insumos no distingue aceite motor/hidráulico/transmisión — los 3 resuelven
+// contra el mismo concepto genérico 'ACEITE' (confirmado en diagnóstico:
+// no hay entradas más específicas). Devuelve null si no hay ningún insumo
+// con ese concepto — la captura nunca se bloquea por esto (Forbidden Action).
+async function resolverCostoConsumible(tipo) {
+  const concepto = tipo === 'diesel' ? 'DIESEL' : 'ACEITE';
+  const { rows } = await db.pool.query(`
+    SELECT i.id, i.precio_presupuesto, i.iva_tasa
+    FROM insumos i JOIN proyectos p ON p.id = i.project_id
+    WHERE i.concepto = $1
+    ORDER BY p.creado_en DESC, i.id DESC
+    LIMIT 1
+  `, [concepto]);
+  return rows[0] || null;
+}
+
+// Unifica combustible_maquinaria (diesel) + consumibles_maquinaria (3
+// aceites) en un solo listado — mismo criterio de filtro por operador que
+// listEquipos/listEstadoUnidadResumen (operadorId viene solo cuando el
+// requester es operador, acota a solo sus unidades). fechaDesde/fechaHasta
+// para el filtro de periodo (semana/mes/rango) que pide la vista de
+// cabo/jefe_maquinaria — se aplican con "col IS NULL OR" para poder
+// compartir los mismos parámetros en las 2 mitades del UNION ALL.
+async function listConsumibles({ equipoId = null, operadorId = null, fechaDesde = null, fechaHasta = null } = {}) {
+  const params = [equipoId, operadorId, fechaDesde, fechaHasta];
+  const { rows } = await db.pool.query(`
+    SELECT e.id AS equipo_id, e.nombre AS equipo_nombre, 'diesel' AS tipo,
+      cm.litros AS cantidad, 'litros' AS unidad, cm.lectura, cm.fecha,
+      cm.costo AS costo_estimado, cm.registrado_por AS operador_id,
+      u.nombre AS operador_nombre, cm.creado_en, cm.id AS registro_id
+    FROM combustible_maquinaria cm
+    JOIN equipos_maquinaria e ON e.id = cm.equipo_id
+    LEFT JOIN usuarios u ON u.id = cm.registrado_por
+    WHERE cm.activo = true
+      AND ($1::int IS NULL OR cm.equipo_id = $1)
+      AND ($2::int IS NULL OR cm.registrado_por = $2)
+      AND ($3::date IS NULL OR cm.fecha >= $3)
+      AND ($4::date IS NULL OR cm.fecha <= $4)
+
+    UNION ALL
+
+    SELECT e.id AS equipo_id, e.nombre AS equipo_nombre, co.tipo,
+      co.cantidad, co.unidad, co.lectura, co.fecha,
+      co.costo_estimado, co.operador_id,
+      u.nombre AS operador_nombre, co.creado_en, co.id AS registro_id
+    FROM consumibles_maquinaria co
+    JOIN equipos_maquinaria e ON e.id = co.equipo_id
+    LEFT JOIN usuarios u ON u.id = co.operador_id
+    WHERE co.activo = true
+      AND ($1::int IS NULL OR co.equipo_id = $1)
+      AND ($2::int IS NULL OR co.operador_id = $2)
+      AND ($3::date IS NULL OR co.fecha >= $3)
+      AND ($4::date IS NULL OR co.fecha <= $4)
+
+    ORDER BY fecha DESC, creado_en DESC
+  `, params);
+  return rows;
+}
+
 module.exports = {
   listEquipos, getEquipoById, createEquipo, updateEquipo, softDeleteEquipo,
   asignarClienteEquipo, asignarOperadorEquipo,
@@ -398,4 +534,6 @@ module.exports = {
   listHoras, createHoras, softDeleteHoras, updateEstadoHoras,
   getResumen, updatePresupuesto,
   getPresupuestoSugerido, getReportePorCliente,
+  listEstadoUnidadResumen, listEstadoUnidadHistorico, createEstadoUnidad,
+  createConsumible, resolverCostoConsumible, listConsumibles,
 };

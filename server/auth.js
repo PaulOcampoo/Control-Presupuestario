@@ -26,8 +26,8 @@ const TOTP_ISSUER = 'Grupo Roforb — Control Presupuestal';
 // Puestos y qué pestañas puede ver cada uno. 'admin' tiene acceso total
 // (se resuelve aparte en allow(), no necesita listarse en cada pestaña).
 const PERMISSIONS = {
-  admin:          { label: 'Administrador', tabs: ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'finanzas', 'estadoResultados', 'estadoResultadosGlobal', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', 'maquinaria', 'cotizador', 'costos', 'avance_clientes', 'composicion_costos'] },
-  desarrollador:  { label: 'Desarrollador', tabs: ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'finanzas', 'estadoResultados', 'estadoResultadosGlobal', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', 'maquinaria', 'cotizador', 'costos', 'avance_clientes', 'composicion_costos'] },
+  admin:          { label: 'Administrador', tabs: ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'finanzas', 'estadoResultados', 'estadoResultadosGlobal', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', 'maquinaria', 'cotizador', 'costos', 'matrices', 'avance_clientes', 'composicion_costos'] },
+  desarrollador:  { label: 'Desarrollador', tabs: ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'finanzas', 'estadoResultados', 'estadoResultadosGlobal', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', 'maquinaria', 'cotizador', 'costos', 'matrices', 'avance_clientes', 'composicion_costos'] },
   // 'trabajadores' agregado aquí (prompts-cotizador-sidebar-permisos-
   // estimaciones.md, Prompt 3) para que el residente reciba la pestaña al
   // hacer login — el acceso REAL a los datos de cada obra lo sigue
@@ -43,7 +43,12 @@ const PERMISSIONS = {
   // (viene de esta lista, no de la matriz) así que nunca veían el tile. Igual
   // que 'trabajadores': agregar el tab no otorga el permiso por sí solo, sigue
   // decidiéndolo checkPermiso vía permisos_usuario (sin fila = 403).
-  residente:      { label: 'Residente',     tabs: ['programa', 'avance', 'destajo', 'requisiciones', 'insumos', 'ordenes', 'nominas', 'trabajadores', 'estimaciones', 'maquinaria'] },
+  // 'matrices' agregado (prompt-14-matrices-precio-unitario.md): mismo gap ya
+  // documentado arriba para 'trabajadores'/'maquinaria' — agregar el tab NO
+  // otorga el permiso por sí solo, checkPermiso('costos', ...) sigue siendo
+  // el gate real vía permisos_usuario (sin fila = 403, default-deny de
+  // 'costos', ver SECCIONES_PERMISOS más abajo).
+  residente:      { label: 'Residente',     tabs: ['programa', 'avance', 'destajo', 'requisiciones', 'insumos', 'ordenes', 'nominas', 'trabajadores', 'estimaciones', 'maquinaria', 'matrices'] },
   // 'trabajadores' agregado aquí (prompt-c-checkpermiso-trabajadores.md,
   // fix de visibilidad en nav): mismo gap ya documentado para 'costos' más
   // abajo — el permiso puede_ver otorgado vía la matriz a UN cabo específico
@@ -176,6 +181,25 @@ const SECCIONES_PERMISOS = [
   // (mismo estado "informativo" que 'programa'/'estimaciones', ver
   // SECCIONES_CON_ENFORCEMENT en public/app.js).
   'cotizador', 'estado_resultados_global',
+  // prompt-6-estado-unidad-operador.md: checklist de seguridad/preventivos
+  // que captura el propio operador sobre su unidad asignada. Sección propia
+  // (no comparte 'maquinaria_captura' con horas) porque el criterio de
+  // ownership es distinto: horas se captura sobre cualquier equipo que el
+  // operador trabaje ese día, estado_unidad SOLO sobre operador_asignado_id
+  // — mezclarlas habría hecho que dar puede_crear en una diera sin querer la
+  // otra. Sin entrada en TAB_A_SECCION a propósito: vive dentro del tab
+  // 'maquinaria' existente (misma pantalla), no es un tab nuevo — mismo
+  // criterio que 'maquinaria_captura'/'maquinaria_combustible' arriba.
+  'estado_unidad',
+  // prompt-10-programa-consumibles.md: registro de consumo de aceites
+  // (motor/hidráulico/transmisión) por el operador sobre su unidad — diesel
+  // NO vive aquí (decisión consultada: se captura vía 'maquinaria_combustible'
+  // existente, ver server/app.js). Sección propia y separada de
+  // 'maquinaria_combustible' a propósito: esa sección sigue siendo solo
+  // jefe_maquinaria, y también gatea mantenimientos_maquinaria — darle a
+  // operador puede_crear ahí le habría abierto esa tabla también (Forbidden
+  // Action explícita del prompt).
+  'maquinaria_consumibles',
 ];
 const ACCIONES_PERMISOS = ['puede_ver', 'puede_crear', 'puede_editar', 'puede_editar_precios', 'puede_eliminar'];
 
@@ -198,6 +222,18 @@ const TAB_A_SECCION = {
   // descartaba en silencio los tabs 'cotizador' (compras) y
   // 'estadoResultadosGlobal' (tesorería) por no tener sección mapeada.
   cotizador: 'cotizador', estadoResultadosGlobal: 'estado_resultados_global',
+  // prompt-14-matrices-precio-unitario.md: 'matrices' reusa la sección
+  // 'costos' (mismo tipo de dato). A diferencia del tab GLOBAL 'costos'
+  // (catálogo cross-obra, deliberadamente SIN entrada aquí — ver comentario
+  // de 'costos' en SECCIONES_PERMISOS), 'matrices' SÍ es por-obra, así que
+  // sí debe resolverse por esta vía para que GET /api/projects/:id/nav-tabs
+  // (server/app.js, fuente de verdad de navegación por-obra para roles
+  // no-admin) le otorgue el tab a un residente con puede_ver=true en
+  // 'costos' — sin este mapeo, el permiso quedaba concedido a nivel API
+  // pero el tab nunca aparecía en su sidebar (confirmado con Playwright:
+  // contenido servía 200 vía navegación directa, pero SECCION_A_TAB
+  // descartaba 'costos' por no tener tab reverso, dejando el tab invisible).
+  matrices: 'costos',
 };
 
 // Set de permisos default al dar de alta un usuario: puede_ver=true en las
@@ -301,6 +337,20 @@ function defaultPermisosParaRol(puesto) {
     // que la sección existe y pueden pedir acceso), pero sin el permiso
     // real hasta que un admin se lo conceda explícitamente por la matriz.
     if (porSeccion.trabajadores) { porSeccion.trabajadores.puede_ver = false; }
+    // prompt-6-estado-unidad-operador.md: cabo SOLO lee el checklist de
+    // todas las unidades de la obra (supervisión), nunca captura por esta
+    // vía — coherente con que no capture horas tampoco (ver arriba).
+    filas.push({
+      seccion: 'estado_unidad', puede_ver: true, puede_crear: false,
+      puede_editar: false, puede_editar_precios: false, puede_eliminar: false,
+    });
+    // prompt-10-programa-consumibles.md: cabo solo ve el consumo de
+    // aceites/diesel de todas las unidades, no captura por esta vía — mismo
+    // criterio que estado_unidad arriba.
+    filas.push({
+      seccion: 'maquinaria_consumibles', puede_ver: true, puede_crear: false,
+      puede_editar: false, puede_editar_precios: false, puede_eliminar: false,
+    });
   }
   if (puesto === 'compras') {
     // compras podía crear/editar/eliminar requisiciones de cualquier obra por
@@ -356,6 +406,20 @@ function defaultPermisosParaRol(puesto) {
       seccion: 'maquinaria_combustible', puede_ver: true, puede_crear: true,
       puede_editar: false, puede_editar_precios: false, puede_eliminar: false,
     });
+    // prompt-6-estado-unidad-operador.md: jefe_maquinaria lee el checklist
+    // de todas las unidades (supervisión de taller), no captura por esta vía
+    // — mismo criterio que cabo arriba.
+    filas.push({
+      seccion: 'estado_unidad', puede_ver: true, puede_crear: false,
+      puede_editar: false, puede_editar_precios: false, puede_eliminar: false,
+    });
+    // prompt-10-programa-consumibles.md: jefe_maquinaria solo ve el consumo
+    // de aceites/diesel de todas las unidades — su propia captura de diesel
+    // sigue siendo por 'maquinaria_combustible' (arriba), sin cambios.
+    filas.push({
+      seccion: 'maquinaria_consumibles', puede_ver: true, puede_crear: false,
+      puede_editar: false, puede_editar_precios: false, puede_eliminar: false,
+    });
   }
   if (puesto === 'operador') {
     // Solo captura de horas/actividad (prompt-2-rol-operador-actividades.md)
@@ -364,6 +428,22 @@ function defaultPermisosParaRol(puesto) {
     // toca combustible/mantenimiento. Ningún permiso de aprobar/autorizar.
     filas.push({
       seccion: 'maquinaria_captura', puede_ver: true, puede_crear: true,
+      puede_editar: false, puede_editar_precios: false, puede_eliminar: false,
+    });
+    // prompt-6-estado-unidad-operador.md: único rol que captura el checklist
+    // de estado de unidad — el backend valida ownership real (operador_
+    // asignado_id) antes de cualquier INSERT, esto solo habilita el intento.
+    filas.push({
+      seccion: 'estado_unidad', puede_ver: true, puede_crear: true,
+      puede_editar: false, puede_editar_precios: false, puede_eliminar: false,
+    });
+    // prompt-10-programa-consumibles.md: operador captura consumo de aceites
+    // Y de diesel (diesel vía POST /api/maquinaria/consumibles, que escribe
+    // en combustible_maquinaria con su propia validación de ownership — NO
+    // vía 'maquinaria_combustible', que sigue siendo solo jefe_maquinaria y
+    // también gatea mantenimientos_maquinaria).
+    filas.push({
+      seccion: 'maquinaria_consumibles', puede_ver: true, puede_crear: true,
       puede_editar: false, puede_editar_precios: false, puede_eliminar: false,
     });
   }
@@ -605,6 +685,43 @@ function allow(...puestos) {
   };
 }
 
+// Control de Cuentas (prompt-control-cuentas.md) — control personal de
+// saldo bancario de Paul y Fer, NO del negocio en general. Whitelist por
+// usuario_id EXPLÍCITA, deliberadamente separada de allow('admin',
+// 'desarrollador'): el bypass normal de esos 2 roles es por PUESTO (ver
+// allow() arriba), y hoy existen 5 cuentas con esos roles (confirmado en
+// diagnóstico: 'admin' bootstrap genérico, Rodolfo Ocampo, y una segunda
+// cuenta "Fernando Olvera" que NO es la de Fer) — cualquier futuro alta de
+// usuario admin/desarrollador habría visto este saldo personal sin este
+// candado adicional. 46 = Paul (paul.ocmp, desarrollador). 8 = Fer (folvera,
+// Fernando Olvera Monroy, admin) — confirmado explícitamente con Paul, NO
+// el id=105 "Fernando Olvera Herrera" (apellido distinto, cuenta distinta).
+// Cambiar esta lista requiere editar código + nuevo commit a propósito (sin
+// UI de gestión — decisión consultada: 1-2 personas, cambia rarísima vez).
+const USUARIOS_CONTROL_CUENTAS = [46, 8];
+function requireControlCuentasAccess(req, res, next) {
+  if (!USUARIOS_CONTROL_CUENTAS.includes(req.user.id)) {
+    logDenied(req, 'sin acceso a Control de Cuentas (whitelist)');
+    return res.status(403).json({ error: 'No tienes permiso para realizar esta acción' });
+  }
+  next();
+}
+
+// Agrega el tab 'cuentas' a la lista SOLO para los 2 usuarios en la
+// whitelist — el resto de admin/desarrollador (incluida la cuenta bootstrap
+// genérica y cualquier alta futura) ni siquiera ve el link en el sidebar.
+// Ocultar el tab es solo cortesía de UI (nunca el gate real — ver
+// requireControlCuentasAccess arriba, que es lo único que de verdad
+// protege los datos); por eso vive como wrapper sobre PERMISSIONS.tabs en
+// vez de duplicar la lista de tabs por usuario.
+function tabsParaUsuario(user) {
+  const base = PERMISSIONS[user.puesto] ? PERMISSIONS[user.puesto].tabs : [];
+  if (USUARIOS_CONTROL_CUENTAS.includes(user.id) && !base.includes('cuentas')) {
+    return [...base, 'cuentas'];
+  }
+  return base;
+}
+
 // Restringe el acceso a la obra (proyecto) cargada por requireProject: el
 // admin siempre pasa; el resto solo si tiene una fila en usuario_proyectos
 // para ese project_id. Debe ir después de requireProject en la cadena.
@@ -663,6 +780,8 @@ module.exports = {
   findBackupCodeIndex,
   requireAuth,
   allow,
+  requireControlCuentasAccess,
+  tabsParaUsuario,
   verificarAccesoObra,
   ensureBootstrapAdmin,
   SECCIONES_PERMISOS,

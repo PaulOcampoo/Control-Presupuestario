@@ -27,4 +27,22 @@ function montoSinIva(montoConIva, tasaIva) {
   return Number((montoConIva / (1 + tasaIva)).toFixed(2));
 }
 
-module.exports = { calcularJornal, calcularDestajo, montoSinIva };
+// Validación defensiva de "Total sin IVA" vs "Total con IVA" en Datos de la
+// Obra (prompt-12-fix-totales-iva-invertidos.md). Ambos valores nacen de
+// filas DISTINTAS del Excel origen (server/parser.js extractMeta —
+// "TOTAL DEL PRESUPUESTO MOSTRADO SIN IVA" vs "TOTAL DEL PRESUPUESTO
+// MOSTRADO"), nunca se derivan uno del otro en código. Diagnóstico con
+// datos reales: 5 de 6 obras con ambos valores dan razón exactamente 1.16
+// (el Excel los captura bien); solo 1 obra (id=13, "Presupuestos Vinte")
+// tiene total_con_iva mal extraído de la celda equivocada al subir ese
+// archivo específico — no es un bug de cálculo que "arreglar" con una
+// fórmula, es un dato mal capturado en esa obra puntual. Por eso esta
+// función NO recalcula ni corrige nada, solo detecta el caso imposible
+// (con IVA < sin IVA) para que el caller pueda avisar en vez de mostrarlo
+// en silencio — decisión consultada con Paul: no tocar el valor guardado.
+function totalConIvaEsValido(totalSinIva, totalConIva) {
+  if (totalConIva == null) return true; // sin dato capturado, nada que validar
+  return Number(totalConIva) >= Number(totalSinIva);
+}
+
+module.exports = { calcularJornal, calcularDestajo, montoSinIva, totalConIvaEsValido };

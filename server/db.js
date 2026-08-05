@@ -81,6 +81,54 @@ const SCHEMA = `
   CREATE INDEX IF NOT EXISTS idx_conceptoinsumos_concepto ON concepto_insumos(concepto_id);
   CREATE INDEX IF NOT EXISTS idx_conceptoinsumos_insumo ON concepto_insumos(insumo_id);
 
+  -- Matrices de precio unitario (prompt-14-matrices-precio-unitario.md).
+  -- Diagnóstico confirmado con Paul: tabla propia, NUNCA concepto_insumos —
+  -- esa tabla es el mapeo admin-curado que alimenta "avance requiere entrega"
+  -- (insumosPendientesPorConcepto, server/app.js); poblarla con renglones de
+  -- Mano de Obra/Herramienta (que nunca pasan por requisición→OC→recepción)
+  -- habría bloqueado esos conceptos para siempre en captura de avance.
+  -- Además concepto_insumos no tiene columna cantidad — no serviría ni
+  -- aunque quisiéramos.
+  -- Fórmula en cascada (estándar MX, confirmada con Paul — utilidad sobre el
+  -- costo ya indirectado, no sobre el directo):
+  --   CD = materiales + mano_obra + herramienta_equipo (por insumos.categoria)
+  --   precio_unitario = CD × (1 + %indirecto/100) × (1 + %utilidad/100)
+  -- pct_indirecto/pct_utilidad se guardan POR MATRIZ (snapshot) — actualizar
+  -- porcentajes_referencia_costo (PR #48) o porcentajes_matriz_obra (abajo)
+  -- nunca altera retroactivamente una matriz ya creada.
+  CREATE TABLE IF NOT EXISTS matrices_precio_unitario (
+    id SERIAL PRIMARY KEY,
+    concepto_id INTEGER NOT NULL UNIQUE REFERENCES conceptos(id) ON DELETE CASCADE,
+    pct_indirecto DOUBLE PRECISION NOT NULL DEFAULT 0,
+    pct_utilidad DOUBLE PRECISION NOT NULL DEFAULT 0,
+    creado_por INTEGER REFERENCES usuarios(id),
+    creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    actualizado_por INTEGER REFERENCES usuarios(id),
+    actualizado_en TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
+
+  CREATE TABLE IF NOT EXISTS matriz_precio_items (
+    id SERIAL PRIMARY KEY,
+    matriz_id INTEGER NOT NULL REFERENCES matrices_precio_unitario(id) ON DELETE CASCADE,
+    insumo_id INTEGER NOT NULL REFERENCES insumos(id) ON DELETE CASCADE,
+    cantidad DOUBLE PRECISION NOT NULL DEFAULT 0,
+    UNIQUE (matriz_id, insumo_id)
+  );
+  CREATE INDEX IF NOT EXISTS idx_matrizitems_matriz ON matriz_precio_items(matriz_id);
+  CREATE INDEX IF NOT EXISTS idx_matrizitems_insumo ON matriz_precio_items(insumo_id);
+
+  -- % de indirecto/utilidad por defecto de una obra (cada contrato se cotiza
+  -- distinto — porcentajes_referencia_costo de PR #48 es un set global único,
+  -- no sirve como default por obra). Se usa SOLO para prellenar una matriz
+  -- NUEVA; nunca se lee retroactivamente desde una matriz ya creada.
+  CREATE TABLE IF NOT EXISTS porcentajes_matriz_obra (
+    project_id INTEGER PRIMARY KEY REFERENCES proyectos(id) ON DELETE CASCADE,
+    pct_indirecto DOUBLE PRECISION NOT NULL DEFAULT 0,
+    pct_utilidad DOUBLE PRECISION NOT NULL DEFAULT 0,
+    actualizado_por INTEGER REFERENCES usuarios(id),
+    actualizado_en TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
+
   CREATE TABLE IF NOT EXISTS requisiciones (
     id SERIAL PRIMARY KEY,
     project_id INTEGER NOT NULL REFERENCES proyectos(id) ON DELETE CASCADE,
@@ -297,6 +345,18 @@ const SCHEMA = `
   -- ahora en adelante quedan estrictamente acotadas a su creador.
   ALTER TABLE requisiciones ADD COLUMN IF NOT EXISTS usuario_id INTEGER REFERENCES usuarios(id);
   CREATE INDEX IF NOT EXISTS idx_requisiciones_usuario ON requisiciones(usuario_id);
+
+  -- Fecha de suministro requerida (prompt-15-fecha-suministro-y-programa.md)
+  -- — a nivel de requisición completa, no por renglón: el dato real (folios
+  -- ya usados como 'sem-7', 'SEMANA-01') confirma que el equipo ya arma cada
+  -- requisición pensando en una sola semana de necesidad, nunca mezclando
+  -- fechas distintas dentro de la misma. Nullable y NO retroactivo a
+  -- propósito: las requisiciones existentes se quedan sin fecha, siguen
+  -- consultables sin bloqueo — el frontend las marca "Sin fecha de
+  -- suministro" en vez de ocultarlas (decisión consultada: ese hueco es
+  -- justo lo que el Programa de suministros debe ayudar a detectar).
+  ALTER TABLE requisiciones ADD COLUMN IF NOT EXISTS fecha_suministro DATE;
+  CREATE INDEX IF NOT EXISTS idx_requisiciones_fecha_suministro ON requisiciones(fecha_suministro);
 
   -- Cliente (agrupador de proyectos) — agregado después de que 'proyectos' ya
   -- existía en producción. cliente_id es nullable para no romper proyectos
@@ -762,7 +822,7 @@ const SCHEMA = `
       'nominas','sugerencias','programa','estimaciones','maquinaria',
       'trabajadores_global','nominas_global','trabajadores','estado_resultados','maquinaria_captura','maquinaria_combustible',
       'costos','trabajadores_docs','trabajadores_contrato','trabajadores_bancarios',
-      'cotizador','estado_resultados_global'
+      'cotizador','estado_resultados_global','estado_unidad','maquinaria_consumibles'
     )),
     puede_ver BOOLEAN NOT NULL DEFAULT false,
     puede_crear BOOLEAN NOT NULL DEFAULT false,
@@ -789,6 +849,14 @@ const SCHEMA = `
   -- 'cotizador' (compras) y 'estadoResultadosGlobal' (tesorería), que hasta
   -- ahora no tenían sección propia — sin esto INSERT con esas secciones
   -- viola el CHECK, mismo bug ya documentado arriba con cada sección nueva.
+  -- 'estado_unidad' agregado en prompt-6-estado-unidad-operador.md — mismo
+  -- patrón, sección propia para el checklist de operador.
+  -- 'maquinaria_consumibles' agregado en prompt-10-programa-consumibles.md —
+  -- sección propia y separada de 'maquinaria_combustible' a propósito: esta
+  -- última sigue siendo solo jefe_maquinaria (combustible oficial +
+  -- bitácora de mantenimiento); darle a operador puede_crear ahí también le
+  -- habría abierto la puerta a mantenimientos_maquinaria (Forbidden Action
+  -- explícita de este prompt: no ampliar quién escribe esa tabla).
   ALTER TABLE permisos_usuario DROP CONSTRAINT IF EXISTS permisos_usuario_seccion_check;
   ALTER TABLE permisos_usuario ADD CONSTRAINT permisos_usuario_seccion_check CHECK (seccion IN (
     'presupuestos','requisiciones','proveedores','ordenes_compra','avance',
@@ -796,7 +864,7 @@ const SCHEMA = `
     'nominas','sugerencias','programa','estimaciones','maquinaria',
     'trabajadores_global','nominas_global','trabajadores','estado_resultados','maquinaria_captura','maquinaria_combustible',
     'costos','trabajadores_docs','trabajadores_contrato','trabajadores_bancarios',
-    'cotizador','estado_resultados_global'
+    'cotizador','estado_resultados_global','estado_unidad','maquinaria_consumibles'
   ));
 
   -- Contador de folios por obra + tipo de documento. INSERT...ON CONFLICT DO
@@ -902,6 +970,18 @@ const SCHEMA = `
   -- momento, mismo criterio que cliente_asignado_id.
   ALTER TABLE equipos_maquinaria ADD COLUMN IF NOT EXISTS operador_asignado_id INTEGER REFERENCES usuarios(id) ON DELETE SET NULL;
 
+  -- Categoría de unidad (prompt-6-estado-unidad-operador.md): distinta de
+  -- 'tipo' (arriba) a propósito. 'tipo' es el modelo/equipo específico
+  -- (retroexcavadora, equipo menor, etc. — texto libre sin CHECK, catálogo
+  -- vive en public/app.js MAQUINARIA_TIPOS). 'categoria' es la clasificación
+  -- de alto nivel que determina QUÉ VARIANTE de checklist de estado_unidad
+  -- aplica (máquina vs. camioneta) — controlada con CHECK porque solo hay 2
+  -- variantes de formulario posibles, a diferencia de 'tipo' que sigue
+  -- creciendo. Diagnóstico confirmó cero camionetas registradas hoy (las 3
+  -- filas existentes son 'retroexcavadora'); DEFAULT 'maquina' las backfillea
+  -- sin intervención manual.
+  ALTER TABLE equipos_maquinaria ADD COLUMN IF NOT EXISTS categoria TEXT NOT NULL DEFAULT 'maquina' CHECK (categoria IN ('maquina', 'camioneta'));
+
   CREATE TABLE IF NOT EXISTS combustible_maquinaria (
     id SERIAL PRIMARY KEY,
     equipo_id INTEGER NOT NULL REFERENCES equipos_maquinaria(id) ON DELETE CASCADE,
@@ -913,6 +993,40 @@ const SCHEMA = `
     creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW()
   );
   CREATE INDEX IF NOT EXISTS idx_combustible_maquinaria_equipo ON combustible_maquinaria(equipo_id);
+
+  -- Programa de consumibles (prompt-10-programa-consumibles.md) — decisión
+  -- consultada: 'diesel' NO se duplica en una tabla nueva porque
+  -- combustible_maquinaria (arriba) ya lo cubre exactamente (litros/fecha/
+  -- equipo/costo); el operador captura diesel EN esta misma tabla vía un
+  -- endpoint nuevo con su propia validación de ownership (equipo_id debe ser
+  -- el operador_asignado_id del operador) — costo/registrado_por se resuelven
+  -- igual, sin tocar el flujo existente de jefe_maquinaria. 'lectura'
+  -- (horómetro/km opcional en el momento de la captura) no existía en esta
+  -- tabla — se agrega nullable para no afectar las filas ya capturadas por
+  -- jefe_maquinaria, que nunca la usó.
+  ALTER TABLE combustible_maquinaria ADD COLUMN IF NOT EXISTS lectura DOUBLE PRECISION;
+
+  -- Los otros 3 consumibles (aceite_motor/hidraulico/transmision) sí son
+  -- tabla nueva — no tienen ningún equivalente existente. insumo_id
+  -- referencia el insumo de Insumos usado para resolver costo_estimado (si
+  -- lo hay — Insumos solo tiene 'ACEITE' genérico, sin distinguir motor/
+  -- hidráulico/transmisión, confirmado en diagnóstico) — nullable porque la
+  -- captura NO debe bloquearse por falta de catálogo (Forbidden Actions).
+  CREATE TABLE IF NOT EXISTS consumibles_maquinaria (
+    id SERIAL PRIMARY KEY,
+    equipo_id INTEGER NOT NULL REFERENCES equipos_maquinaria(id) ON DELETE CASCADE,
+    tipo TEXT NOT NULL CHECK (tipo IN ('aceite_motor', 'aceite_hidraulico', 'aceite_transmision')),
+    cantidad DOUBLE PRECISION NOT NULL,
+    unidad TEXT NOT NULL DEFAULT 'litros',
+    lectura DOUBLE PRECISION,
+    operador_id INTEGER NOT NULL REFERENCES usuarios(id),
+    fecha DATE NOT NULL,
+    costo_estimado DOUBLE PRECISION,
+    insumo_id INTEGER REFERENCES insumos(id) ON DELETE SET NULL,
+    activo BOOLEAN NOT NULL DEFAULT true,
+    creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
+  CREATE INDEX IF NOT EXISTS idx_consumibles_maquinaria_equipo ON consumibles_maquinaria(equipo_id, creado_en DESC);
 
   CREATE TABLE IF NOT EXISTS mantenimientos_maquinaria (
     id SERIAL PRIMARY KEY,
@@ -939,6 +1053,30 @@ const SCHEMA = `
     creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW()
   );
   CREATE INDEX IF NOT EXISTS idx_reportes_horas_maquinaria_equipo ON reportes_horas_maquinaria(equipo_id);
+
+  -- Checklist rápido de "estado de la unidad" (prompt-6-estado-unidad-
+  -- operador.md): distinto de mantenimientos_maquinaria (bitácora de
+  -- taller/mantenimiento de jefe_maquinaria) — este es el checklist de
+  -- seguridad/preventivos que captura el propio operador sobre SU unidad
+  -- asignada. tipo_unidad queda desnormalizado (copia de equipos_maquinaria.
+  -- categoria al momento de la captura) para que el histórico no cambie de
+  -- forma retroactiva si la categoría del equipo se reclasifica después.
+  -- items en JSONB: [{clave, etiqueta, estado: 'ok'|'atencion'|'critico', nota?}],
+  -- validado en código contra el catálogo fijo de cada variante (server/
+  -- app.js) — mismo patrón que ACTIVIDADES_MAQUINARIA (sin CHECK a nivel BD
+  -- para no duplicar el catálogo en dos lugares).
+  CREATE TABLE IF NOT EXISTS estado_unidad (
+    id SERIAL PRIMARY KEY,
+    equipo_id INTEGER NOT NULL REFERENCES equipos_maquinaria(id) ON DELETE CASCADE,
+    operador_id INTEGER NOT NULL REFERENCES usuarios(id),
+    fecha DATE NOT NULL,
+    tipo_unidad TEXT NOT NULL CHECK (tipo_unidad IN ('maquina', 'camioneta')),
+    items JSONB NOT NULL,
+    lectura NUMERIC,
+    observaciones TEXT,
+    creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
+  CREATE INDEX IF NOT EXISTS idx_estado_unidad_equipo ON estado_unidad(equipo_id, creado_en DESC);
 
   -- Catálogo fijo de actividad (prompt-2-rol-operador-actividades.md):
   -- Excavaciones/Cepas/Rellenos/Acarreos/Carga de material/Limpiezas.
@@ -1110,6 +1248,73 @@ const SCHEMA = `
   UPDATE permisos_usuario SET puede_crear = false, puede_editar = true
   WHERE seccion = 'maquinaria_captura'
     AND usuario_id IN (SELECT id FROM usuarios WHERE puesto = 'cabo');
+
+  -- prompt-6-estado-unidad-operador.md: 'estado_unidad' es una sección NUEVA
+  -- que defaultPermisosParaRol (server/auth.js) solo asigna a usuarios dados
+  -- de alta a partir de este cambio — mismo patrón ya usado arriba para
+  -- 'maquinaria_captura' con cabo. Backfill para operador/cabo/jefe_maquinaria
+  -- YA existentes en Preview (3 operadores, 1 cabo, 1 jefe_maquinaria al
+  -- momento del diagnóstico).
+  -- NOT EXISTS en vez de ON CONFLICT: proyecto_id es NULL en estas filas, y
+  -- Postgres NO considera NULL=NULL para efectos de UNIQUE — ON CONFLICT
+  -- (usuario_id, proyecto_id, seccion) DO NOTHING NO habría evitado
+  -- duplicados en cada cold start (confirmado empíricamente antes de este
+  -- fix: un segundo INSERT idéntico con proyecto_id NULL sí pasa el
+  -- constraint). NOT EXISTS sí es correcto para NULL e idempotente de verdad.
+  INSERT INTO permisos_usuario (usuario_id, proyecto_id, seccion, puede_ver, puede_crear, puede_editar, puede_editar_precios, puede_eliminar)
+  SELECT u.id, NULL, 'estado_unidad', true, (u.puesto = 'operador'), false, false, false
+  FROM usuarios u
+  WHERE u.puesto IN ('operador', 'cabo', 'jefe_maquinaria')
+    AND NOT EXISTS (
+      SELECT 1 FROM permisos_usuario pu
+      WHERE pu.usuario_id = u.id AND pu.proyecto_id IS NULL AND pu.seccion = 'estado_unidad'
+    );
+
+  -- prompt-10-programa-consumibles.md: mismo backfill, mismo criterio, para
+  -- 'maquinaria_consumibles' — operador ver+crear, cabo/jefe_maquinaria solo
+  -- ver (igual que estado_unidad arriba).
+  INSERT INTO permisos_usuario (usuario_id, proyecto_id, seccion, puede_ver, puede_crear, puede_editar, puede_editar_precios, puede_eliminar)
+  SELECT u.id, NULL, 'maquinaria_consumibles', true, (u.puesto = 'operador'), false, false, false
+  FROM usuarios u
+  WHERE u.puesto IN ('operador', 'cabo', 'jefe_maquinaria')
+    AND NOT EXISTS (
+      SELECT 1 FROM permisos_usuario pu
+      WHERE pu.usuario_id = u.id AND pu.proyecto_id IS NULL AND pu.seccion = 'maquinaria_consumibles'
+    );
+
+  -- Control de Cuentas (control personal de saldo bancario de Paul/Fer,
+  -- prompt-control-cuentas.md) — DELIBERADAMENTE fuera del sistema de
+  -- permisos_usuario/checkPermiso: acceso gateado por una whitelist de
+  -- usuario_id hardcodeada en server/auth.js (USUARIOS_CONTROL_CUENTAS),
+  -- no por rol — confirmado en diagnóstico que admin/desarrollador bypassean
+  -- checkPermiso por PUESTO, no por usuario, y hoy existen 5 cuentas con esos
+  -- roles (no solo Paul/Fer) — una sección de permiso normal habría expuesto
+  -- saldo personal a esas otras cuentas. Sin relación con ninguna tabla
+  -- financiera del negocio (Costos/Finanzas/Nómina) a propósito — es un
+  -- control personal separado.
+  CREATE TABLE IF NOT EXISTS cuentas_control (
+    id SERIAL PRIMARY KEY,
+    nombre TEXT NOT NULL,
+    banco TEXT,
+    saldo_inicial DOUBLE PRECISION NOT NULL DEFAULT 0,
+    fecha_saldo_inicial DATE NOT NULL,
+    activo BOOLEAN NOT NULL DEFAULT true,
+    creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
+
+  -- Todos los movimientos son gastos (monto > 0 resta del saldo) — sin
+  -- ingresos/depósitos en este PR (confirmado en diagnóstico: Paul no pidió
+  -- esa lectura, y el prompt exigía pausar si aparecía esa necesidad).
+  CREATE TABLE IF NOT EXISTS movimientos_control (
+    id SERIAL PRIMARY KEY,
+    cuenta_id INTEGER NOT NULL REFERENCES cuentas_control(id) ON DELETE CASCADE,
+    fecha DATE NOT NULL,
+    concepto TEXT NOT NULL,
+    monto DOUBLE PRECISION NOT NULL CHECK (monto > 0),
+    registrado_por INTEGER NOT NULL REFERENCES usuarios(id),
+    creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
+  CREATE INDEX IF NOT EXISTS idx_movimientos_control_cuenta ON movimientos_control(cuenta_id, fecha);
 `;
 
 // prompt-fix-error-permiso-trabajadores.md → el diagnóstico de ese prompt no

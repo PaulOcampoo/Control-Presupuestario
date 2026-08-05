@@ -336,7 +336,7 @@ button, a, select, label,
 /* Revelación de altura + fundido para banners no bloqueantes (instalación
    PWA, recordatorio de TOTP) — reemplaza el corte duro de style.display,
    que hacía saltar de golpe el contenido de abajo. */
-#totpReminderBanner, #installBanner {
+#totpReminderBanner, #installBanner, #novedadesBanner {
   overflow: hidden;
   max-height: 0;
   opacity: 0;
@@ -344,6 +344,13 @@ button, a, select, label,
 }
 #installBanner.show {
   max-height: 80px;
+  opacity: 1;
+}
+/* #novedadesBanner: título curado por admin, largo variable — mismo margen
+   que #totpReminderBanner (140px) para que un título largo envolviendo a
+   2-3 líneas en viewports angostos no se recorte. */
+#novedadesBanner.show {
+  max-height: 140px;
   opacity: 1;
 }
 /* #totpReminderBanner tiene más contenido que #installBanner (mensaje de

@@ -789,6 +789,22 @@ const SCHEMA = `
   ALTER TABLE trabajadores ADD COLUMN IF NOT EXISTS banco_nomina TEXT;
   ALTER TABLE trabajadores ADD COLUMN IF NOT EXISTS banco_alterna TEXT;
 
+  -- prompt-21-trabajadores-multiobra-diagnostico.md, Fase 0 — previene el bug
+  -- real encontrado (Javier Pineda / Santiago Lagunas en RED HIDRAULICA: dar
+  -- de baja y recrear en vez de editar, dentro de la MISMA obra). Por-obra
+  -- (project_id, curp), NO global: un UNIQUE(curp) global bloquearía el caso
+  -- legítimo de un trabajador que termina en una obra y años después arranca
+  -- en otra con el mismo CURP — sigue siendo una fila independiente porque no
+  -- existe tabla puente (diagnóstico confirmó 0 evidencia real de necesitar
+  -- una). Parcial (ignora NULL/'') porque CURP no es obligatorio hoy — de
+  -- hecho ninguno de los 2 duplicados reales tenía CURP capturado, así que
+  -- esto previene la recurrencia solo cuando SÍ se captura, no es un fix
+  -- retroactivo de esos casos. Verificado antes de crear: 0 grupos
+  -- (project_id, curp) repetidos en Preview y en Producción.
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_trabajadores_curp_unico_por_obra
+    ON trabajadores (project_id, curp)
+    WHERE curp IS NOT NULL AND TRIM(curp) <> '';
+
   -- Historial formal de bajas por trabajador (soft-delete auditado).
   -- motivo_baja restringido por CHECK; cuando es 'otro', se espera notas != null (enforced en app).
   CREATE TABLE IF NOT EXISTS trabajador_bajas (

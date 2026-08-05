@@ -6405,21 +6405,28 @@ app.post('/api/projects/:id/trabajadores', h(auth.allow('residente', 'cabo', 'ad
     alterna = resolverCuentaBanco(cuenta_alterna, banco_alterna);
     if (alterna.error) return res.status(400).json({ error: alterna.error });
   }
-  const { rows } = await db.pool.query(`
-    INSERT INTO trabajadores
-      (project_id, destajista_id, nombre, puesto, tipo_pago, tarifa_jornal, periodicidad,
-       curp, rfc, nss, telefono, direccion, contacto_emergencia,
-       contacto_emergencia_nombre, contacto_emergencia_telefono, fecha_ingreso,
-       cuenta_nomina_hsbc, cuenta_alterna, banco_nomina, banco_alterna)
-    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20) RETURNING *`,
-    [req.project.id, destId, nombre.trim(), puesto?.trim()||null, tipo_pago,
-     Math.max(0, Number(tarifa_jornal)||0), periodicidad,
-     curp?.trim()||null, rfc?.trim()||null, nss?.trim()||null,
-     telefono?.trim()||null, direccion?.trim()||null, contacto_emergencia?.trim()||null,
-     contacto_emergencia_nombre?.trim()||null, contacto_emergencia_telefono?.trim()||null,
-     fecha_ingreso||null,
-     nomina.cuenta, alterna.cuenta, nomina.banco, alterna.banco]
-  );
+  let rows;
+  try {
+    ({ rows } = await db.pool.query(`
+      INSERT INTO trabajadores
+        (project_id, destajista_id, nombre, puesto, tipo_pago, tarifa_jornal, periodicidad,
+         curp, rfc, nss, telefono, direccion, contacto_emergencia,
+         contacto_emergencia_nombre, contacto_emergencia_telefono, fecha_ingreso,
+         cuenta_nomina_hsbc, cuenta_alterna, banco_nomina, banco_alterna)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20) RETURNING *`,
+      [req.project.id, destId, nombre.trim(), puesto?.trim()||null, tipo_pago,
+       Math.max(0, Number(tarifa_jornal)||0), periodicidad,
+       curp?.trim()||null, rfc?.trim()||null, nss?.trim()||null,
+       telefono?.trim()||null, direccion?.trim()||null, contacto_emergencia?.trim()||null,
+       contacto_emergencia_nombre?.trim()||null, contacto_emergencia_telefono?.trim()||null,
+       fecha_ingreso||null,
+       nomina.cuenta, alterna.cuenta, nomina.banco, alterna.banco]
+    ));
+  } catch (err) {
+    // prompt-21-trabajadores-multiobra-diagnostico.md, Fase 0: idx_trabajadores_curp_unico_por_obra
+    if (err.code === '23505') return res.status(409).json({ error: 'Ya existe un trabajador con ese CURP en esta obra' });
+    throw err;
+  }
   await registrarDiscrepanciasBanco(req, rows[0].id, { nomina, alterna });
   res.status(201).json(await stripDatosBancarios(req, rows[0]));
 }));
@@ -6469,11 +6476,18 @@ app.put('/api/projects/:id/trabajadores/:wId', h(auth.allow('residente', 'cabo',
     );
   }
   params.push(wId, req.project.id);
-  const { rows } = await db.pool.query(
-    `UPDATE trabajadores SET ${setClauses.join(', ')}
-     WHERE id=$${params.length - 1} AND project_id=$${params.length} RETURNING *`,
-    params
-  );
+  let rows;
+  try {
+    ({ rows } = await db.pool.query(
+      `UPDATE trabajadores SET ${setClauses.join(', ')}
+       WHERE id=$${params.length - 1} AND project_id=$${params.length} RETURNING *`,
+      params
+    ));
+  } catch (err) {
+    // prompt-21-trabajadores-multiobra-diagnostico.md, Fase 0: idx_trabajadores_curp_unico_por_obra
+    if (err.code === '23505') return res.status(409).json({ error: 'Ya existe un trabajador con ese CURP en esta obra' });
+    throw err;
+  }
   if (!rows[0]) return res.status(404).json({ error: 'Trabajador no encontrado' });
   await registrarDiscrepanciasBanco(req, wId, { nomina, alterna });
   res.json(await stripDatosBancarios(req, rows[0]));
@@ -6885,6 +6899,30 @@ app.get('/api/projects/:id/asistencia', h(auth.allow('residente', 'cabo')), h(re
   res.json({ fecha, trabajadores: rows });
 }));
 
+// prompt-21-trabajadores-multiobra-diagnostico.md, Fase 0: salvaguarda contra
+// pago duplicado. Sin tabla puente (diagnóstico confirmó 0 evidencia real de
+// necesitar una), la única señal de "es la misma persona" entre obras es el
+// CURP. Si dos trabajadores en obras distintas comparten CURP y ambos quedan
+// 'presente' el mismo día, es evidencia de que la misma persona cobraría en
+// dos obras el mismo jornal — se bloquea, no se silencia (mismo criterio que
+// el resto de validaciones financieras del proyecto). Trabajadores sin CURP
+// capturado NO quedan protegidos (no hay con qué cruzar) — limitación
+// documentada en el diagnóstico, no es un descuido.
+async function buscarConflictoAsistenciaSimultanea(client, { trabajadorId, projectId, fecha }) {
+  const { rows: selfRows } = await client.query('SELECT curp FROM trabajadores WHERE id = $1', [trabajadorId]);
+  const curp = selfRows[0]?.curp?.trim();
+  if (!curp) return null;
+  const { rows } = await client.query(`
+    SELECT p.nombre AS obra_nombre, t2.nombre AS trabajador_nombre
+    FROM asistencia_diaria ad
+    JOIN trabajadores t2 ON t2.id = ad.trabajador_id
+    JOIN proyectos p ON p.id = ad.project_id
+    WHERE ad.fecha = $1 AND ad.estado = 'presente' AND ad.project_id <> $2 AND t2.curp = $3
+    LIMIT 1
+  `, [fecha, projectId, curp]);
+  return rows[0] || null;
+}
+
 app.put('/api/projects/:id/asistencia', h(auth.allow('residente', 'cabo')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('nominas', 'puede_editar')), h(async (req, res) => {
   const { fecha, asistencia } = req.body || {};
   if (!fecha || !/^\d{4}-\d{2}-\d{2}$/.test(fecha)) return res.status(400).json({ error: 'fecha inválida' });
@@ -6930,6 +6968,14 @@ app.put('/api/projects/:id/asistencia', h(auth.allow('residente', 'cabo')), h(re
       const wId = Number(item.trabajador_id);
       const estado = ESTADOS_ASIST.includes(item.estado) ? item.estado : 'presente';
       const presente = estado === 'presente'; // columna legada, mantener sincronizada
+      if (presente) {
+        const conflicto = await buscarConflictoAsistenciaSimultanea(client, { trabajadorId: wId, projectId: req.project.id, fecha });
+        if (conflicto) {
+          const err = new Error(`${conflicto.trabajador_nombre} ya está marcado presente hoy en "${conflicto.obra_nombre}" — no puede quedar presente en dos obras el mismo día`);
+          err.status = 409;
+          throw err;
+        }
+      }
       await client.query(`
         INSERT INTO asistencia_diaria (project_id, trabajador_id, fecha, presente, estado, capturado_por, actualizado_en)
         VALUES ($1,$2,$3,$4,$5,$6,NOW())
@@ -6970,8 +7016,22 @@ async function marcadoMasivoAsistencia(req, res, estado) {
     [req.project.id]
   );
   const presente = estado === 'presente';
+  // prompt-21-trabajadores-multiobra-diagnostico.md, Fase 0: a diferencia del
+  // PUT de arriba (bloqueo duro, edición deliberada de un renglón), aquí
+  // "marcar todos" afecta a toda la cuadrilla de un jalón — abortar el lote
+  // completo por un solo conflicto sería demasiado disruptivo para captura
+  // diaria. En vez de eso, se omite solo al trabajador en conflicto y se
+  // reporta explícitamente en la respuesta (nunca en silencio).
+  const omitidos = [];
   await db.withTransaction(async (client) => {
     for (const t of trabajadores) {
+      if (presente) {
+        const conflicto = await buscarConflictoAsistenciaSimultanea(client, { trabajadorId: t.id, projectId: req.project.id, fecha: hoy });
+        if (conflicto) {
+          omitidos.push({ trabajador_id: t.id, motivo: `ya presente hoy en "${conflicto.obra_nombre}"` });
+          continue;
+        }
+      }
       await client.query(`
         INSERT INTO asistencia_diaria (project_id, trabajador_id, fecha, presente, estado, capturado_por, actualizado_en)
         VALUES ($1,$2,$3,$4,$5,$6,NOW())
@@ -6982,7 +7042,7 @@ async function marcadoMasivoAsistencia(req, res, estado) {
       );
     }
   });
-  res.json({ ok: true, fecha: hoy, estado, afectados: trabajadores.length });
+  res.json({ ok: true, fecha: hoy, estado, afectados: trabajadores.length - omitidos.length, omitidos });
 }
 
 app.post('/api/projects/:id/asistencia/marcar-todos', h(auth.allow('residente', 'cabo')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('nominas', 'puede_editar')), h(async (req, res) => {

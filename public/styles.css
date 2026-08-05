@@ -759,6 +759,11 @@ body.body-scroll-locked { overflow: hidden; }
    oscuro y saturado propio de tema claro, no una simple inversión). Solo
    .success: .danger no se toca (no reportado, fuera de alcance). */
 [data-theme="light"] .toast.success { color: #14532d; }
+/* prompt-21-trabajadores-multiobra-diagnostico.md: toast de "marcar todos"
+   cuando se omitió a alguien por la salvaguarda de asistencia simultánea —
+   mismo color que .alert-box.warning, no es error ni éxito puro. */
+.toast.warning { border-color: var(--yellow); color: #fde68a; }
+[data-theme="light"] .toast.warning { color: #92400e; }
 /* En móvil el toast debe quedar por encima de la barra de navegación inferior */
 @media (max-width: 860px) {
   .toast { bottom: calc(var(--mobile-nav-h) + var(--mobile-nav-clear) + 20px); }

@@ -13519,7 +13519,12 @@ async function renderNominas(view) {
           const result = await api(`/projects/${state.projectId}/asistencia/${accion}`, { method: 'POST' });
           closeModal();
           await refrescar();
-          toast(`${result.afectados} trabajador${result.afectados === 1 ? '' : 'es'} actualizado${result.afectados === 1 ? '' : 's'}`, 'success');
+          const base = `${result.afectados} trabajador${result.afectados === 1 ? '' : 'es'} actualizado${result.afectados === 1 ? '' : 's'}`;
+          if (result.omitidos?.length) {
+            toast(`${base}. ${result.omitidos.length} omitido(s): ${result.omitidos.map((o) => o.motivo).join('; ')}`, 'warning');
+          } else {
+            toast(base, 'success');
+          }
         } catch (err) {
           toast(err.message, 'danger');
           btn.disabled = false; btn.textContent = 'Confirmar';

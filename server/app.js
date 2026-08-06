@@ -5619,6 +5619,12 @@ app.post('/api/projects/:id/avances/:semana/limpiar', h(auth.allow('residente', 
   res.json(rows[0]);
 }));
 
+// prompt-25-auditoria-permisos-completa.md: SIN checkPermiso a propósito, no
+// es un gap — decisión explícita de Paul. Autorizar es la última palabra
+// sobre si el avance capturado por el equipo se acepta; eso no se delega vía
+// permisos_usuario, se queda admin/desarrollador-only por auth.allow() vacío.
+// No confundir con las demás acciones de 'avance' (ver/crear), que sí tienen
+// checkPermiso real — ver ACCIONES_CON_ENFORCEMENT en public/app.js.
 app.put('/api/projects/:id/avances/:semana/autorizacion', h(auth.allow()), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
   const { estado } = req.body || {};
   if (!['autorizado', 'rechazado'].includes(estado)) {
@@ -6144,6 +6150,9 @@ app.get('/api/projects/:id/destajistas/:destId/avance/:semana', h(auth.allow('re
   res.json({ semana, destajista: destRows[0], periodo: semRows[0], items, estado_autorizacion: autRows[0] ? autRows[0].estado_autorizacion : null });
 }));
 
+// prompt-25-auditoria-permisos-completa.md: mismo criterio explícito que la
+// autorización de avance — admin/desarrollador-only a propósito, sin
+// checkPermiso, no delegable vía permisos_usuario (decisión de Paul).
 app.put('/api/projects/:id/destajistas/:destId/avance/:semana/autorizacion', h(auth.allow()), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
   const { estado } = req.body || {};
   if (!['autorizado', 'rechazado'].includes(estado)) {
@@ -7394,7 +7403,12 @@ app.put('/api/projects/:id/nominas/:nomId/estado', h(auth.allow('residente', 'ca
   res.json(rows[0]);
 }));
 
-app.delete('/api/projects/:id/nominas/:nomId', h(auth.allow()), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+// prompt-25-auditoria-permisos-completa.md: era la única acción de Nóminas
+// sin checkPermiso — auth.allow() sin argumentos la dejaba admin/desarrollador-
+// only de facto, así que 'nominas.puede_eliminar' otorgado a un residente/cabo
+// no tenía ningún efecto real (el 403 llegaba antes, por el gate de rol, ni
+// siquiera evaluaba el permiso granular). Mismo patrón que el resto de Nóminas.
+app.delete('/api/projects/:id/nominas/:nomId', h(auth.allow('residente', 'cabo')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('nominas', 'puede_eliminar')), h(async (req, res) => {
   const nomId = Number(req.params.nomId);
   const { rows: nomRows } = await db.pool.query('SELECT estado FROM nominas WHERE id=$1 AND project_id=$2', [nomId, req.project.id]);
   if (!nomRows[0]) return res.status(404).json({ error: 'Nómina no encontrada' });
@@ -7403,7 +7417,10 @@ app.delete('/api/projects/:id/nominas/:nomId', h(auth.allow()), h(requireProject
   res.json({ ok: true });
 }));
 
-app.get('/api/projects/:id/nominas/:nomId/export', h(auth.allow()), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+// prompt-25-auditoria-permisos-completa.md: mismo gap que el DELETE de
+// arriba — exportar es una acción de lectura (mismo criterio que el resto
+// de módulos, ej. insumos/export), así que usa puede_ver, no puede_eliminar.
+app.get('/api/projects/:id/nominas/:nomId/export', h(auth.allow('residente', 'cabo')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('nominas', 'puede_ver')), h(async (req, res) => {
   const { rows: rlNom } = await db.pool.query(
     `SELECT COUNT(*)::int AS n FROM api_rate_limits
      WHERE usuario_id = $1 AND endpoint = 'export_nominas'

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { calcularJornal, calcularDestajo, montoSinIva, totalConIvaEsValido } from '../server/calculos.js';
+import { calcularJornal, calcularDestajo, montoSinIva, totalConIvaEsValido, numeroALetra } from '../server/calculos.js';
 
 describe('calcularJornal (tarifa_diaria × días presentes)', () => {
   it('caso normal: 6 días presentes a $350/día', () => {
@@ -82,5 +82,71 @@ describe('totalConIvaEsValido (prompt-12-fix-totales-iva-invertidos.md)', () => 
 
   it('caso edge: total_con_iva undefined (mismo tratamiento que null) no se marca inválido', () => {
     expect(totalConIvaEsValido(1000, undefined)).toBe(true);
+  });
+});
+
+describe('numeroALetra (importe del Precio Unitario en letra, prompt-20-matrices-formato-neodata.md)', () => {
+  it('caso del ejemplo real del Excel de referencia: 200.65 -> DOSCIENTOS PESOS 65/100', () => {
+    expect(numeroALetra(200.65)).toBe('(* DOSCIENTOS PESOS 65/100 M.N. *)');
+  });
+
+  it('caso cero: 0 -> CERO PESOS (plural, no "cero peso")', () => {
+    expect(numeroALetra(0)).toBe('(* CERO PESOS 00/100 M.N. *)');
+  });
+
+  it('singular: 1.00 -> UN PESO (singular, sin "uno")', () => {
+    expect(numeroALetra(1)).toBe('(* UN PESO 00/100 M.N. *)');
+  });
+
+  it('plural: 2.00 -> DOS PESOS', () => {
+    expect(numeroALetra(2)).toBe('(* DOS PESOS 00/100 M.N. *)');
+  });
+
+  it('decimales: centavos con cero a la izquierda (1.05 -> 05/100)', () => {
+    expect(numeroALetra(1.05)).toBe('(* UN PESO 05/100 M.N. *)');
+  });
+
+  it('apocope de "uno" en veintiuno: 21.00 -> VEINTIUN PESOS (no "veintiuno")', () => {
+    expect(numeroALetra(21)).toBe('(* VEINTIUN PESOS 00/100 M.N. *)');
+  });
+
+  it('apocope de "uno" compuesto: 31.00 -> TREINTA Y UN PESOS (no "treinta y uno")', () => {
+    expect(numeroALetra(31)).toBe('(* TREINTA Y UN PESOS 00/100 M.N. *)');
+  });
+
+  it('cien exacto: 100.00 -> CIEN PESOS (no "ciento")', () => {
+    expect(numeroALetra(100)).toBe('(* CIEN PESOS 00/100 M.N. *)');
+  });
+
+  it('ciento + resto: 101.00 -> CIENTO UN PESOS', () => {
+    expect(numeroALetra(101)).toBe('(* CIENTO UN PESOS 00/100 M.N. *)');
+  });
+
+  it('centenas irregulares: 500.00 -> QUINIENTOS PESOS (no "cincocientos")', () => {
+    expect(numeroALetra(500)).toBe('(* QUINIENTOS PESOS 00/100 M.N. *)');
+  });
+
+  it('miles: 1000.00 -> MIL PESOS (no "un mil")', () => {
+    expect(numeroALetra(1000)).toBe('(* MIL PESOS 00/100 M.N. *)');
+  });
+
+  it('miles compuestos: 2500.00 -> DOS MIL QUINIENTOS PESOS', () => {
+    expect(numeroALetra(2500)).toBe('(* DOS MIL QUINIENTOS PESOS 00/100 M.N. *)');
+  });
+
+  it('cien mil: 100000.00 -> CIEN MIL PESOS', () => {
+    expect(numeroALetra(100000)).toBe('(* CIEN MIL PESOS 00/100 M.N. *)');
+  });
+
+  it('millones: 1000000.00 -> UN MILLON PESOS (singular, no "un millones")', () => {
+    expect(numeroALetra(1000000)).toBe('(* UN MILLON PESOS 00/100 M.N. *)');
+  });
+
+  it('millones plural: 2000000.00 -> DOS MILLONES PESOS', () => {
+    expect(numeroALetra(2000000)).toBe('(* DOS MILLONES PESOS 00/100 M.N. *)');
+  });
+
+  it('caso combinado real de presupuesto: 1234567.89', () => {
+    expect(numeroALetra(1234567.89)).toBe('(* UN MILLON DOSCIENTOS TREINTA Y CUATRO MIL QUINIENTOS SESENTA Y SIETE PESOS 89/100 M.N. *)');
   });
 });

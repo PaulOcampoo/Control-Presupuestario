@@ -106,16 +106,46 @@ const SCHEMA = `
     actualizado_por INTEGER REFERENCES usuarios(id),
     actualizado_en TIMESTAMPTZ NOT NULL DEFAULT NOW()
   );
+  -- prompt-20-matrices-formato-neodata.md: PR #98 simplificó la fórmula real
+  -- (era un error de especificación, no de implementación) — estas columnas
+  -- faltaban para modelar el Análisis de Precios Unitarios formato Neodata
+  -- real: cuadrilla (MO = suma de jornales ÷ rendimiento, no cantidad×precio),
+  -- cascada de 4 niveles con financiamiento, y encabezado formal del análisis.
+  ALTER TABLE matrices_precio_unitario ADD COLUMN IF NOT EXISTS pct_financiamiento DOUBLE PRECISION NOT NULL DEFAULT 0;
+  ALTER TABLE matrices_precio_unitario ADD COLUMN IF NOT EXISTS rendimiento DOUBLE PRECISION;
+  ALTER TABLE matrices_precio_unitario ADD COLUMN IF NOT EXISTS partida TEXT;
+  ALTER TABLE matrices_precio_unitario ADD COLUMN IF NOT EXISTS analisis_no TEXT;
+  ALTER TABLE matrices_precio_unitario ADD COLUMN IF NOT EXISTS cuadrilla_nombre TEXT;
 
-  CREATE TABLE IF NOT EXISTS matriz_precio_items (
+  -- Reemplaza matriz_precio_items (prompt-20-matrices-formato-neodata.md,
+  -- decisión confirmada con Paul: las 2 matrices de prueba en Producción y la
+  -- de Preview se pierden a propósito, autorizado explícitamente — no había
+  -- ninguna matriz real en uso). El modelo (insumo_id, cantidad) de la tabla
+  -- vieja no puede representar un renglón %MO* (que no es un insumo, referencia
+  -- el subtotal de OTRA categoría) ni distinguir Mano de Obra (cuadrilla ÷
+  -- rendimiento) de Materiales/Equipo (cantidad × precio directo).
+  DROP TABLE IF EXISTS matriz_precio_items;
+  CREATE TABLE IF NOT EXISTS matriz_precio_renglones (
     id SERIAL PRIMARY KEY,
     matriz_id INTEGER NOT NULL REFERENCES matrices_precio_unitario(id) ON DELETE CASCADE,
-    insumo_id INTEGER NOT NULL REFERENCES insumos(id) ON DELETE CASCADE,
-    cantidad DOUBLE PRECISION NOT NULL DEFAULT 0,
+    categoria TEXT NOT NULL CHECK (categoria IN ('MATERIALES','MANO DE OBRA','EQUIPO Y HERRAMIENTA')),
+    tipo TEXT NOT NULL DEFAULT 'insumo' CHECK (tipo IN ('insumo','factor_pct')),
+    insumo_id INTEGER REFERENCES insumos(id) ON DELETE CASCADE,
+    -- Solo para tipo='factor_pct' (ej. "%MO1" / "HERRAMIENTA MENOR") — no
+    -- tiene insumo_id que le dé código/descripción, así que los lleva
+    -- propios. Para tipo='insumo' se ignoran, el código/descripción real
+    -- viene del JOIN con insumos.
+    codigo TEXT,
+    descripcion TEXT,
+    cantidad DOUBLE PRECISION NOT NULL,
+    factor_referencia TEXT CHECK (factor_referencia IN ('MATERIALES','MANO DE OBRA','EQUIPO Y HERRAMIENTA')),
+    orden INTEGER NOT NULL DEFAULT 0,
     UNIQUE (matriz_id, insumo_id)
   );
-  CREATE INDEX IF NOT EXISTS idx_matrizitems_matriz ON matriz_precio_items(matriz_id);
-  CREATE INDEX IF NOT EXISTS idx_matrizitems_insumo ON matriz_precio_items(insumo_id);
+  CREATE INDEX IF NOT EXISTS idx_matrizrenglones_matriz ON matriz_precio_renglones(matriz_id);
+  CREATE INDEX IF NOT EXISTS idx_matrizrenglones_insumo ON matriz_precio_renglones(insumo_id);
+  ALTER TABLE matriz_precio_renglones ADD COLUMN IF NOT EXISTS codigo TEXT;
+  ALTER TABLE matriz_precio_renglones ADD COLUMN IF NOT EXISTS descripcion TEXT;
 
   -- % de indirecto/utilidad por defecto de una obra (cada contrato se cotiza
   -- distinto — porcentajes_referencia_costo de PR #48 es un set global único,
@@ -128,6 +158,10 @@ const SCHEMA = `
     actualizado_por INTEGER REFERENCES usuarios(id),
     actualizado_en TIMESTAMPTZ NOT NULL DEFAULT NOW()
   );
+  -- prompt-20-matrices-formato-neodata.md: la cascada real agrega (CF)
+  -- Financiamiento como tercer porcentaje, mismo criterio que indirecto/
+  -- utilidad — default por obra, snapshot por matriz al crearse.
+  ALTER TABLE porcentajes_matriz_obra ADD COLUMN IF NOT EXISTS pct_financiamiento DOUBLE PRECISION NOT NULL DEFAULT 0;
 
   CREATE TABLE IF NOT EXISTS requisiciones (
     id SERIAL PRIMARY KEY,

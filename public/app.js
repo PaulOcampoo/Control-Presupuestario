@@ -7730,14 +7730,29 @@ const PERMISOS_SECCION_LABELS = {
   // la matriz (prompt-implementar-permisos-docs-contrato-epp.md).
   trabajadores_docs: 'Trabajadores — Documentos de identidad',
   trabajadores_contrato: 'Trabajadores — Contratos laborales',
+  // prompt-25-auditoria-permisos-completa.md, CP0: 'trabajadores_bancarios'
+  // tenía enforcement real desde prompt-p5-cuentas-bancarias.md (checkPermiso
+  // en server/app.js, base de PR #105) pero nunca se dio de alta aquí —
+  // mismo bug ya documentado arriba con estado_unidad/maquinaria_consumibles:
+  // Paul no tenía forma de otorgar/revocar este permiso a nadie salvo el
+  // default hardcodeado de 'administracion'. 'cotizador' y
+  // 'estado_resultados_global' se agregan también para completar el
+  // catálogo (existen en SECCIONES_PERMISOS de server/auth.js) — sin
+  // enforcement real todavía, quedan informativas correctamente.
+  trabajadores_bancarios: 'Trabajadores — Cuentas bancarias',
+  cotizador: 'Cotizador de materiales',
+  estado_resultados_global: 'Estado de Resultados (Todas las Obras)',
 };
 // Secciones que NUNCA son por-obra — no existe (ni tiene sentido) una versión
 // "para la obra X" de una vista que ya de por sí es cross-obra/cross-cliente.
 // Se guardan y se leen SIEMPRE con proyecto_id NULL, sin importar qué obra
 // esté seleccionada en el dropdown de la matriz (ver permisosParaProyecto y
 // el handler de #btnGuardarPermisos más abajo). Mismo criterio que
-// server/auth.js SECCIONES_PERMISOS.
-const SECCIONES_SIEMPRE_GLOBAL = ['trabajadores_global', 'nominas_global', 'costos'];
+// server/auth.js SECCIONES_PERMISOS. 'estado_resultados_global' agregado
+// (prompt-25-auditoria-permisos-completa.md): mismo patrón cross-obra que
+// trabajadores_global/nominas_global (endpoint /api/estado-resultados/
+// consolidado, sin :id de obra).
+const SECCIONES_SIEMPRE_GLOBAL = ['trabajadores_global', 'nominas_global', 'costos', 'estado_resultados_global'];
 const PERMISOS_SECCIONES = Object.keys(PERMISOS_SECCION_LABELS);
 const PERMISOS_ACCIONES = [
   { key: 'puede_ver', label: 'Ver' },
@@ -7746,112 +7761,88 @@ const PERMISOS_ACCIONES = [
   { key: 'puede_editar_precios', label: 'Editar precios' },
   { key: 'puede_eliminar', label: 'Eliminar' },
 ];
-// Secciones donde el backend realmente exige el permiso (auth.checkPermiso
-// aplicado en server/app.js) — hoy solo Nómina y Avance. Para el resto, la
-// casilla es informativa: el acceso real lo sigue decidiendo el rol
-// (auth.allow()), marcarla o no aquí todavía no cambia nada en el backend.
-// Actualizar esta lista cada vez que se le agregue checkPermiso a una
-// sección nueva (ver mismo patrón en server/auth.js SECCIONES_PERMISOS).
-// 'trabajadores_docs' (ver/crear/eliminar reales, editar/editar_precios sin
-// endpoint — mismo patrón ya aceptado en 'trabajadores' con editar_precios)
-// y 'trabajadores_contrato' (ver/crear reales, editar/eliminar/editar_precios
-// sin endpoint — no existe esa acción, se resube el PDF completo) SÍ se
-// agregan completas aquí, a diferencia de Mapeo/Impuestos/Insumos más abajo:
-// a diferencia de esos casos (donde ninguna acción del rol no-admin es
-// alcanzable todavía), aquí SON la sección que este prompt expone para que
-// Paul las conceda de verdad — dejarlas fuera las mostraría como
-// "informativas: sin efecto real" cuando ver/crear/eliminar SÍ lo tienen.
-// 'costos' agregado (prompt-14-matrices-precio-unitario.md): antes solo
-// puede_ver/puede_crear tenían enforcement real (catálogo); ahora
-// puede_editar/puede_editar_precios/puede_eliminar también lo tienen vía
-// Matrices de precio unitario — los 5 toggles de esta sección ya son reales.
-// 'estado_unidad' y 'maquinaria_consumibles' (prompt-13-fix-permisos-operador.md):
-// checkPermiso real desde que se agregaron (PRs #90/#92), pero faltaban aquí
-// — sin esto la fila ni siquiera se pintaba en la matriz (ver PERMISOS_SECCION_LABELS/
-// PERMISOS_GRUPOS arriba), independientemente de este flag informativo.
-const SECCIONES_CON_ENFORCEMENT = ['nominas', 'avance', 'maquinaria', 'maquinaria_captura', 'maquinaria_combustible', 'trabajadores_global', 'nominas_global', 'trabajadores', 'destajo', 'requisiciones', 'proveedores', 'ordenes_compra', 'trabajadores_docs', 'trabajadores_contrato', 'costos', 'estado_unidad', 'maquinaria_consumibles'];
-// 'ordenes_compra' SÍ se agrega completa (prompt-checkpermiso-ordenes-compra.md):
-// a diferencia de presupuestos/finanzas/mapeo, las 4 acciones (ver/crear/
-// editar/eliminar) tienen checkPermiso real — listar/detalle/export, generar
-// OC desde requisición autorizada, cambiar estado (incluye confirmar/
-// rechazar, con su propia restricción fina admin/tesorería dentro del
-// handler), y eliminar (solo en borrador). Recepciones y pagos quedan fuera
-// de scope, sin checkPermiso todavía — son sub-flujos con concern propio,
-// no CRUD directo de la Orden de Compra.
-// 'presupuestos' NO se agrega aquí todavía (prompt-checkpermiso-presupuestos.md):
-// solo GET /api/projects/:id/conceptos (puede_ver) tiene checkPermiso real —
-// no existe endpoint de editar/eliminar concepto individual, así que agregar
-// la sección completa mostraría puede_crear/editar/eliminar/editar_precios
-// como "reales" en la matriz cuando en realidad son inertes todavía. Agregar
-// 'presupuestos' aquí solo cuando esas acciones también tengan enforcement.
-// 'finanzas' NO se agrega aquí tampoco (prompt-checkpermiso-finanzas.md), mismo
-// motivo exacto: Finanzas es 100% lectura agregada (resumen + export, ambos
-// puede_ver) — no existe ninguna acción de crear/editar/eliminar en este
-// módulo, así que agregar la sección completa mostraría esas 3 casillas como
-// "reales" en la matriz cuando el módulo ni siquiera tiene esas operaciones.
-// 'mapeo' NO se agrega aquí tampoco (prompt-checkpermiso-mapeo.md): a
-// diferencia de presupuestos/finanzas, aquí SÍ hay checkPermiso real en
-// ver/crear/eliminar (listar, vincular y desvincular concepto↔insumo) — pero
-// no existe ningún endpoint de "editar" (la relación es un puente m2m, se
-// desvincula y vuelve a vincular en vez de editarse), así que 'puede_editar'
-// seguiría siendo inerte. Agregar la sección completa mostraría esa casilla
-// como "real" cuando no lo es — mismo motivo, acción puntual distinta.
-// 'impuestos' NO se agrega aquí tampoco (prompt-checkpermiso-impuestos.md):
-// 'puede_ver' SÍ tiene enforcement real y activo (tesorería/administración
-// llegan al checkPermiso vía auth.allow('tesoreria','administracion')).
-// 'puede_editar' (cargar comprobantes de un periodo) tiene checkPermiso
-// cableado también, pero el endpoint sigue detrás de auth.allow() sin
-// argumentos — solo admin/desarrollador lo alcanzan, y ambos bypasean
-// checkPermiso por diseño, así que hoy es inerte en la práctica (mismo
-// patrón que Mapeo). 'puede_crear'/'puede_eliminar'/'puede_editar_precios'
-// no corresponden a ningún endpoint: los periodos los crea únicamente el
-// cron mensual (POST /api/cron/recordatorio-impuestos, fuera del alcance de
-// checkPermiso por diseño — no tiene sesión de usuario) y no existe borrado.
-// Agregar la sección completa mostraría 4 de las 5 casillas como "reales"
-// sin serlo.
-// 'contrato' NO se agrega aquí tampoco (prompt-checkpermiso-contratos.md):
-// checkPermiso está cableado en las 3 rutas (contrato-preview, contrato-
-// confirm → puede_crear; GET .../contrato/pdf → puede_ver), pero las 3
-// siguen detrás de auth.allow() sin argumentos — solo admin/desarrollador
-// las alcanzan, y ambos bypasean checkPermiso por diseño, así que hoy es
-// 100% inerte en la práctica (mismo patrón que Mapeo/Impuestos). Nota: el
-// tab 'contrato' sí es visible en frontend para tesorería/administración
-// (PERMISSIONS.tabs en server/auth.js), un gap preexistente entre nav y
-// auth.allow() que no se introdujo ni se corrigió en este cambio — fuera de
-// scope. No existe 'puede_editar'/'puede_eliminar' para este módulo: no hay
-// endpoint de editar campos ya guardados (se resube el PDF completo) ni de
-// eliminar contrato.
-// 'insumos' NO se agrega aquí tampoco (prompt-checkpermiso-insumos.md):
-// 'puede_ver' SÍ tiene enforcement real y activo (checkPermiso cableado en
-// listar/export/categorías, alcanzables por residente/cabo/compras/
-// logística vía auth.allow()). 'puede_editar' (tasa de IVA por insumo)
-// tiene checkPermiso cableado también, pero el endpoint sigue detrás de
-// auth.allow() sin argumentos — solo admin/desarrollador lo alcanzan, y
-// ambos bypasean checkPermiso por diseño, así que hoy es inerte en la
-// práctica (mismo patrón que Mapeo/Impuestos/Contrato). 'puede_crear' y
-// 'puede_eliminar' no corresponden a ningún endpoint: el catálogo de
-// insumos se crea únicamente vía la carga inicial del contrato/.xlsx
-// (fuera del alcance de checkPermiso) y no existe borrado individual.
-// Agregar la sección completa mostraría 3 de las 4 casillas como "reales"
-// sin serlo.
-// 'costos' NO se agrega aquí tampoco (prompt-modulo-costos.md): 'puede_ver'
-// (catálogo por cliente/global) y 'puede_crear' (crear presupuesto desde el
-// catálogo) SÍ tienen enforcement real y alcanzable — sin auth.allow(),
-// checkPermiso es el único gate, igual que trabajadores_global/nominas_global.
-// 'puede_editar'/'puede_editar_precios'/'puede_eliminar' no corresponden a
-// ningún endpoint: el catálogo se arma solo-lectura desde insumos ya
-// cargados, no hay nada que editar ni eliminar en 'costos' en sí (mismo
-// motivo que Finanzas — "100% lectura", aquí "lectura + creación"). Agregar
-// la sección completa mostraría 3 de las 5 casillas como "reales" sin serlo.
+// Acciones donde el backend REALMENTE exige el permiso (auth.checkPermiso
+// aplicado en server/app.js), por sección — reemplaza el flag binario
+// SECCIONES_CON_ENFORCEMENT (prompt-25-auditoria-permisos-completa.md, CP0:
+// una sección con 1 sola acción real forzaba a mostrar las 5 como reales, o
+// las 5 como informativas, mintiendo sobre las otras 4 en ambas direcciones
+// — ej. 'insumos.puede_ver' se mostraba "informativo: sin efecto" cuando en
+// realidad SÍ bloqueaba con 403 real; 'nominas.puede_eliminar' se mostraba
+// "real" cuando el endpoint ni siquiera llamaba checkPermiso todavía).
+// Ahora cada celda de la matriz (sección × acción) se resuelve individual.
+// Una acción ausente de la lista de una sección es informativa por UNA de
+// dos razones — ambas se tratan igual en la UI, la distinción es solo para
+// quien lea este comentario:
+//   (a) no existe ningún endpoint para esa acción (ej. presupuestos.puede_
+//       crear: no hay forma de crear un concepto individual via API), o
+//   (b) el endpoint tiene checkPermiso cableado pero sigue detrás de un
+//       auth.allow() sin argumentos (solo admin/desarrollador llegan, y
+//       ambos bypasean checkPermiso) — inerte en la práctica hasta que se
+//       decida abrir ese gate a un rol no-admin (contrato/impuestos.editar/
+//       insumos.editar: decisión explícita de Paul de NO abrirlos por ahora,
+//       prompt-25-auditoria-permisos-completa.md — sin caso de negocio real
+//       hoy). 'avance'/'destajo' autorización es un caso aparte: tiene
+//       checkPermiso, pero a propósito NUNCA se delega (decisión de Paul,
+//       ver comentario en el endpoint en server/app.js) — no aparece abajo
+//       porque 'avance'/'destajo' no tienen una acción PERMISOS_ACCIONES
+//       dedicada a "autorizar" (viven fuera del catálogo ver/crear/editar/
+//       editar_precios/eliminar), así que no hay celda que mostrar como real
+//       ni como informativa para esa acción específica.
+// Actualizar este mapa cada vez que se le agregue checkPermiso REAL Y
+// ALCANZABLE (no solo cableado) a una acción nueva.
+const ACCIONES_CON_ENFORCEMENT = {
+  presupuestos: ['puede_ver'],
+  requisiciones: ['puede_ver', 'puede_crear', 'puede_editar', 'puede_eliminar'],
+  proveedores: ['puede_ver', 'puede_crear', 'puede_editar', 'puede_eliminar'],
+  ordenes_compra: ['puede_ver', 'puede_crear', 'puede_editar', 'puede_eliminar'],
+  avance: ['puede_ver', 'puede_crear'],
+  destajo: ['puede_ver', 'puede_crear', 'puede_editar', 'puede_eliminar', 'puede_editar_precios'],
+  finanzas: ['puede_ver'],
+  estado_resultados: [],
+  insumos: ['puede_ver'],
+  mapeo: ['puede_ver', 'puede_crear', 'puede_eliminar'],
+  usuarios: [],
+  contrato: [],
+  impuestos: ['puede_ver'],
+  nominas: ['puede_ver', 'puede_crear', 'puede_editar', 'puede_eliminar'],
+  sugerencias: [],
+  programa: [],
+  estimaciones: [],
+  maquinaria: ['puede_ver', 'puede_crear', 'puede_editar', 'puede_eliminar'],
+  // maquinaria_captura.puede_ver: ver horas usa checkPermiso('maquinaria',
+  // 'puede_ver'), no 'maquinaria_captura' — esta sección solo gatea de
+  // verdad crear/editar (capturar horas + autorizar/rechazar).
+  maquinaria_captura: ['puede_crear', 'puede_editar'],
+  // maquinaria_combustible.puede_eliminar: el DELETE real usa checkPermiso
+  // ('maquinaria','puede_eliminar'), no esta sección — cruzado, documentado
+  // acá para no repetir la confusión. No existe endpoint de editar registro
+  // de combustible/mantenimiento (se registra y ya).
+  maquinaria_combustible: ['puede_ver', 'puede_crear'],
+  trabajadores_global: ['puede_ver'],
+  nominas_global: ['puede_ver'],
+  trabajadores: ['puede_ver', 'puede_crear', 'puede_editar', 'puede_eliminar'],
+  trabajadores_docs: ['puede_ver', 'puede_crear', 'puede_eliminar'],
+  trabajadores_contrato: ['puede_ver', 'puede_crear'],
+  // trabajadores_bancarios.puede_editar: silencia los 4 campos bancarios del
+  // payload si no se tiene el permiso (mismo patrón que destajo.puede_editar_
+  // precios abajo) — no es un 403, es un descarte silencioso, pero SÍ es
+  // enforcement real.
+  trabajadores_bancarios: ['puede_ver', 'puede_editar'],
+  costos: ['puede_ver', 'puede_crear', 'puede_editar', 'puede_editar_precios', 'puede_eliminar'],
+  cotizador: [],
+  estado_resultados_global: [],
+  estado_unidad: ['puede_ver', 'puede_crear'],
+  maquinaria_consumibles: ['puede_ver', 'puede_crear'],
+};
 // Agrupa las secciones de permisos igual que SECTION_DEFS agrupa las pestañas
 // en la pantalla de inicio (Obra / Compras / Tesorería / Administración) —
 // mismo criterio de negocio, para que la matriz se lea en el mismo orden que
 // el resto de la app en vez de un orden alfabético/insertado sin relación.
 const PERMISOS_GRUPOS = [
   { label: 'Obra',           secciones: ['presupuestos', 'programa', 'avance', 'destajo', 'estimaciones'] },
-  { label: 'Compras',        secciones: ['requisiciones', 'insumos', 'proveedores', 'ordenes_compra'] },
-  { label: 'Tesorería',      secciones: ['finanzas', 'estado_resultados', 'impuestos'] },
-  { label: 'Administración', secciones: ['mapeo', 'contrato', 'nominas', 'usuarios', 'trabajadores', 'trabajadores_docs', 'trabajadores_contrato', 'trabajadores_global', 'nominas_global', 'costos'] },
+  { label: 'Compras',        secciones: ['requisiciones', 'insumos', 'proveedores', 'ordenes_compra', 'cotizador'] },
+  { label: 'Tesorería',      secciones: ['finanzas', 'estado_resultados', 'estado_resultados_global', 'impuestos'] },
+  { label: 'Administración', secciones: ['mapeo', 'contrato', 'nominas', 'usuarios', 'trabajadores', 'trabajadores_docs', 'trabajadores_contrato', 'trabajadores_bancarios', 'trabajadores_global', 'nominas_global', 'costos'] },
   { label: 'Maquinaria',     secciones: ['maquinaria', 'maquinaria_captura', 'maquinaria_combustible', 'estado_unidad', 'maquinaria_consumibles'] },
   { label: 'General',        secciones: ['sugerencias'] },
 ];
@@ -8196,15 +8187,17 @@ async function renderUsuarios(view, initialSubView) {
     // Si ya hay una fila guardada para esta sección (en este proyecto o en la
     // regla general de proyecto_id NULL), esa manda — es una personalización
     // ya hecha antes. Si NO existe ninguna fila todavía, el comportamiento
-    // depende de si la sección tiene enforcement real en el backend:
-    //   - Sin enforcement (checkPermiso no aplicado ahí): pre-marcar con lo
-    //     que el rol ya puede hacer hoy por auth.allow() (defaultsDelRol) es
-    //     seguro — es solo informativo, el acceso real lo sigue dando el rol.
-    //   - CON enforcement (nominas, avance): NO pre-marcar con el default.
-    //     Sin fila real, checkPermiso en el backend deniega con 403 sin
-    //     importar el rol — mostrar la casilla marcada ahí mentiría sobre lo
-    //     que el usuario puede hacer hoy (bug reportado: casillas marcadas
-    //     para algo que en la práctica el usuario no puede hacer).
+    // depende de si la ACCIÓN (no la sección completa — prompt-25-auditoria-
+    // permisos-completa.md, CP0/redisño a nivel-acción) tiene enforcement
+    // real en el backend:
+    //   - Sin enforcement en esa acción puntual: pre-marcar con lo que el rol
+    //     ya puede hacer hoy por auth.allow() (defaultsDelRol) es seguro — es
+    //     solo informativo, el acceso real lo sigue dando el rol.
+    //   - CON enforcement en esa acción puntual: NO pre-marcar con el
+    //     default. Sin fila real, checkPermiso en el backend deniega con 403
+    //     sin importar el rol — mostrar la casilla marcada ahí mentiría
+    //     sobre lo que el usuario puede hacer hoy (bug reportado: casillas
+    //     marcadas para algo que en la práctica el usuario no puede hacer).
     function permisosParaProyecto(proyectoId) {
       const filasEspecificas = Object.fromEntries(
         permisosActuales.filter((p) => p.proyecto_id === proyectoId).map((f) => [f.seccion, f])
@@ -8219,16 +8212,13 @@ async function renderUsuarios(view, initialSubView) {
           ? filasGenerales[seccion]
           : (filasEspecificas[seccion] || filasGenerales[seccion]);
         if (real) return { ...real, _sinFila: false };
-        if (SECCIONES_CON_ENFORCEMENT.includes(seccion)) {
-          return {
-            seccion, puede_ver: false, puede_crear: false, puede_editar: false,
-            puede_editar_precios: false, puede_eliminar: false, _sinFila: true,
-          };
-        }
-        return { ...(defaultsDelRol[seccion] || {
-          seccion, puede_ver: false, puede_crear: false, puede_editar: false,
-          puede_editar_precios: false, puede_eliminar: false,
-        }), _sinFila: true };
+        const accionesReales = ACCIONES_CON_ENFORCEMENT[seccion] || [];
+        const rolDefault = defaultsDelRol[seccion] || {};
+        const fila = { seccion, _sinFila: true };
+        PERMISOS_ACCIONES.forEach((a) => {
+          fila[a.key] = accionesReales.includes(a.key) ? false : !!rolDefault[a.key];
+        });
+        return fila;
       });
     }
 
@@ -8259,13 +8249,17 @@ async function renderUsuarios(view, initialSubView) {
                   ${grupo.secciones.map((seccion) => {
                     const f = filasPorSeccion[seccion];
                     if (!f) return '';
-                    const sinEnforcement = !SECCIONES_CON_ENFORCEMENT.includes(seccion);
+                    const accionesReales = ACCIONES_CON_ENFORCEMENT[seccion] || [];
+                    const seccionSinEnforcement = accionesReales.length === 0;
                     return `
                     <tr data-seccion="${f.seccion}">
-                      <td>${esc(PERMISOS_SECCION_LABELS[f.seccion])}${sinEnforcement ? '<span class="muted fs-07 perm-badge-info" title="El backend todavía no exige este permiso para esta sección — hoy el acceso real lo decide el rol del usuario, marcar/desmarcar aquí no tiene efecto todavía."> · informativo</span>' : ''}</td>
-                      ${PERMISOS_ACCIONES.map((a) => `
-                        <td><label class="perm-check${sinEnforcement ? ' perm-check-informativo' : ''}"><input type="checkbox" data-accion="${a.key}" data-sin-enforcement="${sinEnforcement}" ${f[a.key] ? 'checked' : ''} /><span class="perm-check-track"><span class="perm-check-thumb"></span></span></label></td>
-                      `).join('')}
+                      <td>${esc(PERMISOS_SECCION_LABELS[f.seccion])}${seccionSinEnforcement ? '<span class="muted fs-07 perm-badge-info" title="El backend todavía no exige ningún permiso de esta sección — hoy el acceso real lo decide el rol del usuario, marcar/desmarcar aquí no tiene efecto todavía."> · informativo</span>' : ''}</td>
+                      ${PERMISOS_ACCIONES.map((a) => {
+                        const sinEnforcement = !accionesReales.includes(a.key);
+                        return `
+                        <td><label class="perm-check${sinEnforcement ? ' perm-check-informativo' : ''}" title="${sinEnforcement ? 'El backend todavía no exige esta acción — marcar/desmarcar aquí no tiene efecto todavía.' : ''}"><input type="checkbox" data-accion="${a.key}" data-sin-enforcement="${sinEnforcement}" ${f[a.key] ? 'checked' : ''} /><span class="perm-check-track"><span class="perm-check-thumb"></span></span></label></td>
+                      `;
+                      }).join('')}
                     </tr>
                   `;
                   }).join('')}

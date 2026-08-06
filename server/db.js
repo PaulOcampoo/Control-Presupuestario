@@ -1494,6 +1494,17 @@ const SCHEMA = `
     creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW()
   );
   CREATE INDEX IF NOT EXISTS idx_movimientos_control_cuenta ON movimientos_control(cuenta_id, fecha);
+
+  -- Split de pago de nómina (prompt-29-split-pago-cuentas.md): porcentaje que
+  -- va a cuenta_nomina_hsbc, capturado una sola vez al alta del trabajador (o
+  -- editado después) y no por periodo — el resto (100 - pct) va a
+  -- cuenta_alterna automáticamente en el reporte/export. Default 100 (todo a
+  -- la cuenta principal) para no romper trabajadores existentes ni obligar a
+  -- definir el split si no aplica; si cuenta_alterna está vacía, el split se
+  -- ignora en el cálculo (100% a cuenta_nomina_hsbc sin importar el valor
+  -- aquí, ver calcularSplitCuentas en server/calculos.js).
+  ALTER TABLE trabajadores ADD COLUMN IF NOT EXISTS split_cuenta_nomina_pct NUMERIC NOT NULL DEFAULT 100
+    CHECK (split_cuenta_nomina_pct >= 0 AND split_cuenta_nomina_pct <= 100);
 `;
 
 // prompt-fix-error-permiso-trabajadores.md → el diagnóstico de ese prompt no

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { calcularJornal, calcularDestajo, montoSinIva, totalConIvaEsValido, numeroALetra } from '../server/calculos.js';
+import { calcularJornal, calcularDestajo, montoSinIva, totalConIvaEsValido, numeroALetra, calcularSplitCuentas } from '../server/calculos.js';
 
 describe('calcularJornal (tarifa_diaria × días presentes)', () => {
   it('caso normal: 6 días presentes a $350/día', () => {
@@ -148,5 +148,32 @@ describe('numeroALetra (importe del Precio Unitario en letra, prompt-20-matrices
 
   it('caso combinado real de presupuesto: 1234567.89', () => {
     expect(numeroALetra(1234567.89)).toBe('(* UN MILLON DOSCIENTOS TREINTA Y CUATRO MIL QUINIENTOS SESENTA Y SIETE PESOS 89/100 M.N. *)');
+  });
+});
+
+describe('calcularSplitCuentas (prompt-29-split-pago-cuentas.md)', () => {
+  it('caso normal: split 70/30 sobre $2,100 con cuenta_alterna capturada', () => {
+    expect(calcularSplitCuentas(2100, 70, true)).toEqual({ montoCuentaNomina: 1470, montoCuentaAlterna: 630 });
+  });
+
+  it('sin cuenta_alterna: 100% a cuenta_nomina sin importar el split capturado', () => {
+    expect(calcularSplitCuentas(2100, 30, false)).toEqual({ montoCuentaNomina: 2100, montoCuentaAlterna: 0 });
+  });
+
+  it('split 100 (default): todo a cuenta_nomina aunque sí haya cuenta_alterna', () => {
+    expect(calcularSplitCuentas(2100, 100, true)).toEqual({ montoCuentaNomina: 2100, montoCuentaAlterna: 0 });
+  });
+
+  it('split 0: todo a cuenta_alterna', () => {
+    expect(calcularSplitCuentas(2100, 0, true)).toEqual({ montoCuentaNomina: 0, montoCuentaAlterna: 2100 });
+  });
+
+  it('no hay diferencia de redondeo: la suma de ambas partes siempre cuadra exacto con el total, incluso con montos que no redondean limpio', () => {
+    const { montoCuentaNomina, montoCuentaAlterna } = calcularSplitCuentas(1000.33, 33, true);
+    expect(montoCuentaNomina + montoCuentaAlterna).toBe(1000.33);
+  });
+
+  it('monto_total 0: ambas partes en 0', () => {
+    expect(calcularSplitCuentas(0, 70, true)).toEqual({ montoCuentaNomina: 0, montoCuentaAlterna: 0 });
   });
 });

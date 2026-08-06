@@ -107,4 +107,20 @@ function numeroALetra(monto) {
   return `(* ${palabras} ${pesoLabel} ${centavosStr}/100 M.N. *)`;
 }
 
-module.exports = { calcularJornal, calcularDestajo, montoSinIva, totalConIvaEsValido, numeroALetra };
+// Split de pago de nómina entre cuenta_nomina_hsbc y cuenta_alterna
+// (prompt-29-split-pago-cuentas.md): desglose de PRESENTACIÓN sobre un
+// monto_total ya calculado (jornal + destajo), nunca modifica el cálculo
+// base. montoCuentaAlterna se obtiene por resta del total ya redondeado
+// (no un segundo cálculo independiente) para que la suma de ambas partes
+// cuadre exacto con montoTotal sin diferencia de redondeo. Si el
+// trabajador no tiene cuenta_alterna capturada, el split se ignora
+// siempre — 100% va a cuenta_nomina_hsbc sin importar splitPct.
+function calcularSplitCuentas(montoTotal, splitPct, tieneCuentaAlterna) {
+  const total = Number(montoTotal);
+  if (!tieneCuentaAlterna) return { montoCuentaNomina: total, montoCuentaAlterna: 0 };
+  const montoCuentaNomina = Number((total * Number(splitPct) / 100).toFixed(2));
+  const montoCuentaAlterna = Number((total - montoCuentaNomina).toFixed(2));
+  return { montoCuentaNomina, montoCuentaAlterna };
+}
+
+module.exports = { calcularJornal, calcularDestajo, montoSinIva, totalConIvaEsValido, numeroALetra, calcularSplitCuentas };

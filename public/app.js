@@ -13051,6 +13051,11 @@ async function openTrabajadorModal(trab, repaint, permisosBancarios, obraId = st
           <input id="tBancoAlterna" value="${esc(trab?.banco_alterna || '')}" ${puedeEditarBancarios ? '' : 'disabled'} placeholder="Se detecta solo si capturas una CLABE" />
           <div class="banco-detectado-badge hidden-initial" id="tBancoAlternaBadge">✓ Detectado automáticamente por CLABE</div>
         </div>
+        <div class="field field-full">
+          <label>Split de pago (% a cuenta de nómina)</label>
+          <input id="tSplitPct" type="number" min="0" max="100" step="1" value="${trab?.split_cuenta_nomina_pct ?? 100}" ${puedeEditarBancarios ? '' : 'disabled'} />
+          <p class="muted fs076-m200">El resto (100 − este %) se dispersa a la cuenta alterna en cada nómina. Se define una sola vez y aplica mientras el trabajador esté activo. Si no hay cuenta alterna capturada, siempre se paga 100% a la cuenta de nómina, sin importar este valor.</p>
+        </div>
       ` : ''}
     </div>
     <div class="modal-actions">
@@ -13098,6 +13103,11 @@ async function openTrabajadorModal(trab, repaint, permisosBancarios, obraId = st
       body.cuenta_alterna = $('#tCuentaAlterna').value.trim() || null;
       body.banco_nomina = $('#tBancoNomina').value.trim() || null;
       body.banco_alterna = $('#tBancoAlterna').value.trim() || null;
+      const splitRaw = $('#tSplitPct').value.trim();
+      body.split_cuenta_nomina_pct = splitRaw === '' ? 100 : Number(splitRaw);
+      if (!Number.isFinite(body.split_cuenta_nomina_pct) || body.split_cuenta_nomina_pct < 0 || body.split_cuenta_nomina_pct > 100) {
+        toast('El split debe ser un número entre 0 y 100', 'danger'); return;
+      }
     }
     const btn = $('#btnSaveTrab');
     btn.disabled = true;
@@ -14678,6 +14688,11 @@ async function openVerNominaModal(nominaId) {
     if (!items.length) { el.innerHTML = '<div class="empty-state">Sin líneas calculadas. Usa el botón Calcular primero.</div>'; return; }
     const total = items.reduce((s, i) => s + Number(i.monto_total || 0), 0);
     const hasDest = items.some((i) => (i.monto_destajo || 0) > 0 || i.tipo_pago === 'destajo' || i.tipo_pago === 'mixto');
+    // prompt-29-split-pago-cuentas.md: monto_cuenta_nomina/monto_cuenta_alterna
+    // solo vienen en la respuesta si el usuario tiene trabajadores_bancarios
+    // puede_ver (adjuntarDesgloseCuentas en server/app.js) — su sola presencia
+    // en el primer item ya sirve como flag para mostrar las columnas.
+    const hasSplit = items.some((i) => 'monto_cuenta_nomina' in i);
     const sinAsistencia = items.every((i) => (i.dias_trabajados || 0) === 0);
     const sinTarifa = items.some((i) => (i.dias_trabajados || 0) > 0 && (i.monto_jornal || 0) === 0 && (i.tipo_pago === 'jornal' || i.tipo_pago === 'mixto'));
     el.innerHTML = `
@@ -14692,6 +14707,7 @@ async function openVerNominaModal(nominaId) {
           <th class="nomina-th-right">Tarifa/día</th>
           <th class="nomina-th-right">Jornal</th>
           ${hasDest ? `<th class="nomina-th-right">Destajo</th>` : ''}
+          ${hasSplit ? `<th class="nomina-th-right">Cta. nómina</th><th class="nomina-th-right">Cta. alterna</th>` : ''}
           <th class="nomina-th-right">Total</th>
         </tr></thead>
         <tbody>
@@ -14700,6 +14716,8 @@ async function openVerNominaModal(nominaId) {
             const montoJornal = Number(i.monto_jornal || 0);
             const montoDest = Number(i.monto_destajo || 0);
             const montoTot = Number(i.monto_total || 0);
+            const montoCtaNomina = Number(i.monto_cuenta_nomina || 0);
+            const montoCtaAlterna = Number(i.monto_cuenta_alterna || 0);
             const warnRow = (i.dias_trabajados || 0) > 0 && montoTot === 0;
             return `<tr class="${warnRow ? 'nomina-warn-row' : ''}">
               <td class="nomina-td">${esc(i.trabajador_nombre || i.nombre_trabajador || '—')}</td>
@@ -14707,12 +14725,16 @@ async function openVerNominaModal(nominaId) {
               <td class="nomina-td-right">${tarifaJornal > 0 ? '$' + tarifaJornal.toLocaleString('es-MX', { minimumFractionDigits: 2 }) : '<span class="muted">—</span>'}</td>
               <td class="nomina-td-right">$${montoJornal.toLocaleString('es-MX', { minimumFractionDigits: 2 })}</td>
               ${hasDest ? `<td class="nomina-td-right">$${montoDest.toLocaleString('es-MX', { minimumFractionDigits: 2 })}</td>` : ''}
+              ${hasSplit ? `
+                <td class="nomina-td-right">$${montoCtaNomina.toLocaleString('es-MX', { minimumFractionDigits: 2 })}${i.banco_nomina ? ` <span class="muted">(${esc(i.banco_nomina)})</span>` : ''}</td>
+                <td class="nomina-td-right">$${montoCtaAlterna.toLocaleString('es-MX', { minimumFractionDigits: 2 })}${i.banco_alterna ? ` <span class="muted">(${esc(i.banco_alterna)})</span>` : ''}</td>
+              ` : ''}
               <td class="nomina-td-total">$${montoTot.toLocaleString('es-MX', { minimumFractionDigits: 2 })}</td>
             </tr>`;
           }).join('')}
         </tbody>
         <tfoot><tr>
-          <td colspan="${hasDest ? 5 : 4}" class="nomina-tfoot-label">Total nómina</td>
+          <td colspan="${(hasDest ? 5 : 4) + (hasSplit ? 2 : 0)}" class="nomina-tfoot-label">Total nómina</td>
           <td class="nomina-tfoot-total">$${total.toLocaleString('es-MX', { minimumFractionDigits: 2 })}</td>
         </tr></tfoot>
       </table>

@@ -59,16 +59,16 @@ async function tieneCobros(facturaId) {
   return rows.length > 0;
 }
 
-async function createFactura({ project_id, folio, concepto, fecha_emision, monto_subtotal, iva, monto_total, creado_por }) {
+async function createFactura({ project_id, folio, concepto, fecha_emision, monto_subtotal, iva, monto_total, observaciones, creado_por }) {
   const { rows } = await db.pool.query(
-    `INSERT INTO facturas (project_id, folio, concepto, fecha_emision, monto_subtotal, iva, monto_total, creado_por)
-     VALUES ($1,$2,$3,COALESCE($4::date, CURRENT_DATE),$5,$6,$7,$8) RETURNING *`,
-    [project_id, folio || null, concepto, fecha_emision || null, monto_subtotal, iva, monto_total, creado_por]
+    `INSERT INTO facturas (project_id, folio, concepto, fecha_emision, monto_subtotal, iva, monto_total, observaciones, creado_por)
+     VALUES ($1,$2,$3,COALESCE($4::date, CURRENT_DATE),$5,$6,$7,$8,$9) RETURNING *`,
+    [project_id, folio || null, concepto, fecha_emision || null, monto_subtotal, iva, monto_total, observaciones?.trim() || null, creado_por]
   );
   return { ...rows[0], monto_cobrado: 0 };
 }
 
-async function updateFactura(id, { folio, concepto, fecha_emision, monto_subtotal, iva, monto_total }) {
+async function updateFactura(id, { folio, concepto, fecha_emision, monto_subtotal, iva, monto_total, observaciones }) {
   if (await tieneCobros(id)) {
     const err = new Error('No se puede editar una factura que ya tiene cobros registrados');
     err.status = 400;
@@ -81,10 +81,11 @@ async function updateFactura(id, { folio, concepto, fecha_emision, monto_subtota
        fecha_emision = COALESCE($3::date, fecha_emision),
        monto_subtotal = COALESCE($4, monto_subtotal),
        iva = COALESCE($5, iva),
-       monto_total = COALESCE($6, monto_total)
-     WHERE id = $7 AND estatus != 'cancelada'
+       monto_total = COALESCE($6, monto_total),
+       observaciones = COALESCE($7, observaciones)
+     WHERE id = $8 AND estatus != 'cancelada'
      RETURNING *`,
-    [folio?.trim() || null, concepto?.trim() || null, fecha_emision || null, monto_subtotal, iva, monto_total, id]
+    [folio?.trim() || null, concepto?.trim() || null, fecha_emision || null, monto_subtotal, iva, monto_total, observaciones?.trim() || null, id]
   );
   return rows[0] || null;
 }

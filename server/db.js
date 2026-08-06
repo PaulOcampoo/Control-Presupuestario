@@ -1266,6 +1266,37 @@ const SCHEMA = `
   );
   CREATE INDEX IF NOT EXISTS idx_cobros_factura ON cobros(factura_id);
 
+  -- Agregada después de que facturas ya existía en Preview/Producción —
+  -- prompt-27-control-financiero-fase1.md, CP0 punto 1: el Excel de
+  -- referencia (Control_Financiero_KALIA.xlsx) capturaba un campo de
+  -- observaciones libres por factura que el modelo original no tenía.
+  ALTER TABLE facturas ADD COLUMN IF NOT EXISTS observaciones TEXT;
+
+  -- Gastos Indirectos Corporativos (prompt-27-control-financiero-fase1.md,
+  -- Control Financiero Fase 1) — gastos que NO pertenecen a ninguna obra
+  -- específica (nómina de oficina, contador, renta corporativa), a
+  -- diferencia de gastos_generales que siempre es por-obra
+  -- (project_id NOT NULL). Deliberadamente una tabla NUEVA y separada de
+  -- gastos_generales (CP0 punto 2, decisión confirmada con Paul):
+  -- reutilizar esa tabla habría acoplado este módulo a rutas anidadas bajo
+  -- /api/projects/:id (requireProject + auth.verificarAccesoObra, que
+  -- exigen una obra) y heredado su DELETE físico condicional
+  -- (server/app.js, gastos/:gastoId — permitido si estado != 'pagado'),
+  -- que contradice la regla dura de este módulo: nunca DELETE físico.
+  -- project_id NULL = gasto corporativo sin obra específica.
+  CREATE TABLE IF NOT EXISTS gastos_indirectos_corporativos (
+    id SERIAL PRIMARY KEY,
+    project_id INTEGER REFERENCES proyectos(id) ON DELETE CASCADE,
+    tipo TEXT NOT NULL,
+    concepto TEXT NOT NULL,
+    monto DOUBLE PRECISION NOT NULL,
+    fecha DATE NOT NULL DEFAULT CURRENT_DATE,
+    observaciones TEXT,
+    registrado_por INTEGER REFERENCES usuarios(id),
+    creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
+  CREATE INDEX IF NOT EXISTS idx_gastos_indirectos_project ON gastos_indirectos_corporativos(project_id);
+
   -- % estándar de referencia para Composición de costos (docs/diseno-desglose-
   -- presupuesto-categorias) — usado como "base" de comparación contra el %
   -- real (insumos.categoria) cuando una obra NO tiene contrato/cédula cargado.

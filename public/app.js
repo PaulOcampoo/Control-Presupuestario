@@ -1107,7 +1107,7 @@ const SECTION_DEFS = {
   obra:          { label: 'Obra',           icon: 'obra',           emoji: '🏗️',  tabs: ['programa', 'avance', 'destajo', 'estimaciones', 'matrices'],     proximamente: [] },
   compras:       { label: 'Compras',        icon: 'compras',        emoji: '🛒',   tabs: ['requisiciones', 'insumos', 'proveedores', 'ordenes', 'cotizador'], proximamente: ['Subcontratos'] },
   tesoreria:     { label: 'Tesorería',      icon: 'tesoreria',      emoji: '💰',   tabs: ['finanzas', 'estadoResultados', 'estadoResultadosGlobal', 'impuestos'], proximamente: [] },
-  administracion:{ label: 'Administración', icon: 'administracion', emoji: '📂',  tabs: ['mapeo', 'contrato', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'costos', 'avance_clientes', 'composicion_costos', 'usuarios', 'cuentas'], proximamente: ['Almacenes'] },
+  administracion:{ label: 'Administración', icon: 'administracion', emoji: '📂',  tabs: ['mapeo', 'contrato', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'costos', 'avance_clientes', 'composicion_costos', 'usuarios', 'cuentas', 'controlFinanciero'], proximamente: ['Almacenes'] },
   maquinaria:    { label: 'Maquinaria',     icon: 'maquinaria',     emoji: '🚜',   tabs: ['maquinaria'],                                        proximamente: [] },
 };
 
@@ -1117,7 +1117,7 @@ const TAB_ICONS = {
   finanzas: '💰', mapeo: '🔗', usuarios: '👤', trabajadores: '👷', nominas: '💵', estimaciones: '🧮',
   maquinaria: '🚜', nominas_global: '💵', trabajadores_global: '👷', cotizador: '🔍',
   estadoResultados: '📈', estadoResultadosGlobal: '📈', costos: '💲', avance_clientes: '📈', composicion_costos: '🧮',
-  cuentas: '🏦', matrices: '🧱',
+  cuentas: '🏦', matrices: '🧱', controlFinanciero: '💹',
 };
 const TAB_LABELS = {
   resumen: 'Resumen', contrato: 'Contrato', impuestos: 'Impuestos', insumos: 'Insumos', requisiciones: 'Requisiciones',
@@ -1126,7 +1126,7 @@ const TAB_LABELS = {
   maquinaria: 'Maquinaria', nominas_global: 'Nómina (todas las obras)', trabajadores_global: 'Trabajadores (todas las obras)',
   cotizador: 'Cotizador', estadoResultados: 'Estado de Resultados', estadoResultadosGlobal: 'Estado de Resultados (todas las obras)',
   costos: 'Costos', avance_clientes: 'Avance por cliente', composicion_costos: 'Composición de costos',
-  cuentas: 'Cuentas', matrices: 'Matrices de precio unitario',
+  cuentas: 'Cuentas', matrices: 'Matrices de precio unitario', controlFinanciero: 'Control Financiero',
 };
 
 const VIEW_TO_SECTION = {};
@@ -3790,10 +3790,11 @@ function destroyCharts() {
 async function renderView() {
   destroyCharts();
   const view = $('#view');
-  if (state.view === 'usuarios' || state.view === 'proveedores' || state.view === 'maquinaria' || state.view === 'nominas_global' || state.view === 'trabajadores_global' || state.view === 'cotizador' || state.view === 'estadoResultadosGlobal' || state.view === 'costos' || state.view === 'avance_clientes' || state.view === 'composicion_costos' || state.view === 'cuentas') {
+  if (state.view === 'usuarios' || state.view === 'proveedores' || state.view === 'maquinaria' || state.view === 'nominas_global' || state.view === 'trabajadores_global' || state.view === 'cotizador' || state.view === 'estadoResultadosGlobal' || state.view === 'costos' || state.view === 'avance_clientes' || state.view === 'composicion_costos' || state.view === 'cuentas' || state.view === 'controlFinanciero') {
     try {
       if (state.view === 'usuarios') { await renderUsuarios(view, state.usuariosSubView); state.usuariosSubView = null; }
       else if (state.view === 'cuentas') await renderControlCuentas(view);
+      else if (state.view === 'controlFinanciero') await renderControlFinanciero(view);
       else if (state.view === 'proveedores') await renderProveedores(view);
       else if (state.view === 'nominas_global') await renderNominasGlobal(view);
       else if (state.view === 'trabajadores_global') await renderTrabajadoresGlobal(view);
@@ -11239,6 +11240,338 @@ async function openDetalleCuentaCCModal(cuentaId) {
   } catch (err) {
     $('#ccDetalleBody').innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
   }
+}
+
+// =========================================================================
+// Control Financiero Fase 1 (prompt-27-control-financiero-fase1.md) —
+// Ingresos (facturación/cobro por contrato) y Gastos Indirectos
+// Corporativos. La sección solo aparece en el sidebar de los 2 usuarios en
+// la whitelist (auth.tabsParaUsuario, server/auth.js) — cortesía de UI, el
+// gate real es 100% backend (auth.requireControlFinancieroAccess en cada
+// endpoint). Ingresos reutiliza las mismas tablas que ya usa Tesorería
+// (facturas/cobros, server/estadoResultados.js) — mismo dato, gating
+// distinto. Gastos Indirectos Corporativos es tabla nueva
+// (gastos_indirectos_corporativos): project_id nullable, NULL = gasto
+// corporativo sin obra específica. Vista mínima de consulta con totales
+// simples — el Estado de Resultados / Dashboard completo queda para una
+// fase posterior (fuera de alcance de este prompt).
+// =========================================================================
+async function renderControlFinanciero(view) {
+  let subView = 'ingresos'; // 'ingresos' | 'gastosIndirectos'
+  let obraSeleccionada = state.projects[0] ? state.projects[0].id : null;
+
+  function renderSubNav() {
+    return `
+      <div class="nominas-subnav">
+        <button class="btn ${subView === 'ingresos' ? 'btn-primary' : ''}" id="btnCfSubIngresos">Ingresos</button>
+        <button class="btn ${subView === 'gastosIndirectos' ? 'btn-primary' : ''}" id="btnCfSubGastos">Gastos Indirectos Corporativos</button>
+      </div>
+    `;
+  }
+  function bindSubNav() {
+    $('#btnCfSubIngresos').addEventListener('click', showIngresos);
+    $('#btnCfSubGastos').addEventListener('click', showGastosIndirectos);
+  }
+
+  async function showIngresos() {
+    subView = 'ingresos';
+    view.innerHTML = `
+      <h2 class="section-title">Control Financiero</h2>
+      <p class="muted">Ingresos (facturación/cobro por contrato) y Gastos Indirectos Corporativos — acceso restringido.</p>
+      ${renderSubNav()}
+      <div class="card mt-12">
+        <label>Obra</label>
+        <select id="cfObraSelect">
+          ${state.projects.map((p) => `<option value="${p.id}" ${p.id === obraSeleccionada ? 'selected' : ''}>${esc(p.nombre)}</option>`).join('')}
+        </select>
+      </div>
+      <div class="section-actions mt-12">
+        <button class="btn btn-primary" id="btnNuevaFacturaCf" ${obraSeleccionada ? '' : 'disabled'}>+ Nueva factura</button>
+      </div>
+      <div id="cfIngresosList" class="mt-12"></div>
+    `;
+    bindSubNav();
+    $('#cfObraSelect')?.addEventListener('change', (e) => { obraSeleccionada = Number(e.target.value); cargarIngresos(); });
+    $('#btnNuevaFacturaCf').addEventListener('click', () => openNuevaFacturaCfModal(obraSeleccionada, cargarIngresos));
+    await cargarIngresos();
+  }
+
+  async function cargarIngresos() {
+    const list = $('#cfIngresosList');
+    if (!obraSeleccionada) { list.innerHTML = '<div class="empty-state">No hay obras disponibles.</div>'; return; }
+    list.innerHTML = '<div class="spinner"></div>';
+    try {
+      const facturas = await api(`/control-financiero/ingresos?project_id=${obraSeleccionada}`);
+      if (!facturas.length) { list.innerHTML = '<div class="empty-state">Sin facturas registradas para esta obra.</div>'; return; }
+      const totalFacturado = facturas.filter((f) => f.estatus !== 'cancelada').reduce((s, f) => s + Number(f.monto_total), 0);
+      const totalCobrado = facturas.reduce((s, f) => s + Number(f.monto_cobrado), 0);
+      list.innerHTML = `
+        <div class="kpi-grid">
+          <div class="kpi accent"><div class="label">Facturado</div><div class="value">${fmtMoney(totalFacturado)}</div></div>
+          <div class="kpi"><div class="label">Cobrado</div><div class="value">${fmtMoney(totalCobrado)}</div></div>
+        </div>
+        <div class="table-scroll mt-12">
+          <table>
+            <thead><tr><th>Folio</th><th>Concepto</th><th>Fecha</th><th class="num">Total</th><th class="num">Cobrado</th><th>Estatus</th></tr></thead>
+            <tbody>
+              ${facturas.map((f) => `
+                <tr class="row-click" data-factura-id="${f.id}">
+                  <td>${esc(f.folio || '—')}</td>
+                  <td>${esc(f.concepto)}</td>
+                  <td>${fmtDate(f.fecha_emision)}</td>
+                  <td class="num">${fmtMoney(f.monto_total)}</td>
+                  <td class="num">${fmtMoney(f.monto_cobrado)}</td>
+                  <td>${esc(f.estatus)}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+      `;
+      $$('[data-factura-id]', list).forEach((row) => {
+        row.addEventListener('click', () => openDetalleFacturaCfModal(Number(row.dataset.facturaId), cargarIngresos));
+      });
+    } catch (err) {
+      list.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+    }
+  }
+
+  async function showGastosIndirectos() {
+    subView = 'gastosIndirectos';
+    view.innerHTML = `
+      <h2 class="section-title">Control Financiero</h2>
+      <p class="muted">Ingresos (facturación/cobro por contrato) y Gastos Indirectos Corporativos — acceso restringido.</p>
+      ${renderSubNav()}
+      <div class="section-actions mt-12">
+        <button class="btn btn-primary" id="btnNuevoGastoCf">+ Nuevo gasto indirecto</button>
+      </div>
+      <div id="cfGastosList" class="mt-12"></div>
+    `;
+    bindSubNav();
+    $('#btnNuevoGastoCf').addEventListener('click', () => openNuevoGastoIndirectoCfModal(cargarGastosIndirectos));
+    await cargarGastosIndirectos();
+  }
+
+  async function cargarGastosIndirectos() {
+    const list = $('#cfGastosList');
+    list.innerHTML = '<div class="spinner"></div>';
+    try {
+      const gastos = await api('/control-financiero/gastos-indirectos');
+      if (!gastos.length) { list.innerHTML = '<div class="empty-state">Sin gastos indirectos registrados todavía.</div>'; return; }
+      const totalCorporativo = gastos.filter((g) => g.project_id == null).reduce((s, g) => s + Number(g.monto), 0);
+      const totalPorObra = gastos.filter((g) => g.project_id != null).reduce((s, g) => s + Number(g.monto), 0);
+      list.innerHTML = `
+        <div class="kpi-grid">
+          <div class="kpi accent"><div class="label">Corporativo (sin obra)</div><div class="value">${fmtMoney(totalCorporativo)}</div></div>
+          <div class="kpi"><div class="label">Con obra asignada</div><div class="value">${fmtMoney(totalPorObra)}</div></div>
+        </div>
+        <div class="table-scroll mt-12">
+          <table>
+            <thead><tr><th>Fecha</th><th>Tipo</th><th>Concepto</th><th>Obra</th><th class="num">Monto</th></tr></thead>
+            <tbody>
+              ${gastos.map((g) => `
+                <tr class="row-click" data-gasto-id="${g.id}">
+                  <td>${fmtDate(g.fecha)}</td>
+                  <td>${esc(g.tipo)}</td>
+                  <td>${esc(g.concepto)}</td>
+                  <td>${g.project_nombre ? esc(g.project_nombre) : '<span class="muted">Corporativo</span>'}</td>
+                  <td class="num">${fmtMoney(g.monto)}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+      `;
+      $$('[data-gasto-id]', list).forEach((row) => {
+        row.addEventListener('click', () => openEditarGastoIndirectoCfModal(gastos.find((g) => g.id === Number(row.dataset.gastoId)), cargarGastosIndirectos));
+      });
+    } catch (err) {
+      list.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+    }
+  }
+
+  await showIngresos();
+}
+
+function openNuevaFacturaCfModal(projectId, onSaved) {
+  openModal(`
+    <h3>Nueva factura</h3>
+    <div class="field"><label>Folio</label><input id="cfFacFolio" /></div>
+    <div class="field"><label>Concepto *</label><input id="cfFacConcepto" /></div>
+    <div class="field"><label>Fecha de emisión *</label><input id="cfFacFecha" type="date" value="${new Date().toISOString().slice(0, 10)}" /></div>
+    <div class="field"><label>Subtotal *</label><input id="cfFacSubtotal" type="number" min="0" step="0.01" /></div>
+    <div class="field"><label>IVA</label><input id="cfFacIva" type="number" min="0" step="0.01" value="0" /></div>
+    <div class="field"><label>Observaciones</label><textarea id="cfFacObs" rows="2"></textarea></div>
+    <div class="modal-actions">
+      <button class="btn" id="btnCancelCfFac">Cerrar</button>
+      <button class="btn btn-primary" id="btnSaveCfFac">Guardar</button>
+    </div>
+  `);
+  $('#btnCancelCfFac').addEventListener('click', closeModal);
+  $('#btnSaveCfFac').addEventListener('click', async () => {
+    const subtotal = Number($('#cfFacSubtotal').value);
+    const iva = Number($('#cfFacIva').value) || 0;
+    const body = {
+      project_id: projectId, folio: $('#cfFacFolio').value.trim() || null,
+      concepto: $('#cfFacConcepto').value.trim(), fecha_emision: $('#cfFacFecha').value,
+      monto_subtotal: subtotal, iva, monto_total: subtotal + iva,
+      observaciones: $('#cfFacObs').value.trim() || null,
+    };
+    if (!body.concepto || !body.fecha_emision || !(body.monto_subtotal > 0)) {
+      toast('Completa concepto, fecha y un subtotal válido', 'danger'); return;
+    }
+    const btn = $('#btnSaveCfFac');
+    btn.disabled = true;
+    try {
+      await api('/control-financiero/ingresos', { method: 'POST', body });
+      toast('Factura creada', 'success');
+      closeModal();
+      onSaved();
+    } catch (err) {
+      toast(err.message, 'danger');
+      btn.disabled = false;
+    }
+  });
+}
+
+async function openDetalleFacturaCfModal(facturaId, onChange) {
+  openModal(`<h3>Detalle de factura</h3><div id="cfFacDetalleBody"><p class="muted">Cargando…</p></div><div class="modal-actions"><button class="btn" id="btnCerrarCfFacDetalle">Cerrar</button></div>`);
+  $('#btnCerrarCfFacDetalle').addEventListener('click', () => { closeModal(); onChange(); });
+  try {
+    const cobros = await api(`/control-financiero/ingresos/${facturaId}/cobros`);
+    $('#cfFacDetalleBody').innerHTML = `
+      <h4 class="mt-12">Cobros</h4>
+      ${!cobros.length ? '<p class="muted">Sin cobros registrados todavía.</p>' : `
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Fecha</th><th class="num">Monto</th><th>Forma de pago</th></tr></thead>
+          <tbody>
+            ${cobros.map((c) => `<tr><td>${fmtDate(c.fecha_cobro)}</td><td class="num">${fmtMoney(c.monto_cobrado)}</td><td>${esc(c.forma_pago || '—')}</td></tr>`).join('')}
+          </tbody>
+        </table>
+      </div>`}
+      <div class="section-actions mt-12">
+        <button class="btn btn-primary" id="btnNuevoCobroCf">+ Registrar cobro</button>
+      </div>
+    `;
+    $('#btnNuevoCobroCf').addEventListener('click', () => openNuevoCobroCfModal(facturaId, () => openDetalleFacturaCfModal(facturaId, onChange)));
+  } catch (err) {
+    $('#cfFacDetalleBody').innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+  }
+}
+
+function openNuevoCobroCfModal(facturaId, onSaved) {
+  openModal(`
+    <h3>Registrar cobro</h3>
+    <div class="field"><label>Fecha *</label><input id="cfCobFecha" type="date" value="${new Date().toISOString().slice(0, 10)}" /></div>
+    <div class="field"><label>Monto *</label><input id="cfCobMonto" type="number" min="0" step="0.01" /></div>
+    <div class="field"><label>Forma de pago</label><input id="cfCobForma" /></div>
+    <div class="modal-actions">
+      <button class="btn" id="btnCancelCfCob">Cerrar</button>
+      <button class="btn btn-primary" id="btnSaveCfCob">Guardar</button>
+    </div>
+  `);
+  $('#btnCancelCfCob').addEventListener('click', closeModal);
+  $('#btnSaveCfCob').addEventListener('click', async () => {
+    const body = {
+      fecha_cobro: $('#cfCobFecha').value, monto_cobrado: Number($('#cfCobMonto').value),
+      forma_pago: $('#cfCobForma').value.trim() || null,
+    };
+    if (!body.fecha_cobro || !(body.monto_cobrado > 0)) { toast('Indica fecha y un monto válido', 'danger'); return; }
+    const btn = $('#btnSaveCfCob');
+    btn.disabled = true;
+    try {
+      await api(`/control-financiero/ingresos/${facturaId}/cobros`, { method: 'POST', body });
+      toast('Cobro registrado', 'success');
+      closeModal();
+      onSaved();
+    } catch (err) {
+      toast(err.message, 'danger');
+      btn.disabled = false;
+    }
+  });
+}
+
+function openNuevoGastoIndirectoCfModal(onSaved) {
+  openModal(`
+    <h3>Nuevo gasto indirecto</h3>
+    <div class="field"><label>Obra</label>
+      <select id="cfGiObra">
+        <option value="">Sin obra / Corporativo</option>
+        ${state.projects.map((p) => `<option value="${p.id}">${esc(p.nombre)}</option>`).join('')}
+      </select>
+    </div>
+    <div class="field"><label>Tipo *</label><input id="cfGiTipo" placeholder="Ej. Nómina de oficina, Renta, Contador" /></div>
+    <div class="field"><label>Concepto *</label><input id="cfGiConcepto" /></div>
+    <div class="field"><label>Monto *</label><input id="cfGiMonto" type="number" min="0" step="0.01" /></div>
+    <div class="field"><label>Fecha *</label><input id="cfGiFecha" type="date" value="${new Date().toISOString().slice(0, 10)}" /></div>
+    <div class="field"><label>Observaciones</label><textarea id="cfGiObs" rows="2"></textarea></div>
+    <div class="modal-actions">
+      <button class="btn" id="btnCancelCfGi">Cerrar</button>
+      <button class="btn btn-primary" id="btnSaveCfGi">Guardar</button>
+    </div>
+  `);
+  $('#btnCancelCfGi').addEventListener('click', closeModal);
+  $('#btnSaveCfGi').addEventListener('click', async () => {
+    const body = {
+      project_id: $('#cfGiObra').value ? Number($('#cfGiObra').value) : null,
+      tipo: $('#cfGiTipo').value.trim(), concepto: $('#cfGiConcepto').value.trim(),
+      monto: Number($('#cfGiMonto').value), fecha: $('#cfGiFecha').value,
+      observaciones: $('#cfGiObs').value.trim() || null,
+    };
+    if (!body.tipo || !body.concepto || !(body.monto > 0) || !body.fecha) {
+      toast('Completa tipo, concepto, monto y fecha', 'danger'); return;
+    }
+    const btn = $('#btnSaveCfGi');
+    btn.disabled = true;
+    try {
+      await api('/control-financiero/gastos-indirectos', { method: 'POST', body });
+      toast('Gasto registrado', 'success');
+      closeModal();
+      onSaved();
+    } catch (err) {
+      toast(err.message, 'danger');
+      btn.disabled = false;
+    }
+  });
+}
+
+function openEditarGastoIndirectoCfModal(gasto, onSaved) {
+  openModal(`
+    <h3>Editar gasto indirecto</h3>
+    <p class="muted">${gasto.project_nombre ? esc(gasto.project_nombre) : 'Corporativo (sin obra)'} — la obra asignada no se puede cambiar aquí.</p>
+    <div class="field"><label>Tipo *</label><input id="cfGiTipo" value="${esc(gasto.tipo)}" /></div>
+    <div class="field"><label>Concepto *</label><input id="cfGiConcepto" value="${esc(gasto.concepto)}" /></div>
+    <div class="field"><label>Monto *</label><input id="cfGiMonto" type="number" min="0" step="0.01" value="${gasto.monto}" /></div>
+    <div class="field"><label>Fecha *</label><input id="cfGiFecha" type="date" value="${String(gasto.fecha).slice(0, 10)}" /></div>
+    <div class="field"><label>Observaciones</label><textarea id="cfGiObs" rows="2">${esc(gasto.observaciones || '')}</textarea></div>
+    <div class="modal-actions">
+      <button class="btn" id="btnCancelCfGiEdit">Cerrar</button>
+      <button class="btn btn-primary" id="btnSaveCfGiEdit">Guardar cambios</button>
+    </div>
+  `);
+  $('#btnCancelCfGiEdit').addEventListener('click', closeModal);
+  $('#btnSaveCfGiEdit').addEventListener('click', async () => {
+    const body = {
+      tipo: $('#cfGiTipo').value.trim(), concepto: $('#cfGiConcepto').value.trim(),
+      monto: Number($('#cfGiMonto').value), fecha: $('#cfGiFecha').value,
+      observaciones: $('#cfGiObs').value.trim() || null,
+    };
+    if (!body.tipo || !body.concepto || !(body.monto > 0) || !body.fecha) {
+      toast('Completa tipo, concepto, monto y fecha', 'danger'); return;
+    }
+    const btn = $('#btnSaveCfGiEdit');
+    btn.disabled = true;
+    try {
+      await api(`/control-financiero/gastos-indirectos/${gasto.id}`, { method: 'PUT', body });
+      toast('Gasto actualizado', 'success');
+      closeModal();
+      onSaved();
+    } catch (err) {
+      toast(err.message, 'danger');
+      btn.disabled = false;
+    }
+  });
 }
 
 async function renderCostos(view) {

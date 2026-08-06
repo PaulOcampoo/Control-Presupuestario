@@ -121,18 +121,26 @@ function addAnalisisBlock(sheet, a) {
   }
 
   sheet.addRow([]);
-  if (!matriz.completa) {
-    addTextRow(sheet, 'Matriz incompleta — falta Rendimiento u otra categoría sin renglones. No se muestra la cascada.', { italic: true });
-    return;
-  }
-
-  addLabelValueRow(sheet, '(CD) Costo directo', { valor: matriz.costo_directo, incidencia: 1 });
-  addLabelValueRow(sheet, '(CI) INDIRECTOS', { indirectoPct: Number(matriz.pct_indirecto) / 100, valor: matriz.ci });
-  addLabelValueRow(sheet, 'SUBTOTAL1', { valor: matriz.subtotal1 });
-  addLabelValueRow(sheet, '(CF) FINANCIAMIENTO', { indirectoPct: Number(matriz.pct_financiamiento) / 100, valor: matriz.cf });
-  addLabelValueRow(sheet, 'SUBTOTAL2', { valor: matriz.subtotal2 });
-  addLabelValueRow(sheet, '(CU) UTILIDAD', { indirectoPct: Number(matriz.pct_utilidad) / 100, valor: matriz.cu });
-  const rowPU = addLabelValueRow(sheet, 'PRECIO UNITARIO (CD+CI+CF+CU)', { valor: matriz.precio_unitario_calculado });
+  // prompt-fix-matrices-formato-visual.md: la plantilla Neodata real no tiene
+  // un mecanismo de "matriz incompleta" — cuando falta un dato (ej. sin
+  // Rendimiento capturado), Excel simplemente deja la celda de resultado en
+  // blanco, nunca inserta un párrafo de advertencia que rompe el layout. El
+  // motor de cálculo (calcularMatrizNeodata, fuera de alcance de este
+  // prompt) sigue devolviendo cd/ci/subtotal1/etc. tratando cada categoría
+  // "No disponible" como 0 en la suma — ese número ya viene mal (subestima
+  // el costo real) y NO se debe mostrar como si fuera válido. En vez de
+  // ocultar el bloque completo (como hacía el `return` anterior), se
+  // conserva la misma estructura de renglones que la plantilla real, con
+  // celdas de valor en blanco cuando matriz.completa es false — nunca se
+  // fabrica ni se expone el número calculado con el hueco tratado como cero.
+  const val = (v) => (matriz.completa ? v : '');
+  addLabelValueRow(sheet, '(CD) Costo directo', { valor: val(matriz.costo_directo), incidencia: matriz.completa ? 1 : '' });
+  addLabelValueRow(sheet, '(CI) INDIRECTOS', { indirectoPct: Number(matriz.pct_indirecto) / 100, valor: val(matriz.ci) });
+  addLabelValueRow(sheet, 'SUBTOTAL1', { valor: val(matriz.subtotal1) });
+  addLabelValueRow(sheet, '(CF) FINANCIAMIENTO', { indirectoPct: Number(matriz.pct_financiamiento) / 100, valor: val(matriz.cf) });
+  addLabelValueRow(sheet, 'SUBTOTAL2', { valor: val(matriz.subtotal2) });
+  addLabelValueRow(sheet, '(CU) UTILIDAD', { indirectoPct: Number(matriz.pct_utilidad) / 100, valor: val(matriz.cu) });
+  const rowPU = addLabelValueRow(sheet, 'PRECIO UNITARIO (CD+CI+CF+CU)', { valor: val(matriz.precio_unitario_calculado) });
   rowPU.font = { bold: true };
   rowPU.getCell(7).font = { bold: true };
   if (matriz.importe_en_letra) addTextRow(sheet, matriz.importe_en_letra, { italic: true });

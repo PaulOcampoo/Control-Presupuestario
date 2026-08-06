@@ -11563,8 +11563,8 @@ async function renderMatrices(view) {
                 <td>${esc(m.codigo || '—')}</td>
                 <td>${esc(m.concepto)}</td>
                 <td class="num">${fmtMoney(m.precio_unitario_actual)}</td>
-                <td class="num">${m.tiene_matriz ? fmtMoney(m.costo_directo) : '—'}</td>
-                <td class="num">${m.tiene_matriz ? fmtMoney(m.precio_unitario_calculado) : '<span class="muted">Sin matriz</span>'}</td>
+                <td class="num">${m.tiene_matriz && m.completa ? fmtMoney(m.costo_directo) : '—'}</td>
+                <td class="num">${!m.tiene_matriz ? '<span class="muted">Sin matriz</span>' : m.completa ? fmtMoney(m.precio_unitario_calculado) : '—'}</td>
               </tr>
             `).join('')}
           </tbody>
@@ -11741,28 +11741,27 @@ async function paintMatrizDetalle(view) {
           </div>
           ${c.categoria === 'MANO DE OBRA' && c.importe_jornada != null ? `
             <div class="card-row"><span class="k muted fs-08">Importe cuadrilla (por jornada)</span><span class="v muted fs-08">${fmtMoney(c.importe_jornada)}</span></div>
-            <div class="card-row"><span class="k muted fs-08">Rendimiento (${esc(concepto.unidad || '')}/JOR)</span><span class="v muted fs-08">${matriz.rendimiento}</span></div>
+            <div class="card-row"><span class="k muted fs-08">Rendimiento (${esc(concepto.unidad || '')}/JOR)</span><span class="v muted fs-08">${matriz.rendimiento != null ? matriz.rendimiento : '—'}</span></div>
           ` : ''}
         `).join('')}
-        <div class="card-row"><span class="k"><strong>(CD) Costo directo</strong></span><span class="v"><strong>${fmtMoney(matriz.costo_directo)}</strong></span></div>
+        <div class="card-row"><span class="k"><strong>(CD) Costo directo</strong></span><span class="v"><strong>${matriz.completa ? fmtMoney(matriz.costo_directo) : '—'}</strong></span></div>
         <div class="card-row">
           <span class="k">(CI) % Indirecto</span>
-          <span class="v"><input id="matPctIndirecto" type="number" step="0.01" min="0" class="matriz-input-num" value="${matriz.pct_indirecto}" /> % → ${fmtMoney(matriz.ci)}</span>
+          <span class="v"><input id="matPctIndirecto" type="number" step="0.01" min="0" class="matriz-input-num" value="${matriz.pct_indirecto}" /> % → ${matriz.completa ? fmtMoney(matriz.ci) : '—'}</span>
         </div>
-        <div class="card-row"><span class="k">SUBTOTAL1</span><span class="v">${fmtMoney(matriz.subtotal1)}</span></div>
+        <div class="card-row"><span class="k">SUBTOTAL1</span><span class="v">${matriz.completa ? fmtMoney(matriz.subtotal1) : '—'}</span></div>
         <div class="card-row">
           <span class="k">(CF) % Financiamiento</span>
-          <span class="v"><input id="matPctFinanciamiento" type="number" step="0.01" min="0" class="matriz-input-num" value="${matriz.pct_financiamiento}" /> % → ${fmtMoney(matriz.cf)}</span>
+          <span class="v"><input id="matPctFinanciamiento" type="number" step="0.01" min="0" class="matriz-input-num" value="${matriz.pct_financiamiento}" /> % → ${matriz.completa ? fmtMoney(matriz.cf) : '—'}</span>
         </div>
-        <div class="card-row"><span class="k">SUBTOTAL2</span><span class="v">${fmtMoney(matriz.subtotal2)}</span></div>
+        <div class="card-row"><span class="k">SUBTOTAL2</span><span class="v">${matriz.completa ? fmtMoney(matriz.subtotal2) : '—'}</span></div>
         <div class="card-row">
           <span class="k">(CU) % Utilidad</span>
-          <span class="v"><input id="matPctUtilidad" type="number" step="0.01" min="0" class="matriz-input-num" value="${matriz.pct_utilidad}" /> % → ${fmtMoney(matriz.cu)}</span>
+          <span class="v"><input id="matPctUtilidad" type="number" step="0.01" min="0" class="matriz-input-num" value="${matriz.pct_utilidad}" /> % → ${matriz.completa ? fmtMoney(matriz.cu) : '—'}</span>
         </div>
         <div class="row end mt-8"><button class="btn" id="btnMatActualizarPct">Actualizar %</button></div>
-        <div class="card-row"><span class="k"><strong>PRECIO UNITARIO (CD+CI+CF+CU)</strong></span><span class="v"><strong>${fmtMoney(matriz.precio_unitario_calculado)}</strong></span></div>
+        <div class="card-row"><span class="k"><strong>PRECIO UNITARIO (CD+CI+CF+CU)</strong></span><span class="v"><strong>${matriz.completa ? fmtMoney(matriz.precio_unitario_calculado) : '—'}</strong></span></div>
         ${matriz.importe_en_letra ? `<p class="muted fs-08 mt-6">${esc(matriz.importe_en_letra)}</p>` : ''}
-        ${!matriz.completa ? '<p class="muted fs-08">Matriz incompleta — hay categorías "No disponible" (revisa si Mano de Obra tiene renglones pero falta el Rendimiento). No se puede aplicar todavía.</p>' : ''}
       </div>
       <div class="row mb-8">
         <button class="btn btn-primary" id="btnMatAplicar" ${matriz.completa ? '' : 'disabled'}>Aplicar precio a este concepto</button>

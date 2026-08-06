@@ -2464,21 +2464,47 @@ app.post('/api/costos/crear-presupuesto', h(auth.checkPermiso('costos', 'puede_c
 // categoría, CD, CI, SUBTOTAL1, CF, SUBTOTAL2, CU) — verificado contra el
 // ejemplo real del Excel de referencia (PAV.ADO12208): redondear solo al
 // final da una cifra distinta a la esperada en el último dígito.
-const MATRIZ_CATEGORIAS = ['MATERIALES', 'MANO DE OBRA', 'EQUIPO Y HERRAMIENTA'];
-const r2 = (n) => Number(n.toFixed(2));
+// prompt-matrices-basicos-anidados.md: 'BASICOS' es una 4a categoría para
+// renglones tipo='basico_ref' (un análisis completo reutilizable, ej. una
+// receta de concreto, insertado como un renglón más). A diferencia de
+// MATERIALES/MANO DE OBRA/EQUIPO (siempre esperadas — null si están vacías
+// = matriz incompleta), BASICOS es opcional: la inmensa mayoría de análisis
+// reales no usan ningún básico, así que vacía se trata como 0, no como
+// matriz incompleta (ver el `vacio` condicional más abajo).
+const MATRIZ_CATEGORIAS = ['MATERIALES', 'MANO DE OBRA', 'EQUIPO Y HERRAMIENTA', 'BASICOS'];
+// prompt-matrices-basicos-anidados.md, CP2: Number(n.toFixed(2)) redondea mal
+// los casos exactos ".xx5" por representación binaria de punto flotante (ej.
+// 175.41 × 0.5 = 87.705 matemáticamente, pero (87.705).toFixed(2) da "87.70"
+// en vez de "87.71" — Excel/negocio redondean medio hacia arriba). Detectado
+// al reproducir el renglón EQREV del básico 10401-292 contra el Excel real
+// (fila 172: importe esperado 87.71). Math.round(n*100)/100 no tiene ese
+// sesgo para este caso (verificado: 0 diferencias contra el helper viejo en
+// 200k valores aleatorios — el bug viejo solo se manifestaba en fronteras
+// ".xx5" exactas, no en general).
+const r2 = (n) => Math.round(n * 100) / 100;
 
 function calcularMatrizNeodata(renglones, opts) {
   const pctIndirecto = Number(opts.pct_indirecto) || 0;
   const pctUtilidad = Number(opts.pct_utilidad) || 0;
   const pctFinanciamiento = Number(opts.pct_financiamiento) || 0;
   const rendimiento = opts.rendimiento != null ? Number(opts.rendimiento) : null;
+  // Un básico (es_basico=true) NO divide su categoría MANO DE OBRA entre un
+  // `rendimiento` externo — su renglón de cuadrilla ya trae la división
+  // embebida por fila vía `operador` ('/', ej. "5218.31 / 12"), a diferencia
+  // de una matriz normal (varias filas '*' sumadas y divididas UNA vez entre
+  // matriz.rendimiento). Sin este flag, un básico sin rendimiento capturado
+  // caería en la rama "incompleta" que es correcta para matrices normales
+  // pero rompería el cálculo del básico (prompt-matrices-basicos-anidados.md,
+  // CP2 — verificado contra el Excel real).
+  const esBasico = !!opts.es_basico;
 
   const subtotales = {};
   const categorias = MATRIZ_CATEGORIAS.map((cat) => {
     const delaCat = renglones.filter((r) => r.categoria === cat);
     if (!delaCat.length) {
-      subtotales[cat] = null;
-      return { categoria: cat, subtotal: null, importe_jornada: null, renglones: [] };
+      const vacio = cat === 'BASICOS' ? 0 : null;
+      subtotales[cat] = vacio;
+      return { categoria: cat, subtotal: vacio, importe_jornada: null, renglones: [] };
     }
     let sumaInsumos = 0;
     let sumaFactores = 0;
@@ -2489,17 +2515,27 @@ function calcularMatrizNeodata(renglones, opts) {
         if (importe != null) sumaFactores += importe;
         return { ...r, precio_referencia: base, importe };
       }
-      const importe = r2(Number(r.precio_presupuesto) * Number(r.cantidad));
+      // tipo='insumo' toma el precio del catálogo (precio_presupuesto);
+      // tipo='basico_ref' toma el costo directo YA RESUELTO del básico
+      // referenciado (ver resolverBasico/resolverRenglonesBasicoRef más
+      // abajo — se deja en r.precio_basico antes de llegar aquí). Mismo
+      // patrón cantidad×precio en ambos casos, solo cambia la fuente del
+      // precio. `operador` es la pieza nueva: '/' es el único caso real hoy
+      // (cuadrilla pre-agregada dentro de un básico, ej. "5218.31 / 12" —
+      // verificado contra el Excel real, prompt-matrices-basicos-anidados.md,
+      // CP0). Default '*' preserva el cálculo de todo lo demás sin cambio.
+      const precio = r.tipo === 'basico_ref' ? Number(r.precio_basico) : Number(r.precio_presupuesto);
+      const importe = r.operador === '/' ? r2(precio / Number(r.cantidad)) : r2(precio * Number(r.cantidad));
       sumaInsumos += importe;
       return { ...r, importe };
     });
     const importeJornada = r2(sumaInsumos + sumaFactores);
     const esManoObra = cat === 'MANO DE OBRA';
-    const subtotal = esManoObra
+    const subtotal = esManoObra && !esBasico
       ? (rendimiento && rendimiento > 0 ? r2(importeJornada / rendimiento) : null)
       : importeJornada;
     subtotales[cat] = subtotal;
-    return { categoria: cat, subtotal, importe_jornada: esManoObra ? importeJornada : null, renglones: renglonesCalc };
+    return { categoria: cat, subtotal, importe_jornada: (esManoObra && !esBasico) ? importeJornada : null, renglones: renglonesCalc };
   });
 
   const completa = categorias.every((c) => c.subtotal != null);
@@ -2528,12 +2564,9 @@ function calcularMatrizNeodata(renglones, opts) {
   };
 }
 
-async function getMatrizConRenglones(conceptoId) {
-  const { rows: matrizRows } = await db.pool.query('SELECT * FROM matrices_precio_unitario WHERE concepto_id = $1', [conceptoId]);
-  if (!matrizRows[0]) return null;
-  const matriz = matrizRows[0];
-  const { rows: renglones } = await db.pool.query(`
-    SELECT r.id, r.categoria, r.tipo, r.insumo_id, r.cantidad, r.factor_referencia, r.orden,
+async function fetchRenglonesRaw(matrizId) {
+  const { rows } = await db.pool.query(`
+    SELECT r.id, r.categoria, r.tipo, r.insumo_id, r.cantidad, r.operador, r.factor_referencia, r.basico_matriz_id, r.orden,
            COALESCE(i.codigo, r.codigo) AS codigo,
            COALESCE(i.concepto, r.descripcion) AS descripcion,
            i.unidad, i.precio_presupuesto
@@ -2541,7 +2574,56 @@ async function getMatrizConRenglones(conceptoId) {
     LEFT JOIN insumos i ON i.id = r.insumo_id
     WHERE r.matriz_id = $1
     ORDER BY r.categoria, r.orden, r.id
-  `, [matriz.id]);
+  `, [matrizId]);
+  return rows;
+}
+
+// Deja en cada renglón tipo='basico_ref' su r.precio_basico (costo directo
+// YA resuelto del básico referenciado) más codigo/descripcion/unidad propios
+// del básico para mostrarlos sin tener que ir a buscarlos aparte. `cadena`
+// es la lista de matriz_id ya visitados en esta rama — protección contra
+// recursión infinita EN LECTURA (defensa en profundidad: la validación al
+// guardar ya debería impedir que un ciclo llegue a persistirse, pero esto
+// evita que la petición se cuelgue si de todos modos aparece uno).
+async function resolverRenglonesBasicoRef(renglones, cadena) {
+  for (const r of renglones) {
+    if (r.tipo === 'basico_ref') {
+      const nested = await resolverBasico(r.basico_matriz_id, cadena);
+      r.precio_basico = nested.costo_directo;
+      r.codigo = nested.codigo;
+      r.descripcion = nested.descripcion;
+      r.unidad = nested.unidad;
+      r._basico_detalle = nested;
+    }
+  }
+}
+
+// Calcula el costo directo interno de un básico (matriz es_basico=true),
+// resolviendo recursivamente cualquier basico_ref anidado dentro de él. NO
+// aplica CI/CF/CU — la cascada completa vive únicamente en el análisis padre
+// que consume el básico (prompt-matrices-basicos-anidados.md, spec punto 4).
+async function resolverBasico(matrizId, cadena = []) {
+  if (cadena.includes(matrizId)) {
+    throw new Error(`Referencia circular de básicos detectada (matriz ${matrizId})`);
+  }
+  const siguienteCadena = [...cadena, matrizId];
+  const { rows: matrizRows } = await db.pool.query(
+    'SELECT * FROM matrices_precio_unitario WHERE id = $1 AND es_basico = true', [matrizId]
+  );
+  if (!matrizRows[0]) throw new Error(`Básico ${matrizId} no encontrado`);
+  const basico = matrizRows[0];
+  const renglones = await fetchRenglonesRaw(matrizId);
+  await resolverRenglonesBasicoRef(renglones, siguienteCadena);
+  const calculo = calcularMatrizNeodata(renglones, basico);
+  return { ...basico, renglones, ...calculo };
+}
+
+async function getMatrizConRenglones(conceptoId) {
+  const { rows: matrizRows } = await db.pool.query('SELECT * FROM matrices_precio_unitario WHERE concepto_id = $1', [conceptoId]);
+  if (!matrizRows[0]) return null;
+  const matriz = matrizRows[0];
+  const renglones = await fetchRenglonesRaw(matriz.id);
+  await resolverRenglonesBasicoRef(renglones, [matriz.id]);
   const calculo = calcularMatrizNeodata(renglones, matriz);
   return {
     ...matriz, renglones, ...calculo,
@@ -2549,25 +2631,170 @@ async function getMatrizConRenglones(conceptoId) {
   };
 }
 
+// Recorre transitivamente basico_matriz_id de los renglones tipo='basico_ref'
+// que se están por guardar (y de cualquier básico que ellos a su vez
+// referencien) para asegurar que `matrizIdPropio` (null si la matriz es
+// nueva — un id que no existe aún no puede formar parte de ningún ciclo)
+// nunca aparezca en esa cadena, directa ni indirectamente.
+async function validarSinCicloBasico(renglones, matrizIdPropio) {
+  const pendientes = (renglones || []).filter((r) => r.tipo === 'basico_ref').map((r) => Number(r.basico_matriz_id));
+  const visitados = new Set();
+  while (pendientes.length) {
+    const actual = pendientes.pop();
+    if (matrizIdPropio != null && actual === matrizIdPropio) {
+      return 'Referencia circular: un básico no puede depender, directa o indirectamente, de sí mismo';
+    }
+    if (visitados.has(actual)) continue;
+    visitados.add(actual);
+    const { rows } = await db.pool.query(
+      `SELECT basico_matriz_id FROM matriz_precio_renglones WHERE matriz_id = $1 AND tipo = 'basico_ref'`, [actual]
+    );
+    for (const row of rows) pendientes.push(row.basico_matriz_id);
+  }
+  return null;
+}
+
+async function insertarRenglones(client, matrizId, renglones) {
+  let orden = 0;
+  for (const r of renglones) {
+    await client.query(
+      `INSERT INTO matriz_precio_renglones (matriz_id, categoria, tipo, insumo_id, codigo, descripcion, cantidad, operador, factor_referencia, basico_matriz_id, orden)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+      [
+        matrizId, r.categoria, r.tipo,
+        r.tipo === 'insumo' ? Number(r.insumo_id) : null,
+        r.tipo === 'factor_pct' ? r.codigo.trim() : null,
+        r.tipo === 'factor_pct' ? r.descripcion.trim() : null,
+        Number(r.cantidad),
+        r.operador === '/' ? '/' : '*',
+        r.tipo === 'factor_pct' ? r.factor_referencia : null,
+        r.tipo === 'basico_ref' ? Number(r.basico_matriz_id) : null,
+        orden++,
+      ]
+    );
+  }
+}
+
 // Valida el arreglo de renglones que manda el cliente al crear/editar una
 // matriz — mismo criterio de validación explícita que el resto del proyecto
 // (400 con mensaje claro, nunca un 500 por dato mal formado).
-function validarRenglones(renglones, insumoIdsValidos) {
+function validarRenglones(renglones, insumoIdsValidos, basicoIdsValidos = new Set()) {
   if (!Array.isArray(renglones) || !renglones.length) return 'La matriz debe incluir al menos un renglón';
   for (const r of renglones) {
     if (!MATRIZ_CATEGORIAS.includes(r.categoria)) return `Categoría inválida: ${r.categoria}`;
-    if (!['insumo', 'factor_pct'].includes(r.tipo)) return `Tipo de renglón inválido: ${r.tipo}`;
+    if (!['insumo', 'factor_pct', 'basico_ref'].includes(r.tipo)) return `Tipo de renglón inválido: ${r.tipo}`;
     if (!(Number(r.cantidad) > 0)) return 'Cada renglón requiere una cantidad mayor a 0';
+    if (r.operador != null && !['*', '/'].includes(r.operador)) return `Operador inválido: ${r.operador}`;
     if (r.tipo === 'insumo') {
       if (!Number(r.insumo_id)) return 'Cada renglón de tipo insumo requiere insumo_id';
       if (!insumoIdsValidos.has(Number(r.insumo_id))) return `El insumo ${r.insumo_id} no pertenece a esta obra`;
-    } else {
+    } else if (r.tipo === 'factor_pct') {
       if (!r.codigo?.trim() || !r.descripcion?.trim()) return 'Cada renglón de tipo factor_pct requiere código y descripción';
       if (!MATRIZ_CATEGORIAS.includes(r.factor_referencia)) return `factor_referencia inválida: ${r.factor_referencia}`;
+    } else {
+      // basico_ref
+      if (r.categoria !== 'BASICOS') return 'Los renglones de tipo basico_ref deben ir en la categoría BASICOS';
+      if (!Number(r.basico_matriz_id)) return 'Cada renglón de tipo basico_ref requiere basico_matriz_id';
+      if (!basicoIdsValidos.has(Number(r.basico_matriz_id))) return `El básico ${r.basico_matriz_id} no está disponible en esta obra`;
     }
   }
   return null;
 }
+
+// ---------------------------------------------------------------------------
+// Básicos (prompt-matrices-basicos-anidados.md) — matrices reutilizables sin
+// concepto propio (es_basico=true, concepto_id NULL), referenciadas como un
+// renglón más (tipo='basico_ref') desde otro análisis. Reusa el permiso
+// 'costos' del resto de Matrices — mismo dato, misma sensibilidad.
+// ---------------------------------------------------------------------------
+app.get('/api/projects/:id/basicos', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('costos', 'puede_ver')), h(async (req, res) => {
+  const { rows } = await db.pool.query(
+    'SELECT id, codigo, descripcion, unidad FROM matrices_precio_unitario WHERE project_id = $1 AND es_basico = true ORDER BY codigo', [req.project.id]
+  );
+  res.json({ basicos: rows });
+}));
+
+app.get('/api/projects/:id/basicos/:basicoId', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('costos', 'puede_ver')), h(async (req, res) => {
+  const pid = req.project.id;
+  const basicoId = Number(req.params.basicoId);
+  const { rows } = await db.pool.query('SELECT id FROM matrices_precio_unitario WHERE id = $1 AND project_id = $2 AND es_basico = true', [basicoId, pid]);
+  if (!rows[0]) return res.status(404).json({ error: 'Básico no encontrado' });
+  const basico = await resolverBasico(basicoId);
+  // Dónde se usa este básico — para que se edite con cuidado (spec punto 3):
+  // tanto en análisis de concepto real (JOIN a conceptos) como dentro de
+  // OTRO básico (anidamiento multinivel).
+  const { rows: usos } = await db.pool.query(`
+    SELECT m.id AS matriz_id, m.es_basico, m.codigo AS basico_codigo, c.id AS concepto_id, c.codigo AS concepto_codigo, c.concepto AS concepto_nombre
+    FROM matriz_precio_renglones r
+    JOIN matrices_precio_unitario m ON m.id = r.matriz_id
+    LEFT JOIN conceptos c ON c.id = m.concepto_id
+    WHERE r.tipo = 'basico_ref' AND r.basico_matriz_id = $1
+  `, [basicoId]);
+  res.json({ basico, usado_en: usos });
+}));
+
+app.post('/api/projects/:id/basicos', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('costos', 'puede_crear')), h(async (req, res) => {
+  const pid = req.project.id;
+  const { codigo, descripcion, unidad, renglones } = req.body || {};
+  if (!codigo?.trim() || !descripcion?.trim()) return res.status(400).json({ error: 'Código y descripción son requeridos' });
+
+  const insumoIdsCandidatos = (renglones || []).filter((r) => r.tipo === 'insumo').map((r) => Number(r.insumo_id));
+  const { rows: insumoRows } = await db.pool.query('SELECT id FROM insumos WHERE id = ANY($1) AND project_id = $2', [insumoIdsCandidatos, pid]);
+  const insumoIdsValidos = new Set(insumoRows.map((r) => r.id));
+  const basicoIdsCandidatos = (renglones || []).filter((r) => r.tipo === 'basico_ref').map((r) => Number(r.basico_matriz_id));
+  const { rows: basicoRows } = await db.pool.query('SELECT id FROM matrices_precio_unitario WHERE id = ANY($1) AND project_id = $2 AND es_basico = true', [basicoIdsCandidatos, pid]);
+  const basicoIdsValidos = new Set(basicoRows.map((r) => r.id));
+  const errorValidacion = validarRenglones(renglones, insumoIdsValidos, basicoIdsValidos);
+  if (errorValidacion) return res.status(400).json({ error: errorValidacion });
+  // matrizIdPropio=null: una matriz que aún no existe no puede formar parte
+  // de ningún ciclo (nada puede referenciar todavía un id que no se ha
+  // asignado).
+  const errorCiclo = await validarSinCicloBasico(renglones, null);
+  if (errorCiclo) return res.status(400).json({ error: errorCiclo });
+
+  let basicoId;
+  await db.withTransaction(async (client) => {
+    const { rows } = await client.query(
+      `INSERT INTO matrices_precio_unitario (es_basico, project_id, codigo, descripcion, unidad, creado_por, actualizado_por)
+       VALUES (true, $1, $2, $3, $4, $5, $5) RETURNING id`,
+      [pid, codigo.trim(), descripcion.trim(), unidad?.trim() || null, req.user.id]
+    );
+    basicoId = rows[0].id;
+    await insertarRenglones(client, basicoId, renglones);
+  });
+  res.status(201).json({ basico: await resolverBasico(basicoId) });
+}));
+
+app.put('/api/projects/:id/basicos/:basicoId', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('costos', 'puede_editar')), h(async (req, res) => {
+  const pid = req.project.id;
+  const basicoId = Number(req.params.basicoId);
+  const { codigo, descripcion, unidad, renglones } = req.body || {};
+  if (!codigo?.trim() || !descripcion?.trim()) return res.status(400).json({ error: 'Código y descripción son requeridos' });
+
+  const { rows: existRows } = await db.pool.query('SELECT id FROM matrices_precio_unitario WHERE id = $1 AND project_id = $2 AND es_basico = true', [basicoId, pid]);
+  if (!existRows[0]) return res.status(404).json({ error: 'Básico no encontrado' });
+
+  const insumoIdsCandidatos = (renglones || []).filter((r) => r.tipo === 'insumo').map((r) => Number(r.insumo_id));
+  const { rows: insumoRows } = await db.pool.query('SELECT id FROM insumos WHERE id = ANY($1) AND project_id = $2', [insumoIdsCandidatos, pid]);
+  const insumoIdsValidos = new Set(insumoRows.map((r) => r.id));
+  const basicoIdsCandidatos = (renglones || []).filter((r) => r.tipo === 'basico_ref').map((r) => Number(r.basico_matriz_id));
+  const { rows: basicoRows } = await db.pool.query('SELECT id FROM matrices_precio_unitario WHERE id = ANY($1) AND project_id = $2 AND es_basico = true', [basicoIdsCandidatos, pid]);
+  const basicoIdsValidos = new Set(basicoRows.map((r) => r.id));
+  const errorValidacion = validarRenglones(renglones, insumoIdsValidos, basicoIdsValidos);
+  if (errorValidacion) return res.status(400).json({ error: errorValidacion });
+  const errorCiclo = await validarSinCicloBasico(renglones, basicoId);
+  if (errorCiclo) return res.status(400).json({ error: errorCiclo });
+
+  await db.withTransaction(async (client) => {
+    await client.query('DELETE FROM matriz_precio_renglones WHERE matriz_id = $1', [basicoId]);
+    await insertarRenglones(client, basicoId, renglones);
+    await client.query(
+      `UPDATE matrices_precio_unitario SET codigo=$1, descripcion=$2, unidad=$3, actualizado_por=$4, actualizado_en=NOW() WHERE id=$5`,
+      [codigo.trim(), descripcion.trim(), unidad?.trim() || null, req.user.id, basicoId]
+    );
+  });
+  res.json({ basico: await resolverBasico(basicoId) });
+}));
 
 app.get('/api/projects/:id/matrices', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('costos', 'puede_ver')), h(async (req, res) => {
   const pid = req.project.id;
@@ -2582,7 +2809,7 @@ app.get('/api/projects/:id/matrices', h(auth.allow('residente')), h(requireProje
   const renglonesPorMatriz = new Map();
   if (matrizIds.length) {
     const { rows: renglonRows } = await db.pool.query(`
-      SELECT r.matriz_id, r.categoria, r.tipo, r.cantidad, r.factor_referencia, i.precio_presupuesto
+      SELECT r.matriz_id, r.categoria, r.tipo, r.cantidad, r.operador, r.factor_referencia, r.basico_matriz_id, i.precio_presupuesto
       FROM matriz_precio_renglones r LEFT JOIN insumos i ON i.id = r.insumo_id
       WHERE r.matriz_id = ANY($1)
     `, [matrizIds]);
@@ -2591,17 +2818,32 @@ app.get('/api/projects/:id/matrices', h(auth.allow('residente')), h(requireProje
       renglonesPorMatriz.get(r.matriz_id).push(r);
     }
   }
-  const matrices = conceptoRows.map((c) => {
+  // Cache por-request: varios análisis de la misma obra pueden reusar el
+  // mismo básico (ese es justo el punto) — resolverlo una sola vez.
+  const basicoCache = new Map();
+  const resolverBasicoCacheado = async (basicoId) => {
+    if (!basicoCache.has(basicoId)) basicoCache.set(basicoId, await resolverBasico(basicoId, []));
+    return basicoCache.get(basicoId);
+  };
+  const matrices = [];
+  for (const c of conceptoRows) {
     const m = matrizPorConcepto.get(c.id);
-    if (!m) return { concepto_id: c.id, codigo: c.codigo, concepto: c.concepto, unidad: c.unidad, precio_unitario_actual: Number(c.precio_unitario), tiene_matriz: false };
-    return {
+    if (!m) { matrices.push({ concepto_id: c.id, codigo: c.codigo, concepto: c.concepto, unidad: c.unidad, precio_unitario_actual: Number(c.precio_unitario), tiene_matriz: false }); continue; }
+    const renglones = renglonesPorMatriz.get(m.id) || [];
+    for (const r of renglones) {
+      if (r.tipo === 'basico_ref') {
+        const basico = await resolverBasicoCacheado(r.basico_matriz_id);
+        r.precio_basico = basico.costo_directo;
+      }
+    }
+    matrices.push({
       concepto_id: c.id, codigo: c.codigo, concepto: c.concepto, unidad: c.unidad,
       precio_unitario_actual: Number(c.precio_unitario), tiene_matriz: true,
       pct_indirecto: m.pct_indirecto, pct_utilidad: m.pct_utilidad, pct_financiamiento: m.pct_financiamiento,
       rendimiento: m.rendimiento,
-      ...calcularMatrizNeodata(renglonesPorMatriz.get(m.id) || [], m),
-    };
-  });
+      ...calcularMatrizNeodata(renglones, m),
+    });
+  }
   res.json({ matrices });
 }));
 
@@ -2729,8 +2971,13 @@ app.post('/api/projects/:id/matrices', h(auth.allow('residente')), h(requireProj
   const insumoIdsCandidatos = (renglones || []).filter((r) => r.tipo === 'insumo').map((r) => Number(r.insumo_id));
   const { rows: insumoRows } = await db.pool.query('SELECT id FROM insumos WHERE id = ANY($1) AND project_id = $2', [insumoIdsCandidatos, pid]);
   const insumoIdsValidos = new Set(insumoRows.map((r) => r.id));
-  const errorValidacion = validarRenglones(renglones, insumoIdsValidos);
+  const basicoIdsCandidatos = (renglones || []).filter((r) => r.tipo === 'basico_ref').map((r) => Number(r.basico_matriz_id));
+  const { rows: basicoRows } = await db.pool.query('SELECT id FROM matrices_precio_unitario WHERE id = ANY($1) AND project_id = $2 AND es_basico = true', [basicoIdsCandidatos, pid]);
+  const basicoIdsValidos = new Set(basicoRows.map((r) => r.id));
+  const errorValidacion = validarRenglones(renglones, insumoIdsValidos, basicoIdsValidos);
   if (errorValidacion) return res.status(400).json({ error: errorValidacion });
+  const errorCiclo = await validarSinCicloBasico(renglones, null);
+  if (errorCiclo) return res.status(400).json({ error: errorCiclo });
 
   // % iniciales de la matriz nueva: default por obra (nunca el 10% combinado
   // global de PR #48 — ese set no distingue indirecto de utilidad). Se
@@ -2751,16 +2998,7 @@ app.post('/api/projects/:id/matrices', h(auth.allow('residente')), h(requireProj
         [conceptoId, pctIndirecto, pctUtilidad, pctFinanciamiento, rendimiento || null, partida || null, analisis_no || null, cuadrilla_nombre || null, req.user.id]
       );
       matrizId = rows[0].id;
-      let orden = 0;
-      for (const r of renglones) {
-        await client.query(
-          `INSERT INTO matriz_precio_renglones (matriz_id, categoria, tipo, insumo_id, codigo, descripcion, cantidad, factor_referencia, orden)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-          [matrizId, r.categoria, r.tipo, r.tipo === 'insumo' ? Number(r.insumo_id) : null,
-            r.tipo === 'factor_pct' ? r.codigo.trim() : null, r.tipo === 'factor_pct' ? r.descripcion.trim() : null,
-            Number(r.cantidad), r.tipo === 'factor_pct' ? r.factor_referencia : null, orden++]
-        );
-      }
+      await insertarRenglones(client, matrizId, renglones);
     });
   } catch (err) {
     if (err.code === '23505') return res.status(409).json({ error: 'Este concepto ya tiene una matriz de precio unitario' });
@@ -2777,7 +3015,10 @@ app.put('/api/projects/:id/matrices/:conceptoId/renglones', h(auth.allow('reside
   const insumoIdsCandidatos = (renglones || []).filter((r) => r.tipo === 'insumo').map((r) => Number(r.insumo_id));
   const { rows: insumoRows } = await db.pool.query('SELECT id FROM insumos WHERE id = ANY($1) AND project_id = $2', [insumoIdsCandidatos, pid]);
   const insumoIdsValidos = new Set(insumoRows.map((r) => r.id));
-  const errorValidacion = validarRenglones(renglones, insumoIdsValidos);
+  const basicoIdsCandidatos = (renglones || []).filter((r) => r.tipo === 'basico_ref').map((r) => Number(r.basico_matriz_id));
+  const { rows: basicoRows } = await db.pool.query('SELECT id FROM matrices_precio_unitario WHERE id = ANY($1) AND project_id = $2 AND es_basico = true', [basicoIdsCandidatos, pid]);
+  const basicoIdsValidos = new Set(basicoRows.map((r) => r.id));
+  const errorValidacion = validarRenglones(renglones, insumoIdsValidos, basicoIdsValidos);
   if (errorValidacion) return res.status(400).json({ error: errorValidacion });
 
   const { rows: matrizRows } = await db.pool.query(`
@@ -2787,18 +3028,12 @@ app.put('/api/projects/:id/matrices/:conceptoId/renglones', h(auth.allow('reside
   if (!matrizRows[0]) return res.status(404).json({ error: 'Este concepto no tiene matriz. Créala primero.' });
   const matrizId = matrizRows[0].id;
 
+  const errorCiclo = await validarSinCicloBasico(renglones, matrizId);
+  if (errorCiclo) return res.status(400).json({ error: errorCiclo });
+
   await db.withTransaction(async (client) => {
     await client.query('DELETE FROM matriz_precio_renglones WHERE matriz_id = $1', [matrizId]);
-    let orden = 0;
-    for (const r of renglones) {
-      await client.query(
-        `INSERT INTO matriz_precio_renglones (matriz_id, categoria, tipo, insumo_id, codigo, descripcion, cantidad, factor_referencia, orden)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-        [matrizId, r.categoria, r.tipo, r.tipo === 'insumo' ? Number(r.insumo_id) : null,
-          r.tipo === 'factor_pct' ? r.codigo.trim() : null, r.tipo === 'factor_pct' ? r.descripcion.trim() : null,
-          Number(r.cantidad), r.tipo === 'factor_pct' ? r.factor_referencia : null, orden++]
-      );
-    }
+    await insertarRenglones(client, matrizId, renglones);
     await client.query(
       `UPDATE matrices_precio_unitario
        SET partida=$1, analisis_no=$2, cuadrilla_nombre=$3, rendimiento=$4, actualizado_por=$5, actualizado_en=NOW()
@@ -8480,3 +8715,8 @@ module.exports = app;
 // principal, `app` sigue siendo la instancia de Express que todo el resto
 // del código (incluidos los tests existentes) espera al hacer require().
 module.exports.calcularMatrizNeodata = calcularMatrizNeodata;
+// prompt-matrices-basicos-anidados.md: mismo criterio — expuestas para tests
+// directos de la resolución recursiva de básicos y la protección de ciclos.
+module.exports.resolverBasico = resolverBasico;
+module.exports.validarSinCicloBasico = validarSinCicloBasico;
+module.exports.getMatrizConRenglones = getMatrizConRenglones;

@@ -2881,6 +2881,131 @@ app.get('/api/control-cuentas/consolidado', h(auth.requireControlCuentasAccess),
 }));
 
 // ---------------------------------------------------------------------------
+// Control Financiero Fase 1 (prompt-27-control-financiero-fase1.md) —
+// Ingresos (facturación/cobro por contrato) y Gastos Indirectos
+// Corporativos. Gateado por auth.requireControlFinancieroAccess (whitelist
+// de usuario_id, server/auth.js) en TODAS las rutas — nunca por rol ni por
+// checkPermiso, mismo criterio que Control de Cuentas arriba.
+//
+// Ingresos reutiliza las funciones de estadoResultados.js (facturas/cobros,
+// mismas tablas que ya usa Tesorería vía /api/projects/:id/facturas) — el
+// dato es el mismo, solo cambia quién puede capturarlo desde aquí (whitelist
+// en vez de rol tesorería). "Eliminar" = cancelar (soft, ya existente),
+// nunca DELETE físico.
+//
+// Gastos Indirectos Corporativos es tabla nueva (gastos_indirectos_
+// corporativos, CP0 punto 2 — deliberadamente separada de gastos_generales,
+// ver comentario en server/db.js): project_id nullable, NULL = gasto sin
+// obra específica (nómina de oficina, contador, renta). Sin endpoint DELETE
+// — regla dura del módulo, solo alta/edición.
+// ---------------------------------------------------------------------------
+app.get('/api/control-financiero/ingresos', h(auth.requireControlFinancieroAccess), h(async (req, res) => {
+  const projectId = Number(req.query.project_id);
+  if (!projectId) return res.status(400).json({ error: 'Indica project_id' });
+  res.json(await estadoResultados.listFacturas(projectId));
+}));
+
+app.post('/api/control-financiero/ingresos', h(auth.requireControlFinancieroAccess), h(async (req, res) => {
+  const { project_id, folio, concepto, fecha_emision, monto_subtotal, iva, monto_total, observaciones } = req.body || {};
+  if (!project_id) return res.status(400).json({ error: 'Indica la obra' });
+  if (!concepto?.trim()) return res.status(400).json({ error: 'El concepto es requerido' });
+  const subtotal = Number(monto_subtotal);
+  const ivaNum = iva != null && iva !== '' ? Number(iva) : 0;
+  const total = monto_total != null && monto_total !== '' ? Number(monto_total) : subtotal + ivaNum;
+  if (!Number.isFinite(subtotal) || subtotal <= 0) return res.status(400).json({ error: 'Indica un monto válido' });
+  const factura = await estadoResultados.createFactura({
+    project_id: Number(project_id), folio, concepto: concepto.trim(), fecha_emision,
+    monto_subtotal: subtotal, iva: ivaNum, monto_total: total, observaciones, creado_por: req.user.id,
+  });
+  res.status(201).json(factura);
+}));
+
+app.put('/api/control-financiero/ingresos/:id', h(auth.requireControlFinancieroAccess), h(async (req, res) => {
+  const { folio, concepto, fecha_emision, monto_subtotal, iva, monto_total, observaciones } = req.body || {};
+  const factura = await estadoResultados.updateFactura(Number(req.params.id), {
+    folio, concepto, fecha_emision,
+    monto_subtotal: monto_subtotal != null && monto_subtotal !== '' ? Number(monto_subtotal) : null,
+    iva: iva != null && iva !== '' ? Number(iva) : null,
+    monto_total: monto_total != null && monto_total !== '' ? Number(monto_total) : null,
+    observaciones,
+  });
+  if (!factura) return res.status(404).json({ error: 'Factura no encontrada, cancelada, o ya tiene cobros' });
+  res.json(factura);
+}));
+
+app.put('/api/control-financiero/ingresos/:id/cancelar', h(auth.requireControlFinancieroAccess), h(async (req, res) => {
+  const factura = await estadoResultados.cancelarFactura(Number(req.params.id));
+  if (!factura) return res.status(404).json({ error: 'Factura no encontrada, ya cancelada, o ya tiene cobros' });
+  res.json(factura);
+}));
+
+app.get('/api/control-financiero/ingresos/:id/cobros', h(auth.requireControlFinancieroAccess), h(async (req, res) => {
+  res.json(await estadoResultados.listCobros(Number(req.params.id)));
+}));
+
+app.post('/api/control-financiero/ingresos/:id/cobros', h(auth.requireControlFinancieroAccess), h(async (req, res) => {
+  const { fecha_cobro, monto_cobrado, forma_pago } = req.body || {};
+  if (!(Number(monto_cobrado) > 0)) return res.status(400).json({ error: 'Indica un monto de cobro válido' });
+  const resultado = await estadoResultados.registrarCobro({
+    factura_id: Number(req.params.id), fecha_cobro, monto_cobrado: Number(monto_cobrado), forma_pago, creado_por: req.user.id,
+  });
+  res.status(201).json(resultado);
+}));
+
+// ?project_id= omitido = todos; 'sin-obra' = solo los corporativos (project_id NULL).
+app.get('/api/control-financiero/gastos-indirectos', h(auth.requireControlFinancieroAccess), h(async (req, res) => {
+  const { project_id } = req.query;
+  let sql = `
+    SELECT g.*, p.nombre AS project_nombre, u.nombre AS registrado_por_nombre
+    FROM gastos_indirectos_corporativos g
+    LEFT JOIN proyectos p ON p.id = g.project_id
+    LEFT JOIN usuarios u ON u.id = g.registrado_por
+  `;
+  const params = [];
+  if (project_id === 'sin-obra') {
+    sql += ' WHERE g.project_id IS NULL';
+  } else if (project_id) {
+    params.push(Number(project_id));
+    sql += ` WHERE g.project_id = $${params.length}`;
+  }
+  sql += ' ORDER BY g.fecha DESC, g.id DESC';
+  const { rows } = await db.pool.query(sql, params);
+  res.json(rows);
+}));
+
+app.post('/api/control-financiero/gastos-indirectos', h(auth.requireControlFinancieroAccess), h(async (req, res) => {
+  const { project_id, tipo, concepto, monto, fecha, observaciones } = req.body || {};
+  if (!tipo?.trim()) return res.status(400).json({ error: 'El tipo es requerido' });
+  if (!concepto?.trim()) return res.status(400).json({ error: 'El concepto es requerido' });
+  const montoNum = Number(monto);
+  if (!Number.isFinite(montoNum) || montoNum <= 0) return res.status(400).json({ error: 'El monto debe ser mayor a 0' });
+  const { rows } = await db.pool.query(
+    `INSERT INTO gastos_indirectos_corporativos (project_id, tipo, concepto, monto, fecha, observaciones, registrado_por)
+     VALUES ($1,$2,$3,$4,COALESCE($5::date, CURRENT_DATE),$6,$7) RETURNING *`,
+    [project_id ? Number(project_id) : null, tipo.trim(), concepto.trim(), montoNum, fecha || null, observaciones?.trim() || null, req.user.id]
+  );
+  res.status(201).json(rows[0]);
+}));
+
+app.put('/api/control-financiero/gastos-indirectos/:id', h(auth.requireControlFinancieroAccess), h(async (req, res) => {
+  const { tipo, concepto, monto, fecha, observaciones } = req.body || {};
+  const montoNum = monto != null && monto !== '' ? Number(monto) : null;
+  if (montoNum != null && (!Number.isFinite(montoNum) || montoNum <= 0)) {
+    return res.status(400).json({ error: 'El monto debe ser mayor a 0' });
+  }
+  const { rows } = await db.pool.query(
+    `UPDATE gastos_indirectos_corporativos SET
+       tipo = COALESCE($1, tipo), concepto = COALESCE($2, concepto),
+       monto = COALESCE($3, monto), fecha = COALESCE($4::date, fecha),
+       observaciones = COALESCE($5, observaciones)
+     WHERE id = $6 RETURNING *`,
+    [tipo?.trim() || null, concepto?.trim() || null, montoNum, fecha || null, observaciones?.trim() || null, Number(req.params.id)]
+  );
+  if (!rows[0]) return res.status(404).json({ error: 'Gasto no encontrado' });
+  res.json(rows[0]);
+}));
+
+// ---------------------------------------------------------------------------
 // Bienvenida — resumen ligero por proyecto para la pantalla de bienvenida
 // ---------------------------------------------------------------------------
 app.get('/api/bienvenida', h(auth.allow('residente', 'cabo', 'compras', 'tesoreria', 'administracion', 'logistica', 'jefe_maquinaria', 'operador')), h(async (req, res) => {

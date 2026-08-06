@@ -707,19 +707,36 @@ function requireControlCuentasAccess(req, res, next) {
   next();
 }
 
-// Agrega el tab 'cuentas' a la lista SOLO para los 2 usuarios en la
-// whitelist — el resto de admin/desarrollador (incluida la cuenta bootstrap
-// genérica y cualquier alta futura) ni siquiera ve el link en el sidebar.
-// Ocultar el tab es solo cortesía de UI (nunca el gate real — ver
-// requireControlCuentasAccess arriba, que es lo único que de verdad
+// Control Financiero Fase 1 (prompt-27-control-financiero-fase1.md) —
+// Ingresos (facturación/cobro) y Gastos Indirectos Corporativos. Mismo
+// patrón de whitelist que Control de Cuentas (CP0 punto 3, confirmado con
+// SELECT real: 46 = Paul, 8 = Fer) pero constante INDEPENDIENTE a
+// propósito — aunque hoy tenga los mismos 2 IDs, es un candado distinto
+// para un dato distinto (finanzas del negocio, no saldo personal); que
+// cambien juntos hoy no debe implicar que evolucionen acopladas mañana.
+const USUARIOS_CONTROL_FINANCIERO = [46, 8];
+function requireControlFinancieroAccess(req, res, next) {
+  if (!USUARIOS_CONTROL_FINANCIERO.includes(req.user.id)) {
+    logDenied(req, 'sin acceso a Control Financiero (whitelist)');
+    return res.status(403).json({ error: 'No tienes permiso para realizar esta acción' });
+  }
+  next();
+}
+
+// Agrega los tabs 'cuentas'/'controlFinanciero' a la lista SOLO para los
+// usuarios en la whitelist correspondiente — el resto de admin/desarrollador
+// (incluida la cuenta bootstrap genérica y cualquier alta futura) ni
+// siquiera ve el link en el sidebar. Ocultar el tab es solo cortesía de UI
+// (nunca el gate real — ver requireControlCuentasAccess/
+// requireControlFinancieroAccess arriba, que es lo único que de verdad
 // protege los datos); por eso vive como wrapper sobre PERMISSIONS.tabs en
 // vez de duplicar la lista de tabs por usuario.
 function tabsParaUsuario(user) {
   const base = PERMISSIONS[user.puesto] ? PERMISSIONS[user.puesto].tabs : [];
-  if (USUARIOS_CONTROL_CUENTAS.includes(user.id) && !base.includes('cuentas')) {
-    return [...base, 'cuentas'];
-  }
-  return base;
+  const extra = [];
+  if (USUARIOS_CONTROL_CUENTAS.includes(user.id) && !base.includes('cuentas')) extra.push('cuentas');
+  if (USUARIOS_CONTROL_FINANCIERO.includes(user.id) && !base.includes('controlFinanciero')) extra.push('controlFinanciero');
+  return extra.length ? [...base, ...extra] : base;
 }
 
 // Restringe el acceso a la obra (proyecto) cargada por requireProject: el
@@ -781,6 +798,7 @@ module.exports = {
   requireAuth,
   allow,
   requireControlCuentasAccess,
+  requireControlFinancieroAccess,
   tabsParaUsuario,
   verificarAccesoObra,
   ensureBootstrapAdmin,

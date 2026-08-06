@@ -7061,6 +7061,98 @@ app.post('/api/projects/:id/trabajadores/:wId/reactivar', h(auth.allow('resident
   res.json(rows[0]);
 }));
 
+// prompt-30-mover-trabajador-mismo-cliente.md: mueve un trabajador de la obra
+// actual a otra obra del MISMO cliente, sin baja/alta — conserva su id, ficha,
+// cuentas bancarias y split de pago. Requiere acceso (usuario_proyectos) a
+// AMBAS obras, no solo a la de origen (verificarAccesoObra de la middleware
+// chain solo cubre la de origen, :id en la URL). No es un simple UPDATE sin
+// más: valida mismo cliente_id y bloquea si hay nómina en 'borrador' sin
+// resolver en la obra de origen — diagnóstico (CP0) confirmó que recalcular
+// esa nómina después del movimiento haría desaparecer en silencio al
+// trabajador de ahí (POST .../calcular reconstruye nomina_items desde
+// trabajadores.project_id vigente en ese momento). El UNIQUE de CURP por obra
+// (PR #104) se dispara solo contra el destino al hacer el UPDATE.
+app.post('/api/projects/:id/trabajadores/:wId/mover', h(auth.allow('residente', 'cabo', 'administracion')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('trabajadores', 'puede_editar')), h(async (req, res) => {
+  const wId = Number(req.params.wId);
+  const { project_id_destino, motivo } = req.body || {};
+  const destinoId = Number(project_id_destino);
+  if (!Number.isFinite(destinoId) || destinoId <= 0) return res.status(400).json({ error: 'Indica la obra destino' });
+  if (destinoId === req.project.id) return res.status(400).json({ error: 'La obra destino debe ser distinta a la actual' });
+
+  const { rows: trabRows } = await db.pool.query(
+    'SELECT id FROM trabajadores WHERE id=$1 AND project_id=$2 AND activo=true',
+    [wId, req.project.id]
+  );
+  if (!trabRows[0]) return res.status(404).json({ error: 'Trabajador no encontrado en esta obra' });
+
+  const { rows: obrasRows } = await db.pool.query(
+    'SELECT id, cliente_id FROM proyectos WHERE id = ANY($1)',
+    [[req.project.id, destinoId]]
+  );
+  const origenObra = obrasRows.find((o) => o.id === req.project.id);
+  const destinoObra = obrasRows.find((o) => o.id === destinoId);
+  if (!destinoObra) return res.status(400).json({ error: 'Obra destino no encontrada' });
+  if (!origenObra.cliente_id || origenObra.cliente_id !== destinoObra.cliente_id) {
+    return res.status(400).json({ error: 'Solo puedes mover un trabajador a otra obra del mismo cliente' });
+  }
+
+  if (req.user.puesto !== 'admin' && req.user.puesto !== 'desarrollador') {
+    const { rows: accesoDestino } = await db.pool.query(
+      'SELECT 1 FROM usuario_proyectos WHERE usuario_id=$1 AND project_id=$2',
+      [req.user.id, destinoId]
+    );
+    if (!accesoDestino.length) return res.status(403).json({ error: 'No tienes acceso a la obra destino' });
+  }
+
+  const { rows: borradorRows } = await db.pool.query(`
+    SELECT n.id FROM nomina_items ni
+    JOIN nominas n ON n.id = ni.nomina_id
+    WHERE ni.trabajador_id=$1 AND n.project_id=$2 AND n.estado='borrador'
+    LIMIT 1`,
+    [wId, req.project.id]
+  );
+  if (borradorRows.length) {
+    return res.status(409).json({ error: 'Este trabajador tiene una nómina en borrador sin resolver en la obra actual — apruébala o descártala antes de moverlo' });
+  }
+
+  let rows;
+  try {
+    ({ rows } = await db.pool.query(
+      'UPDATE trabajadores SET project_id=$1 WHERE id=$2 AND project_id=$3 RETURNING *',
+      [destinoId, wId, req.project.id]
+    ));
+  } catch (err) {
+    // idx_trabajadores_curp_unico_por_obra (PR #104), disparado contra la obra destino
+    if (err.code === '23505') return res.status(409).json({ error: 'Ya existe un trabajador con ese CURP en la obra destino' });
+    throw err;
+  }
+  if (!rows[0]) return res.status(404).json({ error: 'Trabajador no encontrado' });
+
+  await db.pool.query(
+    `INSERT INTO trabajador_movimientos (trabajador_id, project_id_origen, project_id_destino, movido_por, motivo)
+     VALUES ($1,$2,$3,$4,$5)`,
+    [wId, req.project.id, destinoId, req.user.id, motivo?.trim() || null]
+  );
+  res.json(await stripDatosBancarios(req, rows[0]));
+}));
+
+app.get('/api/projects/:id/trabajadores/:wId/movimientos', h(auth.allow('residente', 'cabo', 'administracion')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('trabajadores', 'puede_ver')), h(async (req, res) => {
+  const wId = Number(req.params.wId);
+  const { rows: wCheck } = await db.pool.query('SELECT id FROM trabajadores WHERE id=$1 AND project_id=$2', [wId, req.project.id]);
+  if (!wCheck[0]) return res.status(404).json({ error: 'Trabajador no encontrado' });
+  const { rows } = await db.pool.query(`
+    SELECT m.*, po.nombre AS obra_origen_nombre, pd.nombre AS obra_destino_nombre, u.nombre AS movido_por_nombre
+    FROM trabajador_movimientos m
+    JOIN proyectos po ON po.id = m.project_id_origen
+    JOIN proyectos pd ON pd.id = m.project_id_destino
+    LEFT JOIN usuarios u ON u.id = m.movido_por
+    WHERE m.trabajador_id = $1
+    ORDER BY m.fecha_movimiento DESC`,
+    [wId]
+  );
+  res.json(rows);
+}));
+
 app.delete('/api/projects/:id/trabajadores/:wId', h(auth.allow('residente', 'cabo')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('trabajadores', 'puede_eliminar')), h(async (req, res) => {
   const wId = Number(req.params.wId);
   const { rows: trabRows } = await db.pool.query(

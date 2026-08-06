@@ -10974,6 +10974,7 @@ async function renderTrabajadoresGlobal(view) {
         <td>${puedeVerCuenta ? `<button class="btn small" data-ver-cuenta="${t.id}">Ver cuenta</button>` : '—'}</td>
         <td><div class="row">
           ${puedeEditar ? `<button class="icon-btn-inline" data-editar="${t.id}" title="Editar">✎</button>` : ''}
+          ${puedeEditar && t.activo ? `<button class="icon-btn-inline" data-mover="${t.id}" title="Mover a otra obra">↔️</button>` : ''}
           ${puedeEditar && t.activo ? `<button class="icon-btn-inline" data-baja="${t.id}" title="Dar de baja">🚫</button>` : ''}
         </div></td>
       </tr>`;
@@ -10989,6 +10990,10 @@ async function renderTrabajadoresGlobal(view) {
         puedeVerBancarios: !!perm.trabajadores_bancarios.puede_ver,
         puedeEditarBancarios: !!perm.trabajadores_bancarios.puede_editar,
       }, t.project_id);
+    }));
+    $$('[data-mover]', tbody).forEach((btn) => btn.addEventListener('click', () => {
+      const t = filtrados.find((x) => x.id === Number(btn.dataset.mover));
+      openMoverTrabajadorModal(t, repaint);
     }));
     $$('[data-baja]', tbody).forEach((btn) => btn.addEventListener('click', () => {
       const t = filtrados.find((x) => x.id === Number(btn.dataset.baja));
@@ -13011,6 +13016,7 @@ async function openTrabajadorModal(trab, repaint, permisosBancarios, obraId = st
 
   openModal(`
     <h3>${isEdit ? 'Editar trabajador' : 'Nuevo trabajador'}</h3>
+    ${isEdit ? `<button class="btn small" id="btnVerHistorialMov">Ver historial de movimientos</button>` : ''}
     <div class="trab-form-grid">
       <div class="field field-full"><label>Nombre completo *</label><input id="tNombre" value="${esc(trab?.nombre || '')}" /></div>
       <div class="field"><label>Puesto</label><input id="tPuesto" value="${esc(trab?.puesto || '')}" /></div>
@@ -13063,6 +13069,8 @@ async function openTrabajadorModal(trab, repaint, permisosBancarios, obraId = st
       <button class="btn btn-primary" id="btnSaveTrab">${isEdit ? 'Guardar cambios' : 'Crear trabajador'}</button>
     </div>
   `);
+
+  if (isEdit) $('#btnVerHistorialMov').addEventListener('click', () => abrirHistorialMovimientos({ ...trab, project_id: obraId }));
 
   function syncTarifaField() {
     const tipo = $('#tTipoPago').value;
@@ -13182,6 +13190,81 @@ async function openBajaModal(id, nombre, repaint, obraId = state.projectId) {
       await repaint();
     } catch (err) { toast(err.message, 'danger'); btn.disabled = false; }
   });
+}
+
+// prompt-30-mover-trabajador-mismo-cliente.md: mueve un trabajador entre
+// obras del MISMO cliente sin baja/alta, conservando su id, ficha y cuentas
+// bancarias/split. El backend re-valida todo (mismo cliente, acceso a ambas
+// obras, nómina en borrador pendiente, CURP en destino) — este selector solo
+// filtra por cliente en el front para no ofrecer opciones que el backend
+// rechazaría de todos modos.
+async function openMoverTrabajadorModal(t, repaint) {
+  let proyectos = [];
+  try { proyectos = await api('/projects'); } catch (err) { toast(err.message, 'danger'); return; }
+  const origenObra = proyectos.find((p) => p.id === t.project_id);
+  const destinos = proyectos.filter((p) => p.id !== t.project_id && origenObra && p.cliente_id === origenObra.cliente_id);
+  if (!destinos.length) {
+    toast(`No tienes acceso a otra obra de ${t.cliente_nombre || 'este cliente'} para mover a ${t.nombre}`, '');
+    return;
+  }
+  openModal(`
+    <h3>Mover a otra obra</h3>
+    <p class="muted">${esc(t.nombre)} — obra actual: <strong>${esc(t.obra_nombre)}</strong> (${esc(t.cliente_nombre || '—')})</p>
+    <div class="field">
+      <label>Obra destino *</label>
+      <select id="moverObraDestino">${destinos.map((p) => `<option value="${p.id}">${esc(p.nombre)}</option>`).join('')}</select>
+    </div>
+    <div class="field">
+      <label>Motivo (opcional)</label>
+      <textarea id="moverMotivo" rows="2" placeholder="Rotación de cuadrilla, cierre de obra, etc."></textarea>
+    </div>
+    <div id="moverConfirmBox" class="muted fs085-m008"></div>
+    <div class="modal-actions">
+      <button class="btn" id="btnCancelMover">Cancelar</button>
+      <button class="btn btn-primary" id="btnConfirmMover">Mover trabajador</button>
+    </div>
+  `);
+  const sync = () => {
+    const destino = destinos.find((p) => p.id === Number($('#moverObraDestino').value));
+    $('#moverConfirmBox').textContent = `Se moverá de "${t.obra_nombre}" a "${destino?.nombre || ''}". Si hay una nómina en borrador sin resolver en la obra actual, el movimiento se rechaza — apruébala o descártala primero.`;
+  };
+  $('#moverObraDestino').addEventListener('change', sync);
+  sync();
+  $('#btnCancelMover').addEventListener('click', closeModal);
+  $('#btnConfirmMover').addEventListener('click', async () => {
+    const btn = $('#btnConfirmMover');
+    btn.disabled = true;
+    try {
+      await api(`/projects/${t.project_id}/trabajadores/${t.id}/mover`, {
+        method: 'POST',
+        body: { project_id_destino: Number($('#moverObraDestino').value), motivo: $('#moverMotivo').value.trim() || null },
+      });
+      toast('Trabajador movido de obra', 'success');
+      closeModal();
+      await repaint();
+    } catch (err) { toast(err.message, 'danger'); btn.disabled = false; }
+  });
+}
+
+// prompt-30-mover-trabajador-mismo-cliente.md: historial consultable desde el
+// detalle del trabajador (botón en openTrabajadorModal, solo en edición).
+async function abrirHistorialMovimientos(t) {
+  openModal(`<h3>Historial de movimientos — ${esc(t.nombre)}</h3><div id="histMovBody" class="mt-8"><div class="spinner"></div></div><div class="modal-actions"><button class="btn" id="btnCerrarHistMov">Cerrar</button></div>`);
+  $('#btnCerrarHistMov').addEventListener('click', closeModal);
+  try {
+    const movs = await api(`/projects/${t.project_id}/trabajadores/${t.id}/movimientos`);
+    const body = $('#histMovBody');
+    if (!body) return;
+    if (!movs.length) { body.innerHTML = '<div class="empty-state">Sin movimientos registrados — sigue en la obra donde se dio de alta.</div>'; return; }
+    body.innerHTML = movs.map((m) => `
+      <div class="card-row">
+        <span class="k">${fmtDate(m.fecha_movimiento)}</span>
+        <span class="v">${esc(m.obra_origen_nombre)} → ${esc(m.obra_destino_nombre)}${m.movido_por_nombre ? ` · ${esc(m.movido_por_nombre)}` : ''}${m.motivo ? `<br><span class="muted fs-08">${esc(m.motivo)}</span>` : ''}</span>
+      </div>`).join('');
+  } catch (err) {
+    const body = $('#histMovBody');
+    if (body) body.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+  }
 }
 
 async function openDocumentosModal(trabajadorId, nombreTrab, puedeCrear, puedeEliminar) {

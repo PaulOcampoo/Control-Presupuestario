@@ -1505,6 +1505,21 @@ const SCHEMA = `
   -- aquí, ver calcularSplitCuentas en server/calculos.js).
   ALTER TABLE trabajadores ADD COLUMN IF NOT EXISTS split_cuenta_nomina_pct NUMERIC NOT NULL DEFAULT 100
     CHECK (split_cuenta_nomina_pct >= 0 AND split_cuenta_nomina_pct <= 100);
+
+  -- Historial de movimientos entre obras del mismo cliente (prompt-30-mover-
+  -- trabajador-mismo-cliente.md). El trabajador conserva su id — este es solo
+  -- el rastro de trazabilidad de por dónde pasó, nunca se pierde de dónde
+  -- vino aunque project_id ya apunte a la obra destino.
+  CREATE TABLE IF NOT EXISTS trabajador_movimientos (
+    id SERIAL PRIMARY KEY,
+    trabajador_id INTEGER NOT NULL REFERENCES trabajadores(id) ON DELETE CASCADE,
+    project_id_origen INTEGER NOT NULL REFERENCES proyectos(id),
+    project_id_destino INTEGER NOT NULL REFERENCES proyectos(id),
+    fecha_movimiento TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    movido_por INTEGER REFERENCES usuarios(id),
+    motivo TEXT
+  );
+  CREATE INDEX IF NOT EXISTS idx_trabajador_movimientos_trabajador ON trabajador_movimientos(trabajador_id);
 `;
 
 // prompt-fix-error-permiso-trabajadores.md → el diagnóstico de ese prompt no

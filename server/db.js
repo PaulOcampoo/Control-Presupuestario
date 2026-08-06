@@ -117,6 +117,35 @@ const SCHEMA = `
   ALTER TABLE matrices_precio_unitario ADD COLUMN IF NOT EXISTS analisis_no TEXT;
   ALTER TABLE matrices_precio_unitario ADD COLUMN IF NOT EXISTS cuadrilla_nombre TEXT;
 
+  -- prompt-matrices-basicos-anidados.md: soporte de "básicos" (análisis
+  -- reutilizables, ej. una receta de concreto) que se insertan como un solo
+  -- renglón dentro de OTRO análisis, divididos... en realidad MULTIPLICADOS
+  -- por un "Volumen" propio de cada uso (verificado contra el Excel real de
+  -- referencia — la fórmula de Neodata dice "Volumen" pero la operación real
+  -- es Importe_básico × Volumen, igual que cualquier renglón cantidad×precio;
+  -- ver factor_referencia/cantidad reutilizados en matriz_precio_renglones
+  -- más abajo, nunca se agregó un campo "divisor").
+  -- Un básico NO corresponde a un renglón real del presupuesto (concepto_id),
+  -- así que concepto_id se vuelve NULLABLE: una matriz es O bien la matriz de
+  -- un concepto real (concepto_id NOT NULL, es_basico=false, como hasta hoy)
+  -- O bien un básico standalone reutilizable (es_basico=true, concepto_id
+  -- NULL, con su propia identidad codigo/descripcion/unidad — mismo patrón
+  -- que ya usan los renglones tipo='factor_pct' sin insumo_id) — nunca ambas
+  -- cosas a la vez, para no complicar qué pasa si el concepto real cambia.
+  -- project_id explícito porque un básico sin concepto no hereda obra vía
+  -- JOIN a conceptos.
+  ALTER TABLE matrices_precio_unitario ADD COLUMN IF NOT EXISTS es_basico BOOLEAN NOT NULL DEFAULT false;
+  ALTER TABLE matrices_precio_unitario ADD COLUMN IF NOT EXISTS project_id INTEGER REFERENCES proyectos(id) ON DELETE CASCADE;
+  ALTER TABLE matrices_precio_unitario ADD COLUMN IF NOT EXISTS codigo TEXT;
+  ALTER TABLE matrices_precio_unitario ADD COLUMN IF NOT EXISTS descripcion TEXT;
+  ALTER TABLE matrices_precio_unitario ADD COLUMN IF NOT EXISTS unidad TEXT;
+  ALTER TABLE matrices_precio_unitario ALTER COLUMN concepto_id DROP NOT NULL;
+  ALTER TABLE matrices_precio_unitario DROP CONSTRAINT IF EXISTS matrices_precio_unitario_concepto_xor_basico_check;
+  ALTER TABLE matrices_precio_unitario ADD CONSTRAINT matrices_precio_unitario_concepto_xor_basico_check CHECK (
+    (concepto_id IS NOT NULL AND es_basico = false)
+    OR (concepto_id IS NULL AND es_basico = true AND project_id IS NOT NULL AND codigo IS NOT NULL AND descripcion IS NOT NULL)
+  );
+
   -- Reemplaza matriz_precio_items (prompt-20-matrices-formato-neodata.md,
   -- decisión confirmada con Paul: las 2 matrices de prueba en Producción y la
   -- de Preview se pierden a propósito, autorizado explícitamente — no había
@@ -146,6 +175,33 @@ const SCHEMA = `
   CREATE INDEX IF NOT EXISTS idx_matrizrenglones_insumo ON matriz_precio_renglones(insumo_id);
   ALTER TABLE matriz_precio_renglones ADD COLUMN IF NOT EXISTS codigo TEXT;
   ALTER TABLE matriz_precio_renglones ADD COLUMN IF NOT EXISTS descripcion TEXT;
+
+  -- prompt-matrices-basicos-anidados.md: tipo='basico_ref' referencia OTRA
+  -- matriz (marcada es_basico=true) en vez de un insumo o un factor. Reusa
+  -- la columna cantidad ya existente como el "Volumen" de la referencia
+  -- (multiplicador, no divisor — ver comentario en matrices_precio_unitario
+  -- arriba); insumo_id queda NULL igual que en factor_pct.
+  -- operador es la pieza genuinamente nueva de cálculo: dentro de un
+  -- básico, el renglón de cuadrilla viene pre-agregado en una sola fila con
+  -- un "/" explícito (ej. "1A5P ... 5218.31 / 12 = 434.86"), a diferencia
+  -- del patrón ya existente en matrices normales (varias filas '*' sumadas
+  -- y divididas UNA vez entre matriz.rendimiento, mostrado aparte en la fila
+  -- "Rendimiento:"). Default '*' preserva el cálculo de TODOS los renglones
+  -- ya existentes sin cambio (cantidad×precio, como siempre).
+  ALTER TABLE matriz_precio_renglones ADD COLUMN IF NOT EXISTS operador TEXT NOT NULL DEFAULT '*';
+  ALTER TABLE matriz_precio_renglones DROP CONSTRAINT IF EXISTS matriz_precio_renglones_operador_check;
+  ALTER TABLE matriz_precio_renglones ADD CONSTRAINT matriz_precio_renglones_operador_check CHECK (operador IN ('*','/'));
+  ALTER TABLE matriz_precio_renglones ADD COLUMN IF NOT EXISTS basico_matriz_id INTEGER REFERENCES matrices_precio_unitario(id) ON DELETE RESTRICT;
+  -- ON DELETE RESTRICT (no CASCADE): un básico referenciado desde otros
+  -- análisis no debe poder borrarse "por accidente" arrastrando consigo el
+  -- renglón que lo consume en otro análisis — forzar a que primero se quite
+  -- la referencia. Distinto del resto de FKs de esta tabla (insumo_id,
+  -- matriz_id) que sí son CASCADE porque ahí "borrar el padre" es
+  -- exactamente la intención (borrar la matriz completa).
+  ALTER TABLE matriz_precio_renglones DROP CONSTRAINT IF EXISTS matriz_precio_renglones_tipo_check;
+  ALTER TABLE matriz_precio_renglones ADD CONSTRAINT matriz_precio_renglones_tipo_check CHECK (tipo IN ('insumo','factor_pct','basico_ref'));
+  ALTER TABLE matriz_precio_renglones DROP CONSTRAINT IF EXISTS matriz_precio_renglones_categoria_check;
+  ALTER TABLE matriz_precio_renglones ADD CONSTRAINT matriz_precio_renglones_categoria_check CHECK (categoria IN ('MATERIALES','MANO DE OBRA','EQUIPO Y HERRAMIENTA','BASICOS'));
 
   -- % de indirecto/utilidad por defecto de una obra (cada contrato se cotiza
   -- distinto — porcentajes_referencia_costo de PR #48 es un set global único,

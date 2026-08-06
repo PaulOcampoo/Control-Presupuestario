@@ -129,10 +129,14 @@ function addColumnHeaderRow(sheet) {
 // referencia (fila 26, "1A1P CUADRILLA No 5...") es un sub-encabezado en
 // negritas sin operador "*" ni columnas de importe/%, no un renglón de
 // costo real — puramente presentacional, no toca calcularMatrizNeodata.
-function addRenglonRow(sheet, { codigo, concepto, unidad, precio, cantidad, importe, pctIncidencia, esCategoriaManoDeObra = false }) {
+function addRenglonRow(sheet, { codigo, concepto, unidad, precio, cantidad, importe, pctIncidencia, esCategoriaManoDeObra = false, opOverride }) {
   const esCuadrillaLabel = esCategoriaManoDeObra
     && Number(precio) === 0 && Number(cantidad) === 0 && (importe == null || Number(importe) === 0);
-  const op = esCuadrillaLabel ? 0 : '*';
+  // opOverride: prompt-matrices-basicos-anidados.md — dentro de un básico el
+  // renglón de cuadrilla trae su propio operador ('/'), a diferencia del
+  // resto de renglones (siempre '*' hasta hoy). Default '*' preserva el
+  // export de toda matriz existente sin cambio.
+  const op = esCuadrillaLabel ? 0 : (opOverride || '*');
   const row = sheet.addRow([
     codigo || '', concepto || '', unidad || '', precio, op, cantidad,
     esCuadrillaLabel ? undefined : importe,
@@ -214,6 +218,52 @@ function addBRow(sheet, label, { bold = false, pctCol, pctColFmt = 'pctCascada',
   return row;
 }
 
+// Encabezado del básico dentro del bloque del padre (referencia: fila 165
+// "10401-292  CONCRETO DE F'c=150...  M3  0  0  0" — sin cifra propia, en
+// negritas). `renglon` es el renglón tipo='basico_ref' del padre (trae
+// codigo/descripcion/unidad ya resueltos desde el básico referenciado).
+function addBasicoHeaderRow(sheet, { codigo, descripcion, unidad }) {
+  const row = sheet.addRow([codigo || '', descripcion || '', unidad || '', 0, 0, 0]);
+  font(sheet, row.getCell(1), { bold: true });
+  font(sheet, row.getCell(2), { bold: true });
+  align(row.getCell(2), { horizontal: 'justify', wrapText: true });
+  font(sheet, row.getCell(3), { bold: true });
+  align(row.getCell(3), { horizontal: 'center' });
+  return row;
+}
+
+// Expande un renglón tipo='basico_ref' igual que el Excel real
+// (prompt-matrices-basicos-anidados.md, CP5): encabezado del básico + sus
+// renglones internos + "Importe:" (costo directo del básico, sin cascada
+// CI/CF/CU propia) + "Volumen:" (cantidad de ESTE uso × ese importe = lo que
+// cae en la categoría BASICOS del padre). Nunca imprime "SUBTOTAL:" por
+// categoría dentro del bloque — el básico no separa Materiales/Mano de
+// Obra/Equipo visualmente (spec punto 2), a diferencia del análisis padre.
+// `renglon._basico_detalle` es la resolución completa que deja
+// resolverBasico() en server/app.js (categorías con sus renglones ya
+// calculados, incluyendo básicos anidados recursivamente si los hay).
+function addBasicoExpandido(sheet, renglon) {
+  const basico = renglon._basico_detalle;
+  if (!basico) return;
+  addBasicoHeaderRow(sheet, { codigo: renglon.codigo, descripcion: renglon.descripcion, unidad: renglon.unidad });
+  for (const cat of basico.categorias) {
+    for (const r of cat.renglones) {
+      if (r.tipo === 'basico_ref') {
+        addBasicoExpandido(sheet, r); // anidamiento multinivel
+      } else if (r.tipo === 'factor_pct') {
+        addRenglonRow(sheet, { codigo: r.codigo, concepto: r.descripcion, unidad: '%', precio: r.precio_referencia, cantidad: r.cantidad, importe: r.importe, pctIncidencia: r.pct_incidencia });
+      } else {
+        addRenglonRow(sheet, { codigo: r.codigo, concepto: r.descripcion, unidad: r.unidad, precio: r.precio_presupuesto, cantidad: r.cantidad, importe: r.importe, pctIncidencia: r.pct_incidencia, opOverride: r.operador });
+      }
+    }
+  }
+  addBRow(sheet, 'Importe:', { valor: basico.costo_directo, moneyFmt: 'importeRenglon' });
+  // Sin blank row aquí — el separador antes del SUBTOTAL de la categoría
+  // BASICOS ya lo pone addAnalisisBlock (referencia: fila 176, una sola
+  // línea en blanco entre "Volumen:" y "SUBTOTAL: BASICOS", no dos).
+  addBRow(sheet, 'Volumen:', { pctCol: renglon.cantidad, pctColFmt: 'cantidadRenglon', valor: renglon.importe, moneyFmt: 'importeRenglon', incidencia: renglon.pct_incidencia });
+}
+
 // Un análisis completo: encabezado (Partida/Análisis No./Cantidad/Importe),
 // descripción, renglones por categoría con subtotales, cascada CD→PU e
 // importe en letra. `a` = { concepto, matriz } tal como los arma
@@ -251,6 +301,14 @@ function addAnalisisBlock(sheet, a) {
   sheet.addRow([]);
 
   matriz.categorias.forEach((cat) => {
+    // BASICOS es opcional (prompt-matrices-basicos-anidados.md): a
+    // diferencia de MATERIALES/MANO DE OBRA/EQUIPO (siempre se muestran,
+    // aunque sea como "No disponible" cuando están vacías), la plantilla
+    // real de Neodata no tiene un bloque "BASICOS" en un análisis que no usa
+    // ningún básico — se omite el bloque entero (sin encabezado, sin
+    // SUBTOTAL) para no ensuciar el 99% de análisis que no los usan.
+    if (cat.categoria === 'BASICOS' && !cat.renglones.length) return;
+
     const rowCat = sheet.addRow([CAT_LABELS[cat.categoria] || cat.categoria]);
     font(sheet, rowCat.getCell(1), { bold: true });
     align(rowCat.getCell(1), { horizontal: 'left' });
@@ -262,8 +320,14 @@ function addAnalisisBlock(sheet, a) {
     }
 
     const esCategoriaManoDeObra = cat.categoria === 'MANO DE OBRA';
+    const esCategoriaBasicos = cat.categoria === 'BASICOS';
     for (const r of cat.renglones) {
-      if (r.tipo === 'factor_pct') {
+      if (esCategoriaBasicos) {
+        // basico_ref: expandido igual que el Excel real (encabezado del
+        // básico + sus renglones internos + Importe:/Volumen:), no un
+        // renglón plano.
+        addBasicoExpandido(sheet, r);
+      } else if (r.tipo === 'factor_pct') {
         addRenglonRow(sheet, {
           codigo: r.codigo, concepto: r.descripcion, unidad: '%',
           precio: r.precio_referencia, cantidad: r.cantidad, importe: r.importe, pctIncidencia: r.pct_incidencia,
@@ -285,7 +349,8 @@ function addAnalisisBlock(sheet, a) {
       });
     }
 
-    // blank separator antes del SUBTOTAL (referencia: filas 23/32/37).
+    // blank separator antes del SUBTOTAL (referencia: filas 23/32/37, y
+    // 176→177 para BASICOS).
     sheet.addRow([]);
     addSubtotalCategoriaRow(sheet, cat.categoria, {
       valor: cat.subtotal != null ? cat.subtotal : 'No disponible', incidencia: cat.pct_incidencia,

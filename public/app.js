@@ -11992,6 +11992,7 @@ async function renderMatrices(view) {
     <div class="section-actions mb-8">
       <button class="btn" id="btnMatricesExport">⭳ Exportar a Excel</button>
       <button class="btn" id="btnMatricesLote" ${matricesSeleccionadas.size ? '' : 'disabled'}>Aplicar % en lote (${matricesSeleccionadas.size})</button>
+      <button class="btn" id="btnMatricesBasicos">🧱 Básicos</button>
     </div>
 
     ${matrices.length ? `
@@ -12039,6 +12040,7 @@ async function renderMatrices(view) {
     try { await downloadExport(`/projects/${state.projectId}/matrices/export`); }
     catch (err) { toast(err.message, 'danger'); }
   });
+  $('#btnMatricesBasicos').addEventListener('click', () => openBasicosListModal(view));
 
   $$('.matSelCheck').forEach((chk) => {
     chk.addEventListener('click', (e) => e.stopPropagation());
@@ -12092,6 +12094,13 @@ async function renderMatrices(view) {
 }
 
 const MATRIZ_CATEGORIAS_UI = ['MATERIALES', 'MANO DE OBRA', 'EQUIPO Y HERRAMIENTA'];
+// prompt-matrices-basicos-anidados.md: 'BASICOS' es una 4a categoría, pero
+// deliberadamente NO se agrega a MATRIZ_CATEGORIAS_UI (usada por el selector
+// de "% sobre el subtotal de" de un factor_pct) — no hay caso real de un
+// factor % calculado sobre el subtotal de BASICOS, y agregarla ahí solo
+// añadiría una opción confusa sin uso. Sí es una categoría renderizable en
+// la tabla de renglones (ver pintarRenglonesTabla) y en el detalle/export.
+const MATRIZ_CATEGORIA_BASICOS = 'BASICOS';
 
 // prompt-20-matrices-formato-neodata.md — reemplaza el editor plano de PR #98
 // (una sola tabla insumo+cantidad) por el Análisis de Precios Unitarios
@@ -12125,7 +12134,11 @@ async function paintMatrizDetalle(view) {
   function pintarRenglonesTabla() {
     const tabla = $('#matRenglonesTabla');
     if (!tabla) return;
-    tabla.innerHTML = MATRIZ_CATEGORIAS_UI.map((cat) => {
+    // BASICOS al final, y solo si hay al menos un renglón — es una categoría
+    // opcional (la inmensa mayoría de análisis no usan ningún básico), a
+    // diferencia de las 3 de siempre que se muestran aunque estén vacías.
+    const categoriasAMostrar = [...MATRIZ_CATEGORIAS_UI, MATRIZ_CATEGORIA_BASICOS];
+    tabla.innerHTML = categoriasAMostrar.map((cat) => {
       const filas = renglonesWorking.map((r, idx) => ({ ...r, _idx: idx })).filter((r) => r.categoria === cat);
       if (!filas.length) return '';
       return `
@@ -12136,13 +12149,17 @@ async function paintMatrizDetalle(view) {
             <tbody>${filas.map((r) => `
               <tr>
                 <td>${esc(r.codigo || '—')}</td>
-                <td>${esc(r.descripcion || '—')}${r.tipo === 'factor_pct' ? `<div class="muted fs-07">Factor % sobre subtotal de ${esc(r.factor_referencia)}</div>` : ''}</td>
+                <td>${esc(r.descripcion || '—')}${r.tipo === 'factor_pct' ? `<div class="muted fs-07">Factor % sobre subtotal de ${esc(r.factor_referencia)}</div>` : ''}${r.tipo === 'basico_ref' ? `<div class="muted fs-07">Básico reutilizable — costo directo × Volumen</div>` : ''}</td>
                 <td class="num">
                   <input type="number" step="0.0001" min="0.0001" class="matriz-input-num matRenglonCantidad" data-idx="${r._idx}"
                     value="${r.tipo === 'factor_pct' ? Number((Number(r.cantidad) * 100).toFixed(4)) : r.cantidad}" />${r.tipo === 'factor_pct' ? ' %' : ''}
                 </td>
-                <td class="num">${r.tipo === 'insumo' ? fmtMoney(r.precio_presupuesto) : '—'}</td>
-                <td class="num">${r.tipo === 'insumo' ? fmtMoney(Number(r.cantidad) * Number(r.precio_presupuesto)) : '<span class="muted fs-07">se calcula al guardar</span>'}</td>
+                <td class="num">${r.tipo === 'insumo' ? fmtMoney(r.precio_presupuesto) : (r.tipo === 'basico_ref' && r.precio_basico != null ? fmtMoney(r.precio_basico) : '—')}</td>
+                <td class="num">${
+                  r.tipo === 'insumo' ? fmtMoney(Number(r.cantidad) * Number(r.precio_presupuesto))
+                  : (r.tipo === 'basico_ref' && r.precio_basico != null ? fmtMoney(Number(r.cantidad) * Number(r.precio_basico))
+                  : '<span class="muted fs-07">se calcula al guardar</span>')
+                }</td>
                 <td><button class="icon-btn-inline" data-remove="${r._idx}" type="button" title="Quitar" aria-label="Quitar">✕</button></td>
               </tr>
             `).join('')}</tbody>
@@ -12179,7 +12196,7 @@ async function paintMatrizDetalle(view) {
 
     ${existeMatriz ? `
       <div class="card mb-12">
-        ${matriz.categorias.map((c) => `
+        ${matriz.categorias.filter((c) => c.categoria !== MATRIZ_CATEGORIA_BASICOS || c.renglones.length).map((c) => `
           <div class="card-row">
             <span class="k">${esc(c.categoria)}</span>
             <span class="v">${c.subtotal != null ? fmtMoney(c.subtotal) : 'No disponible'}${c.pct_incidencia != null ? ` <span class="muted fs-07">(${fmtPct(c.pct_incidencia * 100)})</span>` : ''}</span>
@@ -12228,7 +12245,10 @@ async function paintMatrizDetalle(view) {
     </div>
     <div id="matSearchResults"></div>
 
-    <div class="row end mt-8"><button class="btn" id="btnMatAgregarFactor">+ Agregar factor % (ej. %MO1 Herramienta Menor)</button></div>
+    <div class="row end mt-8">
+      <button class="btn" id="btnMatAgregarFactor">+ Agregar factor % (ej. %MO1 Herramienta Menor)</button>
+      <button class="btn" id="btnMatAgregarBasico">+ Agregar básico (ej. receta de concreto)</button>
+    </div>
 
     <div id="matRenglonesTabla" class="mt-8"></div>
     <div class="row end mt-8"><button class="btn btn-primary" id="btnMatGuardarComposicion">${existeMatriz ? 'Guardar composición' : 'Crear matriz'}</button></div>
@@ -12350,6 +12370,51 @@ async function paintMatrizDetalle(view) {
     });
   });
 
+  // prompt-matrices-basicos-anidados.md: buscador de matrices marcadas
+  // es_basico=true (misma obra) para agregarlas como un renglón más, con su
+  // propio "Volumen" (cantidad de consumo específica de este uso — el mismo
+  // básico puede usarse en varios análisis con un Volumen distinto cada
+  // vez). Se resuelve su costo directo (GET /basicos/:id) solo para mostrar
+  // el "Importe (aprox.)" en la tabla — el servidor recalcula todo al
+  // guardar, esto es puramente informativo.
+  $('#btnMatAgregarBasico')?.addEventListener('click', async () => {
+    let basicos;
+    try { basicos = (await api(`/projects/${state.projectId}/basicos`)).basicos; }
+    catch (err) { toast(err.message, 'danger'); return; }
+    if (!basicos.length) { toast('No hay básicos creados en esta obra todavía. Créalos desde "🧱 Básicos" en la vista de Matrices.', ''); return; }
+    openModal(`
+      <h3>Agregar básico</h3>
+      <p class="muted">El costo directo del básico se multiplica por el "Volumen" que captures aquí — el mismo básico puede reutilizarse en varios análisis con un Volumen distinto en cada uno.</p>
+      <div class="field"><label>Básico</label>
+        <select id="basicoSelect">${basicos.map((b) => `<option value="${b.id}">${esc(b.codigo)} — ${esc(b.descripcion)} (${esc(b.unidad || '')})</option>`).join('')}</select>
+      </div>
+      <div class="field"><label>Volumen (cantidad consumida en este análisis)</label><input id="basicoVolumen" type="number" step="0.0001" min="0.0001" placeholder="ej. 0.0504" /></div>
+      <div class="modal-actions">
+        <button class="btn" id="btnBasicoRefCancelar">Cancelar</button>
+        <button class="btn btn-primary" id="btnBasicoRefAgregar">Agregar</button>
+      </div>
+    `);
+    $('#btnBasicoRefCancelar').addEventListener('click', closeModal);
+    $('#btnBasicoRefAgregar').addEventListener('click', async () => {
+      const basicoId = Number($('#basicoSelect').value);
+      const volumen = Number($('#basicoVolumen').value);
+      if (!(volumen > 0)) { toast('Captura un Volumen mayor a 0', ''); return; }
+      if (renglonesWorking.some((r) => r.tipo === 'basico_ref' && r.basico_matriz_id === basicoId)) {
+        toast('Ese básico ya está agregado — edita su Volumen en la tabla en vez de agregarlo dos veces', '');
+        return;
+      }
+      const basico = basicos.find((b) => b.id === basicoId);
+      let precioBasico = null;
+      try { precioBasico = (await api(`/projects/${state.projectId}/basicos/${basicoId}`)).basico.costo_directo; } catch { /* informativo, no bloquea */ }
+      renglonesWorking.push({
+        tipo: 'basico_ref', basico_matriz_id: basicoId, codigo: basico.codigo, descripcion: basico.descripcion,
+        categoria: MATRIZ_CATEGORIA_BASICOS, cantidad: volumen, precio_basico: precioBasico,
+      });
+      closeModal();
+      pintarRenglonesTabla();
+    });
+  });
+
   $('#btnMatGuardarComposicion').addEventListener('click', async () => {
     if (!renglonesWorking.length) { toast('Agrega al menos un renglón', ''); return; }
     const payload = {
@@ -12359,6 +12424,7 @@ async function paintMatrizDetalle(view) {
         codigo: r.tipo === 'factor_pct' ? r.codigo : undefined,
         descripcion: r.tipo === 'factor_pct' ? r.descripcion : undefined,
         factor_referencia: r.tipo === 'factor_pct' ? r.factor_referencia : undefined,
+        basico_matriz_id: r.tipo === 'basico_ref' ? r.basico_matriz_id : undefined,
       })),
       partida: $('#matPartida').value.trim() || null,
       analisis_no: $('#matAnalisisNo').value.trim() || null,
@@ -12374,6 +12440,266 @@ async function paintMatrizDetalle(view) {
       invalidate('matrices');
       toast('Composición guardada', 'success');
       await renderMatrices(view);
+    } catch (err) { toast(err.message, 'danger'); }
+  });
+}
+
+// =========================================================================
+// Básicos (prompt-matrices-basicos-anidados.md) — matrices reutilizables sin
+// concepto propio (analisis "embebibles" como un renglón más en otro
+// análisis, ej. una receta de concreto). Editor independiente del de
+// paintMatrizDetalle: sin cascada CI/CF/CU, sin "Aplicar precio" (un básico
+// nunca se aplica solo a un concepto), y con un control de operador (×/÷)
+// por renglón de insumo — un básico no tiene un campo `rendimiento` propio a
+// nivel de categoría: su renglón de cuadrilla ya trae la división embebida
+// por fila (ej. "5218.31 ÷ 12"), a diferencia del editor de matrices normal.
+// =========================================================================
+async function openBasicosListModal(view) {
+  let basicos;
+  try { basicos = (await api(`/projects/${state.projectId}/basicos`)).basicos; }
+  catch (err) { toast(err.message, 'danger'); return; }
+
+  openModal(`
+    <h3>Básicos de esta obra</h3>
+    <p class="muted">Análisis reutilizables (ej. una receta de concreto) que se insertan como un renglón más dentro de OTRO análisis, multiplicados por un "Volumen" propio de cada uso.</p>
+    <div class="row end mb-8"><button class="btn btn-primary" id="btnBasicoNuevo">+ Nuevo básico</button></div>
+    ${basicos.length ? `
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Código</th><th>Descripción</th><th>Unidad</th></tr></thead>
+          <tbody>${basicos.map((b) => `
+            <tr class="row-click" data-basico="${b.id}">
+              <td>${esc(b.codigo)}</td><td>${esc(b.descripcion)}</td><td>${esc(b.unidad || '—')}</td>
+            </tr>
+          `).join('')}</tbody>
+        </table>
+      </div>
+    ` : '<p class="muted">No hay básicos creados todavía.</p>'}
+    <div class="modal-actions"><button class="btn" id="btnBasicosCerrar">Cerrar</button></div>
+  `);
+  $('#btnBasicosCerrar').addEventListener('click', closeModal);
+  $('#btnBasicoNuevo').addEventListener('click', () => openBasicoEditorModal(view, null));
+  $$('[data-basico]').forEach((row) => row.addEventListener('click', () => openBasicoEditorModal(view, Number(row.dataset.basico))));
+}
+
+async function openBasicoEditorModal(view, basicoId) {
+  const esNuevo = basicoId == null;
+  let basico = null;
+  let usadoEn = [];
+  if (!esNuevo) {
+    try {
+      const data = await api(`/projects/${state.projectId}/basicos/${basicoId}`);
+      basico = data.basico;
+      usadoEn = data.usado_en;
+    } catch (err) { toast(err.message, 'danger'); return; }
+  }
+  const renglonesWorking = esNuevo ? [] : basico.renglones.map((r) => ({ ...r }));
+
+  function pintarTablaBasico() {
+    const tabla = $('#basicoRenglonesTabla');
+    if (!tabla) return;
+    const categoriasAMostrar = [...MATRIZ_CATEGORIAS_UI, MATRIZ_CATEGORIA_BASICOS];
+    tabla.innerHTML = categoriasAMostrar.map((cat) => {
+      const filas = renglonesWorking.map((r, idx) => ({ ...r, _idx: idx })).filter((r) => r.categoria === cat);
+      if (!filas.length) return '';
+      return `
+        <h5 class="mt-12">${esc(cat)}</h5>
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th>Código</th><th>Descripción</th>${cat === 'MANO DE OBRA' ? '<th>Operador</th>' : ''}<th class="num">Cantidad</th><th></th></tr></thead>
+            <tbody>${filas.map((r) => `
+              <tr>
+                <td>${esc(r.codigo || '—')}</td>
+                <td>${esc(r.descripcion || '—')}${r.tipo === 'factor_pct' ? `<div class="muted fs-07">Factor % sobre subtotal de ${esc(r.factor_referencia)}</div>` : ''}${r.tipo === 'basico_ref' ? '<div class="muted fs-07">Básico anidado</div>' : ''}</td>
+                ${cat === 'MANO DE OBRA' ? `
+                  <td>${r.tipo === 'insumo' ? `
+                    <select class="matBasicoOperador" data-idx="${r._idx}">
+                      <option value="*" ${r.operador !== '/' ? 'selected' : ''}>× (cantidad × precio)</option>
+                      <option value="/" ${r.operador === '/' ? 'selected' : ''}>÷ (precio ÷ cantidad — cuadrilla pre-agregada)</option>
+                    </select>` : '—'}</td>
+                ` : ''}
+                <td class="num">
+                  <input type="number" step="0.0001" min="0.0001" class="matriz-input-num matBasicoRenglonCantidad" data-idx="${r._idx}"
+                    value="${r.tipo === 'factor_pct' ? Number((Number(r.cantidad) * 100).toFixed(4)) : r.cantidad}" />${r.tipo === 'factor_pct' ? ' %' : ''}
+                </td>
+                <td><button class="icon-btn-inline" data-remove="${r._idx}" type="button" title="Quitar" aria-label="Quitar">✕</button></td>
+              </tr>
+            `).join('')}</tbody>
+          </table>
+        </div>
+      `;
+    }).join('') || '<p class="muted">Sin renglones agregados todavía.</p>';
+    $$('.matBasicoRenglonCantidad', tabla).forEach((inp) => inp.addEventListener('change', (e) => {
+      const idx = Number(e.target.dataset.idx);
+      const r = renglonesWorking[idx];
+      const val = Math.max(0.0001, Number(e.target.value) || 0);
+      r.cantidad = r.tipo === 'factor_pct' ? val / 100 : val;
+    }));
+    $$('.matBasicoOperador', tabla).forEach((sel) => sel.addEventListener('change', (e) => {
+      renglonesWorking[Number(e.target.dataset.idx)].operador = e.target.value;
+    }));
+    $$('[data-remove]', tabla).forEach((btn) => btn.addEventListener('click', () => {
+      renglonesWorking.splice(Number(btn.dataset.remove), 1);
+      pintarTablaBasico();
+    }));
+  }
+
+  openModal(`
+    <h3>${esNuevo ? 'Nuevo básico' : `Editar básico ${esc(basico.codigo)}`}</h3>
+    <p class="muted">Un básico es un mini-análisis reutilizable (materiales, mano de obra, equipo) sin cascada de CI/CF/CU propia — su costo directo es lo que se multiplica por el "Volumen" al usarlo dentro de otro análisis.</p>
+    ${!esNuevo && basico.costo_directo != null ? `<p class="card-row"><span class="k"><strong>Costo directo actual</strong></span><span class="v"><strong>${fmtMoney(basico.costo_directo)}</strong></span></p>` : ''}
+    ${usadoEn.length ? `
+      <div class="alert-box mb-8">⚠️ Este básico se usa en ${usadoEn.length} análisis — editarlo afecta a todos:
+        <ul>${usadoEn.map((u) => `<li>${u.concepto_codigo ? `${esc(u.concepto_codigo)} — ${esc(u.concepto_nombre)}` : `Básico ${esc(u.basico_codigo)}`}</li>`).join('')}</ul>
+      </div>
+    ` : ''}
+    <div class="field-row">
+      <div class="field"><label>Código</label><input id="basicoCodigo" value="${esc(basico?.codigo || '')}" placeholder="ej. 10401-292" /></div>
+      <div class="field"><label>Unidad</label><input id="basicoUnidad" value="${esc(basico?.unidad || '')}" placeholder="ej. M3" /></div>
+    </div>
+    <div class="field"><label>Descripción</label><input id="basicoDescripcion" value="${esc(basico?.descripcion || '')}" placeholder="ej. CONCRETO DE F'c=150 KG/CM2..." /></div>
+
+    <div class="field">
+      <label>Agregar insumo</label>
+      <input type="search" id="basicoInsumoSearch" placeholder="Buscar insumo por código o nombre…" />
+    </div>
+    <div id="basicoSearchResults"></div>
+    <div class="row end mt-8">
+      <button class="btn" id="btnBasicoAgregarFactor">+ Agregar factor %</button>
+      <button class="btn" id="btnBasicoAgregarBasico">+ Agregar básico anidado</button>
+    </div>
+    <div id="basicoRenglonesTabla" class="mt-8"></div>
+    <div class="modal-actions">
+      <button class="btn" id="btnBasicoCancelar">Cancelar</button>
+      <button class="btn btn-primary" id="btnBasicoGuardar">${esNuevo ? 'Crear básico' : 'Guardar básico'}</button>
+    </div>
+  `);
+  pintarTablaBasico();
+
+  $('#btnBasicoCancelar').addEventListener('click', () => openBasicosListModal(view));
+
+  $('#basicoInsumoSearch').addEventListener('input', debounce(async (e) => {
+    const q = e.target.value.trim();
+    const results = $('#basicoSearchResults');
+    if (!q) { results.innerHTML = ''; return; }
+    try {
+      const found = await api(`/projects/${state.projectId}/insumos${queryString({ q, incluirManoObra: 1 })}`);
+      results.innerHTML = found.slice(0, 8).map((i) => `
+        <div class="project-item" data-add="${i.id}">
+          <span class="pname">${esc(i.concepto)}</span>
+          <span class="pmeta">${esc(i.codigo)} · ${esc(i.categoria || '—')} · ${fmtMoney(i.precio_presupuesto)}</span>
+        </div>`).join('') || '<p class="muted">Sin resultados.</p>';
+      $$('[data-add]', results).forEach((row) => row.addEventListener('click', () => {
+        const id = Number(row.dataset.add);
+        if (renglonesWorking.some((r) => r.tipo === 'insumo' && r.insumo_id === id)) { toast('Ese insumo ya está en el básico', ''); return; }
+        const insumo = found.find((f) => f.id === id);
+        if (!MATRIZ_CATEGORIAS_UI.includes(insumo.categoria)) {
+          toast(`Este insumo tiene categoría "${insumo.categoria}", fuera de Materiales/Mano de Obra/Equipo y Herramienta`, 'danger');
+          return;
+        }
+        renglonesWorking.push({
+          insumo_id: id, codigo: insumo.codigo, descripcion: insumo.concepto,
+          categoria: insumo.categoria, unidad: insumo.unidad,
+          precio_presupuesto: insumo.precio_presupuesto, cantidad: 1, tipo: 'insumo', operador: '*',
+        });
+        $('#basicoInsumoSearch').value = '';
+        results.innerHTML = '';
+        pintarTablaBasico();
+      }));
+    } catch (err) { toast(err.message, 'danger'); }
+  }, 280));
+
+  $('#btnBasicoAgregarFactor').addEventListener('click', () => {
+    openModal(`
+      <h3>Agregar factor %</h3>
+      <div class="field"><label>Código</label><input id="basicoFactorCodigo" placeholder="ej. %MO1" /></div>
+      <div class="field"><label>Descripción</label><input id="basicoFactorDescripcion" placeholder="ej. HERRAMIENTA MENOR" /></div>
+      <div class="field"><label>Categoría donde aparece</label>
+        <select id="basicoFactorCategoria">${MATRIZ_CATEGORIAS_UI.map((c) => `<option value="${esc(c)}" ${c === 'EQUIPO Y HERRAMIENTA' ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select>
+      </div>
+      <div class="field"><label>% sobre el subtotal de</label>
+        <select id="basicoFactorReferencia">${MATRIZ_CATEGORIAS_UI.map((c) => `<option value="${esc(c)}" ${c === 'MANO DE OBRA' ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select>
+      </div>
+      <div class="field"><label>Porcentaje</label><input id="basicoFactorPct" type="number" step="0.01" min="0.01" placeholder="ej. 3 para 3%" /></div>
+      <div class="modal-actions">
+        <button class="btn" id="btnBasicoFactorCancelar">Cancelar</button>
+        <button class="btn btn-primary" id="btnBasicoFactorAgregar">Agregar</button>
+      </div>
+    `);
+    $('#btnBasicoFactorCancelar').addEventListener('click', () => openBasicoEditorModal(view, basicoId));
+    $('#btnBasicoFactorAgregar').addEventListener('click', () => {
+      const codigo = $('#basicoFactorCodigo').value.trim();
+      const descripcion = $('#basicoFactorDescripcion').value.trim();
+      const pct = Number($('#basicoFactorPct').value);
+      if (!codigo || !descripcion || !(pct > 0)) { toast('Completa código, descripción y un % mayor a 0', ''); return; }
+      renglonesWorking.push({
+        tipo: 'factor_pct', codigo, descripcion,
+        categoria: $('#basicoFactorCategoria').value, factor_referencia: $('#basicoFactorReferencia').value,
+        cantidad: pct / 100,
+      });
+      openBasicoEditorModal(view, basicoId);
+    });
+  });
+
+  // Anidamiento multinivel: un básico puede referenciar OTRO básico. El
+  // ciclo (directo o indirecto, incluyendo auto-referencia si se está
+  // editando uno existente) se valida siempre en el servidor al guardar —
+  // aquí solo se excluye el propio básico de la lista para no invitar el
+  // caso más obvio.
+  $('#btnBasicoAgregarBasico').addEventListener('click', async () => {
+    let basicos;
+    try { basicos = (await api(`/projects/${state.projectId}/basicos`)).basicos; }
+    catch (err) { toast(err.message, 'danger'); return; }
+    const disponibles = basicos.filter((b) => b.id !== basicoId);
+    if (!disponibles.length) { toast('No hay otros básicos disponibles para anidar', ''); return; }
+    openModal(`
+      <h3>Agregar básico anidado</h3>
+      <div class="field"><label>Básico</label>
+        <select id="basicoNestedSelect">${disponibles.map((b) => `<option value="${b.id}">${esc(b.codigo)} — ${esc(b.descripcion)}</option>`).join('')}</select>
+      </div>
+      <div class="field"><label>Volumen</label><input id="basicoNestedVolumen" type="number" step="0.0001" min="0.0001" /></div>
+      <div class="modal-actions">
+        <button class="btn" id="btnBasicoNestedCancelar">Cancelar</button>
+        <button class="btn btn-primary" id="btnBasicoNestedAgregar">Agregar</button>
+      </div>
+    `);
+    $('#btnBasicoNestedCancelar').addEventListener('click', () => openBasicoEditorModal(view, basicoId));
+    $('#btnBasicoNestedAgregar').addEventListener('click', () => {
+      const nestedId = Number($('#basicoNestedSelect').value);
+      const volumen = Number($('#basicoNestedVolumen').value);
+      if (!(volumen > 0)) { toast('Captura un Volumen mayor a 0', ''); return; }
+      const nested = disponibles.find((b) => b.id === nestedId);
+      renglonesWorking.push({
+        tipo: 'basico_ref', basico_matriz_id: nestedId, codigo: nested.codigo, descripcion: nested.descripcion,
+        categoria: MATRIZ_CATEGORIA_BASICOS, cantidad: volumen,
+      });
+      openBasicoEditorModal(view, basicoId);
+    });
+  });
+
+  $('#btnBasicoGuardar').addEventListener('click', async () => {
+    const codigo = $('#basicoCodigo').value.trim();
+    const descripcion = $('#basicoDescripcion').value.trim();
+    const unidad = $('#basicoUnidad').value.trim();
+    if (!codigo || !descripcion) { toast('Código y descripción son requeridos', ''); return; }
+    if (!renglonesWorking.length) { toast('Agrega al menos un renglón', ''); return; }
+    const payload = {
+      codigo, descripcion, unidad: unidad || null,
+      renglones: renglonesWorking.map((r) => ({
+        categoria: r.categoria, tipo: r.tipo, cantidad: r.cantidad, operador: r.operador || '*',
+        insumo_id: r.tipo === 'insumo' ? r.insumo_id : undefined,
+        codigo: r.tipo === 'factor_pct' ? r.codigo : undefined,
+        descripcion: r.tipo === 'factor_pct' ? r.descripcion : undefined,
+        factor_referencia: r.tipo === 'factor_pct' ? r.factor_referencia : undefined,
+        basico_matriz_id: r.tipo === 'basico_ref' ? r.basico_matriz_id : undefined,
+      })),
+    };
+    try {
+      if (esNuevo) await api(`/projects/${state.projectId}/basicos`, { method: 'POST', body: payload });
+      else await api(`/projects/${state.projectId}/basicos/${basicoId}`, { method: 'PUT', body: payload });
+      invalidate('matrices');
+      toast('Básico guardado', 'success');
+      openBasicosListModal(view);
     } catch (err) { toast(err.message, 'danger'); }
   });
 }

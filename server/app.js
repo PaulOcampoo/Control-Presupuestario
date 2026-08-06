@@ -51,7 +51,7 @@ const { calcularDiasRestantes, determinarUmbral, construirMensaje } = require('.
 const maquinaria = require('./maquinaria');
 const cotizador = require('./cotizador');
 const { metaToObject, presupuestoTotalDe, getFinanzasResumenData } = require('./finanzas');
-const { calcularJornal, calcularDestajo, totalConIvaEsValido, numeroALetra } = require('./calculos');
+const { calcularJornal, calcularDestajo, totalConIvaEsValido, numeroALetra, calcularSplitCuentas } = require('./calculos');
 const { validarClabe } = require('./catalogoBancos');
 const estadoResultados = require('./estadoResultados');
 const { emparejarConceptos, calcularCambios } = require('./reintegracionPresupuesto');
@@ -6818,8 +6818,22 @@ app.get('/api/projects/:id/trabajadores', h(auth.allow('residente', 'cabo', 'adm
 async function stripDatosBancarios(req, trabajador) {
   if (!trabajador) return trabajador;
   if (await auth.tienePermiso(req, 'trabajadores_bancarios', 'puede_ver')) return trabajador;
-  const { cuenta_nomina_hsbc, cuenta_alterna, banco_nomina, banco_alterna, ...resto } = trabajador;
+  const { cuenta_nomina_hsbc, cuenta_alterna, banco_nomina, banco_alterna, split_cuenta_nomina_pct, ...resto } = trabajador;
   return resto;
+}
+
+// prompt-29-split-pago-cuentas.md: split_cuenta_nomina_pct es información
+// financiera sensible (define cómo se divide el pago entre 2 cuentas), mismo
+// gate que el resto de la sección bancaria (trabajadores_bancarios). Sin
+// valor capturado -> default 100 (todo a cuenta_nomina_hsbc, ver
+// calcularSplitCuentas en server/calculos.js). Devuelve null si el valor
+// recibido es inválido, para que el caller responda 400.
+const SPLIT_PCT_DEFAULT = 100;
+function validarSplitPct(raw) {
+  if (raw === undefined || raw === null || raw === '') return SPLIT_PCT_DEFAULT;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 0 || n > 100) return null;
+  return n;
 }
 
 // prompt-2-deteccion-banco-clabe.md: valida una cuenta bancaria y resuelve
@@ -6883,7 +6897,8 @@ app.post('/api/projects/:id/trabajadores', h(auth.allow('residente', 'cabo', 'ad
   const { nombre, puesto, tipo_pago, tarifa_jornal, periodicidad, curp, rfc, nss,
           telefono, direccion, contacto_emergencia, contacto_emergencia_nombre,
           contacto_emergencia_telefono, fecha_ingreso, destajista_id,
-          cuenta_nomina_hsbc, cuenta_alterna, banco_nomina, banco_alterna } = req.body || {};
+          cuenta_nomina_hsbc, cuenta_alterna, banco_nomina, banco_alterna,
+          split_cuenta_nomina_pct } = req.body || {};
   if (!nombre?.trim()) return res.status(400).json({ error: 'El nombre es requerido' });
   if (!TIPOS_PAGO.includes(tipo_pago)) return res.status(400).json({ error: 'tipo_pago inválido' });
   if (!PERIODICIDADES.includes(periodicidad)) return res.status(400).json({ error: 'periodicidad inválida' });
@@ -6898,11 +6913,14 @@ app.post('/api/projects/:id/trabajadores', h(auth.allow('residente', 'cabo', 'ad
   const puedeEditarBancarios = await auth.tienePermiso(req, 'trabajadores_bancarios', 'puede_editar');
   let nomina = { cuenta: null, banco: null, discrepancia: null };
   let alterna = { cuenta: null, banco: null, discrepancia: null };
+  let splitPct = SPLIT_PCT_DEFAULT;
   if (puedeEditarBancarios) {
     nomina = resolverCuentaBanco(cuenta_nomina_hsbc, banco_nomina);
     if (nomina.error) return res.status(400).json({ error: nomina.error });
     alterna = resolverCuentaBanco(cuenta_alterna, banco_alterna);
     if (alterna.error) return res.status(400).json({ error: alterna.error });
+    splitPct = validarSplitPct(split_cuenta_nomina_pct);
+    if (splitPct === null) return res.status(400).json({ error: 'split_cuenta_nomina_pct debe ser un número entre 0 y 100' });
   }
   let rows;
   try {
@@ -6911,15 +6929,15 @@ app.post('/api/projects/:id/trabajadores', h(auth.allow('residente', 'cabo', 'ad
         (project_id, destajista_id, nombre, puesto, tipo_pago, tarifa_jornal, periodicidad,
          curp, rfc, nss, telefono, direccion, contacto_emergencia,
          contacto_emergencia_nombre, contacto_emergencia_telefono, fecha_ingreso,
-         cuenta_nomina_hsbc, cuenta_alterna, banco_nomina, banco_alterna)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20) RETURNING *`,
+         cuenta_nomina_hsbc, cuenta_alterna, banco_nomina, banco_alterna, split_cuenta_nomina_pct)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21) RETURNING *`,
       [req.project.id, destId, nombre.trim(), puesto?.trim()||null, tipo_pago,
        Math.max(0, Number(tarifa_jornal)||0), periodicidad,
        curp?.trim()||null, rfc?.trim()||null, nss?.trim()||null,
        telefono?.trim()||null, direccion?.trim()||null, contacto_emergencia?.trim()||null,
        contacto_emergencia_nombre?.trim()||null, contacto_emergencia_telefono?.trim()||null,
        fecha_ingreso||null,
-       nomina.cuenta, alterna.cuenta, nomina.banco, alterna.banco]
+       nomina.cuenta, alterna.cuenta, nomina.banco, alterna.banco, splitPct]
     ));
   } catch (err) {
     // prompt-21-trabajadores-multiobra-diagnostico.md, Fase 0: idx_trabajadores_curp_unico_por_obra
@@ -6935,7 +6953,8 @@ app.put('/api/projects/:id/trabajadores/:wId', h(auth.allow('residente', 'cabo',
   const { nombre, puesto, tipo_pago, tarifa_jornal, periodicidad, curp, rfc, nss,
           telefono, direccion, contacto_emergencia, contacto_emergencia_nombre,
           contacto_emergencia_telefono, fecha_ingreso, destajista_id,
-          cuenta_nomina_hsbc, cuenta_alterna, banco_nomina, banco_alterna } = req.body || {};
+          cuenta_nomina_hsbc, cuenta_alterna, banco_nomina, banco_alterna,
+          split_cuenta_nomina_pct } = req.body || {};
   if (!nombre?.trim()) return res.status(400).json({ error: 'El nombre es requerido' });
   if (!TIPOS_PAGO.includes(tipo_pago)) return res.status(400).json({ error: 'tipo_pago inválido' });
   if (!PERIODICIDADES.includes(periodicidad)) return res.status(400).json({ error: 'periodicidad inválida' });
@@ -6944,10 +6963,12 @@ app.put('/api/projects/:id/trabajadores/:wId', h(auth.allow('residente', 'cabo',
     const { rows: dRows } = await db.pool.query('SELECT id FROM destajistas WHERE id=$1 AND project_id=$2', [destId, req.project.id]);
     if (!dRows[0]) return res.status(400).json({ error: 'Destajista vinculado no pertenece a esta obra' });
   }
-  // Si el usuario NO tiene permiso sobre datos bancarios, esas 4 columnas se
+  // Si el usuario NO tiene permiso sobre datos bancarios, esas columnas se
   // OMITEN por completo del UPDATE (no se ponen en null) — de lo contrario
   // un residente editando solo el puesto borraría el dato bancario real que
   // administración ya había capturado. Solo se tocan si el usuario sí puede.
+  // split_cuenta_nomina_pct entra en el mismo gate (prompt-29-split-pago-
+  // cuentas.md) — es la misma sección de información financiera sensible.
   const puedeEditarBancarios = await auth.tienePermiso(req, 'trabajadores_bancarios', 'puede_editar');
   const setClauses = [
     'destajista_id=$1', 'nombre=$2', 'puesto=$3', 'tipo_pago=$4', 'tarifa_jornal=$5',
@@ -6968,10 +6989,13 @@ app.put('/api/projects/:id/trabajadores/:wId', h(auth.allow('residente', 'cabo',
     if (nomina.error) return res.status(400).json({ error: nomina.error });
     alterna = resolverCuentaBanco(cuenta_alterna, banco_alterna);
     if (alterna.error) return res.status(400).json({ error: alterna.error });
-    params.push(nomina.cuenta, alterna.cuenta, nomina.banco, alterna.banco);
+    const splitPct = validarSplitPct(split_cuenta_nomina_pct);
+    if (splitPct === null) return res.status(400).json({ error: 'split_cuenta_nomina_pct debe ser un número entre 0 y 100' });
+    params.push(nomina.cuenta, alterna.cuenta, nomina.banco, alterna.banco, splitPct);
     setClauses.push(
-      `cuenta_nomina_hsbc=$${params.length - 3}`, `cuenta_alterna=$${params.length - 2}`,
-      `banco_nomina=$${params.length - 1}`, `banco_alterna=$${params.length}`
+      `cuenta_nomina_hsbc=$${params.length - 4}`, `cuenta_alterna=$${params.length - 3}`,
+      `banco_nomina=$${params.length - 2}`, `banco_alterna=$${params.length - 1}`,
+      `split_cuenta_nomina_pct=$${params.length}`
     );
   }
   params.push(wId, req.project.id);
@@ -7762,6 +7786,31 @@ app.post('/api/projects/:id/nominas', h(auth.allow('residente', 'cabo')), h(requ
   res.status(201).json(rows[0]);
 }));
 
+// prompt-29-split-pago-cuentas.md: adjunta el desglose de pago por cuenta
+// (monto_cuenta_nomina/monto_cuenta_alterna + banco de cada una) a items de
+// nomina_items ya calculados, SIN tocar monto_total ni el cálculo base.
+// Mismo gate que el resto de datos bancarios (trabajadores_bancarios,
+// prompt-p5-cuentas-bancarias.md) — sin ese permiso, ni el desglose ni los
+// campos crudos de cuenta_alterna/split se exponen (CP4 del prompt).
+async function adjuntarDesgloseCuentas(req, items) {
+  const puedeVerBancarios = await auth.tienePermiso(req, 'trabajadores_bancarios', 'puede_ver');
+  return items.map((it) => {
+    const { cuenta_alterna, banco_nomina, banco_alterna, split_cuenta_nomina_pct, ...resto } = it;
+    if (!puedeVerBancarios) return resto;
+    const tieneAlterna = !!(cuenta_alterna && cuenta_alterna.trim());
+    const { montoCuentaNomina, montoCuentaAlterna } = calcularSplitCuentas(
+      Number(it.monto_total), split_cuenta_nomina_pct, tieneAlterna
+    );
+    return {
+      ...resto,
+      monto_cuenta_nomina: montoCuentaNomina,
+      monto_cuenta_alterna: montoCuentaAlterna,
+      banco_nomina: banco_nomina || null,
+      banco_alterna: tieneAlterna ? (banco_alterna || null) : null,
+    };
+  });
+}
+
 app.get('/api/projects/:id/nominas/:nomId', h(auth.allow('residente', 'cabo')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('nominas', 'puede_ver')), h(async (req, res) => {
   const nomId = Number(req.params.nomId);
   // Mismo criterio que la lista: un residente no puede abrir por ID el detalle
@@ -7773,14 +7822,15 @@ app.get('/api/projects/:id/nominas/:nomId', h(auth.allow('residente', 'cabo')), 
   );
   if (!nomRows[0]) return res.status(404).json({ error: 'Nómina no encontrada' });
   const { rows: items } = await db.pool.query(`
-    SELECT ni.*, t.nombre AS trabajador_nombre, t.tipo_pago, t.tarifa_jornal, t.periodicidad
+    SELECT ni.*, t.nombre AS trabajador_nombre, t.tipo_pago, t.tarifa_jornal, t.periodicidad,
+           t.cuenta_alterna, t.banco_nomina, t.banco_alterna, t.split_cuenta_nomina_pct
     FROM nomina_items ni
     JOIN trabajadores t ON t.id = ni.trabajador_id
     WHERE ni.nomina_id = $1
     ORDER BY t.nombre`,
     [nomId]
   );
-  res.json({ ...nomRows[0], items });
+  res.json({ ...nomRows[0], items: await adjuntarDesgloseCuentas(req, items) });
 }));
 
 app.post('/api/projects/:id/nominas/:nomId/calcular', h(auth.allow('residente', 'cabo')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('nominas', 'puede_editar')), h(async (req, res) => {
@@ -7925,28 +7975,43 @@ app.get('/api/projects/:id/nominas/:nomId/export', h(auth.allow('residente', 'ca
   const { rows: nomRows } = await db.pool.query('SELECT * FROM nominas WHERE id=$1 AND project_id=$2', [nomId, req.project.id]);
   if (!nomRows[0]) return res.status(404).json({ error: 'Nómina no encontrada' });
   if (nomRows[0].estado !== 'aprobada') return res.status(409).json({ error: 'Solo se puede exportar una nómina aprobada' });
-  const { rows: items } = await db.pool.query(`
+  const { rows: itemsRaw } = await db.pool.query(`
     SELECT t.nombre AS trabajador, t.puesto, t.tipo_pago, t.periodicidad,
-           ni.dias_trabajados, ni.monto_jornal, ni.monto_destajo, ni.monto_total
+           ni.dias_trabajados, ni.monto_jornal, ni.monto_destajo, ni.monto_total,
+           t.cuenta_alterna, t.banco_nomina, t.banco_alterna, t.split_cuenta_nomina_pct
     FROM nomina_items ni JOIN trabajadores t ON t.id=ni.trabajador_id
     WHERE ni.nomina_id=$1 ORDER BY t.nombre`, [nomId]
   );
+  const items = await adjuntarDesgloseCuentas(req, itemsRaw);
   const nom = nomRows[0];
   const filename = buildExportFilename(`Nomina_${nom.fecha_inicio}_${nom.fecha_fin}`, req.project.nombre);
+  const columns = [
+    { header: 'Trabajador', key: 'trabajador', width: 30 },
+    { header: 'Puesto', key: 'puesto', width: 20 },
+    { header: 'Tipo pago', key: 'tipo_pago', width: 14 },
+    { header: 'Periodicidad', key: 'periodicidad', width: 14 },
+    { header: 'Días trabajados', key: 'dias_trabajados', width: 16, format: 'int' },
+    { header: 'Monto jornal', key: 'monto_jornal', width: 16, format: 'money' },
+    { header: 'Monto destajo', key: 'monto_destajo', width: 16, format: 'money' },
+    { header: 'Total', key: 'monto_total', width: 16, format: 'money' },
+  ];
+  // prompt-29-split-pago-cuentas.md: 2 columnas de desglose + su banco, para
+  // que quien haga la dispersión bancaria tenga todo en una sola vista. Solo
+  // se agregan si adjuntarDesgloseCuentas ya adjuntó el desglose (mismo gate
+  // trabajadores_bancarios) — de lo contrario las columnas quedarían vacías.
+  if (items[0] && 'monto_cuenta_nomina' in items[0]) {
+    columns.push(
+      { header: 'Banco cuenta nómina', key: 'banco_nomina', width: 20 },
+      { header: 'Monto cuenta nómina', key: 'monto_cuenta_nomina', width: 18, format: 'money' },
+      { header: 'Banco cuenta alterna', key: 'banco_alterna', width: 20 },
+      { header: 'Monto cuenta alterna', key: 'monto_cuenta_alterna', width: 18, format: 'money' },
+    );
+  }
   await sendXlsxExport(res, {
     filename,
     sheets: [{
       sheetName: 'Nómina',
-      columns: [
-        { header: 'Trabajador', key: 'trabajador', width: 30 },
-        { header: 'Puesto', key: 'puesto', width: 20 },
-        { header: 'Tipo pago', key: 'tipo_pago', width: 14 },
-        { header: 'Periodicidad', key: 'periodicidad', width: 14 },
-        { header: 'Días trabajados', key: 'dias_trabajados', width: 16, format: 'int' },
-        { header: 'Monto jornal', key: 'monto_jornal', width: 16, format: 'money' },
-        { header: 'Monto destajo', key: 'monto_destajo', width: 16, format: 'money' },
-        { header: 'Total', key: 'monto_total', width: 16, format: 'money' },
-      ],
+      columns,
       rows: items,
     }],
   });

@@ -10974,6 +10974,7 @@ async function renderTrabajadoresGlobal(view) {
         <td>${puedeVerCuenta ? `<button class="btn small" data-ver-cuenta="${t.id}">Ver cuenta</button>` : '—'}</td>
         <td><div class="row">
           ${puedeEditar ? `<button class="icon-btn-inline" data-editar="${t.id}" title="Editar">✎</button>` : ''}
+          ${puedeEditar && t.activo ? `<button class="icon-btn-inline" data-obras="${t.id}" title="Gestionar obras">🏗️</button>` : ''}
           ${puedeEditar && t.activo ? `<button class="icon-btn-inline" data-baja="${t.id}" title="Dar de baja">🚫</button>` : ''}
         </div></td>
       </tr>`;
@@ -10989,6 +10990,10 @@ async function renderTrabajadoresGlobal(view) {
         puedeVerBancarios: !!perm.trabajadores_bancarios.puede_ver,
         puedeEditarBancarios: !!perm.trabajadores_bancarios.puede_editar,
       }, t.project_id);
+    }));
+    $$('[data-obras]', tbody).forEach((btn) => btn.addEventListener('click', () => {
+      const t = filtrados.find((x) => x.id === Number(btn.dataset.obras));
+      openGestionarObrasModal(t, repaint);
     }));
     $$('[data-baja]', tbody).forEach((btn) => btn.addEventListener('click', () => {
       const t = filtrados.find((x) => x.id === Number(btn.dataset.baja));
@@ -13182,6 +13187,89 @@ async function openBajaModal(id, nombre, repaint, obraId = state.projectId) {
       await repaint();
     } catch (err) { toast(err.message, 'danger'); btn.disabled = false; }
   });
+}
+
+// prompt-31-trabajador-multiobra-nn.md: gestiona las asignaciones de un
+// trabajador a obras del MISMO cliente — a diferencia del "mover" de PR #110
+// (cerrado sin mergear), permite estar activo en varias obras a la vez sin
+// cerrar la anterior. El backend re-valida todo (mismo cliente, acceso a
+// ambas obras, CURP en destino) — este selector solo filtra por cliente en
+// el front para no ofrecer opciones que el backend rechazaría de todos modos.
+async function openGestionarObrasModal(t, repaint) {
+  async function cargarYRenderizar() {
+    let obras = [];
+    try { obras = await api(`/projects/${t.project_id}/trabajadores/${t.id}/obras`); }
+    catch (err) { $('#gestObrasBody').innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`; return; }
+    const activas = obras.filter((o) => o.activo);
+    const historicas = obras.filter((o) => !o.activo);
+    $('#gestObrasBody').innerHTML = `
+      <p class="muted fs085-m008">Obras activas</p>
+      ${activas.length ? activas.map((o) => `
+        <div class="card-row">
+          <span class="k">${esc(o.obra_nombre)}</span>
+          <span class="v">
+            desde ${fmtDate(o.fecha_asignacion)}
+            <button class="btn small btn-danger" data-desasignar="${o.project_id}">Desasignar</button>
+          </span>
+        </div>`).join('') : '<div class="empty-state">Sin obras activas.</div>'}
+      ${historicas.length ? `
+        <p class="muted fs085-m008 mt-8">Historial</p>
+        ${historicas.map((o) => `
+          <div class="card-row">
+            <span class="k">${esc(o.obra_nombre)}</span>
+            <span class="v muted fs-08">${fmtDate(o.fecha_asignacion)} → ${fmtDate(o.fecha_desasignacion)}</span>
+          </div>`).join('')}
+      ` : ''}
+    `;
+    $$('[data-desasignar]', $('#gestObrasBody')).forEach((btn) => btn.addEventListener('click', async () => {
+      if (activas.length <= 1 && !confirm('Esta es su única obra activa — al desasignarlo dejará de aparecer en cualquier obra. ¿Continuar?')) return;
+      btn.disabled = true;
+      try {
+        await api(`/projects/${btn.dataset.desasignar}/trabajadores/${t.id}/desasignar-obra`, { method: 'POST' });
+        toast('Desasignado de la obra', 'success');
+        await cargarYRenderizar();
+        await repaint();
+      } catch (err) { toast(err.message, 'danger'); btn.disabled = false; }
+    }));
+  }
+
+  let proyectos = [];
+  try { proyectos = await api('/projects'); } catch (err) { toast(err.message, 'danger'); return; }
+  const origenObra = proyectos.find((p) => p.id === t.project_id);
+  const destinos = proyectos.filter((p) => p.id !== t.project_id && origenObra && p.cliente_id === origenObra.cliente_id);
+
+  openModal(`
+    <h3>Obras asignadas — ${esc(t.nombre)}</h3>
+    <div id="gestObrasBody" class="mt-8"><div class="spinner"></div></div>
+    ${destinos.length ? `
+      <div class="section-divider-12">
+        <p class="muted fs085-m008">Asignar a otra obra del mismo cliente (${esc(t.cliente_nombre || '—')})</p>
+        <div class="row">
+          <select id="gestObraNueva">${destinos.map((p) => `<option value="${p.id}">${esc(p.nombre)}</option>`).join('')}</select>
+          <button class="btn btn-primary" id="btnAsignarObra">Asignar</button>
+        </div>
+      </div>
+    ` : `<p class="muted fs085-m008 mt-8">No tienes acceso a otra obra de ${esc(t.cliente_nombre || 'este cliente')} para asignar.</p>`}
+    <div class="modal-actions"><button class="btn" id="btnCerrarGestObras">Cerrar</button></div>
+  `);
+  $('#btnCerrarGestObras').addEventListener('click', closeModal);
+  if (destinos.length) {
+    $('#btnAsignarObra').addEventListener('click', async () => {
+      const btn = $('#btnAsignarObra');
+      btn.disabled = true;
+      try {
+        await api(`/projects/${t.project_id}/trabajadores/${t.id}/asignar-obra`, {
+          method: 'POST',
+          body: { project_id_destino: Number($('#gestObraNueva').value) },
+        });
+        toast('Trabajador asignado a la obra', 'success');
+        await cargarYRenderizar();
+        await repaint();
+      } catch (err) { toast(err.message, 'danger'); }
+      btn.disabled = false;
+    });
+  }
+  await cargarYRenderizar();
 }
 
 async function openDocumentosModal(trabajadorId, nombreTrab, puedeCrear, puedeEliminar) {

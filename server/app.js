@@ -6793,12 +6793,20 @@ app.get('/api/trabajadores', h(auth.checkPermiso('trabajadores_global', 'puede_v
 // sin acceso por default (su rol no trae 'trabajadores' en TAB_A_SECCION);
 // debe otorgarse manualmente vía el panel de permisos, igual que cualquier
 // otra sección granular.
+// prompt-31-trabajador-multiobra-nn.md: migrado a trabajador_obras — lista a
+// quien tenga una asignación ACTIVA en esta obra, sin importar en cuántas
+// otras obras del mismo cliente esté asignado también. trabajadores.activo
+// (global) y trabajador_obras.activo (por-obra) son conceptos independientes
+// a propósito: dar de baja a alguien no lo desasigna de sus obras (mismo
+// comportamiento que ya tenía el modelo 1:1 — project_id nunca se tocaba al
+// dar de baja), simplemente deja de contar para nómina/asistencia nuevas.
 app.get('/api/projects/:id/trabajadores', h(auth.allow('residente', 'cabo', 'administracion')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('trabajadores', 'puede_ver')), h(async (req, res) => {
   const { activo } = req.query;
   let sql = `SELECT ${TRABAJADOR_COLUMNAS_LISTADO}, d.nombre AS destajista_nombre
              FROM trabajadores t
+             JOIN trabajador_obras o ON o.trabajador_id = t.id AND o.project_id = $1 AND o.activo = true
              LEFT JOIN destajistas d ON d.id = t.destajista_id
-             WHERE t.project_id = $1`;
+             WHERE 1=1`;
   const params = [req.project.id];
   if (activo === '1') { sql += ' AND t.activo = true'; }
   else if (activo === '0') { sql += ' AND t.activo = false'; }
@@ -6806,6 +6814,18 @@ app.get('/api/projects/:id/trabajadores', h(auth.allow('residente', 'cabo', 'adm
   const { rows } = await db.pool.query(sql, params);
   res.json(rows);
 }));
+
+// prompt-31-trabajador-multiobra-nn.md: reemplaza el check "WHERE id=$1 AND
+// project_id=$2" en los endpoints migrados a trabajador_obras — un
+// trabajador pertenece a una obra si tiene ahí una asignación ACTIVA, sin
+// importar en cuántas otras obras (del mismo cliente) esté asignado también.
+async function trabajadorAsignadoAObra(wId, projectId) {
+  const { rows } = await db.pool.query(
+    'SELECT 1 FROM trabajador_obras WHERE trabajador_id=$1 AND project_id=$2 AND activo=true',
+    [wId, projectId]
+  );
+  return rows.length > 0;
+}
 
 // prompt-p5-cuentas-bancarias.md: recorta cuenta_nomina_hsbc/cuenta_alterna
 // de un objeto trabajador antes de responder, salvo que el usuario tenga
@@ -6886,9 +6906,8 @@ async function registrarDiscrepanciasBanco(req, trabajadorId, { nomina, alterna 
 // objeto antes de abrir el modal de edición.
 app.get('/api/projects/:id/trabajadores/:wId', h(auth.allow('residente', 'cabo', 'administracion')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('trabajadores', 'puede_ver')), h(async (req, res) => {
   const wId = Number(req.params.wId);
-  const { rows } = await db.pool.query(
-    'SELECT * FROM trabajadores WHERE id=$1 AND project_id=$2', [wId, req.project.id]
-  );
+  if (!(await trabajadorAsignadoAObra(wId, req.project.id))) return res.status(404).json({ error: 'Trabajador no encontrado' });
+  const { rows } = await db.pool.query('SELECT * FROM trabajadores WHERE id=$1', [wId]);
   if (!rows[0]) return res.status(404).json({ error: 'Trabajador no encontrado' });
   res.json(await stripDatosBancarios(req, rows[0]));
 }));
@@ -6922,25 +6941,41 @@ app.post('/api/projects/:id/trabajadores', h(auth.allow('residente', 'cabo', 'ad
     splitPct = validarSplitPct(split_cuenta_nomina_pct);
     if (splitPct === null) return res.status(400).json({ error: 'split_cuenta_nomina_pct debe ser un número entre 0 y 100' });
   }
+  const curpTrim = curp?.trim() || null;
   let rows;
   try {
-    ({ rows } = await db.pool.query(`
-      INSERT INTO trabajadores
-        (project_id, destajista_id, nombre, puesto, tipo_pago, tarifa_jornal, periodicidad,
-         curp, rfc, nss, telefono, direccion, contacto_emergencia,
-         contacto_emergencia_nombre, contacto_emergencia_telefono, fecha_ingreso,
-         cuenta_nomina_hsbc, cuenta_alterna, banco_nomina, banco_alterna, split_cuenta_nomina_pct)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21) RETURNING *`,
-      [req.project.id, destId, nombre.trim(), puesto?.trim()||null, tipo_pago,
-       Math.max(0, Number(tarifa_jornal)||0), periodicidad,
-       curp?.trim()||null, rfc?.trim()||null, nss?.trim()||null,
-       telefono?.trim()||null, direccion?.trim()||null, contacto_emergencia?.trim()||null,
-       contacto_emergencia_nombre?.trim()||null, contacto_emergencia_telefono?.trim()||null,
-       fecha_ingreso||null,
-       nomina.cuenta, alterna.cuenta, nomina.banco, alterna.banco, splitPct]
-    ));
+    // prompt-31-trabajador-multiobra-nn.md: el alta crea el trabajador (con
+    // project_id = obra de alta, columna "primaria" conservada por
+    // compatibilidad con endpoints aún no migrados a trabajador_obras) Y su
+    // primera fila de asignación en trabajador_obras, en la misma
+    // transacción — ambos constraints de CURP único por obra (el viejo sobre
+    // trabajadores, el nuevo sobre trabajador_obras) se validan juntos.
+    rows = await db.withTransaction(async (client) => {
+      const { rows: trabRows } = await client.query(`
+        INSERT INTO trabajadores
+          (project_id, destajista_id, nombre, puesto, tipo_pago, tarifa_jornal, periodicidad,
+           curp, rfc, nss, telefono, direccion, contacto_emergencia,
+           contacto_emergencia_nombre, contacto_emergencia_telefono, fecha_ingreso,
+           cuenta_nomina_hsbc, cuenta_alterna, banco_nomina, banco_alterna, split_cuenta_nomina_pct)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21) RETURNING *`,
+        [req.project.id, destId, nombre.trim(), puesto?.trim()||null, tipo_pago,
+         Math.max(0, Number(tarifa_jornal)||0), periodicidad,
+         curpTrim, rfc?.trim()||null, nss?.trim()||null,
+         telefono?.trim()||null, direccion?.trim()||null, contacto_emergencia?.trim()||null,
+         contacto_emergencia_nombre?.trim()||null, contacto_emergencia_telefono?.trim()||null,
+         fecha_ingreso||null,
+         nomina.cuenta, alterna.cuenta, nomina.banco, alterna.banco, splitPct]
+      );
+      await client.query(
+        `INSERT INTO trabajador_obras (trabajador_id, project_id, curp, activo, asignado_por)
+         VALUES ($1,$2,$3,true,$4)`,
+        [trabRows[0].id, req.project.id, curpTrim, req.user.id]
+      );
+      return trabRows;
+    });
   } catch (err) {
     // prompt-21-trabajadores-multiobra-diagnostico.md, Fase 0: idx_trabajadores_curp_unico_por_obra
+    // prompt-31-trabajador-multiobra-nn.md: idx_trabajador_obras_curp_unico_activo (mismo caso, constraint nuevo)
     if (err.code === '23505') return res.status(409).json({ error: 'Ya existe un trabajador con ese CURP en esta obra' });
     throw err;
   }
@@ -6950,6 +6985,7 @@ app.post('/api/projects/:id/trabajadores', h(auth.allow('residente', 'cabo', 'ad
 
 app.put('/api/projects/:id/trabajadores/:wId', h(auth.allow('residente', 'cabo', 'administracion')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('trabajadores', 'puede_editar')), h(async (req, res) => {
   const wId = Number(req.params.wId);
+  if (!(await trabajadorAsignadoAObra(wId, req.project.id))) return res.status(404).json({ error: 'Trabajador no encontrado' });
   const { nombre, puesto, tipo_pago, tarifa_jornal, periodicidad, curp, rfc, nss,
           telefono, direccion, contacto_emergencia, contacto_emergencia_nombre,
           contacto_emergencia_telefono, fecha_ingreso, destajista_id,
@@ -6998,12 +7034,12 @@ app.put('/api/projects/:id/trabajadores/:wId', h(auth.allow('residente', 'cabo',
       `split_cuenta_nomina_pct=$${params.length}`
     );
   }
-  params.push(wId, req.project.id);
+  params.push(wId);
   let rows;
   try {
     ({ rows } = await db.pool.query(
       `UPDATE trabajadores SET ${setClauses.join(', ')}
-       WHERE id=$${params.length - 1} AND project_id=$${params.length} RETURNING *`,
+       WHERE id=$${params.length} RETURNING *`,
       params
     ));
   } catch (err) {
@@ -7058,6 +7094,128 @@ app.post('/api/projects/:id/trabajadores/:wId/reactivar', h(auth.allow('resident
     [wId, req.project.id]
   );
   if (!rows[0]) return res.status(404).json({ error: 'Trabajador no encontrado o ya activo' });
+  res.json(rows[0]);
+}));
+
+// prompt-31-trabajador-multiobra-nn.md: obras donde este trabajador tiene o
+// tuvo una asignación (activa o histórica) — consultable desde el detalle
+// del trabajador. Requiere que el trabajador esté ASIGNADO ACTUALMENTE a la
+// obra de la URL (mismo criterio IDOR que el resto de endpoints de
+// trabajadores) — no expone su historial completo a cualquiera con acceso a
+// CUALQUIERA de sus obras, solo a quien tenga acceso a una donde sigue activo.
+app.get('/api/projects/:id/trabajadores/:wId/obras', h(auth.allow('residente', 'cabo', 'administracion')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('trabajadores', 'puede_ver')), h(async (req, res) => {
+  const wId = Number(req.params.wId);
+  if (!(await trabajadorAsignadoAObra(wId, req.project.id))) return res.status(404).json({ error: 'Trabajador no encontrado' });
+  const { rows } = await db.pool.query(`
+    SELECT o.id, o.project_id, p.nombre AS obra_nombre, o.activo,
+           o.fecha_asignacion, o.fecha_desasignacion, u.nombre AS asignado_por_nombre
+    FROM trabajador_obras o
+    JOIN proyectos p ON p.id = o.project_id
+    LEFT JOIN usuarios u ON u.id = o.asignado_por
+    WHERE o.trabajador_id = $1
+    ORDER BY o.activo DESC, o.fecha_asignacion DESC`,
+    [wId]
+  );
+  res.json(rows);
+}));
+
+// prompt-31-trabajador-multiobra-nn.md: asigna a un trabajador YA activo en
+// la obra de la URL a una obra ADICIONAL del mismo cliente — a diferencia de
+// "mover" (PR #110, cerrado), no cierra la asignación de origen, ambas
+// quedan activas simultáneamente. Requiere acceso (usuario_proyectos) a
+// AMBAS obras — verificarAccesoObra de la middleware chain solo cubre la de
+// la URL. El UNIQUE de CURP por obra (idx_trabajador_obras_curp_unico_activo)
+// se dispara solo contra el destino al hacer el INSERT.
+app.post('/api/projects/:id/trabajadores/:wId/asignar-obra', h(auth.allow('residente', 'cabo', 'administracion')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('trabajadores', 'puede_editar')), h(async (req, res) => {
+  const wId = Number(req.params.wId);
+  const { project_id_destino } = req.body || {};
+  const destinoId = Number(project_id_destino);
+  if (!Number.isFinite(destinoId) || destinoId <= 0) return res.status(400).json({ error: 'Indica la obra destino' });
+  if (destinoId === req.project.id) return res.status(400).json({ error: 'La obra destino debe ser distinta a la actual' });
+
+  if (!(await trabajadorAsignadoAObra(wId, req.project.id))) return res.status(404).json({ error: 'Trabajador no encontrado en esta obra' });
+
+  const { rows: obrasRows } = await db.pool.query(
+    'SELECT id, cliente_id FROM proyectos WHERE id = ANY($1)',
+    [[req.project.id, destinoId]]
+  );
+  const origenObra = obrasRows.find((o) => o.id === req.project.id);
+  const destinoObra = obrasRows.find((o) => o.id === destinoId);
+  if (!destinoObra) return res.status(400).json({ error: 'Obra destino no encontrada' });
+  if (!origenObra.cliente_id || origenObra.cliente_id !== destinoObra.cliente_id) {
+    return res.status(400).json({ error: 'Solo puedes asignar a un trabajador a otra obra del mismo cliente' });
+  }
+
+  if (req.user.puesto !== 'admin' && req.user.puesto !== 'desarrollador') {
+    const { rows: accesoDestino } = await db.pool.query(
+      'SELECT 1 FROM usuario_proyectos WHERE usuario_id=$1 AND project_id=$2',
+      [req.user.id, destinoId]
+    );
+    if (!accesoDestino.length) return res.status(403).json({ error: 'No tienes acceso a la obra destino' });
+  }
+
+  const { rows: yaActivo } = await db.pool.query(
+    'SELECT 1 FROM trabajador_obras WHERE trabajador_id=$1 AND project_id=$2 AND activo=true',
+    [wId, destinoId]
+  );
+  if (yaActivo.length) return res.status(409).json({ error: 'Ya está asignado activamente a esa obra' });
+
+  const { rows: curpRows } = await db.pool.query('SELECT curp FROM trabajadores WHERE id=$1', [wId]);
+  let rows;
+  try {
+    ({ rows } = await db.pool.query(
+      `INSERT INTO trabajador_obras (trabajador_id, project_id, curp, activo, asignado_por)
+       VALUES ($1,$2,$3,true,$4) RETURNING *`,
+      [wId, destinoId, curpRows[0]?.curp || null, req.user.id]
+    ));
+  } catch (err) {
+    if (err.code === '23505') return res.status(409).json({ error: 'Ya existe un trabajador con ese CURP en la obra destino' });
+    throw err;
+  }
+  res.status(201).json(rows[0]);
+}));
+
+// prompt-31-trabajador-multiobra-nn.md: desasigna a un trabajador de la obra
+// de la URL — NO borra su historial ahí (nómina/asistencia ya generados
+// siguen consultables), solo marca esa asignación específica como inactiva
+// desde ahora. El trabajador puede seguir activo en sus demás obras sin
+// verse afectado.
+//
+// Bloqueo verificado con datos reales (no solo teórico): el cálculo de
+// nómina arma su lista de trabajadores desde trabajador_obras.activo=true
+// EN EL MOMENTO del cálculo — si se desasigna primero y se calcula/recalcula
+// una nómina de esa obra DESPUÉS, cualquier asistencia real ya capturada en
+// el periodo desaparece en silencio del renglón de nómina (0 pesos, sin
+// error). No basta con checar si ya existe una nómina 'borrador' con un
+// renglón de este trabajador (esa nómina puede no existir todavía en el
+// momento de desasignar, como en el caso reproducido) — el bloqueo real
+// tiene que ser: ¿hay asistencia 'presente' de este trabajador en esta obra
+// que AÚN no esté cubierta por una nómina 'aprobada'? Si la hay, se bloquea
+// hasta que se apruebe (o se corrija) esa asistencia.
+app.post('/api/projects/:id/trabajadores/:wId/desasignar-obra', h(auth.allow('residente', 'cabo', 'administracion')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('trabajadores', 'puede_editar')), h(async (req, res) => {
+  const wId = Number(req.params.wId);
+
+  const { rows: pendienteRows } = await db.pool.query(`
+    SELECT 1 FROM asistencia_diaria ad
+    WHERE ad.trabajador_id=$1 AND ad.project_id=$2 AND ad.estado='presente'
+      AND NOT EXISTS (
+        SELECT 1 FROM nominas n
+        WHERE n.project_id=$2 AND n.estado='aprobada'
+          AND n.fecha_inicio <= ad.fecha AND n.fecha_fin >= ad.fecha
+      )
+    LIMIT 1`,
+    [wId, req.project.id]
+  );
+  if (pendienteRows.length) {
+    return res.status(409).json({ error: 'Este trabajador tiene asistencia registrada en esta obra que aún no está cubierta por una nómina aprobada — resuélvela antes de desasignarlo' });
+  }
+
+  const { rows } = await db.pool.query(
+    `UPDATE trabajador_obras SET activo=false, fecha_desasignacion=NOW()
+     WHERE trabajador_id=$1 AND project_id=$2 AND activo=true RETURNING *`,
+    [wId, req.project.id]
+  );
+  if (!rows[0]) return res.status(404).json({ error: 'Trabajador no encontrado o ya desasignado de esta obra' });
   res.json(rows[0]);
 }));
 
@@ -7367,8 +7525,9 @@ app.get('/api/projects/:id/asistencia-rango', h(auth.allow('residente', 'cabo'))
   const fechaHoy = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Mexico_City' }).format(new Date());
 
   const { rows: trabajadores } = await db.pool.query(
-    `SELECT id, nombre, puesto, tipo_pago FROM trabajadores
-     WHERE project_id = $1 AND activo = true ORDER BY orden, nombre`,
+    `SELECT t.id, t.nombre, t.puesto, t.tipo_pago FROM trabajadores t
+     JOIN trabajador_obras o ON o.trabajador_id = t.id AND o.project_id = $1 AND o.activo = true
+     WHERE t.activo = true ORDER BY t.orden, t.nombre`,
     [req.project.id]
   );
 
@@ -7414,8 +7573,9 @@ app.get('/api/projects/:id/asistencia', h(auth.allow('residente', 'cabo')), h(re
            COALESCE(a.estado, 'presente') AS estado,
            a.id AS asistencia_id
     FROM trabajadores t
+    JOIN trabajador_obras o ON o.trabajador_id = t.id AND o.project_id = $1 AND o.activo = true
     LEFT JOIN asistencia_diaria a ON a.trabajador_id = t.id AND a.project_id = $1 AND a.fecha = $2
-    WHERE t.project_id = $1 AND t.activo = true
+    WHERE t.activo = true
     ORDER BY t.orden, t.nombre`,
     [req.project.id, fecha]
   );
@@ -7468,7 +7628,10 @@ app.put('/api/projects/:id/asistencia', h(auth.allow('residente', 'cabo')), h(re
   const payloadIds = asistencia.map((item) => Number(item.trabajador_id));
   if (payloadIds.some((id) => !Number.isFinite(id) || id <= 0)) return res.status(400).json({ error: 'ID de trabajador inválido' });
   const uniqueIds = [...new Set(payloadIds)];
-  const { rows: wCheck } = await db.pool.query('SELECT id FROM trabajadores WHERE id = ANY($1) AND project_id=$2', [uniqueIds, req.project.id]);
+  const { rows: wCheck } = await db.pool.query(
+    'SELECT trabajador_id FROM trabajador_obras WHERE trabajador_id = ANY($1) AND project_id=$2 AND activo=true',
+    [uniqueIds, req.project.id]
+  );
   if (wCheck.length !== uniqueIds.length) return res.status(400).json({ error: 'Uno o más trabajadores no pertenecen a esta obra' });
   // Verificar que la fecha no caiga dentro de una nómina aprobada
   const { rows: bloqRows } = await db.pool.query(
@@ -7535,7 +7698,9 @@ async function marcadoMasivoAsistencia(req, res, estado) {
   if (bloqRows.length) return res.status(409).json({ error: 'Esta fecha está cubierta por una nómina aprobada y no puede modificarse' });
 
   const { rows: trabajadores } = await db.pool.query(
-    'SELECT id FROM trabajadores WHERE project_id = $1 AND activo = true',
+    `SELECT t.id FROM trabajadores t
+     JOIN trabajador_obras o ON o.trabajador_id = t.id AND o.project_id = $1 AND o.activo = true
+     WHERE t.activo = true`,
     [req.project.id]
   );
   const presente = estado === 'presente';
@@ -7845,7 +8010,9 @@ app.post('/api/projects/:id/nominas/:nomId/calcular', h(auth.allow('residente', 
 
   // Obtener todos los trabajadores activos (y los que ya tenían item aunque se hayan dado de baja)
   const { rows: trabajadores } = await db.pool.query(
-    'SELECT * FROM trabajadores WHERE project_id=$1 AND activo=true ORDER BY nombre',
+    `SELECT t.* FROM trabajadores t
+     JOIN trabajador_obras o ON o.trabajador_id = t.id AND o.project_id=$1 AND o.activo=true
+     WHERE t.activo=true ORDER BY t.nombre`,
     [req.project.id]
   );
 

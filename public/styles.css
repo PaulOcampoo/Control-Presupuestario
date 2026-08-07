@@ -1387,6 +1387,22 @@ body.body-scroll-locked { overflow: hidden; }
 .collapse-body { overflow: hidden; max-height: 0; transition: max-height 0.25s ease; }
 .collapse-body.open { max-height: 4000px; }
 
+/* Secciones colapsables de página completa (prompt-37-reorganizar-
+   maquinaria.md) — <details> nativo en vez del truco de max-height de
+   arriba: el contenido (tablas largas, catálogos) no tiene una altura
+   máxima razonable que fijar sin arriesgar recorte. */
+.maq-section { margin-top: 16px; border: 1px solid var(--border-color); border-radius: 10px; background: var(--bg-surface-2); }
+.maq-section > summary {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  list-style: none; cursor: pointer; padding: 12px 14px;
+  font-size: 0.95rem; font-weight: 700; color: var(--text-primary);
+}
+.maq-section > summary::-webkit-details-marker { display: none; }
+.maq-section > summary .chev { transition: transform 0.2s ease; color: var(--text-secondary); flex-shrink: 0; }
+.maq-section[open] > summary .chev { transform: rotate(180deg); }
+.maq-section > summary .maq-section-alerta { color: var(--yellow); }
+.maq-section-body { padding: 0 14px 14px; }
+
 ::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 8px; }
 

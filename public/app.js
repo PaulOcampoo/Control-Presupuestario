@@ -10945,6 +10945,10 @@ async function renderTrabajadoresGlobal(view) {
   // cual (sin cambio de comportamiento); 2+ se despliegan inline vía
   // <details> nativo — sin JS de popover/estado propio que mantener, y sin
   // navegar a otra pantalla, como pide el prompt.
+  // prompt-33-fix-obra-primaria-duplicada.md: el <ul> desplegado solo pinta
+  // `resto` (todas MENOS la primaria) — la primaria ya se muestra en el
+  // <summary>, así que iterar t.obras completo la duplicaba (una vez en el
+  // badge colapsado, otra vez repetida dentro de la lista expandida).
   function obraCeldaHtml(t) {
     if (t.obras.length <= 1) return esc(t.obras[0]?.obra_nombre || '—');
     const [primaria, ...resto] = t.obras;
@@ -10952,7 +10956,7 @@ async function renderTrabajadoresGlobal(view) {
       <details class="obras-expand">
         <summary>${esc(primaria.obra_nombre)} <span class="badge muted">+${resto.length}</span></summary>
         <ul class="obras-expand-list">
-          ${t.obras.map((o) => `<li>${esc(o.obra_nombre)}${o.cliente_nombre ? ` <span class="muted fs-08">· ${esc(o.cliente_nombre)}</span>` : ''}</li>`).join('')}
+          ${resto.map((o) => `<li>${esc(o.obra_nombre)}${o.cliente_nombre ? ` <span class="muted fs-08">· ${esc(o.cliente_nombre)}</span>` : ''}</li>`).join('')}
         </ul>
       </details>`;
   }

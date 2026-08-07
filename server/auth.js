@@ -26,8 +26,15 @@ const TOTP_ISSUER = 'Grupo Roforb — Control Presupuestal';
 // Puestos y qué pestañas puede ver cada uno. 'admin' tiene acceso total
 // (se resuelve aparte en allow(), no necesita listarse en cada pestaña).
 const PERMISSIONS = {
-  admin:          { label: 'Administrador', tabs: ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'finanzas', 'estadoResultados', 'estadoResultadosGlobal', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', 'maquinaria', 'cotizador', 'costos', 'matrices', 'avance_clientes', 'composicion_costos'] },
-  desarrollador:  { label: 'Desarrollador', tabs: ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'finanzas', 'estadoResultados', 'estadoResultadosGlobal', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', 'maquinaria', 'cotizador', 'costos', 'matrices', 'avance_clientes', 'composicion_costos'] },
+  // 'estadoResultados'/'estadoResultadosGlobal' retirados de la lista base
+  // (prompt-36-control-financiero-fase3-4.md, punto 3): antes cualquier
+  // cuenta admin/desarrollador los veía por el bypass normal de allow(),
+  // igual que pasaba con 'cuentas'/'controlFinanciero' antes de acotarlos a
+  // whitelist — mismo candado ahora, vía tabsParaUsuario() +
+  // requireEstadoResultadosAccess (0 usuarios reales con puesto 'tesoreria'
+  // en Producción, confirmado antes de este cambio).
+  admin:          { label: 'Administrador', tabs: ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'finanzas', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', 'maquinaria', 'cotizador', 'costos', 'matrices', 'avance_clientes', 'composicion_costos'] },
+  desarrollador:  { label: 'Desarrollador', tabs: ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'finanzas', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', 'maquinaria', 'cotizador', 'costos', 'matrices', 'avance_clientes', 'composicion_costos'] },
   // 'trabajadores' agregado aquí (prompts-cotizador-sidebar-permisos-
   // estimaciones.md, Prompt 3) para que el residente reciba la pestaña al
   // hacer login — el acceso REAL a los datos de cada obra lo sigue
@@ -67,7 +74,7 @@ const PERMISSIONS = {
   // conceda explícitamente en la matriz.
   cabo:           { label: 'Cabo',          tabs: ['destajo', 'insumos', 'avance', 'requisiciones', 'maquinaria', 'trabajadores', 'nominas'] },
   compras:        { label: 'Compras',       tabs: ['programa', 'requisiciones', 'insumos', 'ordenes', 'proveedores', 'cotizador'] },
-  tesoreria:      { label: 'Tesorería',     tabs: ['resumen', 'finanzas', 'estadoResultados', 'estadoResultadosGlobal', 'ordenes', 'contrato', 'impuestos', 'proveedores'] },
+  tesoreria:      { label: 'Tesorería',     tabs: ['resumen', 'finanzas', 'ordenes', 'contrato', 'impuestos', 'proveedores'] },
   administracion: { label: 'Administración',tabs: ['resumen', 'programa', 'destajo', 'ordenes', 'proveedores', 'contrato', 'impuestos', 'mapeo'] },
   logistica:      { label: 'Logística',     tabs: ['programa', 'avance', 'requisiciones', 'insumos', 'ordenes'] },
   // Rol nuevo (prompt-modulo-maquinaria) — diseño de primer borrador, pendiente
@@ -723,6 +730,22 @@ function requireControlFinancieroAccess(req, res, next) {
   next();
 }
 
+// Estado de Resultados (prompt-36-control-financiero-fase3-4.md, punto 3) —
+// migrado de auth.allow('tesoreria') a esta whitelist. Confirmado con SELECT
+// real contra Producción antes del cambio: 0 usuarios con puesto 'tesoreria'
+// hoy, así que nadie pierde acceso real. Constante INDEPENDIENTE de
+// USUARIOS_CONTROL_CUENTAS/USUARIOS_CONTROL_FINANCIERO por el mismo motivo
+// que esas dos son independientes entre sí — mismos 2 IDs hoy, candados
+// separados a propósito.
+const USUARIOS_ESTADO_RESULTADOS = [46, 8];
+function requireEstadoResultadosAccess(req, res, next) {
+  if (!USUARIOS_ESTADO_RESULTADOS.includes(req.user.id)) {
+    logDenied(req, 'sin acceso a Estado de Resultados (whitelist)');
+    return res.status(403).json({ error: 'No tienes permiso para realizar esta acción' });
+  }
+  next();
+}
+
 // Agrega los tabs 'cuentas'/'controlFinanciero' a la lista SOLO para los
 // usuarios en la whitelist correspondiente — el resto de admin/desarrollador
 // (incluida la cuenta bootstrap genérica y cualquier alta futura) ni
@@ -736,6 +759,10 @@ function tabsParaUsuario(user) {
   const extra = [];
   if (USUARIOS_CONTROL_CUENTAS.includes(user.id) && !base.includes('cuentas')) extra.push('cuentas');
   if (USUARIOS_CONTROL_FINANCIERO.includes(user.id) && !base.includes('controlFinanciero')) extra.push('controlFinanciero');
+  if (USUARIOS_ESTADO_RESULTADOS.includes(user.id)) {
+    if (!base.includes('estadoResultados')) extra.push('estadoResultados');
+    if (!base.includes('estadoResultadosGlobal')) extra.push('estadoResultadosGlobal');
+  }
   return extra.length ? [...base, ...extra] : base;
 }
 
@@ -799,6 +826,7 @@ module.exports = {
   allow,
   requireControlCuentasAccess,
   requireControlFinancieroAccess,
+  requireEstadoResultadosAccess,
   tabsParaUsuario,
   verificarAccesoObra,
   ensureBootstrapAdmin,

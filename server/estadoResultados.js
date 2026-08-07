@@ -204,6 +204,8 @@ async function getEstadoResultadosPorObra(projectId, { desde, hasta } = {}) {
         gastos_generales_pagado: er.gastos_generales_pagado,
         gastos_generales_pendiente: er.gastos_generales_pendiente,
         destajo_ejecutado: er.destajo_ejecutado,
+        destajo_huerfano: er.destajo_huerfano,
+        jornal_aprobado: er.jornal_aprobado,
       },
     },
     margen_bruto: margenBruto,

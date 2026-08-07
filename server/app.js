@@ -5738,6 +5738,8 @@ app.get('/api/projects/:id/finanzas/export', h(auth.allow('tesoreria')), h(requi
     { concepto: 'Gastos generales — pagado', valor: er.gastos_generales_pagado },
     { concepto: 'Gastos generales — pendiente', valor: er.gastos_generales_pendiente },
     { concepto: 'Destajo — ejecutado (mano de obra)', valor: er.destajo_ejecutado },
+    { concepto: 'Destajo — huérfano, sin trabajador vinculado (ya incluido arriba)', valor: er.destajo_huerfano },
+    { concepto: 'Jornal — nómina aprobada', valor: er.jornal_aprobado },
     { concepto: 'Brecha (Avance Valorizado - Total pagado)', valor: resumen.brecha.monto },
   ];
   await sendXlsxExport(res, {
@@ -5775,17 +5777,21 @@ app.get('/api/projects/:id/finanzas/export', h(auth.allow('tesoreria')), h(requi
 }));
 
 // ---------------------------------------------------------------------------
-// Estado de Resultados (Tesorería) — prompt-estado-resultados-tesoreria.
+// Estado de Resultados — prompt-estado-resultados-tesoreria.md, migrado a
+// whitelist en prompt-36-control-financiero-fase3-4.md (punto 3): antes
+// auth.allow('tesoreria') (con bypass automático de admin/desarrollador,
+// exponiendo margen/facturación real a cualquier cuenta con esos puestos —
+// 0 usuarios reales con puesto 'tesoreria' en Producción, confirmado antes
+// del cambio). Mismo patrón whitelist que Control de Cuentas/Control
+// Financiero (auth.requireEstadoResultadosAccess).
 // Facturación/Cobranza ligada a la obra (project_id) + Egresos reutilizando
-// Erogado Real de Finanzas (server/finanzas.js) = Margen Bruto. Acceso solo
-// tesoreria/admin/desarrollador (auth.allow('tesoreria'), mismo patrón que el
-// resto de esta sección — admin/desarrollador siempre pasan por bypass).
+// Erogado Real de Finanzas (server/finanzas.js) = Margen Bruto.
 // ---------------------------------------------------------------------------
-app.get('/api/projects/:id/facturas', h(auth.allow('tesoreria')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+app.get('/api/projects/:id/facturas', h(auth.requireEstadoResultadosAccess), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
   res.json(await estadoResultados.listFacturas(req.project.id));
 }));
 
-app.post('/api/projects/:id/facturas', h(auth.allow('tesoreria')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+app.post('/api/projects/:id/facturas', h(auth.requireEstadoResultadosAccess), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
   const { folio, concepto, fecha_emision, monto_subtotal, iva, monto_total } = req.body || {};
   const subtotalNum = Number(monto_subtotal);
   const ivaNum = Number(iva ?? 0);
@@ -5803,7 +5809,7 @@ app.post('/api/projects/:id/facturas', h(auth.allow('tesoreria')), h(requireProj
   res.status(201).json(factura);
 }));
 
-app.put('/api/projects/:id/facturas/:facturaId', h(auth.allow('tesoreria')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+app.put('/api/projects/:id/facturas/:facturaId', h(auth.requireEstadoResultadosAccess), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
   const { folio, concepto, fecha_emision, monto_subtotal, iva, monto_total } = req.body || {};
   const subtotalNum = monto_subtotal != null ? Number(monto_subtotal) : null;
   const ivaNum = iva != null ? Number(iva) : null;
@@ -5815,17 +5821,17 @@ app.put('/api/projects/:id/facturas/:facturaId', h(auth.allow('tesoreria')), h(r
   res.json(factura);
 }));
 
-app.delete('/api/projects/:id/facturas/:facturaId', h(auth.allow('tesoreria')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+app.delete('/api/projects/:id/facturas/:facturaId', h(auth.requireEstadoResultadosAccess), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
   const factura = await estadoResultados.cancelarFactura(Number(req.params.facturaId));
   if (!factura) return res.status(404).json({ error: 'Factura no encontrada' });
   res.json(factura);
 }));
 
-app.get('/api/projects/:id/facturas/:facturaId/cobros', h(auth.allow('tesoreria')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+app.get('/api/projects/:id/facturas/:facturaId/cobros', h(auth.requireEstadoResultadosAccess), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
   res.json(await estadoResultados.listCobros(Number(req.params.facturaId)));
 }));
 
-app.post('/api/projects/:id/facturas/:facturaId/cobros', h(auth.allow('tesoreria')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+app.post('/api/projects/:id/facturas/:facturaId/cobros', h(auth.requireEstadoResultadosAccess), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
   const { fecha_cobro, monto_cobrado, forma_pago } = req.body || {};
   const montoNum = Number(monto_cobrado);
   if (!Number.isFinite(montoNum) || montoNum <= 0) return res.status(400).json({ error: 'El monto cobrado debe ser mayor a 0' });
@@ -5836,12 +5842,12 @@ app.post('/api/projects/:id/facturas/:facturaId/cobros', h(auth.allow('tesoreria
   res.status(201).json(resultado);
 }));
 
-app.get('/api/projects/:id/estado-resultados', h(auth.allow('tesoreria')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+app.get('/api/projects/:id/estado-resultados', h(auth.requireEstadoResultadosAccess), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
   const { desde, hasta } = req.query;
   res.json(await estadoResultados.getEstadoResultadosPorObra(req.project.id, { desde, hasta }));
 }));
 
-app.get('/api/estado-resultados/consolidado', h(auth.allow('tesoreria')), h(async (req, res) => {
+app.get('/api/estado-resultados/consolidado', h(auth.requireEstadoResultadosAccess), h(async (req, res) => {
   const { desde, hasta } = req.query;
   res.json(await estadoResultados.getEstadoResultadosConsolidado(req.user, { desde, hasta }));
 }));

@@ -11019,8 +11019,21 @@ async function renderTrabajadoresGlobal(view) {
     $$('[data-editar]', tbody).forEach((btn) => btn.addEventListener('click', async () => {
       const t = filtrados.find((x) => x.id === Number(btn.dataset.editar));
       const perm = await permisosDeObra(t.project_id);
-      openTrabajadorModal(t, repaint, {
-        puedeVerBancarios: !!perm.trabajadores_bancarios.puede_ver,
+      const puedeVerBancarios = !!perm.trabajadores_bancarios.puede_ver;
+      // Bug real reportado por Paul: `t` viene del listado global, que NUNCA
+      // trae columnas bancarias (mismo recorte a nivel de SELECT que el
+      // listado por-obra) — sin este fetch, el modal siempre se abría con
+      // cuenta_nomina_hsbc/split en blanco/default aunque el trabajador ya
+      // tuviera datos reales guardados, dando la falsa impresión de que un
+      // guardado anterior "no se persistió". Mismo patrón que ya usaba
+      // correctamente el panel por-obra (ver data-edit-trab más abajo).
+      let trabParaModal = t;
+      if (puedeVerBancarios) {
+        try { trabParaModal = await api(`/projects/${t.project_id}/trabajadores/${t.id}`); }
+        catch (err) { toast(err.message, 'danger'); return; }
+      }
+      openTrabajadorModal(trabParaModal, repaint, {
+        puedeVerBancarios,
         puedeEditarBancarios: !!perm.trabajadores_bancarios.puede_editar,
       }, t.project_id);
     }));

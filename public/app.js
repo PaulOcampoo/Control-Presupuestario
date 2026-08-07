@@ -10885,7 +10885,12 @@ async function renderTrabajadoresGlobal(view) {
   const permisosPorObraCache = new Map();
 
   async function permisosDeObra(obraId) {
-    if (isAdmin()) return { trabajadores: { puede_crear: true, puede_editar: true }, trabajadores_bancarios: { puede_ver: true } };
+    // Bug real reportado por Paul: faltaba puede_editar aquí (solo puede_ver),
+    // así que openTrabajadorModal (que hace `${puedeEditarBancarios ? '' :
+    // 'disabled'}`) renderizaba los 5 campos bancarios disabled incluso para
+    // admin/desarrollador — mismo patrón correcto que ya usaba el panel
+    // por-obra (isAdmin() || !!misPermisosBancarios.puede_editar).
+    if (isAdmin()) return { trabajadores: { puede_crear: true, puede_editar: true }, trabajadores_bancarios: { puede_ver: true, puede_editar: true } };
     if (permisosPorObraCache.has(obraId)) return permisosPorObraCache.get(obraId);
     const p = await api(`/permisos/me?obra_id=${obraId}`).catch(() => ({}));
     const resuelto = { trabajadores: p.trabajadores || {}, trabajadores_bancarios: p.trabajadores_bancarios || {} };
@@ -10893,9 +10898,13 @@ async function renderTrabajadoresGlobal(view) {
     return resuelto;
   }
 
+  // prompt-32-fix-listado-trabajadores-duplicado.md: recorre TODAS las obras
+  // de cada trabajador (t.obras), no solo la primaria — si no, un trabajador
+  // cuya única aparición de una obra fuera como secundaria de otro nunca
+  // ofrecería esa obra en el filtro.
   function obrasDisponibles() {
     const map = new Map();
-    trabajadoresCache.forEach((t) => { if (!map.has(t.project_id)) map.set(t.project_id, { obra_nombre: t.obra_nombre, cliente_nombre: t.cliente_nombre }); });
+    trabajadoresCache.forEach((t) => t.obras.forEach((o) => { if (!map.has(o.project_id)) map.set(o.project_id, { obra_nombre: o.obra_nombre, cliente_nombre: o.cliente_nombre }); }));
     return [...map.entries()].map(([id, v]) => ({ id, ...v })).sort((a, b) => a.obra_nombre.localeCompare(b.obra_nombre));
   }
 
@@ -10937,6 +10946,26 @@ async function renderTrabajadoresGlobal(view) {
     });
   }
 
+  // prompt-32-fix-listado-trabajadores-duplicado.md: 1 obra se muestra tal
+  // cual (sin cambio de comportamiento); 2+ se despliegan inline vía
+  // <details> nativo — sin JS de popover/estado propio que mantener, y sin
+  // navegar a otra pantalla, como pide el prompt.
+  // prompt-33-fix-obra-primaria-duplicada.md: el <ul> desplegado solo pinta
+  // `resto` (todas MENOS la primaria) — la primaria ya se muestra en el
+  // <summary>, así que iterar t.obras completo la duplicaba (una vez en el
+  // badge colapsado, otra vez repetida dentro de la lista expandida).
+  function obraCeldaHtml(t) {
+    if (t.obras.length <= 1) return esc(t.obras[0]?.obra_nombre || '—');
+    const [primaria, ...resto] = t.obras;
+    return `
+      <details class="obras-expand">
+        <summary>${esc(primaria.obra_nombre)} <span class="badge muted">+${resto.length}</span></summary>
+        <ul class="obras-expand-list">
+          ${resto.map((o) => `<li>${esc(o.obra_nombre)}${o.cliente_nombre ? ` <span class="muted fs-08">· ${esc(o.cliente_nombre)}</span>` : ''}</li>`).join('')}
+        </ul>
+      </details>`;
+  }
+
   async function repaint() {
     trabajadoresCache = await api(`/trabajadores${mostrarInactivos ? '' : '?activo=1'}`);
     await pintarTabla();
@@ -10945,7 +10974,11 @@ async function renderTrabajadoresGlobal(view) {
   async function pintarTabla() {
     const tbody = $('#trabGlobalTbody', view);
     if (!tbody) return;
-    const filtrados = filtroObra ? trabajadoresCache.filter((t) => String(t.project_id) === filtroObra) : trabajadoresCache;
+    // prompt-32-fix-listado-trabajadores-duplicado.md: el filtro por obra
+    // debe considerar CUALQUIERA de las obras del trabajador, no solo la
+    // primaria — de lo contrario un trabajador asignado también a la obra
+    // filtrada, pero cuya primaria es otra, desaparecería del listado.
+    const filtrados = filtroObra ? trabajadoresCache.filter((t) => t.obras.some((o) => String(o.project_id) === filtroObra)) : trabajadoresCache;
     // Refresca el selector de filtro por obra sin perder la selección actual.
     const filtroSel = $('#trabGlobalFiltroObra', view);
     if (filtroSel) {
@@ -10968,12 +11001,13 @@ async function renderTrabajadoresGlobal(view) {
         <td>${esc(t.nombre)}${!t.activo ? ' <span class="badge red">Inactivo</span>' : ''}</td>
         <td>${esc(t.puesto || '—')}</td>
         <td>${esc(t.cliente_nombre || '—')}</td>
-        <td>${esc(t.obra_nombre)}</td>
+        <td>${obraCeldaHtml(t)}</td>
         <td>${esc(t.residentes_a_cargo || '—')}</td>
         <td>${esc(TIPO_PAGO_LABELS[t.tipo_pago] || t.tipo_pago)}</td>
         <td>${puedeVerCuenta ? `<button class="btn small" data-ver-cuenta="${t.id}">Ver cuenta</button>` : '—'}</td>
         <td><div class="row">
           ${puedeEditar ? `<button class="icon-btn-inline" data-editar="${t.id}" title="Editar">✎</button>` : ''}
+          ${puedeEditar && t.activo ? `<button class="icon-btn-inline" data-obras="${t.id}" title="Gestionar obras">🏗️</button>` : ''}
           ${puedeEditar && t.activo ? `<button class="icon-btn-inline" data-baja="${t.id}" title="Dar de baja">🚫</button>` : ''}
         </div></td>
       </tr>`;
@@ -10985,10 +11019,27 @@ async function renderTrabajadoresGlobal(view) {
     $$('[data-editar]', tbody).forEach((btn) => btn.addEventListener('click', async () => {
       const t = filtrados.find((x) => x.id === Number(btn.dataset.editar));
       const perm = await permisosDeObra(t.project_id);
-      openTrabajadorModal(t, repaint, {
-        puedeVerBancarios: !!perm.trabajadores_bancarios.puede_ver,
+      const puedeVerBancarios = !!perm.trabajadores_bancarios.puede_ver;
+      // Bug real reportado por Paul: `t` viene del listado global, que NUNCA
+      // trae columnas bancarias (mismo recorte a nivel de SELECT que el
+      // listado por-obra) — sin este fetch, el modal siempre se abría con
+      // cuenta_nomina_hsbc/split en blanco/default aunque el trabajador ya
+      // tuviera datos reales guardados, dando la falsa impresión de que un
+      // guardado anterior "no se persistió". Mismo patrón que ya usaba
+      // correctamente el panel por-obra (ver data-edit-trab más abajo).
+      let trabParaModal = t;
+      if (puedeVerBancarios) {
+        try { trabParaModal = await api(`/projects/${t.project_id}/trabajadores/${t.id}`); }
+        catch (err) { toast(err.message, 'danger'); return; }
+      }
+      openTrabajadorModal(trabParaModal, repaint, {
+        puedeVerBancarios,
         puedeEditarBancarios: !!perm.trabajadores_bancarios.puede_editar,
       }, t.project_id);
+    }));
+    $$('[data-obras]', tbody).forEach((btn) => btn.addEventListener('click', () => {
+      const t = filtrados.find((x) => x.id === Number(btn.dataset.obras));
+      openGestionarObrasModal(t, repaint);
     }));
     $$('[data-baja]', tbody).forEach((btn) => btn.addEventListener('click', () => {
       const t = filtrados.find((x) => x.id === Number(btn.dataset.baja));
@@ -13182,6 +13233,89 @@ async function openBajaModal(id, nombre, repaint, obraId = state.projectId) {
       await repaint();
     } catch (err) { toast(err.message, 'danger'); btn.disabled = false; }
   });
+}
+
+// prompt-31-trabajador-multiobra-nn.md: gestiona las asignaciones de un
+// trabajador a obras del MISMO cliente — a diferencia del "mover" de PR #110
+// (cerrado sin mergear), permite estar activo en varias obras a la vez sin
+// cerrar la anterior. El backend re-valida todo (mismo cliente, acceso a
+// ambas obras, CURP en destino) — este selector solo filtra por cliente en
+// el front para no ofrecer opciones que el backend rechazaría de todos modos.
+async function openGestionarObrasModal(t, repaint) {
+  async function cargarYRenderizar() {
+    let obras = [];
+    try { obras = await api(`/projects/${t.project_id}/trabajadores/${t.id}/obras`); }
+    catch (err) { $('#gestObrasBody').innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`; return; }
+    const activas = obras.filter((o) => o.activo);
+    const historicas = obras.filter((o) => !o.activo);
+    $('#gestObrasBody').innerHTML = `
+      <p class="muted fs085-m008">Obras activas</p>
+      ${activas.length ? activas.map((o) => `
+        <div class="card-row">
+          <span class="k">${esc(o.obra_nombre)}</span>
+          <span class="v">
+            desde ${fmtDate(o.fecha_asignacion)}
+            <button class="btn small btn-danger" data-desasignar="${o.project_id}">Desasignar</button>
+          </span>
+        </div>`).join('') : '<div class="empty-state">Sin obras activas.</div>'}
+      ${historicas.length ? `
+        <p class="muted fs085-m008 mt-8">Historial</p>
+        ${historicas.map((o) => `
+          <div class="card-row">
+            <span class="k">${esc(o.obra_nombre)}</span>
+            <span class="v muted fs-08">${fmtDate(o.fecha_asignacion)} → ${fmtDate(o.fecha_desasignacion)}</span>
+          </div>`).join('')}
+      ` : ''}
+    `;
+    $$('[data-desasignar]', $('#gestObrasBody')).forEach((btn) => btn.addEventListener('click', async () => {
+      if (activas.length <= 1 && !confirm('Esta es su única obra activa — al desasignarlo dejará de aparecer en cualquier obra. ¿Continuar?')) return;
+      btn.disabled = true;
+      try {
+        await api(`/projects/${btn.dataset.desasignar}/trabajadores/${t.id}/desasignar-obra`, { method: 'POST' });
+        toast('Desasignado de la obra', 'success');
+        await cargarYRenderizar();
+        await repaint();
+      } catch (err) { toast(err.message, 'danger'); btn.disabled = false; }
+    }));
+  }
+
+  let proyectos = [];
+  try { proyectos = await api('/projects'); } catch (err) { toast(err.message, 'danger'); return; }
+  const origenObra = proyectos.find((p) => p.id === t.project_id);
+  const destinos = proyectos.filter((p) => p.id !== t.project_id && origenObra && p.cliente_id === origenObra.cliente_id);
+
+  openModal(`
+    <h3>Obras asignadas — ${esc(t.nombre)}</h3>
+    <div id="gestObrasBody" class="mt-8"><div class="spinner"></div></div>
+    ${destinos.length ? `
+      <div class="section-divider-12">
+        <p class="muted fs085-m008">Asignar a otra obra del mismo cliente (${esc(t.cliente_nombre || '—')})</p>
+        <div class="row">
+          <select id="gestObraNueva">${destinos.map((p) => `<option value="${p.id}">${esc(p.nombre)}</option>`).join('')}</select>
+          <button class="btn btn-primary" id="btnAsignarObra">Asignar</button>
+        </div>
+      </div>
+    ` : `<p class="muted fs085-m008 mt-8">No tienes acceso a otra obra de ${esc(t.cliente_nombre || 'este cliente')} para asignar.</p>`}
+    <div class="modal-actions"><button class="btn" id="btnCerrarGestObras">Cerrar</button></div>
+  `);
+  $('#btnCerrarGestObras').addEventListener('click', closeModal);
+  if (destinos.length) {
+    $('#btnAsignarObra').addEventListener('click', async () => {
+      const btn = $('#btnAsignarObra');
+      btn.disabled = true;
+      try {
+        await api(`/projects/${t.project_id}/trabajadores/${t.id}/asignar-obra`, {
+          method: 'POST',
+          body: { project_id_destino: Number($('#gestObraNueva').value) },
+        });
+        toast('Trabajador asignado a la obra', 'success');
+        await cargarYRenderizar();
+        await repaint();
+      } catch (err) { toast(err.message, 'danger'); }
+      btn.disabled = false;
+    });
+  }
+  await cargarYRenderizar();
 }
 
 async function openDocumentosModal(trabajadorId, nombreTrab, puedeCrear, puedeEliminar) {

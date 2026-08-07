@@ -1505,6 +1505,89 @@ const SCHEMA = `
   -- aquí, ver calcularSplitCuentas en server/calculos.js).
   ALTER TABLE trabajadores ADD COLUMN IF NOT EXISTS split_cuenta_nomina_pct NUMERIC NOT NULL DEFAULT 100
     CHECK (split_cuenta_nomina_pct >= 0 AND split_cuenta_nomina_pct <= 100);
+
+  -- prompt-31-trabajador-multiobra-nn.md, CP0/CP1: bajo el modelo N:N,
+  -- trabajadores.project_id deja de ser "la obra del trabajador" y pasa a ser
+  -- solo su obra primaria/de alta (columna conservada por compatibilidad con
+  -- endpoints aún no migrados a trabajador_obras — documentos/contratos/EPP/
+  -- listado global, PR 2 pendiente). Con el ON DELETE CASCADE original,
+  -- borrar esa obra primaria arrastraría en cascada TODO el trabajador —
+  -- incluyendo su historial en las demás obras donde esté activo vía
+  -- trabajador_obras. Cambiado a RESTRICT (confirmado con Paul): borrar una
+  -- obra con trabajadores que la tengan como primaria falla con error de DB
+  -- en vez de perder historial cruzado en silencio.
+  DO $$
+  BEGIN
+    IF EXISTS (
+      SELECT 1 FROM pg_constraint
+      WHERE conrelid = 'trabajadores'::regclass AND confrelid = 'proyectos'::regclass
+        AND contype = 'f' AND confdeltype != 'r'
+    ) THEN
+      ALTER TABLE trabajadores DROP CONSTRAINT trabajadores_project_id_fkey;
+      ALTER TABLE trabajadores ADD CONSTRAINT trabajadores_project_id_fkey
+        FOREIGN KEY (project_id) REFERENCES proyectos(id) ON DELETE RESTRICT;
+    END IF;
+  END $$;
+
+  -- Modelo N:N trabajador<->obra (prompt-31, PR 1 de 2 — alcance acotado a
+  -- modelo + endpoints core: listado por obra, alta, edición, asignar/
+  -- desasignar, nómina/asistencia. Documentos/contratos/EPP/listado global
+  -- quedan para el PR 2, migrando cada uno una vez validado este modelo base
+  -- con datos reales en Preview). Reemplaza a trabajador_movimientos
+  -- (PR #110, cerrado sin mergear, sin datos reales que migrar) — cada fila
+  -- con fecha_asignacion/fecha_desasignacion ya da el historial completo de
+  -- por dónde pasó cada trabajador, sin necesitar 2 tablas paralelas.
+  CREATE TABLE IF NOT EXISTS trabajador_obras (
+    id SERIAL PRIMARY KEY,
+    trabajador_id INTEGER NOT NULL REFERENCES trabajadores(id) ON DELETE CASCADE,
+    project_id INTEGER NOT NULL REFERENCES proyectos(id) ON DELETE RESTRICT,
+    curp TEXT,
+    activo BOOLEAN NOT NULL DEFAULT true,
+    fecha_asignacion TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    fecha_desasignacion TIMESTAMPTZ,
+    asignado_por INTEGER REFERENCES usuarios(id)
+  );
+  CREATE INDEX IF NOT EXISTS idx_trabajador_obras_trabajador ON trabajador_obras(trabajador_id);
+  CREATE INDEX IF NOT EXISTS idx_trabajador_obras_project ON trabajador_obras(project_id, activo);
+
+  -- UNIQUE de CURP por obra bajo el nuevo modelo — un mismo CURP no puede
+  -- estar ACTIVO dos veces en la misma obra, pero sí en varias obras
+  -- distintas del mismo cliente simultáneamente (confirmado con Paul).
+  -- curp se DUPLICA aquí a propósito (un UNIQUE INDEX no puede referenciar
+  -- una columna de otra tabla) — el trigger de abajo lo mantiene
+  -- sincronizado con trabajadores.curp SIEMPRE que cambie, para que nunca
+  -- quede obsoleto ni deje pasar un duplicado real por datos
+  -- desincronizados (decisión explícita con Paul: constraint real de DB >
+  -- validación de aplicación, pese a la duplicación de dato).
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_trabajador_obras_curp_unico_activo
+    ON trabajador_obras (project_id, curp)
+    WHERE activo = true AND curp IS NOT NULL AND TRIM(curp) <> '';
+
+  CREATE OR REPLACE FUNCTION sync_curp_trabajador_obras() RETURNS TRIGGER AS $$
+  BEGIN
+    IF NEW.curp IS DISTINCT FROM OLD.curp THEN
+      UPDATE trabajador_obras SET curp = NEW.curp WHERE trabajador_id = NEW.id AND activo = true;
+    END IF;
+    RETURN NEW;
+  END;
+  $$ LANGUAGE plpgsql;
+
+  DROP TRIGGER IF EXISTS trg_sync_curp_trabajador_obras ON trabajadores;
+  CREATE TRIGGER trg_sync_curp_trabajador_obras
+    AFTER UPDATE OF curp ON trabajadores
+    FOR EACH ROW
+    EXECUTE FUNCTION sync_curp_trabajador_obras();
+
+  -- Backfill: cada trabajador existente obtiene su primera fila en
+  -- trabajador_obras, reflejando la asignación que ya tenía vía project_id
+  -- (nunca DELETE, regla dura del proyecto — esto es puramente aditivo).
+  -- Idempotente por diseño (WHERE NOT EXISTS) — corre en cada cold start sin
+  -- duplicar filas, y de paso sirve de red de seguridad si algún trabajador
+  -- nuevo llegara a crearse sin su fila correspondiente en trabajador_obras.
+  INSERT INTO trabajador_obras (trabajador_id, project_id, curp, activo, fecha_asignacion)
+  SELECT t.id, t.project_id, t.curp, t.activo, COALESCE(t.fecha_ingreso::timestamptz, t.creado_en)
+  FROM trabajadores t
+  WHERE NOT EXISTS (SELECT 1 FROM trabajador_obras o WHERE o.trabajador_id = t.id);
 `;
 
 // prompt-fix-error-permiso-trabajadores.md → el diagnóstico de ese prompt no

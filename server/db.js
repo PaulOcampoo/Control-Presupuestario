@@ -879,6 +879,20 @@ const SCHEMA = `
   ALTER TABLE trabajadores ADD COLUMN IF NOT EXISTS banco_nomina TEXT;
   ALTER TABLE trabajadores ADD COLUMN IF NOT EXISTS banco_alterna TEXT;
 
+  -- prompt-35-numero-cuenta-export-nomina.md: número de TARJETA, campo
+  -- separado de cuenta_nomina_hsbc/cuenta_alterna (CLABE) — un trabajador
+  -- puede recibir dispersión a tarjeta en vez de CLABE, y ambos formatos
+  -- pueden coexistir (capturar los dos por si acaso). Sin validación de
+  -- checksum (una tarjeta no tiene el mismo dígito verificador que una
+  -- CLABE) y sin bloquear por longitud — se guarda tal cual, igual que
+  -- cuenta_nomina_hsbc/cuenta_alterna cuando su longitud no es 18 (ver
+  -- resolverCuentaBanco en server/app.js). Mismo gate de permisos
+  -- (trabajadores_bancarios) y mismo recorte a nivel de SELECT que el
+  -- resto de la sección bancaria — nunca viaja en el SELECT de ningún
+  -- listado.
+  ALTER TABLE trabajadores ADD COLUMN IF NOT EXISTS tarjeta_nomina TEXT;
+  ALTER TABLE trabajadores ADD COLUMN IF NOT EXISTS tarjeta_alterna TEXT;
+
   -- prompt-21-trabajadores-multiobra-diagnostico.md, Fase 0 — previene el bug
   -- real encontrado (Javier Pineda / Santiago Lagunas en RED HIDRAULICA: dar
   -- de baja y recrear en vez de editar, dentro de la MISMA obra). Por-obra

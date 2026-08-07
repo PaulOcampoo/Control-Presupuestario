@@ -13093,6 +13093,10 @@ async function openTrabajadorModal(trab, repaint, permisosBancarios, obraId = st
           <div class="banco-detectado-badge hidden-initial" id="tBancoNominaBadge">✓ Detectado automáticamente por CLABE</div>
         </div>
         <div class="field">
+          <label>Tarjeta de nómina (opcional)</label>
+          <input id="tTarjetaNomina" value="${esc(trab?.tarjeta_nomina || '')}" ${puedeEditarBancarios ? '' : 'disabled'} placeholder="Si la dispersión es a tarjeta en vez de CLABE" />
+        </div>
+        <div class="field">
           <label>Cuenta alterna</label>
           <input id="tCuentaAlterna" value="${esc(trab?.cuenta_alterna || '')}" ${puedeEditarBancarios ? '' : 'disabled'} placeholder="Cuenta o CLABE (18 dígitos)" />
           <div class="clabe-error hidden-initial" id="tCuentaAlternaError"></div>
@@ -13101,6 +13105,10 @@ async function openTrabajadorModal(trab, repaint, permisosBancarios, obraId = st
           <label>Banco (cuenta alterna)</label>
           <input id="tBancoAlterna" value="${esc(trab?.banco_alterna || '')}" ${puedeEditarBancarios ? '' : 'disabled'} placeholder="Se detecta solo si capturas una CLABE" />
           <div class="banco-detectado-badge hidden-initial" id="tBancoAlternaBadge">✓ Detectado automáticamente por CLABE</div>
+        </div>
+        <div class="field">
+          <label>Tarjeta alterna (opcional)</label>
+          <input id="tTarjetaAlterna" value="${esc(trab?.tarjeta_alterna || '')}" ${puedeEditarBancarios ? '' : 'disabled'} placeholder="Si la dispersión es a tarjeta en vez de CLABE" />
         </div>
         <div class="field field-full">
           <label>Split de pago (% a cuenta de nómina)</label>
@@ -13154,6 +13162,8 @@ async function openTrabajadorModal(trab, repaint, permisosBancarios, obraId = st
       body.cuenta_alterna = $('#tCuentaAlterna').value.trim() || null;
       body.banco_nomina = $('#tBancoNomina').value.trim() || null;
       body.banco_alterna = $('#tBancoAlterna').value.trim() || null;
+      body.tarjeta_nomina = $('#tTarjetaNomina').value.trim() || null;
+      body.tarjeta_alterna = $('#tTarjetaAlterna').value.trim() || null;
       const splitRaw = $('#tSplitPct').value.trim();
       body.split_cuenta_nomina_pct = splitRaw === '' ? 100 : Number(splitRaw);
       if (!Number.isFinite(body.split_cuenta_nomina_pct) || body.split_cuenta_nomina_pct < 0 || body.split_cuenta_nomina_pct > 100) {

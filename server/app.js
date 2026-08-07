@@ -6752,22 +6752,40 @@ const TIPOS_DOC = ['ine_frente', 'ine_reverso', 'curp_doc', 'comprobante_domicil
 // de trabajadores (nunca t.*) — excluye cuenta_nomina_hsbc/cuenta_alterna a
 // nivel de SELECT, no como filtro de payload después. Reusada en los 2
 // endpoints de listado de abajo.
-const TRABAJADOR_COLUMNAS_LISTADO = `t.id, t.project_id, t.destajista_id, t.nombre, t.puesto, t.tipo_pago,
+// prompt-31-trabajador-multiobra-nn.md: project_id se retiró de esta lista a
+// propósito — bajo N:N, trabajadores.project_id es solo la obra "primaria"
+// (vestigial, ver comentario en el ALTER de server/db.js) y puede quedar
+// desincronizada de la asignación real en cuanto se desasigna esa obra
+// (bug real encontrado en Preview: el panel general mostraba "Trabajador no
+// encontrado" al gestionar obras después de desasignar la primaria, porque
+// el front operaba con ese project_id viejo). Cada endpoint de listado
+// agrega su propio `project_id` explícito, tomado de trabajador_obras — la
+// obra REAL de esa fila, nunca la columna estática.
+const TRABAJADOR_COLUMNAS_LISTADO = `t.id, t.destajista_id, t.nombre, t.puesto, t.tipo_pago,
   t.tarifa_jornal, t.periodicidad, t.curp, t.rfc, t.nss, t.telefono, t.direccion,
   t.contacto_emergencia, t.contacto_emergencia_nombre, t.contacto_emergencia_telefono,
   t.fecha_ingreso, t.activo, t.fecha_baja, t.motivo_baja, t.orden, t.creado_en`;
 
+// prompt-31-trabajador-multiobra-nn.md: una fila por CADA asignación activa
+// (trabajador_obras.activo=true) — un trabajador en 2 obras aparece 2 veces,
+// una por obra, cada una con su project_id/obra_nombre/cliente_nombre
+// reales. Es deliberado, no un bug: así el panel general refleja
+// "Mostrar todas las obras activas de cada trabajador" (sección 4 del
+// prompt) sin rediseñar la tabla a columnas multi-valor, y cada fila trae
+// el project_id correcto para que Editar/Gestionar obras/Baja operen sobre
+// la obra que el usuario realmente está viendo.
 app.get('/api/trabajadores', h(auth.checkPermiso('trabajadores_global', 'puede_ver')), h(async (req, res) => {
   const { activo } = req.query;
   let sql = `
     SELECT ${TRABAJADOR_COLUMNAS_LISTADO}, d.nombre AS destajista_nombre,
-           p.nombre AS obra_nombre, c.nombre AS cliente_nombre,
+           o.project_id, p.nombre AS obra_nombre, c.nombre AS cliente_nombre,
            (SELECT string_agg(u.nombre, ', ' ORDER BY u.nombre)
             FROM usuario_proyectos up JOIN usuarios u ON u.id = up.usuario_id
-            WHERE up.project_id = t.project_id AND u.puesto = 'residente') AS residentes_a_cargo
+            WHERE up.project_id = o.project_id AND u.puesto = 'residente') AS residentes_a_cargo
     FROM trabajadores t
+    JOIN trabajador_obras o ON o.trabajador_id = t.id AND o.activo = true
     LEFT JOIN destajistas d ON d.id = t.destajista_id
-    JOIN proyectos p ON p.id = t.project_id
+    JOIN proyectos p ON p.id = o.project_id
     LEFT JOIN clientes c ON c.id = p.cliente_id
     WHERE 1=1`;
   if (activo === '1') sql += ' AND t.activo = true';
@@ -7052,8 +7070,17 @@ app.put('/api/projects/:id/trabajadores/:wId', h(auth.allow('residente', 'cabo',
   res.json(await stripDatosBancarios(req, rows[0]));
 }));
 
+// prompt-31-trabajador-multiobra-nn.md: migrado a trabajador_obras (antes
+// dependía de project_id=$4 — bug real encontrado en Preview: fallaba con
+// "Trabajador no encontrado" al operar vía una obra donde el trabajador SÍ
+// está activo, si esa obra no coincidía con project_id, que puede quedar
+// desincronizado en cuanto se desasigna la primaria). motivo_baja es GLOBAL
+// (no por-obra) — dar de baja sigue sin tocar trabajador_obras a propósito
+// (mismo comportamiento que el modelo 1:1: project_id nunca se tocaba al
+// dar de baja).
 app.post('/api/projects/:id/trabajadores/:wId/baja', h(auth.allow('residente', 'cabo')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('trabajadores', 'puede_editar')), h(async (req, res) => {
   const wId = Number(req.params.wId);
+  if (!(await trabajadorAsignadoAObra(wId, req.project.id))) return res.status(404).json({ error: 'Trabajador no encontrado' });
   const { motivo_baja, notas, fecha_baja } = req.body || {};
   const MOTIVOS = ['renuncia','despido_justificado','despido_injustificado','fin_obra','abandono','otro'];
   if (!MOTIVOS.includes(motivo_baja)) return res.status(400).json({ error: 'motivo_baja inválido' });
@@ -7061,8 +7088,8 @@ app.post('/api/projects/:id/trabajadores/:wId/baja', h(auth.allow('residente', '
   const fechaBaja = fecha_baja || null;
   const { rows } = await db.pool.query(
     `UPDATE trabajadores SET activo=false, fecha_baja=COALESCE($1::date, CURRENT_DATE), motivo_baja=$2
-     WHERE id=$3 AND project_id=$4 AND activo=true RETURNING *`,
-    [fechaBaja, motivo_baja, wId, req.project.id]
+     WHERE id=$3 AND activo=true RETURNING *`,
+    [fechaBaja, motivo_baja, wId]
   );
   if (!rows[0]) return res.status(404).json({ error: 'Trabajador no encontrado o ya dado de baja' });
   await db.pool.query(
@@ -7075,8 +7102,7 @@ app.post('/api/projects/:id/trabajadores/:wId/baja', h(auth.allow('residente', '
 
 app.get('/api/projects/:id/trabajadores/:wId/bajas', h(auth.allow('residente', 'cabo')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('trabajadores', 'puede_ver')), h(async (req, res) => {
   const wId = Number(req.params.wId);
-  const { rows: wCheck } = await db.pool.query('SELECT id FROM trabajadores WHERE id=$1 AND project_id=$2', [wId, req.project.id]);
-  if (!wCheck[0]) return res.status(404).json({ error: 'Trabajador no encontrado' });
+  if (!(await trabajadorAsignadoAObra(wId, req.project.id))) return res.status(404).json({ error: 'Trabajador no encontrado' });
   const { rows } = await db.pool.query(
     `SELECT b.*, u.nombre AS registrado_por_nombre
      FROM trabajador_bajas b LEFT JOIN usuarios u ON u.id = b.registrado_por
@@ -7088,10 +7114,11 @@ app.get('/api/projects/:id/trabajadores/:wId/bajas', h(auth.allow('residente', '
 
 app.post('/api/projects/:id/trabajadores/:wId/reactivar', h(auth.allow('residente', 'cabo')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('trabajadores', 'puede_editar')), h(async (req, res) => {
   const wId = Number(req.params.wId);
+  if (!(await trabajadorAsignadoAObra(wId, req.project.id))) return res.status(404).json({ error: 'Trabajador no encontrado' });
   const { rows } = await db.pool.query(
     `UPDATE trabajadores SET activo=true, fecha_baja=NULL, motivo_baja=NULL
-     WHERE id=$1 AND project_id=$2 AND activo=false RETURNING *`,
-    [wId, req.project.id]
+     WHERE id=$1 AND activo=false RETURNING *`,
+    [wId]
   );
   if (!rows[0]) return res.status(404).json({ error: 'Trabajador no encontrado o ya activo' });
   res.json(rows[0]);
@@ -7221,10 +7248,8 @@ app.post('/api/projects/:id/trabajadores/:wId/desasignar-obra', h(auth.allow('re
 
 app.delete('/api/projects/:id/trabajadores/:wId', h(auth.allow('residente', 'cabo')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('trabajadores', 'puede_eliminar')), h(async (req, res) => {
   const wId = Number(req.params.wId);
-  const { rows: trabRows } = await db.pool.query(
-    'SELECT activo FROM trabajadores WHERE id=$1 AND project_id=$2',
-    [wId, req.project.id]
-  );
+  if (!(await trabajadorAsignadoAObra(wId, req.project.id))) return res.status(404).json({ error: 'Trabajador no encontrado' });
+  const { rows: trabRows } = await db.pool.query('SELECT activo FROM trabajadores WHERE id=$1', [wId]);
   if (!trabRows[0]) return res.status(404).json({ error: 'Trabajador no encontrado' });
   // Paso 1: debe estar previamente dado de baja
   if (trabRows[0].activo) return res.status(409).json({ error: 'Da de baja al trabajador antes de eliminarlo permanentemente' });
@@ -7244,7 +7269,7 @@ app.delete('/api/projects/:id/trabajadores/:wId', h(auth.allow('residente', 'cab
   // Sin historial: eliminar documentos del blob y luego el registro
   const { rows: docs } = await db.pool.query('SELECT blob_url FROM trabajador_documentos WHERE trabajador_id=$1', [wId]);
   await Promise.all(docs.map((d) => del(d.blob_url).catch(() => {})));
-  const { rowCount } = await db.pool.query('DELETE FROM trabajadores WHERE id=$1 AND project_id=$2', [wId, req.project.id]);
+  const { rowCount } = await db.pool.query('DELETE FROM trabajadores WHERE id=$1', [wId]);
   if (rowCount === 0) return res.status(404).json({ error: 'Trabajador no encontrado' });
   res.json({ ok: true });
 }));
@@ -7252,8 +7277,7 @@ app.delete('/api/projects/:id/trabajadores/:wId', h(auth.allow('residente', 'cab
 // --- Documentos de identidad (Vercel Blob privado) ---
 app.post('/api/projects/:id/trabajadores/:wId/documentos/upload-token', h(auth.allow('residente', 'cabo')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('trabajadores_docs', 'puede_crear')), h(async (req, res) => {
   const wId = Number(req.params.wId);
-  const { rows } = await db.pool.query('SELECT id FROM trabajadores WHERE id=$1 AND project_id=$2', [wId, req.project.id]);
-  if (!rows[0]) return res.status(404).json({ error: 'Trabajador no encontrado' });
+  if (!(await trabajadorAsignadoAObra(wId, req.project.id))) return res.status(404).json({ error: 'Trabajador no encontrado' });
   try {
     const jsonResponse = await handleUpload({
       body: req.body,
@@ -7280,8 +7304,7 @@ app.post('/api/projects/:id/trabajadores/:wId/documentos', h(auth.allow('residen
   const { tipo, nombre_archivo, blob_url } = req.body || {};
   if (!blob_url) return res.status(400).json({ error: 'blob_url es requerido' });
   if (!TIPOS_DOC.includes(tipo)) return res.status(400).json({ error: 'tipo de documento inválido' });
-  const { rows: wRows } = await db.pool.query('SELECT id FROM trabajadores WHERE id=$1 AND project_id=$2', [wId, req.project.id]);
-  if (!wRows[0]) return res.status(404).json({ error: 'Trabajador no encontrado' });
+  if (!(await trabajadorAsignadoAObra(wId, req.project.id))) return res.status(404).json({ error: 'Trabajador no encontrado' });
   const { rows } = await db.pool.query(
     'INSERT INTO trabajador_documentos (trabajador_id, tipo, nombre_archivo, blob_url, subido_por) VALUES ($1,$2,$3,$4,$5) RETURNING *',
     [wId, tipo, nombre_archivo?.trim()||'documento', blob_url, req.user.id]
@@ -7291,8 +7314,7 @@ app.post('/api/projects/:id/trabajadores/:wId/documentos', h(auth.allow('residen
 
 app.get('/api/projects/:id/trabajadores/:wId/documentos', h(auth.allow('residente', 'cabo')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('trabajadores_docs', 'puede_ver')), h(async (req, res) => {
   const wId = Number(req.params.wId);
-  const { rows: wCheck } = await db.pool.query('SELECT id FROM trabajadores WHERE id=$1 AND project_id=$2', [wId, req.project.id]);
-  if (!wCheck[0]) return res.status(404).json({ error: 'Trabajador no encontrado' });
+  if (!(await trabajadorAsignadoAObra(wId, req.project.id))) return res.status(404).json({ error: 'Trabajador no encontrado' });
   const { rows } = await db.pool.query(
     'SELECT id, tipo, nombre_archivo, subido_en FROM trabajador_documentos WHERE trabajador_id=$1 ORDER BY subido_en DESC',
     [wId]
@@ -7304,7 +7326,9 @@ app.get('/api/projects/:id/trabajadores/:wId/documentos/:docId/download', h(auth
   const wId = Number(req.params.wId);
   const docId = Number(req.params.docId);
   const { rows } = await db.pool.query(
-    'SELECT d.* FROM trabajador_documentos d JOIN trabajadores t ON t.id=d.trabajador_id WHERE d.id=$1 AND t.id=$2 AND t.project_id=$3',
+    `SELECT d.* FROM trabajador_documentos d
+     WHERE d.id=$1 AND d.trabajador_id=$2
+       AND EXISTS (SELECT 1 FROM trabajador_obras o WHERE o.trabajador_id=$2 AND o.project_id=$3 AND o.activo=true)`,
     [docId, wId, req.project.id]
   );
   if (!rows[0]) return res.status(404).json({ error: 'Documento no encontrado' });
@@ -7322,7 +7346,9 @@ app.delete('/api/projects/:id/trabajadores/:wId/documentos/:docId', h(auth.allow
   const wId = Number(req.params.wId);
   const docId = Number(req.params.docId);
   const { rows } = await db.pool.query(
-    'SELECT d.blob_url FROM trabajador_documentos d JOIN trabajadores t ON t.id=d.trabajador_id WHERE d.id=$1 AND t.id=$2 AND t.project_id=$3',
+    `SELECT d.blob_url FROM trabajador_documentos d
+     WHERE d.id=$1 AND d.trabajador_id=$2
+       AND EXISTS (SELECT 1 FROM trabajador_obras o WHERE o.trabajador_id=$2 AND o.project_id=$3 AND o.activo=true)`,
     [docId, wId, req.project.id]
   );
   if (!rows[0]) return res.status(404).json({ error: 'Documento no encontrado' });
@@ -7336,8 +7362,7 @@ app.delete('/api/projects/:id/trabajadores/:wId/documentos/:docId', h(auth.allow
 // ===========================================================================
 app.post('/api/projects/:id/trabajadores/:wId/contratos/upload-token', h(auth.allow('residente', 'cabo')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('trabajadores_contrato', 'puede_crear')), h(async (req, res) => {
   const wId = Number(req.params.wId);
-  const { rows } = await db.pool.query('SELECT id FROM trabajadores WHERE id=$1 AND project_id=$2', [wId, req.project.id]);
-  if (!rows[0]) return res.status(404).json({ error: 'Trabajador no encontrado' });
+  if (!(await trabajadorAsignadoAObra(wId, req.project.id))) return res.status(404).json({ error: 'Trabajador no encontrado' });
   try {
     const jsonResponse = await handleUpload({
       body: req.body,
@@ -7360,8 +7385,7 @@ app.post('/api/projects/:id/trabajadores/:wId/contratos', h(auth.allow('resident
   const TIPOS = ['obra_determinada','tiempo_determinado','tiempo_indeterminado'];
   if (!TIPOS.includes(tipo_contrato)) return res.status(400).json({ error: 'tipo_contrato inválido' });
   if (!fecha_inicio) return res.status(400).json({ error: 'fecha_inicio es requerida' });
-  const { rows: wRows } = await db.pool.query('SELECT id FROM trabajadores WHERE id=$1 AND project_id=$2', [wId, req.project.id]);
-  if (!wRows[0]) return res.status(404).json({ error: 'Trabajador no encontrado' });
+  if (!(await trabajadorAsignadoAObra(wId, req.project.id))) return res.status(404).json({ error: 'Trabajador no encontrado' });
   // Desactivar contrato anterior si existe
   await db.pool.query('UPDATE contratos_trabajador SET activo=false WHERE trabajador_id=$1 AND activo=true', [wId]);
   const { rows } = await db.pool.query(`
@@ -7377,8 +7401,7 @@ app.post('/api/projects/:id/trabajadores/:wId/contratos', h(auth.allow('resident
 
 app.get('/api/projects/:id/trabajadores/:wId/contratos', h(auth.allow('residente', 'cabo')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('trabajadores_contrato', 'puede_ver')), h(async (req, res) => {
   const wId = Number(req.params.wId);
-  const { rows: wCheck } = await db.pool.query('SELECT id FROM trabajadores WHERE id=$1 AND project_id=$2', [wId, req.project.id]);
-  if (!wCheck[0]) return res.status(404).json({ error: 'Trabajador no encontrado' });
+  if (!(await trabajadorAsignadoAObra(wId, req.project.id))) return res.status(404).json({ error: 'Trabajador no encontrado' });
   const { rows } = await db.pool.query(
     `SELECT c.*, u.nombre AS creado_por_nombre
      FROM contratos_trabajador c LEFT JOIN usuarios u ON u.id = c.created_by
@@ -7393,8 +7416,8 @@ app.get('/api/projects/:id/trabajadores/:wId/contratos/:cId/download', h(auth.al
   const cId = Number(req.params.cId);
   const { rows } = await db.pool.query(
     `SELECT c.pdf_url, c.pdf_filename FROM contratos_trabajador c
-     JOIN trabajadores t ON t.id = c.trabajador_id
-     WHERE c.id=$1 AND t.id=$2 AND t.project_id=$3`,
+     WHERE c.id=$1 AND c.trabajador_id=$2
+       AND EXISTS (SELECT 1 FROM trabajador_obras o WHERE o.trabajador_id=$2 AND o.project_id=$3 AND o.activo=true)`,
     [cId, wId, req.project.id]
   );
   if (!rows[0]) return res.status(404).json({ error: 'Contrato no encontrado' });
@@ -7447,8 +7470,7 @@ app.put('/api/projects/:id/epp-catalogo/:itemId', h(auth.allow('residente', 'cab
 // ===========================================================================
 app.get('/api/projects/:id/trabajadores/:wId/epp-entregas', h(auth.allow('residente', 'cabo')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('trabajadores', 'puede_ver')), h(async (req, res) => {
   const wId = Number(req.params.wId);
-  const { rows: wCheck } = await db.pool.query('SELECT id FROM trabajadores WHERE id=$1 AND project_id=$2', [wId, req.project.id]);
-  if (!wCheck[0]) return res.status(404).json({ error: 'Trabajador no encontrado' });
+  if (!(await trabajadorAsignadoAObra(wId, req.project.id))) return res.status(404).json({ error: 'Trabajador no encontrado' });
   const { rows } = await db.pool.query(
     `SELECT e.*, c.nombre_item, u.nombre AS entregado_por_nombre
      FROM epp_entregas e
@@ -7465,8 +7487,7 @@ app.post('/api/projects/:id/trabajadores/:wId/epp-entregas', h(auth.allow('resid
   const wId = Number(req.params.wId);
   const { item_id, cantidad, fecha_entrega, firma_digital } = req.body || {};
   if (!item_id) return res.status(400).json({ error: 'item_id es requerido' });
-  const { rows: wRows } = await db.pool.query('SELECT id FROM trabajadores WHERE id=$1 AND project_id=$2', [wId, req.project.id]);
-  if (!wRows[0]) return res.status(404).json({ error: 'Trabajador no encontrado' });
+  if (!(await trabajadorAsignadoAObra(wId, req.project.id))) return res.status(404).json({ error: 'Trabajador no encontrado' });
   const { rows: cRows } = await db.pool.query(
     'SELECT id FROM epp_catalogo WHERE id=$1 AND project_id=$2 AND activo=true',
     [Number(item_id), req.project.id]
@@ -7485,8 +7506,7 @@ app.post('/api/projects/:id/trabajadores/:wId/epp-entregas', h(auth.allow('resid
 app.delete('/api/projects/:id/trabajadores/:wId/epp-entregas/:entregaId', h(auth.allow('residente', 'cabo')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('trabajadores', 'puede_eliminar')), h(async (req, res) => {
   const wId = Number(req.params.wId);
   const entregaId = Number(req.params.entregaId);
-  const { rows: wRows } = await db.pool.query('SELECT id FROM trabajadores WHERE id=$1 AND project_id=$2', [wId, req.project.id]);
-  if (!wRows[0]) return res.status(404).json({ error: 'Trabajador no encontrado' });
+  if (!(await trabajadorAsignadoAObra(wId, req.project.id))) return res.status(404).json({ error: 'Trabajador no encontrado' });
   const { rows } = await db.pool.query(
     'DELETE FROM epp_entregas WHERE id=$1 AND trabajador_id=$2 RETURNING id',
     [entregaId, wId]
@@ -7583,15 +7603,32 @@ app.get('/api/projects/:id/asistencia', h(auth.allow('residente', 'cabo')), h(re
 }));
 
 // prompt-21-trabajadores-multiobra-diagnostico.md, Fase 0: salvaguarda contra
-// pago duplicado. Sin tabla puente (diagnóstico confirmó 0 evidencia real de
-// necesitar una), la única señal de "es la misma persona" entre obras es el
-// CURP. Si dos trabajadores en obras distintas comparten CURP y ambos quedan
-// 'presente' el mismo día, es evidencia de que la misma persona cobraría en
-// dos obras el mismo jornal — se bloquea, no se silencia (mismo criterio que
-// el resto de validaciones financieras del proyecto). Trabajadores sin CURP
-// capturado NO quedan protegidos (no hay con qué cruzar) — limitación
-// documentada en el diagnóstico, no es un descuido.
+// pago duplicado. Originalmente (modelo 1:1) la única señal de "es la misma
+// persona" entre obras era el CURP, cruzando entre filas DISTINTAS de
+// trabajadores. Trabajadores sin CURP capturado no quedaban protegidos por
+// ese cruce — limitación documentada, no un descuido.
+//
+// prompt-31-trabajador-multiobra-nn.md, bug real reproducido (Preview,
+// datos reales) tras habilitar N:N: un mismo trabajador_id ahora puede estar
+// asignado a 2+ obras a la vez, así que "la misma persona en dos obras el
+// mismo día" ya no requiere CURP para detectarse — es literalmente la misma
+// fila. El cruce por CURP nunca cubrió ese caso (solo comparaba entre filas
+// de trabajadores distintas), así que un trabajador sin CURP capturado podía
+// quedar "presente" en 2 obras el mismo día sin ningún rechazo. Fix: chequeo
+// directo por trabajador_id PRIMERO (no depende de CURP, cubre el caso nuevo
+// de N:N), y el cruce por CURP se conserva como fallback para el caso
+// original de 2 trabajador_id distintos que resultan ser la misma persona.
 async function buscarConflictoAsistenciaSimultanea(client, { trabajadorId, projectId, fecha }) {
+  const { rows: mismoTrabajador } = await client.query(`
+    SELECT p.nombre AS obra_nombre, t.nombre AS trabajador_nombre
+    FROM asistencia_diaria ad
+    JOIN trabajadores t ON t.id = ad.trabajador_id
+    JOIN proyectos p ON p.id = ad.project_id
+    WHERE ad.trabajador_id = $1 AND ad.fecha = $2 AND ad.estado = 'presente' AND ad.project_id <> $3
+    LIMIT 1
+  `, [trabajadorId, fecha, projectId]);
+  if (mismoTrabajador[0]) return mismoTrabajador[0];
+
   const { rows: selfRows } = await client.query('SELECT curp FROM trabajadores WHERE id = $1', [trabajadorId]);
   const curp = selfRows[0]?.curp?.trim();
   if (!curp) return null;
@@ -7600,9 +7637,9 @@ async function buscarConflictoAsistenciaSimultanea(client, { trabajadorId, proje
     FROM asistencia_diaria ad
     JOIN trabajadores t2 ON t2.id = ad.trabajador_id
     JOIN proyectos p ON p.id = ad.project_id
-    WHERE ad.fecha = $1 AND ad.estado = 'presente' AND ad.project_id <> $2 AND t2.curp = $3
+    WHERE ad.fecha = $1 AND ad.estado = 'presente' AND ad.project_id <> $2 AND t2.curp = $3 AND ad.trabajador_id <> $4
     LIMIT 1
-  `, [fecha, projectId, curp]);
+  `, [fecha, projectId, curp, trabajadorId]);
   return rows[0] || null;
 }
 

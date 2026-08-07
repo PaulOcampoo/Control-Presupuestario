@@ -86,6 +86,34 @@ async function getFinanzasResumenData(pid) {
   `, [pid]);
   const destajoGanado = Number(destajoRows[0].total);
 
+  // Destajo huérfano: destajistas sin ningún trabajador vinculado
+  // (trabajadores.destajista_id) — ya está incluido dentro de destajoGanado
+  // arriba (no se resta ni se excluye, es costo real ejecutado), pero se
+  // reporta aparte, rotulado, porque nunca pasa por nomina_items y por lo
+  // tanto no es reconciliable contra ninguna nómina real (mismo criterio de
+  // diagnóstico usado en prompt-9/PR #91).
+  const { rows: destajoHuerfanoRows } = await db.pool.query(`
+    SELECT COALESCE(SUM(ad.cantidad_ejecutada * di.precio_destajo), 0) AS total
+    FROM destajistas dst
+    JOIN destajo_items di ON di.destajista_id = dst.id
+    JOIN avance_destajo ad ON ad.destajo_item_id = di.id
+    WHERE dst.project_id = $1
+      AND NOT EXISTS (SELECT 1 FROM trabajadores t WHERE t.destajista_id = dst.id)
+  `, [pid]);
+  const destajoHuerfano = Number(destajoHuerfanoRows[0].total);
+
+  // Jornal: sueldo por día trabajado ya pagado, sumado desde nomina_items.
+  // Solo nóminas estado='aprobada' cuentan como gasto real (mismo criterio
+  // que destajo/PR #91) — una nómina en 'borrador' o 'rechazada' no
+  // representa dinero efectivamente pagado todavía.
+  const { rows: jornalRows } = await db.pool.query(`
+    SELECT COALESCE(SUM(ni.monto_jornal), 0) AS total
+    FROM nomina_items ni
+    JOIN nominas n ON n.id = ni.nomina_id
+    WHERE n.project_id = $1 AND n.estado = 'aprobada'
+  `, [pid]);
+  const jornalAprobado = Number(jornalRows[0].total);
+
   // pagos.monto y orden_compra_items.precio_unitario se capturan con IVA
   // incluido (monto real pagado/cotizado), mientras que montoValorizado sale
   // de presupuestoTotal, que es sin IVA. Para que "Erogado Real" sea
@@ -97,7 +125,7 @@ async function getFinanzasResumenData(pid) {
   const comprasPagadoSinIva = montoSinIva(comprasPagado, IVA_RATE);
   const comprasComprometidoSinIva = montoSinIva(comprasComprometido, IVA_RATE);
 
-  const totalPagado = Number((comprasPagadoSinIva + gastosPagado + destajoGanado).toFixed(2));
+  const totalPagado = Number((comprasPagadoSinIva + gastosPagado + destajoGanado + jornalAprobado).toFixed(2));
   const totalComprometidoNoPagado = Number((comprasComprometidoSinIva + gastosPendiente).toFixed(2));
   const brechaMonto = Number((montoValorizado - totalPagado).toFixed(2));
 
@@ -114,6 +142,8 @@ async function getFinanzasResumenData(pid) {
       gastos_generales_pagado: Number(gastosPagado.toFixed(2)),
       gastos_generales_pendiente: Number(gastosPendiente.toFixed(2)),
       destajo_ejecutado: Number(destajoGanado.toFixed(2)),
+      destajo_huerfano: Number(destajoHuerfano.toFixed(2)),
+      jornal_aprobado: Number(jornalAprobado.toFixed(2)),
       total_pagado: totalPagado,
       total_comprometido_no_pagado: totalComprometidoNoPagado,
       iva_ajuste_pct: IVA_RATE * 100,

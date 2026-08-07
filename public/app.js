@@ -10276,6 +10276,8 @@ async function renderFinanzas(view) {
       <div class="card-row"><span class="k">Gastos generales — pagado</span><span class="v">${fmtMoney(er.gastos_generales_pagado)}</span></div>
       <div class="card-row"><span class="k">Gastos generales — pendiente</span><span class="v">${fmtMoney(er.gastos_generales_pendiente)}</span></div>
       <div class="card-row"><span class="k">Destajo — ejecutado (mano de obra)</span><span class="v">${fmtMoney(er.destajo_ejecutado)}</span></div>
+      <div class="card-row"><span class="k">Jornal — nómina aprobada</span><span class="v">${fmtMoney(er.jornal_aprobado)}</span></div>
+      ${er.destajo_huerfano > 0 ? `<p class="muted finanzas-destajo-huerfano-note">⚠️ De lo anterior, ${fmtMoney(er.destajo_huerfano)} de Destajo corresponden a destajistas sin trabajador vinculado — pagado fuera del sistema de nómina, ya incluido en el total pero no reconciliable contra ninguna nómina real.</p>` : ''}
     </div>
 
     <div class="card ${brechaPositiva ? 'border-verde' : 'border-rojo'}">
@@ -10445,13 +10447,19 @@ function erDesgloseEgresosHtml(egresos) {
     <div class="card-row"><span class="k">Gastos generales — pagado</span><span class="v">${fmtMoney(d.gastos_generales_pagado)}</span></div>
     <div class="card-row"><span class="k">Gastos generales — pendiente</span><span class="v">${fmtMoney(d.gastos_generales_pendiente)}</span></div>
     <div class="card-row"><span class="k">Destajo — ejecutado</span><span class="v">${fmtMoney(d.destajo_ejecutado)}</span></div>
+    <div class="card-row"><span class="k">Jornal — nómina aprobada</span><span class="v">${fmtMoney(d.jornal_aprobado)}</span></div>
     <div class="card-row"><span class="k">Total pagado</span><span class="v text-verde">${fmtMoney(egresos.pagado)}</span></div>
     <div class="card-row"><span class="k">Total comprometido (no pagado)</span><span class="v text-amarillo">${fmtMoney(egresos.comprometido_no_pagado)}</span></div>
+    ${d.destajo_huerfano > 0 ? `<p class="muted finanzas-destajo-huerfano-note">⚠️ De lo anterior, ${fmtMoney(d.destajo_huerfano)} de Destajo corresponden a destajistas sin trabajador vinculado — pagado fuera del sistema de nómina, ya incluido en el total pero no reconciliable contra ninguna nómina real.</p>` : ''}
   `;
 }
 
 async function renderEstadoResultados(view) {
-  const puedeGestionar = isAdmin() || state.user?.puesto === 'tesoreria';
+  // Sin chequeo de puesto/rol aquí a propósito: solo llega a esta vista quien
+  // ya tiene la pestaña 'estadoResultados' (whitelist [46,8] vía
+  // tabsParaUsuario/requireEstadoResultadosAccess en el backend — mismo
+  // patrón que Control Financiero, que tampoco repite el chequeo en su vista).
+  const puedeGestionar = true;
   const [resumen, facturas] = await Promise.all([
     api(`/projects/${state.projectId}/estado-resultados`),
     api(`/projects/${state.projectId}/facturas`),

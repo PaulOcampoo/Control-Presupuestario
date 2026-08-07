@@ -10893,9 +10893,13 @@ async function renderTrabajadoresGlobal(view) {
     return resuelto;
   }
 
+  // prompt-32-fix-listado-trabajadores-duplicado.md: recorre TODAS las obras
+  // de cada trabajador (t.obras), no solo la primaria — si no, un trabajador
+  // cuya única aparición de una obra fuera como secundaria de otro nunca
+  // ofrecería esa obra en el filtro.
   function obrasDisponibles() {
     const map = new Map();
-    trabajadoresCache.forEach((t) => { if (!map.has(t.project_id)) map.set(t.project_id, { obra_nombre: t.obra_nombre, cliente_nombre: t.cliente_nombre }); });
+    trabajadoresCache.forEach((t) => t.obras.forEach((o) => { if (!map.has(o.project_id)) map.set(o.project_id, { obra_nombre: o.obra_nombre, cliente_nombre: o.cliente_nombre }); }));
     return [...map.entries()].map(([id, v]) => ({ id, ...v })).sort((a, b) => a.obra_nombre.localeCompare(b.obra_nombre));
   }
 
@@ -10937,6 +10941,22 @@ async function renderTrabajadoresGlobal(view) {
     });
   }
 
+  // prompt-32-fix-listado-trabajadores-duplicado.md: 1 obra se muestra tal
+  // cual (sin cambio de comportamiento); 2+ se despliegan inline vía
+  // <details> nativo — sin JS de popover/estado propio que mantener, y sin
+  // navegar a otra pantalla, como pide el prompt.
+  function obraCeldaHtml(t) {
+    if (t.obras.length <= 1) return esc(t.obras[0]?.obra_nombre || '—');
+    const [primaria, ...resto] = t.obras;
+    return `
+      <details class="obras-expand">
+        <summary>${esc(primaria.obra_nombre)} <span class="badge muted">+${resto.length}</span></summary>
+        <ul class="obras-expand-list">
+          ${t.obras.map((o) => `<li>${esc(o.obra_nombre)}${o.cliente_nombre ? ` <span class="muted fs-08">· ${esc(o.cliente_nombre)}</span>` : ''}</li>`).join('')}
+        </ul>
+      </details>`;
+  }
+
   async function repaint() {
     trabajadoresCache = await api(`/trabajadores${mostrarInactivos ? '' : '?activo=1'}`);
     await pintarTabla();
@@ -10945,7 +10965,11 @@ async function renderTrabajadoresGlobal(view) {
   async function pintarTabla() {
     const tbody = $('#trabGlobalTbody', view);
     if (!tbody) return;
-    const filtrados = filtroObra ? trabajadoresCache.filter((t) => String(t.project_id) === filtroObra) : trabajadoresCache;
+    // prompt-32-fix-listado-trabajadores-duplicado.md: el filtro por obra
+    // debe considerar CUALQUIERA de las obras del trabajador, no solo la
+    // primaria — de lo contrario un trabajador asignado también a la obra
+    // filtrada, pero cuya primaria es otra, desaparecería del listado.
+    const filtrados = filtroObra ? trabajadoresCache.filter((t) => t.obras.some((o) => String(o.project_id) === filtroObra)) : trabajadoresCache;
     // Refresca el selector de filtro por obra sin perder la selección actual.
     const filtroSel = $('#trabGlobalFiltroObra', view);
     if (filtroSel) {
@@ -10968,7 +10992,7 @@ async function renderTrabajadoresGlobal(view) {
         <td>${esc(t.nombre)}${!t.activo ? ' <span class="badge red">Inactivo</span>' : ''}</td>
         <td>${esc(t.puesto || '—')}</td>
         <td>${esc(t.cliente_nombre || '—')}</td>
-        <td>${esc(t.obra_nombre)}</td>
+        <td>${obraCeldaHtml(t)}</td>
         <td>${esc(t.residentes_a_cargo || '—')}</td>
         <td>${esc(TIPO_PAGO_LABELS[t.tipo_pago] || t.tipo_pago)}</td>
         <td>${puedeVerCuenta ? `<button class="btn small" data-ver-cuenta="${t.id}">Ver cuenta</button>` : '—'}</td>

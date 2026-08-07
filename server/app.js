@@ -6766,31 +6766,58 @@ const TRABAJADOR_COLUMNAS_LISTADO = `t.id, t.destajista_id, t.nombre, t.puesto, 
   t.contacto_emergencia, t.contacto_emergencia_nombre, t.contacto_emergencia_telefono,
   t.fecha_ingreso, t.activo, t.fecha_baja, t.motivo_baja, t.orden, t.creado_en`;
 
-// prompt-31-trabajador-multiobra-nn.md: una fila por CADA asignación activa
-// (trabajador_obras.activo=true) — un trabajador en 2 obras aparece 2 veces,
-// una por obra, cada una con su project_id/obra_nombre/cliente_nombre
-// reales. Es deliberado, no un bug: así el panel general refleja
-// "Mostrar todas las obras activas de cada trabajador" (sección 4 del
-// prompt) sin rediseñar la tabla a columnas multi-valor, y cada fila trae
-// el project_id correcto para que Editar/Gestionar obras/Baja operen sobre
-// la obra que el usuario realmente está viendo.
+// prompt-32-fix-listado-trabajadores-duplicado.md: UNA fila por trabajador,
+// nunca una por asignación — el intento anterior (prompt-31, comentario
+// reemplazado aquí) de "una fila por obra" resultó, en la práctica, en un
+// trabajador con 2 obras apareciendo 2 veces con TODA su info duplicada
+// (Puesto/Cliente/Residente/Tipo de pago/Cuenta/Acciones), ambigüedad real
+// de "¿cuál de las 2 filas edito?" — confirmado con datos reales en Preview
+// (Javier Pineda Flores, id 39). Cada trabajador trae su obra "primaria"
+// (la asignación activa más antigua, vía LATERAL con ORDER BY
+// fecha_asignacion ASC LIMIT 1 — mismo criterio que "primera obra
+// asignada" del modelo 1:1 anterior) para las columnas Obra/Cliente/
+// Residente(s) que se pintan una sola vez, más el array `obras` completo
+// (todas sus asignaciones activas, mismo orden) para que el frontend
+// pinte el desplegable con el resto cuando tiene 2+. Dos LATERAL en vez de
+// un solo agregado porque necesitamos tanto "la primera" como "todas" sin
+// forzar al frontend a derivar la primaria del array (ambigüedad de orden
+// si json_agg no garantizara el mismo ORDER BY).
 app.get('/api/trabajadores', h(auth.checkPermiso('trabajadores_global', 'puede_ver')), h(async (req, res) => {
   const { activo } = req.query;
   let sql = `
     SELECT ${TRABAJADOR_COLUMNAS_LISTADO}, d.nombre AS destajista_nombre,
-           o.project_id, p.nombre AS obra_nombre, c.nombre AS cliente_nombre,
-           (SELECT string_agg(u.nombre, ', ' ORDER BY u.nombre)
-            FROM usuario_proyectos up JOIN usuarios u ON u.id = up.usuario_id
-            WHERE up.project_id = o.project_id AND u.puesto = 'residente') AS residentes_a_cargo
+           primaria.project_id, primaria.obra_nombre, primaria.cliente_nombre,
+           primaria.residentes_a_cargo, obras.lista AS obras
     FROM trabajadores t
-    JOIN trabajador_obras o ON o.trabajador_id = t.id AND o.activo = true
     LEFT JOIN destajistas d ON d.id = t.destajista_id
-    JOIN proyectos p ON p.id = o.project_id
-    LEFT JOIN clientes c ON c.id = p.cliente_id
+    JOIN LATERAL (
+      SELECT o.project_id, p.nombre AS obra_nombre, c.nombre AS cliente_nombre,
+             (SELECT string_agg(u.nombre, ', ' ORDER BY u.nombre)
+              FROM usuario_proyectos up JOIN usuarios u ON u.id = up.usuario_id
+              WHERE up.project_id = o.project_id AND u.puesto = 'residente') AS residentes_a_cargo
+      FROM trabajador_obras o
+      JOIN proyectos p ON p.id = o.project_id
+      LEFT JOIN clientes c ON c.id = p.cliente_id
+      WHERE o.trabajador_id = t.id AND o.activo = true
+      ORDER BY o.fecha_asignacion ASC
+      LIMIT 1
+    ) primaria ON true
+    JOIN LATERAL (
+      SELECT json_agg(json_build_object(
+               'project_id', o.project_id, 'obra_nombre', p.nombre, 'cliente_nombre', c.nombre,
+               'residentes_a_cargo', (SELECT string_agg(u.nombre, ', ' ORDER BY u.nombre)
+                                       FROM usuario_proyectos up JOIN usuarios u ON u.id = up.usuario_id
+                                       WHERE up.project_id = o.project_id AND u.puesto = 'residente')
+             ) ORDER BY o.fecha_asignacion ASC) AS lista
+      FROM trabajador_obras o
+      JOIN proyectos p ON p.id = o.project_id
+      LEFT JOIN clientes c ON c.id = p.cliente_id
+      WHERE o.trabajador_id = t.id AND o.activo = true
+    ) obras ON true
     WHERE 1=1`;
   if (activo === '1') sql += ' AND t.activo = true';
   else if (activo === '0') sql += ' AND t.activo = false';
-  sql += ' ORDER BY COALESCE(c.nombre, \'\'), p.nombre, t.orden, t.nombre';
+  sql += ' ORDER BY COALESCE(primaria.cliente_nombre, \'\'), primaria.obra_nombre, t.orden, t.nombre';
   const { rows } = await db.pool.query(sql);
   res.json(rows);
 }));

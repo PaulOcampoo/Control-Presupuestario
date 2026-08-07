@@ -623,6 +623,13 @@ label { display: block; font-size: 0.8rem; color: var(--text-secondary); margin:
 .badge.muted { background: rgba(148,163,184,0.15); color: var(--text-secondary); }
 .badge.purple { background: rgba(168,85,247,0.15); color: #a855f7; }
 
+/* prompt-32-fix-listado-trabajadores-duplicado.md: desplegable inline de
+   obras de un trabajador con 2+ asignaciones, dentro de la celda "Obra". */
+.obras-expand summary { cursor: pointer; list-style: none; display: inline-flex; align-items: center; gap: 6px; }
+.obras-expand summary::-webkit-details-marker { display: none; }
+.obras-expand-list { margin: 6px 0 0; padding-left: 16px; }
+.obras-expand-list li { margin-bottom: 2px; }
+
 .progress-bar { height: 8px; border-radius: 999px; background: var(--bg-surface-2); overflow: hidden; margin-top: 4px; }
 .progress-bar > span { display: block; height: 100%; background: var(--accent-gold); border-radius: 999px; }
 .progress-bar.over > span { background: var(--red); }

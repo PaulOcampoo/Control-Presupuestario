@@ -7645,7 +7645,22 @@ app.get('/api/projects/:id/asistencia', h(auth.allow('residente', 'cabo')), h(re
 // directo por trabajador_id PRIMERO (no depende de CURP, cubre el caso nuevo
 // de N:N), y el cruce por CURP se conserva como fallback para el caso
 // original de 2 trabajador_id distintos que resultan ser la misma persona.
+// prompt-33/34, bug crítico reproducido con concurrencia real (Promise.all,
+// no secuencial): dos transacciones marcando "presente" al mismo
+// trabajador_id en 2 obras casi al mismo tiempo pueden AMBAS pasar el SELECT
+// de abajo antes de que cualquiera haga COMMIT (READ COMMITTED, default de
+// withTransaction, no lo evita) — 15/15 intentos concurrentes dejaban pasar
+// el doble-presente sin ningún 409. pg_advisory_xact_lock serializa
+// cualquier intento concurrente sobre el mismo (trabajador_id, fecha) sin
+// importar la obra: la segunda transacción espera a que la primera haga
+// COMMIT/ROLLBACK (el lock se libera solo, nunca a mano) y entonces sí ve la
+// fila recién insertada por la primera. Mismo patrón que
+// 'ctrl-ppto:initSchema' en server/db.js.
 async function buscarConflictoAsistenciaSimultanea(client, { trabajadorId, projectId, fecha }) {
+  await client.query(
+    `SELECT pg_advisory_xact_lock(hashtext('asistencia:' || $1::text || ':' || $2::text))`,
+    [trabajadorId, fecha]
+  );
   const { rows: mismoTrabajador } = await client.query(`
     SELECT p.nombre AS obra_nombre, t.nombre AS trabajador_nombre
     FROM asistencia_diaria ad

@@ -10885,7 +10885,12 @@ async function renderTrabajadoresGlobal(view) {
   const permisosPorObraCache = new Map();
 
   async function permisosDeObra(obraId) {
-    if (isAdmin()) return { trabajadores: { puede_crear: true, puede_editar: true }, trabajadores_bancarios: { puede_ver: true } };
+    // Bug real reportado por Paul: faltaba puede_editar aquí (solo puede_ver),
+    // así que openTrabajadorModal (que hace `${puedeEditarBancarios ? '' :
+    // 'disabled'}`) renderizaba los 5 campos bancarios disabled incluso para
+    // admin/desarrollador — mismo patrón correcto que ya usaba el panel
+    // por-obra (isAdmin() || !!misPermisosBancarios.puede_editar).
+    if (isAdmin()) return { trabajadores: { puede_crear: true, puede_editar: true }, trabajadores_bancarios: { puede_ver: true, puede_editar: true } };
     if (permisosPorObraCache.has(obraId)) return permisosPorObraCache.get(obraId);
     const p = await api(`/permisos/me?obra_id=${obraId}`).catch(() => ({}));
     const resuelto = { trabajadores: p.trabajadores || {}, trabajadores_bancarios: p.trabajadores_bancarios || {} };

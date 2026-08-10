@@ -1588,33 +1588,6 @@ body.body-scroll-locked { overflow: hidden; }
   border: 1px solid var(--border-color);
 }
 
-/* ── Sidebar groups ───────────────────────────────────────────────────── */
-.sbar-group { display: flex; flex-direction: column; }
-.sbar-group-header {
-  display: flex; align-items: center; gap: 10px; width: 100%;
-  padding: 9px 10px; border-radius: 10px; border: none;
-  background: transparent; color: var(--text-secondary); cursor: pointer;
-  text-align: left; font-size: 0.87rem; font-weight: 600;
-  transition: background 0.15s, color 0.15s;
-  white-space: nowrap; overflow: hidden;
-}
-.sbar-group-header.active { color: var(--text-primary); }
-.sbar-chevron {
-  flex-shrink: 0; margin-left: auto; color: var(--text-secondary);
-  transition: transform 0.22s var(--ease-in-out);
-  display: flex; align-items: center;
-}
-.sbar-group.open .sbar-chevron { transform: rotate(180deg); }
-
-/* Expansión suave via grid-template-rows */
-.sbar-group-body {
-  display: grid; grid-template-rows: 0fr;
-  transition: grid-template-rows 0.25s var(--ease-in-out);
-}
-.sbar-group.open .sbar-group-body { grid-template-rows: 1fr; }
-.sbar-group-body > div { overflow: hidden; padding-left: 6px; }
-.sbar-subitem { font-size: 0.84rem; padding: 7px 10px; border-radius: 8px; }
-.sbar-soon { opacity: 0.45; cursor: default; }
 .sidebar-volver-wrap { padding: 2px 8px 0; }
 .sbar-back-clientes { color: var(--text-secondary); font-size: 0.82rem; }
 .drawer-back-clientes {
@@ -1859,14 +1832,11 @@ body.body-scroll-locked { overflow: hidden; }
   #sidebar.collapsed .sidebar-project-name,
   #sidebar.collapsed .sidebar-project-chevron,
   #sidebar.collapsed .sbar-label,
-  #sidebar.collapsed .sbar-chevron,
   #sidebar.collapsed .sbar-badge-soon,
   #sidebar.collapsed .sidebar-profile-info,
   #sidebar.collapsed .sidebar-profile-chevron { display: none; }
-  #sidebar.collapsed .sbar-group-body { display: none; }
   #sidebar.collapsed .sidebar-project-btn,
   #sidebar.collapsed .sbar-item,
-  #sidebar.collapsed .sbar-group-header,
   #sidebar.collapsed .sidebar-profile-btn { justify-content: center; padding-left: 0; padding-right: 0; }
   #sidebar.collapsed .sidebar-project-btn { margin: 0 auto 6px; width: calc(var(--sidebar-icon-w) - 16px); }
 }
@@ -2724,7 +2694,6 @@ body.body-scroll-locked { overflow: hidden; }
   .cliente-fav-btn:hover { background: color-mix(in srgb, var(--text-primary) 10%, transparent); }
   .sidebar-project-btn:hover { border-color: var(--accent-gold); }
   .sbar-item.sbar-disabled:hover { background: transparent; color: var(--text-secondary); }
-  .sbar-soon:hover { background: transparent !important; }
   .sbar-back-clientes:hover { color: var(--text-primary); }
   .drawer-back-clientes:hover { color: var(--accent-gold); background: color-mix(in srgb, var(--accent-gold) 12%, transparent); }
   .sim-banner-exit:hover { opacity: 0.85; }
@@ -2770,9 +2739,6 @@ body.body-scroll-locked { overflow: hidden; }
     color: var(--accent-gold); font-weight: 600;
   }
 
-  .sbar-group-header:hover { background: var(--bg-surface-2); color: var(--text-primary); }
-  .sbar-group-header.active:hover { color: var(--text-primary); }
-
   .theme-opt:hover { color: var(--text-primary); border-color: var(--accent-silver); }
   .theme-opt.active:hover {
     background: var(--accent-gold); color: #04212f;
@@ -2813,7 +2779,7 @@ body.body-scroll-locked { overflow: hidden; }
    siempre gana sin necesitar !important, incluso para un usuario de
    escritorio con mouse que tenga reduced motion activado. ──────────────── */
 @media (prefers-reduced-motion: reduce) {
-  #sidebar, .sbar-group-body, .quick-action-sheet, .quick-action-menu, .user-popover,
+  #sidebar, .quick-action-sheet, .quick-action-menu, .user-popover,
   .modal, .toast, .notif-dropdown, .drawer, .overlay,
   #proximamenteTooltip, .gantt-bar-inner, .collapse-body,
   #loginScreen, #clientGalleryScreen, #welcomeScreen, #app,

@@ -1464,28 +1464,17 @@ function renderSidebar() {
     const sectionRenderableTabs = def.tabs.filter((t) => renderableTabs.includes(t));
     if (!sectionRenderableTabs.length) return;
 
+    // Botón plano — navega directo a la galería de tarjetas de la sección
+    // (mismo patrón que las tarjetas "Secciones" de Inicio, vía
+    // goToSection()), sin expandir ninguna lista inline (prompt-40-sidebar-
+    // navegacion-galeria-unificada.md: antes cada sección era un grupo
+    // desplegable con sus sub-ítems listados aquí mismo — inconsistente con
+    // el resto de la navegación de la app).
     const isActive = state.section === sectionId;
-    html += `<div class="sbar-group ${isActive ? 'open' : ''}">
-      <button class="sbar-group-header ${isActive ? 'active' : ''}" data-sbar-group="${sectionId}" title="${esc(def.label)}">
-        <span class="sbar-icon">${def.emoji}</span>
-        <span class="sbar-label">${esc(def.label)}</span>
-        <span class="sbar-chevron">${icon('chevron-down', 13)}</span>
-      </button>
-      <div class="sbar-group-body"><div>`;
-    sectionRenderableTabs.forEach((t) => {
-      const a = state.view === t ? 'active' : '';
-      html += `<button class="sbar-item sbar-subitem ${a}" data-sbar-goto="${t}" title="${esc(TAB_LABELS[t])}">
-        <span class="sbar-icon">${TAB_ICONS[t] || ''}</span>
-        <span class="sbar-label">${esc(TAB_LABELS[t])}</span>
-      </button>`;
-    });
-    def.proximamente.forEach((nombre) => {
-      html += `<span class="sbar-item sbar-subitem sbar-soon" title="${esc(nombre)} — Próximamente">
-        <span class="sbar-icon">🔒</span>
-        <span class="sbar-label">${esc(nombre)}</span>
-      </span>`;
-    });
-    html += '</div></div></div>';
+    html += `<button class="sbar-item ${isActive ? 'active' : ''}" data-sbar-section="${sectionId}" title="${esc(def.label)}">
+      <span class="sbar-icon">${def.emoji}</span>
+      <span class="sbar-label">${esc(def.label)}</span>
+    </button>`;
   });
 
   // Novedades, Sugerencias y Desarrollador — al final de la lista. Novedades
@@ -1529,39 +1518,15 @@ function renderSidebar() {
 
   nav.innerHTML = html;
 
-  // Toggle de grupo
-  $$('.sbar-group-header', nav).forEach((btn) => {
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      const group = btn.closest('.sbar-group');
-      const sectionId = btn.dataset.sbarGroup;
-      const isCollapsed = $('#sidebar').classList.contains('collapsed');
-      const isMobile = window.innerWidth <= 860;
-
-      // En sidebar colapsada (desktop icon-only): navegar directamente sin expandir
-      if (isCollapsed) {
-        const def = SECTION_DEFS[sectionId];
-        const firstTab = def.tabs.find((t) => state.allowedTabs.includes(t));
-        if (firstTab) switchToView(firstTab);
-        return;
-      }
-
-      const wasClosed = !group.classList.contains('open');
-      // Cerrar todos los grupos
-      $$('.sbar-group', nav).forEach((g) => g.classList.remove('open'));
-      $$('.sbar-group-header', nav).forEach((h) => h.classList.remove('active'));
-      if (wasClosed) {
-        group.classList.add('open');
-        btn.classList.add('active');
-        // En desktop: navegar al primer tab si el usuario no está ya en este grupo.
-        // En móvil: solo expandir — el usuario elige el tab desde los sub-ítems.
-        if (!isMobile && state.section !== sectionId) {
-          const def = SECTION_DEFS[sectionId];
-          const firstTab = def.tabs.find((t) => state.allowedTabs.includes(t));
-          if (firstTab) switchToView(firstTab);
-        }
-      }
-      // Si estaba abierto y se cerró: solo colapsar visualmente, sin navegar.
+  // Navegación a la galería de la sección (prompt-40-sidebar-navegacion-
+  // galeria-unificada.md) — mismo goToSection() que ya usan las tarjetas
+  // "Secciones" de Inicio: si el rol solo tiene 1 subsección permitida,
+  // salta directo a ella; si tiene varias, muestra la galería. Uniforme en
+  // desktop, sidebar colapsada y móvil — ya no hay grupo que expandir.
+  $$('[data-sbar-section]', nav).forEach((btn) => {
+    btn.addEventListener('click', () => {
+      goToSection(btn.dataset.sbarSection);
+      closeSidebar(); // cierra en móvil; no hace nada en desktop
     });
   });
 

@@ -6376,6 +6376,7 @@ function paintAvanceTable(avances, presupuestoTotal, puedeEditar) {
 // periodo como captura). El % de avance real de la semana se recalcula solo.
 async function openAvanceConceptosModal(avance, presupuestoTotal, puedeEditar = true) {
   const semana = avance.semana;
+  const puedeIrAEstimaciones = puedeVerEstimaciones() && state.allowedTabs.includes('estimaciones');
   openModal(`
     <h3>Avance físico por concepto — Semana ${semana}</h3>
     <p class="muted">${fmtDate(avance.fecha_inicio)} – ${fmtDate(avance.fecha_fin)}<br>
@@ -6387,12 +6388,17 @@ async function openAvanceConceptosModal(avance, presupuestoTotal, puedeEditar = 
       <div class="card-row"><span class="k">Importe ejecutado acumulado a la fecha</span><span class="v" id="avcImporte">—</span></div>
       <div class="card-row"><span class="k">% de avance real (se guardará así)</span><span class="v" id="avcPct">—</span></div>
     </div>
+    <p class="muted fs-08 avc-estimaciones-nota">ℹ️ Este acumulado es de avance físico, no un monto a facturar. Para generar el importe a cobrar de un periodo (con amortización de anticipo, fondo de garantía e IVA), usa la pestaña ${puedeIrAEstimaciones ? '<button type="button" class="link-btn" id="btnIrAEstimaciones">Estimaciones</button>' : '"Estimaciones"'}.</p>
     <div class="modal-actions">
       <button class="btn" id="btnCancelAvc">Cerrar</button>
       ${puedeEditar ? '<button class="btn btn-primary" id="btnSaveAvc">Guardar avance</button>' : ''}
     </div>
   `);
   $('#btnCancelAvc').addEventListener('click', closeModal);
+  $('#btnIrAEstimaciones')?.addEventListener('click', () => {
+    closeModal();
+    switchToView('estimaciones');
+  });
 
   let items = [];
   try {

@@ -23,6 +23,26 @@ const REFRESH_COOKIE = 'cp_refresh';
 const PRE_AUTH_TTL = '5m';
 const TOTP_ISSUER = 'Grupo Roforb — Control Presupuestal';
 
+// Subsecciones de Maquinaria (prompt-39-maquinaria-galeria-subsecciones.md)
+// — mismo módulo/permiso de siempre ('maquinaria' + sub-permisos existentes,
+// sin cambios de enforcement), el tab único 'maquinaria' se reparte en 6
+// para adoptar el patrón de galería (mirror exacto de MAQUINARIA_TABS_* en
+// public/app.js — mantener en sync). Cada rol lista solo las que hoy le
+// muestran contenido real dentro del módulo (ver ROLES_*_MAQ en
+// public/app.js): jefe_maquinaria no captura ni autoriza horas, cabo no ve
+// la bitácora de taller (exclusiva de jefe_maquinaria/admin/desarrollador),
+// operador no ve catálogo completo ni reportes por cliente, residente solo
+// tenía acceso de lectura al catálogo/equipos-por-cliente (puede_ver=true
+// por default en la sección 'maquinaria', sin ningún puede_crear/puede_ver
+// en maquinaria_captura/maquinaria_combustible/estado_unidad/
+// maquinaria_consumibles — ver defaultPermisosParaRol más abajo, sin bloque
+// explícito para residente en ninguna de esas 4 secciones).
+const MAQUINARIA_TABS_ADMIN = ['maquinaria_catalogo', 'maquinaria_horas', 'maquinaria_bitacora', 'maquinaria_estado_unidad', 'maquinaria_consumibles', 'maquinaria_reportes_cliente'];
+const MAQUINARIA_TABS_CABO = ['maquinaria_catalogo', 'maquinaria_horas', 'maquinaria_estado_unidad', 'maquinaria_consumibles', 'maquinaria_reportes_cliente'];
+const MAQUINARIA_TABS_JEFE = ['maquinaria_catalogo', 'maquinaria_bitacora', 'maquinaria_estado_unidad', 'maquinaria_consumibles', 'maquinaria_reportes_cliente'];
+const MAQUINARIA_TABS_OPERADOR = ['maquinaria_horas', 'maquinaria_estado_unidad', 'maquinaria_consumibles'];
+const MAQUINARIA_TABS_RESIDENTE = ['maquinaria_catalogo', 'maquinaria_reportes_cliente'];
+
 // Puestos y qué pestañas puede ver cada uno. 'admin' tiene acceso total
 // (se resuelve aparte en allow(), no necesita listarse en cada pestaña).
 const PERMISSIONS = {
@@ -33,8 +53,8 @@ const PERMISSIONS = {
   // whitelist — mismo candado ahora, vía tabsParaUsuario() +
   // requireEstadoResultadosAccess (0 usuarios reales con puesto 'tesoreria'
   // en Producción, confirmado antes de este cambio).
-  admin:          { label: 'Administrador', tabs: ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'finanzas', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', 'maquinaria', 'cotizador', 'costos', 'matrices', 'avance_clientes', 'composicion_costos'] },
-  desarrollador:  { label: 'Desarrollador', tabs: ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'finanzas', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', 'maquinaria', 'cotizador', 'costos', 'matrices', 'avance_clientes', 'composicion_costos'] },
+  admin:          { label: 'Administrador', tabs: ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'finanzas', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', ...MAQUINARIA_TABS_ADMIN, 'cotizador', 'costos', 'matrices', 'avance_clientes', 'composicion_costos'] },
+  desarrollador:  { label: 'Desarrollador', tabs: ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'finanzas', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', ...MAQUINARIA_TABS_ADMIN, 'cotizador', 'costos', 'matrices', 'avance_clientes', 'composicion_costos'] },
   // 'trabajadores' agregado aquí (prompts-cotizador-sidebar-permisos-
   // estimaciones.md, Prompt 3) para que el residente reciba la pestaña al
   // hacer login — el acceso REAL a los datos de cada obra lo sigue
@@ -55,7 +75,7 @@ const PERMISSIONS = {
   // otorga el permiso por sí solo, checkPermiso('costos', ...) sigue siendo
   // el gate real vía permisos_usuario (sin fila = 403, default-deny de
   // 'costos', ver SECCIONES_PERMISOS más abajo).
-  residente:      { label: 'Residente',     tabs: ['programa', 'avance', 'destajo', 'requisiciones', 'insumos', 'ordenes', 'nominas', 'trabajadores', 'estimaciones', 'maquinaria', 'matrices'] },
+  residente:      { label: 'Residente',     tabs: ['programa', 'avance', 'destajo', 'requisiciones', 'insumos', 'ordenes', 'nominas', 'trabajadores', 'estimaciones', ...MAQUINARIA_TABS_RESIDENTE, 'matrices'] },
   // 'trabajadores' agregado aquí (prompt-c-checkpermiso-trabajadores.md,
   // fix de visibilidad en nav): mismo gap ya documentado para 'costos' más
   // abajo — el permiso puede_ver otorgado vía la matriz a UN cabo específico
@@ -72,7 +92,7 @@ const PERMISSIONS = {
   // checkPermiso('nominas', ...) vía permisos_usuario — agregar el tab no
   // otorga el permiso por sí solo, solo lo hace posible cuando un admin lo
   // conceda explícitamente en la matriz.
-  cabo:           { label: 'Cabo',          tabs: ['destajo', 'insumos', 'avance', 'requisiciones', 'maquinaria', 'trabajadores', 'nominas'] },
+  cabo:           { label: 'Cabo',          tabs: ['destajo', 'insumos', 'avance', 'requisiciones', ...MAQUINARIA_TABS_CABO, 'trabajadores', 'nominas'] },
   compras:        { label: 'Compras',       tabs: ['programa', 'requisiciones', 'insumos', 'ordenes', 'proveedores', 'cotizador'] },
   tesoreria:      { label: 'Tesorería',     tabs: ['resumen', 'finanzas', 'ordenes', 'contrato', 'impuestos', 'proveedores'] },
   administracion: { label: 'Administración',tabs: ['resumen', 'programa', 'destajo', 'ordenes', 'proveedores', 'contrato', 'impuestos', 'mapeo'] },
@@ -82,12 +102,12 @@ const PERMISSIONS = {
   // captura horas. Renombrado desde 'taller' (prompt-1-rename-operador-jefe-
   // maquinaria.md) para liberar un nombre corto y dejar sitio al rol nuevo de
   // horas/actividad en campo que se agregará después.
-  jefe_maquinaria: { label: 'Jefe de Maquinaria', tabs: ['maquinaria'] },
+  jefe_maquinaria: { label: 'Jefe de Maquinaria', tabs: MAQUINARIA_TABS_JEFE },
   // Rol nuevo (prompt-2-rol-operador-actividades.md) — el trabajador de
   // campo que llena reportes de horas/actividad de maquinaria. Distinto de
   // jefe_maquinaria (combustible/mantenimiento, PR #49) y de cabo (también
   // captura horas hoy, sin cambios en este prompt — eso es el Prompt 3).
-  operador: { label: 'Operador', tabs: ['maquinaria'] },
+  operador: { label: 'Operador', tabs: MAQUINARIA_TABS_OPERADOR },
 };
 const PUESTOS = Object.keys(PERMISSIONS);
 
@@ -223,7 +243,18 @@ const TAB_A_SECCION = {
   usuarios: 'usuarios', proveedores: 'proveedores', finanzas: 'finanzas',
   estadoResultados: 'estado_resultados',
   mapeo: 'mapeo', nominas: 'nominas', estimaciones: 'estimaciones',
-  maquinaria: 'maquinaria', trabajadores: 'trabajadores',
+  // Las 6 subpestañas de Maquinaria (prompt-39, galería de subsecciones)
+  // mapean TODAS al mismo 'maquinaria' que antes mapeaba el único tab
+  // 'maquinaria' — a propósito, NO a sus secciones granulares reales
+  // (maquinaria_captura/maquinaria_combustible/estado_unidad/
+  // maquinaria_consumibles): defaultPermisosParaRol() ya inyecta esas 4 por
+  // bloques explícitos con valores puede_crear/puede_editar propios de cada
+  // rol (ver más abajo) — si esta traducción genérica también las creara
+  // por defecto, cada alta de cabo/jefe_maquinaria/operador insertaría una
+  // fila DUPLICADA en permisos_usuario para esas secciones.
+  maquinaria_catalogo: 'maquinaria', maquinaria_horas: 'maquinaria', maquinaria_bitacora: 'maquinaria',
+  maquinaria_estado_unidad: 'maquinaria', maquinaria_consumibles: 'maquinaria', maquinaria_reportes_cliente: 'maquinaria',
+  trabajadores: 'trabajadores',
   // prompt-p8-migracion-permisos-navegacion.md: completan el catálogo (ver
   // SECCIONES_PERMISOS arriba) — sin estos dos, defaultPermisosParaRol()
   // descartaba en silencio los tabs 'cotizador' (compras) y

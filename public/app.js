@@ -13,17 +13,31 @@ const PUESTO_LABELS = {
 
 // Mirror de PERMISSIONS en server/auth.js — para calcular allowedTabs en vista simulada.
 // Actualizar aquí si se agregan roles o pestañas en auth.js.
+// Subsecciones de Maquinaria (prompt-39-maquinaria-galeria-subsecciones.md) —
+// mismo módulo/permiso de siempre ('maquinaria' + sub-permisos existentes,
+// sin cambios de backend), solo se reparte en varias pestañas para adoptar
+// el patrón de galería. Cada rol lista solo las que hoy le muestran contenido
+// real dentro de renderMaquinaria (ver ROLES_*_MAQ / puedeVerPresupuesto):
+// jefe_maquinaria no captura ni autoriza horas (MAQUINARIA_TABS_HORAS fuera),
+// cabo no ve la bitácora de taller (exclusiva de jefe_maquinaria/admin/
+// desarrollador), operador no ve catálogo completo ni reportes por cliente
+// (siempre trabaja sobre su propia unidad asignada).
+const MAQUINARIA_TABS_ADMIN = ['maquinaria_catalogo', 'maquinaria_horas', 'maquinaria_bitacora', 'maquinaria_estado_unidad', 'maquinaria_consumibles', 'maquinaria_reportes_cliente'];
+const MAQUINARIA_TABS_CABO = ['maquinaria_catalogo', 'maquinaria_horas', 'maquinaria_estado_unidad', 'maquinaria_consumibles', 'maquinaria_reportes_cliente'];
+const MAQUINARIA_TABS_JEFE = ['maquinaria_catalogo', 'maquinaria_bitacora', 'maquinaria_estado_unidad', 'maquinaria_consumibles', 'maquinaria_reportes_cliente'];
+const MAQUINARIA_TABS_OPERADOR = ['maquinaria_horas', 'maquinaria_estado_unidad', 'maquinaria_consumibles'];
+
 const ROLE_TABS = {
-  admin:          ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'finanzas', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', 'maquinaria', 'cotizador', 'costos', 'matrices', 'avance_clientes', 'composicion_costos'],
-  desarrollador:  ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'finanzas', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', 'maquinaria', 'cotizador', 'costos', 'matrices', 'avance_clientes', 'composicion_costos'],
+  admin:          ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'finanzas', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', ...MAQUINARIA_TABS_ADMIN, 'cotizador', 'costos', 'matrices', 'avance_clientes', 'composicion_costos'],
+  desarrollador:  ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'finanzas', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', ...MAQUINARIA_TABS_ADMIN, 'cotizador', 'costos', 'matrices', 'avance_clientes', 'composicion_costos'],
   residente:      ['programa', 'avance', 'destajo', 'requisiciones', 'insumos', 'ordenes', 'nominas', 'trabajadores', 'estimaciones', 'matrices'],
-  cabo:           ['destajo', 'insumos', 'avance', 'requisiciones', 'maquinaria', 'trabajadores', 'nominas'],
+  cabo:           ['destajo', 'insumos', 'avance', 'requisiciones', ...MAQUINARIA_TABS_CABO, 'trabajadores', 'nominas'],
   compras:        ['programa', 'requisiciones', 'insumos', 'ordenes', 'proveedores', 'cotizador'],
   tesoreria:      ['resumen', 'finanzas', 'ordenes', 'contrato', 'impuestos', 'proveedores'],
   administracion: ['resumen', 'programa', 'destajo', 'ordenes', 'proveedores', 'contrato', 'impuestos', 'mapeo'],
   logistica:      ['programa', 'avance', 'requisiciones', 'insumos', 'ordenes'],
-  jefe_maquinaria: ['maquinaria'],
-  operador: ['maquinaria'],
+  jefe_maquinaria: MAQUINARIA_TABS_JEFE,
+  operador: MAQUINARIA_TABS_OPERADOR,
 };
 
 // Vistas que no requieren ninguna obra/proyecto seleccionado — lista
@@ -33,7 +47,7 @@ const ROLE_TABS = {
 // caen aquí (hoy: operador, jefe_maquinaria). Debe reflejar el mismo
 // conjunto que el bloque de "vistas globales" en renderView() (~línea 3670)
 // — si se agrega una vista global nueva ahí, agregarla aquí también.
-const VISTAS_SIN_PROYECTO = ['usuarios', 'proveedores', 'maquinaria', 'nominas_global', 'trabajadores_global', 'cotizador', 'estadoResultadosGlobal', 'costos', 'avance_clientes', 'composicion_costos'];
+const VISTAS_SIN_PROYECTO = ['usuarios', 'proveedores', ...MAQUINARIA_TABS_ADMIN, 'maquinaria_gallery', 'nominas_global', 'trabajadores_global', 'cotizador', 'estadoResultadosGlobal', 'costos', 'avance_clientes', 'composicion_costos'];
 
 const state = {
   projects: [],
@@ -962,11 +976,33 @@ function applySession(user, tabs, needsTotpReminder = false, avisoNovedades = nu
     if (isAdminUser) adminAct.classList.remove('hidden-initial'); // ver .hidden-initial en styles.css
     adminAct.style.display = isAdminUser ? '' : 'none';
   }
-  state.view = tabs.length <= 1 ? (tabs[0] || 'inicio') : 'inicio';
+  state.view = vistaInicialParaTabs(tabs);
   state.section = VIEW_TO_SECTION[state.view] || null;
   startNotifPolling();
   renderSidebar();
   renderMobileNav();
+}
+
+// Vista inicial tras login (prompt-5-fix-navegacion-operador-jefe-maquinaria.md,
+// extendido en prompt-39-maquinaria-galeria-subsecciones.md): roles 100%
+// globales (hoy operador, jefe_maquinaria — TODOS sus tabs viven en
+// VISTAS_SIN_PROYECTO) deben aterrizar directo en su módulo real, sin pasar
+// por la galería de clientes (bootApp() ya asume este state.view, ver
+// VISTAS_SIN_PROYECTO). Antes bastaba "tabs.length<=1" porque esos roles
+// tenían un único tab ('maquinaria'); ahora un rol global puede tener varias
+// subpestañas de una sola sección con galería (Maquinaria) — se aterriza en
+// esa galería, igual que goToSection() haría a mano si el usuario clickeara.
+function vistaInicialParaTabs(tabs) {
+  if (tabs.length === 0) return 'inicio';
+  if (tabs.length === 1) return tabs[0];
+  const todosSinProyecto = tabs.every((t) => VISTAS_SIN_PROYECTO.includes(t));
+  if (!todosSinProyecto) return 'inicio';
+  const secciones = new Set(tabs.map((t) => VIEW_TO_SECTION[t]).filter(Boolean));
+  if (secciones.size === 1) {
+    const [sectionId] = secciones;
+    if (SECTIONS_WITH_GALLERY.has(sectionId)) return `${sectionId}_gallery`;
+  }
+  return tabs[0];
 }
 
 // ---------------------------------------------------------------------------
@@ -1108,14 +1144,16 @@ const SECTION_DEFS = {
   compras:       { label: 'Compras',        icon: 'compras',        emoji: '🛒',   tabs: ['requisiciones', 'insumos', 'proveedores', 'ordenes', 'cotizador'], proximamente: ['Subcontratos'] },
   tesoreria:     { label: 'Tesorería',      icon: 'tesoreria',      emoji: '💰',   tabs: ['finanzas', 'estadoResultados', 'estadoResultadosGlobal', 'impuestos'], proximamente: [] },
   administracion:{ label: 'Administración', icon: 'administracion', emoji: '📂',  tabs: ['mapeo', 'contrato', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'costos', 'avance_clientes', 'composicion_costos', 'usuarios', 'cuentas', 'controlFinanciero'], proximamente: ['Almacenes'] },
-  maquinaria:    { label: 'Maquinaria',     icon: 'maquinaria',     emoji: '🚜',   tabs: ['maquinaria'],                                        proximamente: [] },
+  maquinaria:    { label: 'Maquinaria',     icon: 'maquinaria',     emoji: '🚜',   tabs: MAQUINARIA_TABS_ADMIN,                                 proximamente: [] },
 };
 
 const TAB_ICONS = {
   resumen: '📊', contrato: '📄', impuestos: '🧾', insumos: '📦', requisiciones: '🧾',
   proveedores: '🏭', ordenes: '🛒', programa: '🗓️', avance: '📈', destajo: '👷',
   finanzas: '💰', mapeo: '🔗', usuarios: '👤', trabajadores: '👷', nominas: '💵', estimaciones: '🧮',
-  maquinaria: '🚜', nominas_global: '💵', trabajadores_global: '👷', cotizador: '🔍',
+  maquinaria_catalogo: '🛠️', maquinaria_horas: '⏱️', maquinaria_bitacora: '🔧', maquinaria_estado_unidad: '🚦',
+  maquinaria_consumibles: '⛽', maquinaria_reportes_cliente: '📊',
+  nominas_global: '💵', trabajadores_global: '👷', cotizador: '🔍',
   estadoResultados: '📈', estadoResultadosGlobal: '📈', costos: '💲', avance_clientes: '📈', composicion_costos: '🧮',
   cuentas: '🏦', matrices: '🧱', controlFinanciero: '💹',
 };
@@ -1123,7 +1161,10 @@ const TAB_LABELS = {
   resumen: 'Resumen', contrato: 'Contrato', impuestos: 'Impuestos', insumos: 'Insumos', requisiciones: 'Requisiciones',
   proveedores: 'Proveedores', ordenes: 'Órdenes de Compra', programa: 'Programa', avance: 'Avance', destajo: 'Destajo',
   finanzas: 'Finanzas', mapeo: 'Mapeo', usuarios: 'Usuarios', trabajadores: 'Trabajadores', nominas: 'Nóminas', estimaciones: 'Estimaciones',
-  maquinaria: 'Maquinaria', nominas_global: 'Nómina (todas las obras)', trabajadores_global: 'Trabajadores (todas las obras)',
+  maquinaria_catalogo: 'Catálogo de equipos', maquinaria_horas: 'Horas / Pendientes de autorizar',
+  maquinaria_bitacora: 'Bitácora de taller', maquinaria_estado_unidad: 'Estado de las unidades',
+  maquinaria_consumibles: 'Consumibles', maquinaria_reportes_cliente: 'Reportes por cliente',
+  nominas_global: 'Nómina (todas las obras)', trabajadores_global: 'Trabajadores (todas las obras)',
   cotizador: 'Cotizador', estadoResultados: 'Estado de Resultados', estadoResultadosGlobal: 'Estado de Resultados (todas las obras)',
   costos: 'Costos', avance_clientes: 'Avance por cliente', composicion_costos: 'Composición de costos',
   cuentas: 'Cuentas', matrices: 'Matrices de precio unitario', controlFinanciero: 'Control Financiero',
@@ -1140,10 +1181,10 @@ Object.entries(SECTION_DEFS).forEach(([sectionId, def]) => {
 // original solo en 'obra'; replicado a las otras 4 (prompt-replicar-galeria-
 // 4-secciones.md) — goToSection(), renderView(), renderTabsBar() y syncFab()
 // ya generalizaban sobre este set, así que extenderlo es el único cambio de
-// lógica que hace falta. 'maquinaria' tiene una sola subsección hoy
-// (tabs: ['maquinaria']) — el guard de goToSection() (tabsPermitidos.length
-// > 1) ya evita mostrarle una galería de 1 tile, se incluye igual por
-// consistencia/si gana más subsecciones después (decisión explícita).
+// lógica que hace falta. 'maquinaria' ganó sus propias subsecciones reales
+// en prompt-39-maquinaria-galeria-subsecciones.md (antes tenía tabs:
+// ['maquinaria'], una sola pestaña que el guard de goToSection()
+// (tabsPermitidos.length > 1) saltaba directo sin mostrar galería).
 const SECTIONS_WITH_GALLERY = new Set(['obra', 'compras', 'tesoreria', 'administracion', 'maquinaria']);
 SECTIONS_WITH_GALLERY.forEach((sectionId) => { VIEW_TO_SECTION[`${sectionId}_gallery`] = sectionId; });
 
@@ -1338,7 +1379,7 @@ function updateGalleryDrawerGlobalLinks() {
     // que SÍ tiene proyectos (por eso bootApp() lo manda a la galería) pero
     // necesita llegar a Maquinaria igual — esa vista es global, no depende
     // de ninguna obra en particular.
-    ['btnGalleryGoMaquinaria', puedeVer('maquinaria')],
+    ['btnGalleryGoMaquinaria', MAQUINARIA_TABS_ADMIN.some(puedeVer)],
   ];
   let anyVisible = false;
   links.forEach(([id, visible]) => {
@@ -3497,7 +3538,7 @@ $('#btnGalleryGoUsuarios').addEventListener('click', () => goToGlobalAdminView('
 $('#btnGalleryGoTrabajadoresGlobal').addEventListener('click', () => goToGlobalAdminView('trabajadores_global'));
 $('#btnGalleryGoNominasGlobal').addEventListener('click', () => goToGlobalAdminView('nominas_global'));
 $('#btnGalleryGoPermisos').addEventListener('click', () => { state.usuariosSubView = 'permisos'; goToGlobalAdminView('usuarios'); });
-$('#btnGalleryGoMaquinaria').addEventListener('click', () => goToGlobalAdminView('maquinaria'));
+$('#btnGalleryGoMaquinaria').addEventListener('click', () => goToGlobalAdminView('maquinaria_gallery'));
 
 function openNuevoClienteModal() {
   openModal(`
@@ -3790,7 +3831,7 @@ function destroyCharts() {
 async function renderView() {
   destroyCharts();
   const view = $('#view');
-  if (state.view === 'usuarios' || state.view === 'proveedores' || state.view === 'maquinaria' || state.view === 'nominas_global' || state.view === 'trabajadores_global' || state.view === 'cotizador' || state.view === 'estadoResultadosGlobal' || state.view === 'costos' || state.view === 'avance_clientes' || state.view === 'composicion_costos' || state.view === 'cuentas' || state.view === 'controlFinanciero') {
+  if (state.view === 'usuarios' || state.view === 'proveedores' || MAQUINARIA_TABS_ADMIN.includes(state.view) || state.view === 'nominas_global' || state.view === 'trabajadores_global' || state.view === 'cotizador' || state.view === 'estadoResultadosGlobal' || state.view === 'costos' || state.view === 'avance_clientes' || state.view === 'composicion_costos' || state.view === 'cuentas' || state.view === 'controlFinanciero') {
     try {
       if (state.view === 'usuarios') { await renderUsuarios(view, state.usuariosSubView); state.usuariosSubView = null; }
       else if (state.view === 'cuentas') await renderControlCuentas(view);
@@ -3803,7 +3844,12 @@ async function renderView() {
       else if (state.view === 'costos') await renderCostos(view);
       else if (state.view === 'avance_clientes') await renderAvanceClientes(view);
       else if (state.view === 'composicion_costos') await renderComposicionCostos(view);
-      else await renderMaquinaria(view);
+      else if (state.view === 'maquinaria_catalogo') await renderMaquinariaCatalogo(view);
+      else if (state.view === 'maquinaria_horas') await renderMaquinariaHoras(view);
+      else if (state.view === 'maquinaria_bitacora') await renderMaquinariaBitacora(view);
+      else if (state.view === 'maquinaria_estado_unidad') await renderMaquinariaEstadoUnidad(view);
+      else if (state.view === 'maquinaria_consumibles') await renderMaquinariaConsumibles(view);
+      else if (state.view === 'maquinaria_reportes_cliente') await renderMaquinariaReportesCliente(view);
     } catch (err) { view.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`; }
     syncFab();
     return;
@@ -3825,7 +3871,7 @@ async function renderView() {
     return;
   }
   if (state.view.endsWith('_gallery')) {
-    try { renderSeccionGaleria(view, state.view.replace('_gallery', '')); } catch (err) { view.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`; }
+    try { await renderSeccionGaleria(view, state.view.replace('_gallery', '')); } catch (err) { view.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`; }
     syncFab();
     return;
   }
@@ -3894,25 +3940,83 @@ function invalidate(...keys) {
 // tal cual, no un sistema nuevo. Respeta state.allowedTabs igual que
 // renderTabsBar()/goToSection(): ningún tile aparece si el rol no tiene
 // acceso a esa subsección.
+//
+// Soporta dos extensiones opcionales, usadas hoy solo por Maquinaria
+// (prompt-39-maquinaria-galeria-subsecciones.md, confirmado con Paul):
+// `badges` (contador visible en una tarjeta, ej. horas pendientes de
+// autorizar) y `extraHtml` (bloque fijo arriba de las tarjetas, ej. el
+// resumen de presupuesto — solo admin/desarrollador). Ambos se resuelven en
+// buildMaquinariaGaleriaExtras() para no romper la genericidad del resto de
+// secciones (Administración, Obra, etc. siguen sin badges/extraHtml).
 // =========================================================================
-function renderSeccionGaleria(view, sectionId) {
+async function renderSeccionGaleria(view, sectionId) {
   const def = SECTION_DEFS[sectionId];
   const tabsPermitidos = def.tabs.filter((t) => state.allowedTabs.includes(t));
+  const { extraHtml, badges } = sectionId === 'maquinaria' ? await buildMaquinariaGaleriaExtras() : { extraHtml: '', badges: {} };
   view.innerHTML = `
     <button class="btn seccion-galeria-back" data-goto="inicio">← Secciones</button>
     <h2 class="section-title">${def.emoji} ${esc(def.label)}</h2>
     <p class="muted">Selecciona una subsección para continuar.</p>
+    ${extraHtml}
     <div class="subseccion-galeria">
     <div class="section-grid">
       ${tabsPermitidos.map((t) => `
         <div class="section-card" data-goto="${t}">
           <span class="section-icon section-icon-lg">${TAB_ICONS[t] || ''}</span>
           <span class="section-nombre">${esc(TAB_LABELS[t])}</span>
+          ${badges[t] ? `<span class="section-card-badge">${badges[t]}</span>` : ''}
         </div>`).join('')}
     </div>
     </div>
   `;
   $$('[data-goto]', view).forEach((btn) => btn.addEventListener('click', () => switchToView(btn.dataset.goto)));
+  if (sectionId === 'maquinaria') bindMaquinariaGaleriaExtras();
+}
+
+// Datos extra de la galería de Maquinaria (ver renderSeccionGaleria arriba):
+// contador de horas pendientes de autorizar (mismo criterio que ya mostraba
+// maqSectionSummaryHtml('Pendientes de autorizar', pendientes.length) en el
+// <details> de PR #114) + tarjeta de presupuesto total/gastado, fija arriba,
+// solo admin/desarrollador (mismo gate que puedeVerPresupuesto en la vieja
+// renderMaquinaria).
+async function buildMaquinariaGaleriaExtras() {
+  const badges = {};
+  let extraHtml = '';
+  if (state.allowedTabs.includes('maquinaria_horas')) {
+    try {
+      const horas = await api('/maquinaria/horas');
+      const pendientes = horas.filter((h) => h.estado === 'pendiente').length;
+      if (pendientes > 0) badges.maquinaria_horas = pendientes;
+    } catch { /* 403 esperado para roles sin puede_ver en 'maquinaria' — sin badge */ }
+  }
+  if (isAdmin()) {
+    try {
+      const [resumen, reporteClientes] = await Promise.all([
+        api('/maquinaria/resumen'),
+        api('/maquinaria/reporte-clientes').catch(() => null),
+      ]);
+      maquinariaResumenGaleriaCache = { resumen, reporteClientes };
+      const pct = Math.min(100, resumen.pct_gastado || 0);
+      extraHtml = `
+        <div class="card" id="maqResumenGaleriaCard">
+          <div class="card-row"><span class="k">Presupuesto total</span><span class="v">${fmtMoney(resumen.monto_total)}</span></div>
+          <div class="card-row"><span class="k">Gastado (combustible + mantenimiento)</span><span class="v">${fmtMoney(resumen.gasto_total)}</span></div>
+          <div class="progress-bar mt-8 ${resumen.alerta ? 'over' : ''}"><span data-pct="${pct}"></span></div>
+          <div class="muted fs-08 mt-4">${fmtPct(resumen.pct_gastado)} del presupuesto${resumen.alerta ? ` — ⚠️ superó el ${resumen.umbral_alerta_pct}% de alerta` : ''}</div>
+          <button class="btn small mt-8" id="btnEditarPresupuestoMaqGaleria">Editar presupuesto total</button>
+        </div>
+      `;
+    } catch { /* si falla, se omite la tarjeta — el resto de la galería sigue funcionando */ }
+  }
+  return { extraHtml, badges };
+}
+let maquinariaResumenGaleriaCache = null;
+function bindMaquinariaGaleriaExtras() {
+  const card = $('#maqResumenGaleriaCard');
+  if (card) { const fill = $('.progress-bar > span[data-pct]', card); if (fill) fill.style.width = fill.dataset.pct + '%'; }
+  $('#btnEditarPresupuestoMaqGaleria')?.addEventListener('click', () => {
+    openPresupuestoMaqModal(maquinariaResumenGaleriaCache?.resumen.monto_total, maquinariaResumenGaleriaCache?.reporteClientes);
+  });
 }
 
 // =========================================================================
@@ -7865,7 +7969,15 @@ const TAB_A_SECCION = {
   usuarios: 'usuarios', proveedores: 'proveedores', finanzas: 'finanzas',
   estadoResultados: 'estado_resultados',
   mapeo: 'mapeo', nominas: 'nominas', estimaciones: 'estimaciones',
-  maquinaria: 'maquinaria', trabajadores: 'trabajadores',
+  // Las 6 subpestañas de Maquinaria (prompt-39, galería de subsecciones)
+  // mapean todas al mismo 'maquinaria' que antes mapeaba la única pestaña
+  // 'maquinaria' — el pre-check visual de la matriz no cambia de
+  // comportamiento; las secciones más finas (maquinaria_captura/
+  // maquinaria_combustible) las siguen inyectando los bloques explícitos
+  // de abajo, como ya hacían.
+  maquinaria_catalogo: 'maquinaria', maquinaria_horas: 'maquinaria', maquinaria_bitacora: 'maquinaria',
+  maquinaria_estado_unidad: 'maquinaria', maquinaria_consumibles: 'maquinaria', maquinaria_reportes_cliente: 'maquinaria',
+  trabajadores: 'trabajadores',
   // Mirror de server/auth.js TAB_A_SECCION (prompt-14-matrices-precio-
   // unitario.md) — a diferencia del tab GLOBAL 'costos', 'matrices' es
   // por-obra y sí debe resolverse aquí.
@@ -9083,159 +9195,188 @@ const ROLES_CAPTURAN_HORAS_MAQ = ['operador', 'admin', 'desarrollador'];
 // desarrollador vía bypass real, no simulado).
 const ROLES_BITACORA_TALLER_MAQ = ['jefe_maquinaria', 'admin', 'desarrollador'];
 
-// Secciones colapsables de la pantalla de Maquinaria (prompt-37-reorganizar-
-// maquinaria.md) — estado abierto/cerrado persistido en localStorage por
-// sección, para que no se resetee cada vez que se recarga. `defaultOpen`
-// solo aplica la primera vez (o si el usuario nunca la tocó); una vez que
-// hay preferencia guardada, esa gana siempre, incluso si `defaultOpen` es
-// dinámico (ej. "Pendientes de autorizar" abierta solo si hay 1+).
-function maqSectionOpenAttr(id, defaultOpen) {
-  const v = localStorage.getItem(`maq_sec_${id}`);
-  const open = v === 'open' ? true : v === 'closed' ? false : !!defaultOpen;
-  return open ? 'open' : '';
-}
-function maqSectionSummaryHtml(title, count, alerta) {
-  return `<summary><span>${esc(title)}${count != null ? ` (${count})` : ''}${alerta ? ` <span class="maq-section-alerta">${esc(alerta)}</span>` : ''}</span><span class="chev">▾</span></summary>`;
-}
-// Llamar una vez después de inyectar cualquier HTML con [data-maq-section]
-// nuevo (tanto el render inicial de renderMaquinaria como cada paintXxxMaq
-// que reemplaza su propio contenedor después).
-function bindMaqSectionToggles(root) {
-  $$('[data-maq-section]', root).forEach((det) => {
-    det.addEventListener('toggle', () => {
-      localStorage.setItem(`maq_sec_${det.dataset.maqSection}`, det.open ? 'open' : 'closed');
-    });
-  });
-}
+// =========================================================================
+// MAQUINARIA — galería de subsecciones (prompt-39-maquinaria-galeria-
+// subsecciones.md, reemplaza las <details> colapsables de PR #114).
+// Antes una sola renderMaquinaria() pintaba las 7 secciones apiladas en una
+// página larga; ahora cada una es su propia subpantalla (tarjeta en
+// renderSeccionGaleria → maquinaria_catalogo/horas/bitacora/estado_unidad/
+// consumibles/reportes_cliente), con exactamente los mismos fetches,
+// variables de permiso y funciones paint*/open*Modal de siempre — sin tocar
+// ningún endpoint ni la lógica de qué puede hacer cada rol (Forbidden
+// Actions del prompt). "Reportes por cliente" fusiona lo que antes eran 2
+// <details> separados (presupuesto sugerido + equipos por cliente),
+// confirmado con Paul en el diagnóstico. La tarjeta de presupuesto total
+// (antes fija arriba de renderMaquinaria) ahora vive en la propia galería
+// (buildMaquinariaGaleriaExtras(), ver renderSeccionGaleria) — no en
+// ninguna subpantalla.
+// =========================================================================
 
-async function renderMaquinaria(view) {
-  const [equipos, resumen, misPermisos, misPermisosCaptura, misPermisosCombustible, misPermisosEstadoUnidad, misPermisosConsumibles, proyectos, clientesMaq, reporteClientes, horasMaq, bitacoraTaller, operadoresMaq, estadoUnidadList, consumiblesData] = await Promise.all([
+async function renderMaquinariaCatalogo(view) {
+  const [equipos, misPermisos, proyectos, operadoresMaq] = await Promise.all([
     api('/maquinaria/equipos'),
-    api('/maquinaria/resumen'),
     api('/mis-permisos/maquinaria'),
-    api('/mis-permisos/maquinaria_captura'),
-    api('/mis-permisos/maquinaria_combustible'),
-    // prompt-6-estado-unidad-operador.md — residente no tiene fila en
-    // 'estado_unidad' (default-deny real, a propósito: no forma parte del
-    // alcance de este checklist), el .catch evita que ese 403 tumbe el resto.
-    api('/mis-permisos/estado_unidad').catch(() => ({})),
-    // prompt-10-programa-consumibles.md — mismo criterio, residente no tiene
-    // fila en 'maquinaria_consumibles'.
-    api('/mis-permisos/maquinaria_consumibles').catch(() => ({})),
     api('/projects').catch(() => []),
-    api('/clientes').catch(() => []),
-    api('/maquinaria/reporte-clientes').catch(() => null),
-    // 403 esperado para roles sin puede_ver en 'maquinaria_captura' (ej.
-    // jefe_maquinaria) — GET /api/maquinaria/horas exige checkPermiso
-    // ('maquinaria', 'puede_ver'), que sí tienen todos los roles de este tab,
-    // pero igual protegemos con .catch por si acaso (mismo patrón que
-    // reporte-clientes arriba).
-    api('/maquinaria/horas').catch(() => []),
-    // prompt-4-bitacora-taller-jefe-maquinaria.md: 403 esperado para
-    // operador/cabo (sin fila en 'maquinaria_combustible') — el .catch
-    // evita que ese 403 tumbe el resto de la pantalla.
-    api('/maquinaria/bitacora-taller').catch(() => []),
     // prompt-p2-aislamiento-operador.md: 403 esperado para roles sin
     // puede_editar en 'maquinaria' (la mayoría) — solo lo usa el selector
-    // "Operador asignado" del catálogo, mismo patrón .catch que el resto de
-    // fetches opcionales de esta función.
+    // "Operador asignado".
     api('/maquinaria/operadores').catch(() => []),
-    // 403 esperado para residente (arriba) — mismo .catch.
-    api('/maquinaria/estado-unidad').catch(() => []),
-    // 403 esperado para residente (arriba) — mismo .catch.
-    api('/maquinaria/consumibles').catch(() => ({ registros: [], resumen: [] })),
   ]);
   maquinariaEquiposCache = equipos;
   const puedeCrear = !!misPermisos.puede_crear; // equipos — sección 'maquinaria', sin cambio (CN-002)
   const puedeEditar = !!misPermisos.puede_editar;
   const puedeEliminar = !!misPermisos.puede_eliminar;
-  // CN-002: combustible/mantenimiento y horas ya no comparten el permiso de
-  // 'maquinaria' (que antes obligaba a excluir a cabo a mano con !esCabo,
-  // y nunca excluía a jefe_maquinaria de horas) — cada botón usa su propia sección.
-  const puedeCrearCombustible = !!misPermisosCombustible.puede_crear;
-  // prompt-4-bitacora-taller-jefe-maquinaria.md — AND con
-  // ROLES_BITACORA_TALLER_MAQ (mismo criterio ya aplicado en prompt-3 a los
-  // botones de horas): el permiso crudo no distingue rol simulado de rol
-  // real para admin/desarrollador (bypass siempre true). Deliberadamente
-  // separado de puedeCrearCombustible de arriba (botón +Combustible, fuera
-  // de este flujo, sin cambios) — solo la bitácora de mantenimiento/
-  // consumibles/herramientas es nueva en este prompt.
-  const puedeCrearBitacora = !!misPermisosCombustible.puede_crear && ROLES_BITACORA_TALLER_MAQ.includes(effectivePuesto());
-  const puedeVerBitacora = !!misPermisosCombustible.puede_ver && ROLES_BITACORA_TALLER_MAQ.includes(effectivePuesto());
-  // AND con ROLES_CAPTURAN_HORAS_MAQ/ROLES_AUTORIZAN_HORAS_MAQ (ver comentario
-  // junto a esas constantes) — el permiso crudo del backend no distingue rol
-  // simulado de rol real para admin/desarrollador (bypass siempre true).
-  const puedeCrearHoras = !!misPermisosCaptura.puede_crear && ROLES_CAPTURAN_HORAS_MAQ.includes(effectivePuesto());
-  // prompt-3-flujo-aprobacion-cabo-operador.md: puede_editar en
-  // 'maquinaria_captura' ahora es "puede autorizar/rechazar reportes de
-  // horas" (cabo, y admin/desarrollador vía bypass).
-  const puedeAutorizarHoras = !!misPermisosCaptura.puede_editar && ROLES_AUTORIZAN_HORAS_MAQ.includes(effectivePuesto());
-  const esOperador = effectivePuesto() === 'operador';
   // Bug reportado en revisión de dispositivo real (feat/maquinaria-por-
-  // cliente, commit 3fa8d9d): mismo patrón que puedeAutorizarHoras/
-  // puedeCrearBitacora arriba — puedeEditar (crudo) no distingue rol
-  // simulado del real para admin/desarrollador (bypass siempre true), así
-  // que "Vista como: Cabo" mostraba el dropdown de reasignar cliente como
-  // editable. ROLES_BITACORA_TALLER_MAQ ya es exactamente el mismo set de
-  // roles con puede_editar por default en la sección 'maquinaria' (server/
-  // auth.js), se reutiliza en vez de crear una constante nueva.
-  const puedeReasignarClienteMaq = !!misPermisos.puede_editar && ROLES_BITACORA_TALLER_MAQ.includes(effectivePuesto());
-  // prompt-6-estado-unidad-operador.md: mismo AND que las constantes ROLES_*
-  // de arriba, por la misma razón (bypass admin/desarrollador no distingue
-  // "Vista como").
-  const puedeCrearEstadoUnidad = !!misPermisosEstadoUnidad.puede_crear && ROLES_CAPTURAN_ESTADO_UNIDAD_MAQ.includes(effectivePuesto());
-  const puedeSupervisarEstadoUnidad = !!misPermisosEstadoUnidad.puede_ver && ROLES_SUPERVISAN_ESTADO_UNIDAD_MAQ.includes(effectivePuesto());
-  // prompt-10-programa-consumibles.md: mismo AND que estado_unidad arriba.
-  const puedeCrearConsumibles = !!misPermisosConsumibles.puede_crear && ROLES_CAPTURAN_ESTADO_UNIDAD_MAQ.includes(effectivePuesto());
-  const puedeSupervisarConsumibles = !!misPermisosConsumibles.puede_ver && ROLES_SUPERVISAN_ESTADO_UNIDAD_MAQ.includes(effectivePuesto());
-
-  // Cifras de presupuesto (total/gastado/%/sugerido por cliente) — solo
-  // admin/desarrollador; backend ya las envía null para el resto de roles,
-  // esto solo evita renderizar un bloque vacío.
-  const puedeVerPresupuesto = isAdmin();
-  const pct = Math.min(100, resumen.pct_gastado || 0);
+  // cliente, commit 3fa8d9d): puedeEditar (crudo) no distingue rol simulado
+  // del real para admin/desarrollador (bypass siempre true), así que "Vista
+  // como: Cabo" mostraba el selector de operador como editable.
+  // ROLES_BITACORA_TALLER_MAQ ya es exactamente el mismo set de roles con
+  // puede_editar por default en 'maquinaria' (server/auth.js).
+  const puedeAsignarOperador = !!misPermisos.puede_editar && ROLES_BITACORA_TALLER_MAQ.includes(effectivePuesto());
   view.innerHTML = `
-    <h2 class="section-title">Maquinaria</h2>
-    <p class="muted">Catálogo de equipos propios, combustible, mantenimiento y horas de uso — presupuesto único para toda la flota.</p>
-    ${puedeVerPresupuesto ? `
-    <div class="card">
-      <div class="card-row"><span class="k">Presupuesto total</span><span class="v">${fmtMoney(resumen.monto_total)}</span></div>
-      <div class="card-row"><span class="k">Gastado (combustible + mantenimiento)</span><span class="v">${fmtMoney(resumen.gasto_total)}</span></div>
-      <div class="progress-bar mt-8 ${resumen.alerta ? 'over' : ''}"><span data-pct="${pct}"></span></div>
-      <div class="muted fs-08 mt-4">${fmtPct(resumen.pct_gastado)} del presupuesto${resumen.alerta ? ` — ⚠️ superó el ${resumen.umbral_alerta_pct}% de alerta` : ''}</div>
-      ${puedeEditar ? `<button class="btn small mt-8" id="btnEditarPresupuestoMaq">Editar presupuesto total</button>` : ''}
-    </div>
-    ` : ''}
-
+    <h2 class="section-title">🛠️ Catálogo de equipos</h2>
+    <p class="muted">Equipos propios — presupuesto único para toda la flota.</p>
     <div class="section-actions mt-12">
       ${puedeCrear ? '<button class="btn btn-primary" id="btnNuevoEquipoMaq">+ Nuevo equipo</button>' : ''}
-      ${puedeCrearCombustible ? '<button class="btn" id="btnCombustibleMaq">+ Combustible</button>' : ''}
-      ${puedeCrearBitacora ? '<button class="btn" id="btnMantenimientoMaq">+ Registrar en bitácora</button>' : ''}
-      ${puedeCrearHoras ? '<button class="btn" id="btnHorasMaq">+ Capturar horas</button>' : ''}
-      ${puedeCrearEstadoUnidad && equipos.length ? '<button class="btn" id="btnEstadoUnidadMaq">+ Estado de la unidad</button>' : ''}
-      ${puedeCrearConsumibles && equipos.length ? '<button class="btn" id="btnConsumiblesMaq">+ Consumibles</button>' : ''}
+    </div>
+    <div id="equiposMaqList"></div>
+  `;
+  $('#btnNuevoEquipoMaq')?.addEventListener('click', () => openEquipoMaqModal(null, proyectos));
+  paintEquiposMaqList(equipos, proyectos, { puedeEditar, puedeEliminar, puedeAsignarOperador, operadoresMaq });
+}
+
+async function renderMaquinariaHoras(view) {
+  const [horasMaq, misPermisosCaptura, equipos, proyectos] = await Promise.all([
+    // 403 esperado para roles sin puede_ver en 'maquinaria_captura' (ej.
+    // jefe_maquinaria) — GET /api/maquinaria/horas exige checkPermiso
+    // ('maquinaria', 'puede_ver'), que sí tienen todos los roles de este tab.
+    api('/maquinaria/horas').catch(() => []),
+    api('/mis-permisos/maquinaria_captura'),
+    api('/maquinaria/equipos'),
+    api('/projects').catch(() => []),
+  ]);
+  maquinariaEquiposCache = equipos;
+  // AND con ROLES_CAPTURAN_HORAS_MAQ/ROLES_AUTORIZAN_HORAS_MAQ: el permiso
+  // crudo del backend no distingue rol simulado de rol real para admin/
+  // desarrollador (bypass siempre true).
+  const puedeCrearHoras = !!misPermisosCaptura.puede_crear && ROLES_CAPTURAN_HORAS_MAQ.includes(effectivePuesto());
+  // prompt-3-flujo-aprobacion-cabo-operador.md: puede_editar en
+  // 'maquinaria_captura' ahora es "puede autorizar/rechazar reportes de horas".
+  const puedeAutorizarHoras = !!misPermisosCaptura.puede_editar && ROLES_AUTORIZAN_HORAS_MAQ.includes(effectivePuesto());
+  const esOperador = effectivePuesto() === 'operador';
+  view.innerHTML = `
+    <h2 class="section-title">⏱️ Horas / Pendientes de autorizar</h2>
+    <p class="muted">Captura de horas de uso por operador y autorización de reportes.</p>
+    <div class="section-actions mt-12">
+      ${puedeCrearHoras ? '<button class="btn btn-primary" id="btnHorasMaq">+ Capturar horas</button>' : ''}
     </div>
     <div id="reportesHorasMaqSection"></div>
+  `;
+  $('#btnHorasMaq')?.addEventListener('click', () => openHorasMaqModal(equipos, proyectos));
+  paintReportesHorasMaq(horasMaq, { puedeAutorizarHoras, esOperador });
+}
 
-    ${!esOperador ? `
-    <details class="maq-section" data-maq-section="catalogo" ${maqSectionOpenAttr('catalogo', true)}>
-      ${maqSectionSummaryHtml('Catálogo de equipos', equipos.length)}
-      <div class="maq-section-body">
-    <div id="equiposMaqList"></div>
-      </div>
-    </details>
-    ` : ''}
-
+async function renderMaquinariaBitacora(view) {
+  const [bitacoraTaller, misPermisosCombustible, equipos] = await Promise.all([
+    // 403 esperado para operador/cabo (sin fila en 'maquinaria_combustible').
+    api('/maquinaria/bitacora-taller').catch(() => []),
+    api('/mis-permisos/maquinaria_combustible'),
+    api('/maquinaria/equipos'),
+  ]);
+  maquinariaEquiposCache = equipos;
+  // CN-002: combustible/mantenimiento no comparte el permiso de 'maquinaria'.
+  const puedeCrearCombustible = !!misPermisosCombustible.puede_crear;
+  // prompt-4-bitacora-taller-jefe-maquinaria.md — AND con
+  // ROLES_BITACORA_TALLER_MAQ (mismo criterio que horas arriba).
+  const puedeCrearBitacora = !!misPermisosCombustible.puede_crear && ROLES_BITACORA_TALLER_MAQ.includes(effectivePuesto());
+  const puedeVerBitacora = !!misPermisosCombustible.puede_ver && ROLES_BITACORA_TALLER_MAQ.includes(effectivePuesto());
+  view.innerHTML = `
+    <h2 class="section-title">🔧 Bitácora de taller</h2>
+    <p class="muted">Combustible, mantenimiento (con refacciones), consumibles y herramientas.</p>
+    <div class="section-actions mt-12">
+      ${puedeCrearCombustible ? '<button class="btn" id="btnCombustibleMaq">+ Combustible</button>' : ''}
+      ${puedeCrearBitacora ? '<button class="btn btn-primary" id="btnMantenimientoMaq">+ Registrar en bitácora</button>' : ''}
+    </div>
     <div id="bitacoraTallerSection"></div>
+  `;
+  $('#btnCombustibleMaq')?.addEventListener('click', () => openCombustibleMaqModal(equipos));
+  $('#btnMantenimientoMaq')?.addEventListener('click', () => openMantenimientoMaqModal(equipos));
+  paintBitacoraTaller(bitacoraTaller, equipos, { puedeVerBitacora });
+}
+
+async function renderMaquinariaEstadoUnidad(view) {
+  const [estadoUnidadList, misPermisosEstadoUnidad, equipos] = await Promise.all([
+    // 403 esperado para residente — mismo .catch.
+    api('/maquinaria/estado-unidad').catch(() => []),
+    // prompt-6-estado-unidad-operador.md — residente no tiene fila en
+    // 'estado_unidad' (default-deny real, a propósito).
+    api('/mis-permisos/estado_unidad').catch(() => ({})),
+    api('/maquinaria/equipos'),
+  ]);
+  maquinariaEquiposCache = equipos;
+  // prompt-6-estado-unidad-operador.md: AND con ROLES_* (bypass admin/
+  // desarrollador no distingue "Vista como").
+  const puedeCrearEstadoUnidad = !!misPermisosEstadoUnidad.puede_crear && ROLES_CAPTURAN_ESTADO_UNIDAD_MAQ.includes(effectivePuesto());
+  const puedeSupervisarEstadoUnidad = !!misPermisosEstadoUnidad.puede_ver && ROLES_SUPERVISAN_ESTADO_UNIDAD_MAQ.includes(effectivePuesto());
+  const esOperador = effectivePuesto() === 'operador';
+  view.innerHTML = `
+    <h2 class="section-title">🚦 Estado de las unidades</h2>
+    <p class="muted">Checklist de estado por unidad — captura y supervisión.</p>
+    <div class="section-actions mt-12">
+      ${puedeCrearEstadoUnidad && equipos.length ? '<button class="btn btn-primary" id="btnEstadoUnidadMaq">+ Estado de la unidad</button>' : ''}
+    </div>
     <div id="estadoUnidadSection"></div>
+  `;
+  $('#btnEstadoUnidadMaq')?.addEventListener('click', () => openEstadoUnidadMaqModal(equipos));
+  paintEstadoUnidadMaq(estadoUnidadList, { puedeSupervisarEstadoUnidad, esOperador });
+}
+
+async function renderMaquinariaConsumibles(view) {
+  const [consumiblesData, misPermisosConsumibles, equipos] = await Promise.all([
+    // 403 esperado para residente — mismo .catch.
+    api('/maquinaria/consumibles').catch(() => ({ registros: [], resumen: [] })),
+    // prompt-10-programa-consumibles.md — mismo criterio que estado_unidad.
+    api('/mis-permisos/maquinaria_consumibles').catch(() => ({})),
+    api('/maquinaria/equipos'),
+  ]);
+  maquinariaEquiposCache = equipos;
+  // prompt-10-programa-consumibles.md: mismo AND que estado_unidad.
+  const puedeCrearConsumibles = !!misPermisosConsumibles.puede_crear && ROLES_CAPTURAN_ESTADO_UNIDAD_MAQ.includes(effectivePuesto());
+  const puedeSupervisarConsumibles = !!misPermisosConsumibles.puede_ver && ROLES_SUPERVISAN_ESTADO_UNIDAD_MAQ.includes(effectivePuesto());
+  const esOperador = effectivePuesto() === 'operador';
+  view.innerHTML = `
+    <h2 class="section-title">⛽ Consumibles</h2>
+    <p class="muted">Diesel y aceites — captura por operador, consulta para el resto.</p>
+    <div class="section-actions mt-12">
+      ${puedeCrearConsumibles && equipos.length ? '<button class="btn btn-primary" id="btnConsumiblesMaq">+ Consumibles</button>' : ''}
+    </div>
     <div id="consumiblesMaqSection"></div>
+  `;
+  $('#btnConsumiblesMaq')?.addEventListener('click', () => openConsumiblesMaqModal(equipos));
+  paintConsumiblesMaq(consumiblesData, { puedeSupervisarConsumibles, esOperador });
+}
 
+// Fusiona lo que en PR #114 eran 2 <details> separados — "Presupuesto
+// sugerido por cliente" (solo admin/desarrollador) y "Equipos por cliente"
+// (todos excepto operador, que nunca la veía) — confirmado con Paul en el
+// diagnóstico del prompt-39. Nunca alcanzable por operador (no tiene esta
+// pestaña en ROLE_TABS), así que a diferencia de la vieja renderMaquinaria
+// no hace falta ningún guard `!esOperador` aquí.
+async function renderMaquinariaReportesCliente(view) {
+  const [equipos, clientesMaq, reporteClientes, misPermisos] = await Promise.all([
+    api('/maquinaria/equipos'),
+    api('/clientes').catch(() => []),
+    api('/maquinaria/reporte-clientes').catch(() => null),
+    api('/mis-permisos/maquinaria'),
+  ]);
+  maquinariaEquiposCache = equipos;
+  const puedeVerPresupuesto = isAdmin();
+  const puedeReasignarClienteMaq = !!misPermisos.puede_editar && ROLES_BITACORA_TALLER_MAQ.includes(effectivePuesto());
+  view.innerHTML = `
+    <h2 class="section-title">📊 Reportes por cliente</h2>
+    <p class="muted">Presupuesto sugerido por cliente y asignación de equipos por cliente.</p>
     ${puedeVerPresupuesto && reporteClientes ? renderReporteClientesMaqHtml(reporteClientes) : ''}
-
-    ${!esOperador ? `
-    <details class="maq-section" data-maq-section="equipos-cliente" ${maqSectionOpenAttr('equipos-cliente', false)}>
-      ${maqSectionSummaryHtml('Equipos por cliente', equipos.length)}
-      <div class="maq-section-body">
+    <h3 class="section-title mt-16">Equipos por cliente</h3>
     <div class="field">
       <label>Cliente</label>
       <select id="filtroClienteEquiposMaq">
@@ -9245,33 +9386,8 @@ async function renderMaquinaria(view) {
       </select>
     </div>
     <div id="equiposPorClienteMaqList"></div>
-      </div>
-    </details>
-    ` : ''}
   `;
-
-  $('#btnEditarPresupuestoMaq')?.addEventListener('click', () => openPresupuestoMaqModal(resumen.monto_total, reporteClientes));
-  $('#btnNuevoEquipoMaq')?.addEventListener('click', () => openEquipoMaqModal(null, proyectos));
-  $('#btnCombustibleMaq')?.addEventListener('click', () => openCombustibleMaqModal(equipos));
-  $('#btnMantenimientoMaq')?.addEventListener('click', () => openMantenimientoMaqModal(equipos));
-  $('#btnHorasMaq')?.addEventListener('click', () => openHorasMaqModal(equipos, proyectos));
-  $('#btnEstadoUnidadMaq')?.addEventListener('click', () => openEstadoUnidadMaqModal(equipos));
-  $('#btnConsumiblesMaq')?.addEventListener('click', () => openConsumiblesMaqModal(equipos));
-  bindMaqSectionToggles(view);
-  paintReportesHorasMaq(horasMaq, { puedeAutorizarHoras, esOperador });
-  paintBitacoraTaller(bitacoraTaller, equipos, { puedeVerBitacora });
-  paintEstadoUnidadMaq(estadoUnidadList, { puedeSupervisarEstadoUnidad, esOperador });
-  paintConsumiblesMaq(consumiblesData, { puedeSupervisarConsumibles, esOperador });
-  { const fill = $('.progress-bar > span[data-pct]', view); if (fill) fill.style.width = fill.dataset.pct + '%'; }
-
-  // prompt-p2-aislamiento-operador.md: "Equipos por cliente" y "Catálogo de
-  // equipos" (donde vive el selector "Operador asignado") se ocultan por
-  // completo para operador — el equipo asignado ya se ve resuelto arriba en
-  // "Mis reportes de horas" y en el selector del modal de Capturar horas.
-  if (!esOperador) {
-    paintEquiposPorCliente(equipos, clientesMaq, { puedeEditar: puedeReasignarClienteMaq });
-    paintEquiposMaqList(equipos, proyectos, { puedeEditar, puedeEliminar, puedeAsignarOperador: puedeReasignarClienteMaq, operadoresMaq });
-  }
+  paintEquiposPorCliente(equipos, clientesMaq, { puedeEditar: puedeReasignarClienteMaq });
 }
 
 // prompt-a-maquinaria-por-cliente.md: vista de asignación equipo↔cliente,
@@ -9357,9 +9473,7 @@ function paintReportesHorasMaq(horas, { puedeAutorizarHoras, esOperador }) {
   if (puedeAutorizarHoras) {
     const pendientes = horas.filter((h) => h.estado === 'pendiente');
     html += `
-      <details class="maq-section" data-maq-section="pendientes" ${maqSectionOpenAttr('pendientes', pendientes.length > 0)}>
-        ${maqSectionSummaryHtml('Pendientes de autorizar', pendientes.length)}
-        <div class="maq-section-body">
+      <h3 class="section-title">Pendientes de autorizar${pendientes.length ? ` (${pendientes.length})` : ''}</h3>
       ${!pendientes.length ? '<p class="muted">Sin reportes pendientes.</p>' : `
       <div class="table-scroll">
         <table>
@@ -9385,8 +9499,6 @@ function paintReportesHorasMaq(horas, { puedeAutorizarHoras, esOperador }) {
         </table>
       </div>
       `}
-        </div>
-      </details>
     `;
   }
 
@@ -9417,7 +9529,6 @@ function paintReportesHorasMaq(horas, { puedeAutorizarHoras, esOperador }) {
   }
 
   el.innerHTML = html;
-  bindMaqSectionToggles(el);
 
   $$('[data-autorizar-horas]', el).forEach((btn) => {
     btn.addEventListener('click', async () => {
@@ -9486,9 +9597,6 @@ function paintBitacoraTaller(registros, equipos, { puedeVerBitacora }) {
   }
 
   el.innerHTML = `
-    <details class="maq-section" data-maq-section="bitacora" ${maqSectionOpenAttr('bitacora', false)}>
-      ${maqSectionSummaryHtml('Bitácora de taller', registros.length)}
-      <div class="maq-section-body">
     <p class="muted fs-08">Mantenimientos (con refacciones), consumibles y herramientas — filtra por equipo, tipo o fecha.</p>
     <div class="row bitacora-filtros-row mt-8">
       <select id="bitEquipoFiltro" class="bitacora-filtro-control">
@@ -9509,11 +9617,8 @@ function paintBitacoraTaller(registros, equipos, { puedeVerBitacora }) {
         <tbody id="bitacoraTallerTbody"></tbody>
       </table>
     </div>
-      </div>
-    </details>
   `;
   renderTabla();
-  bindMaqSectionToggles(el);
 
   $('#bitEquipoFiltro').addEventListener('change', (e) => { filtro.equipoId = e.target.value; renderTabla(); });
   $('#bitTipoFiltro').addEventListener('change', (e) => { filtro.tipo = e.target.value; renderTabla(); });
@@ -9544,9 +9649,7 @@ function renderReporteClientesMaqHtml(reporte) {
     </tr>
   ` : '';
   return `
-    <details class="maq-section" data-maq-section="presupuesto-sugerido" ${maqSectionOpenAttr('presupuesto-sugerido', false)}>
-      ${maqSectionSummaryHtml('Presupuesto sugerido por cliente', reporte.por_cliente.length)}
-      <div class="maq-section-body">
+    <h3 class="section-title">Presupuesto sugerido por cliente</h3>
     <p class="muted fs-08">Calculado automáticamente desde los insumos de "Equipo y herramienta" de cada obra${reporte.fuente_mixta ? ' (los marcados con * usan el subtotal del contrato confirmado como respaldo)' : ''} — no reemplaza el presupuesto manual, solo lo sugiere.</p>
     <div class="card">
       <div class="table-scroll">
@@ -9562,8 +9665,6 @@ function renderReporteClientesMaqHtml(reporte) {
         </table>
       </div>
     </div>
-      </div>
-    </details>
   `;
 }
 
@@ -10068,9 +10169,7 @@ function paintEstadoUnidadMaq(list, { puedeSupervisarEstadoUnidad, esOperador })
   if (puedeSupervisarEstadoUnidad) {
     const criticos = list.filter((u) => u.tiene_critico).length;
     html += `
-      <details class="maq-section" data-maq-section="estado-unidad" ${maqSectionOpenAttr('estado-unidad', false)}>
-        ${maqSectionSummaryHtml('Estado de las unidades', list.length, criticos ? `⚠️ ${criticos} con punto crítico` : null)}
-        <div class="maq-section-body">
+      ${criticos ? `<p class="maq-section-alerta">⚠️ ${criticos} unidad(es) con punto crítico</p>` : ''}
       ${!list.length ? '<p class="muted">No hay equipos registrados.</p>' : `
       <div class="table-scroll">
         <table>
@@ -10090,13 +10189,10 @@ function paintEstadoUnidadMaq(list, { puedeSupervisarEstadoUnidad, esOperador })
         </table>
       </div>
       `}
-        </div>
-      </details>
     `;
   }
 
   el.innerHTML = html;
-  bindMaqSectionToggles(el);
   $$('[data-ver-historico-eu]', el).forEach((btn) => {
     btn.addEventListener('click', () => openHistoricoEstadoUnidadMaqModal(Number(btn.dataset.verHistoricoEu), btn.dataset.nombreEu));
   });
@@ -10255,24 +10351,18 @@ async function paintConsumiblesMaq(dataInicial, { puedeSupervisarConsumibles, es
     let html = '';
     if (puedeSupervisarConsumibles) {
       html += `
-        <details class="maq-section" data-maq-section="consumibles" ${maqSectionOpenAttr('consumibles', false)}>
-          ${maqSectionSummaryHtml('Consumibles', data.resumen.length)}
-          <div class="maq-section-body">
         <div class="section-actions">
           <button class="btn ${periodo === 'semana' ? 'btn-primary' : ''}" data-periodo-cm="semana">Esta semana</button>
           <button class="btn ${periodo === 'mes' ? 'btn-primary' : ''}" data-periodo-cm="mes">Este mes</button>
           <button class="btn ${periodo === 'todo' ? 'btn-primary' : ''}" data-periodo-cm="todo">Todo</button>
         </div>
         <div id="cmResumenTabla" class="mt-8">${tablaResumenHtml(data.resumen)}</div>
-          </div>
-        </details>
       `;
     }
     if (esOperador) {
-      html += `<h3 class="section-title mt-16">Consumibles</h3><h4 class="mt-12">Mis consumibles capturados</h4>${misCapturasHtml(data.registros)}`;
+      html += `<h4 class="mt-12">Mis consumibles capturados</h4>${misCapturasHtml(data.registros)}`;
     }
     el.innerHTML = html;
-    bindMaqSectionToggles(el);
     $$('[data-periodo-cm]', el).forEach((btn) => {
       btn.addEventListener('click', async () => {
         periodo = btn.dataset.periodoCm;

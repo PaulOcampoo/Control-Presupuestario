@@ -1038,11 +1038,18 @@ app.get('/api/permisos/me', h(async (req, res) => {
 //   decisión consciente de darle el tab completo — no debe ganarlo como
 //   efecto colateral de este cambio (decisión explícita, prompt-p8-parte2).
 const TABS_RESUELTOS_APARTE = ['resumen', 'ordenes'];
-const SECCION_A_TAB = Object.fromEntries(
-  Object.entries(auth.TAB_A_SECCION)
-    .filter(([tab]) => !TABS_RESUELTOS_APARTE.includes(tab))
-    .map(([tab, seccion]) => [seccion, tab])
-);
+// seccion -> [tabs] (antes 1:1 seccion->tab; prompt-39-maquinaria-galeria-
+// subsecciones.md partió el tab único 'maquinaria' en 6 subpestañas que
+// siguen compartiendo la MISMA sección de permiso 'maquinaria' — ver
+// TAB_A_SECCION en server/auth.js — así que la traducción inversa ahora
+// puede resolver varios tabs por sección).
+const SECCION_A_TAB = {};
+Object.entries(auth.TAB_A_SECCION)
+  .filter(([tab]) => !TABS_RESUELTOS_APARTE.includes(tab))
+  .forEach(([tab, seccion]) => {
+    if (!SECCION_A_TAB[seccion]) SECCION_A_TAB[seccion] = [];
+    SECCION_A_TAB[seccion].push(tab);
+  });
 
 // Fuente de verdad de navegación por-obra (prompt-p8-parte2-nav-por-obra.md
 // — completa el trabajo de PR #78). Reemplaza a PERMISSIONS.<rol>.tabs para
@@ -1068,10 +1075,19 @@ app.get('/api/projects/:id/nav-tabs', h(requireProject), h(auth.verificarAccesoO
   // obra (si existe) la sobreescribe — mismo patrón que GET /api/permisos/me.
   const puedeVer = {};
   for (const row of rows) puedeVer[row.seccion] = row.puede_ver;
-  const tabs = Object.entries(puedeVer)
+  const tabsResueltos = Object.entries(puedeVer)
     .filter(([, ok]) => ok)
-    .map(([seccion]) => SECCION_A_TAB[seccion])
-    .filter(Boolean);
+    .flatMap(([seccion]) => SECCION_A_TAB[seccion] || []);
+  // Intersección con PERMISSIONS.<rol>.tabs (línea base del rol): necesaria
+  // desde que 'maquinaria' pasó a resolver en varios tabs (arriba) — sin
+  // esto, cualquier rol con puede_ver=true en la sección 'maquinaria' (ej.
+  // residente, cabo) ganaría las 6 subpestañas por esta vía aunque su rol
+  // solo deba ver un subconjunto (residente nunca ve Bitácora de taller,
+  // cabo tampoco, etc. — ver MAQUINARIA_TABS_* en public/app.js). Para el
+  // resto de secciones (siempre 1 tab) esta intersección es un no-op: el
+  // tab ya estaba en la lista base del rol.
+  const tabsBaseRol = new Set(auth.PERMISSIONS[req.user.puesto]?.tabs || []);
+  const tabs = [...new Set(tabsResueltos)].filter((t) => tabsBaseRol.has(t));
   // 'resumen'/'ordenes' quedan fuera de SECCION_A_TAB (ver comentario arriba)
   // — se resuelven aparte, tal cual como hoy (PERMISSIONS.<rol>.tabs), para
   // no regalarlos vía una sección de alcance más amplio (presupuestos/
@@ -1080,7 +1096,7 @@ app.get('/api/projects/:id/nav-tabs', h(requireProject), h(auth.verificarAccesoO
   // administración/logística para ordenes) por no tener una sección
   // granular propia y exclusiva todavía.
   for (const tab of TABS_RESUELTOS_APARTE) {
-    if (auth.PERMISSIONS[req.user.puesto]?.tabs.includes(tab)) tabs.push(tab);
+    if (tabsBaseRol.has(tab)) tabs.push(tab);
   }
   res.json({ tabs });
 }));

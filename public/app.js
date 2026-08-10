@@ -9077,6 +9077,31 @@ const ROLES_CAPTURAN_HORAS_MAQ = ['operador', 'admin', 'desarrollador'];
 // desarrollador vía bypass real, no simulado).
 const ROLES_BITACORA_TALLER_MAQ = ['jefe_maquinaria', 'admin', 'desarrollador'];
 
+// Secciones colapsables de la pantalla de Maquinaria (prompt-37-reorganizar-
+// maquinaria.md) — estado abierto/cerrado persistido en localStorage por
+// sección, para que no se resetee cada vez que se recarga. `defaultOpen`
+// solo aplica la primera vez (o si el usuario nunca la tocó); una vez que
+// hay preferencia guardada, esa gana siempre, incluso si `defaultOpen` es
+// dinámico (ej. "Pendientes de autorizar" abierta solo si hay 1+).
+function maqSectionOpenAttr(id, defaultOpen) {
+  const v = localStorage.getItem(`maq_sec_${id}`);
+  const open = v === 'open' ? true : v === 'closed' ? false : !!defaultOpen;
+  return open ? 'open' : '';
+}
+function maqSectionSummaryHtml(title, count, alerta) {
+  return `<summary><span>${esc(title)}${count != null ? ` (${count})` : ''}${alerta ? ` <span class="maq-section-alerta">${esc(alerta)}</span>` : ''}</span><span class="chev">▾</span></summary>`;
+}
+// Llamar una vez después de inyectar cualquier HTML con [data-maq-section]
+// nuevo (tanto el render inicial de renderMaquinaria como cada paintXxxMaq
+// que reemplaza su propio contenedor después).
+function bindMaqSectionToggles(root) {
+  $$('[data-maq-section]', root).forEach((det) => {
+    det.addEventListener('toggle', () => {
+      localStorage.setItem(`maq_sec_${det.dataset.maqSection}`, det.open ? 'open' : 'closed');
+    });
+  });
+}
+
 async function renderMaquinaria(view) {
   const [equipos, resumen, misPermisos, misPermisosCaptura, misPermisosCombustible, misPermisosEstadoUnidad, misPermisosConsumibles, proyectos, clientesMaq, reporteClientes, horasMaq, bitacoraTaller, operadoresMaq, estadoUnidadList, consumiblesData] = await Promise.all([
     api('/maquinaria/equipos'),
@@ -9176,8 +9201,6 @@ async function renderMaquinaria(view) {
     </div>
     ` : ''}
 
-    ${puedeVerPresupuesto && reporteClientes ? renderReporteClientesMaqHtml(reporteClientes) : ''}
-
     <div class="section-actions mt-12">
       ${puedeCrear ? '<button class="btn btn-primary" id="btnNuevoEquipoMaq">+ Nuevo equipo</button>' : ''}
       ${puedeCrearCombustible ? '<button class="btn" id="btnCombustibleMaq">+ Combustible</button>' : ''}
@@ -9187,12 +9210,26 @@ async function renderMaquinaria(view) {
       ${puedeCrearConsumibles && equipos.length ? '<button class="btn" id="btnConsumiblesMaq">+ Consumibles</button>' : ''}
     </div>
     <div id="reportesHorasMaqSection"></div>
+
+    ${!esOperador ? `
+    <details class="maq-section" data-maq-section="catalogo" ${maqSectionOpenAttr('catalogo', true)}>
+      ${maqSectionSummaryHtml('Catálogo de equipos', equipos.length)}
+      <div class="maq-section-body">
+    <div id="equiposMaqList"></div>
+      </div>
+    </details>
+    ` : ''}
+
     <div id="bitacoraTallerSection"></div>
     <div id="estadoUnidadSection"></div>
     <div id="consumiblesMaqSection"></div>
 
+    ${puedeVerPresupuesto && reporteClientes ? renderReporteClientesMaqHtml(reporteClientes) : ''}
+
     ${!esOperador ? `
-    <h3 class="section-title mt-16">Equipos por cliente</h3>
+    <details class="maq-section" data-maq-section="equipos-cliente" ${maqSectionOpenAttr('equipos-cliente', false)}>
+      ${maqSectionSummaryHtml('Equipos por cliente', equipos.length)}
+      <div class="maq-section-body">
     <div class="field">
       <label>Cliente</label>
       <select id="filtroClienteEquiposMaq">
@@ -9202,9 +9239,8 @@ async function renderMaquinaria(view) {
       </select>
     </div>
     <div id="equiposPorClienteMaqList"></div>
-
-    <h3 class="section-title mt-16">Catálogo de equipos</h3>
-    <div id="equiposMaqList"></div>
+      </div>
+    </details>
     ` : ''}
   `;
 
@@ -9215,6 +9251,7 @@ async function renderMaquinaria(view) {
   $('#btnHorasMaq')?.addEventListener('click', () => openHorasMaqModal(equipos, proyectos));
   $('#btnEstadoUnidadMaq')?.addEventListener('click', () => openEstadoUnidadMaqModal(equipos));
   $('#btnConsumiblesMaq')?.addEventListener('click', () => openConsumiblesMaqModal(equipos));
+  bindMaqSectionToggles(view);
   paintReportesHorasMaq(horasMaq, { puedeAutorizarHoras, esOperador });
   paintBitacoraTaller(bitacoraTaller, equipos, { puedeVerBitacora });
   paintEstadoUnidadMaq(estadoUnidadList, { puedeSupervisarEstadoUnidad, esOperador });
@@ -9314,7 +9351,9 @@ function paintReportesHorasMaq(horas, { puedeAutorizarHoras, esOperador }) {
   if (puedeAutorizarHoras) {
     const pendientes = horas.filter((h) => h.estado === 'pendiente');
     html += `
-      <h3 class="section-title mt-16">Reportes de horas pendientes de autorizar${pendientes.length ? ` (${pendientes.length})` : ''}</h3>
+      <details class="maq-section" data-maq-section="pendientes" ${maqSectionOpenAttr('pendientes', pendientes.length > 0)}>
+        ${maqSectionSummaryHtml('Pendientes de autorizar', pendientes.length)}
+        <div class="maq-section-body">
       ${!pendientes.length ? '<p class="muted">Sin reportes pendientes.</p>' : `
       <div class="table-scroll">
         <table>
@@ -9340,6 +9379,8 @@ function paintReportesHorasMaq(horas, { puedeAutorizarHoras, esOperador }) {
         </table>
       </div>
       `}
+        </div>
+      </details>
     `;
   }
 
@@ -9370,6 +9411,7 @@ function paintReportesHorasMaq(horas, { puedeAutorizarHoras, esOperador }) {
   }
 
   el.innerHTML = html;
+  bindMaqSectionToggles(el);
 
   $$('[data-autorizar-horas]', el).forEach((btn) => {
     btn.addEventListener('click', async () => {
@@ -9438,7 +9480,9 @@ function paintBitacoraTaller(registros, equipos, { puedeVerBitacora }) {
   }
 
   el.innerHTML = `
-    <h3 class="section-title mt-16">Bitácora de taller</h3>
+    <details class="maq-section" data-maq-section="bitacora" ${maqSectionOpenAttr('bitacora', false)}>
+      ${maqSectionSummaryHtml('Bitácora de taller', registros.length)}
+      <div class="maq-section-body">
     <p class="muted fs-08">Mantenimientos (con refacciones), consumibles y herramientas — filtra por equipo, tipo o fecha.</p>
     <div class="row bitacora-filtros-row mt-8">
       <select id="bitEquipoFiltro" class="bitacora-filtro-control">
@@ -9459,8 +9503,11 @@ function paintBitacoraTaller(registros, equipos, { puedeVerBitacora }) {
         <tbody id="bitacoraTallerTbody"></tbody>
       </table>
     </div>
+      </div>
+    </details>
   `;
   renderTabla();
+  bindMaqSectionToggles(el);
 
   $('#bitEquipoFiltro').addEventListener('change', (e) => { filtro.equipoId = e.target.value; renderTabla(); });
   $('#bitTipoFiltro').addEventListener('change', (e) => { filtro.tipo = e.target.value; renderTabla(); });
@@ -9491,7 +9538,9 @@ function renderReporteClientesMaqHtml(reporte) {
     </tr>
   ` : '';
   return `
-    <h3 class="section-title mt-12">Presupuesto sugerido por cliente</h3>
+    <details class="maq-section" data-maq-section="presupuesto-sugerido" ${maqSectionOpenAttr('presupuesto-sugerido', false)}>
+      ${maqSectionSummaryHtml('Presupuesto sugerido por cliente', reporte.por_cliente.length)}
+      <div class="maq-section-body">
     <p class="muted fs-08">Calculado automáticamente desde los insumos de "Equipo y herramienta" de cada obra${reporte.fuente_mixta ? ' (los marcados con * usan el subtotal del contrato confirmado como respaldo)' : ''} — no reemplaza el presupuesto manual, solo lo sugiere.</p>
     <div class="card">
       <div class="table-scroll">
@@ -9507,6 +9556,8 @@ function renderReporteClientesMaqHtml(reporte) {
         </table>
       </div>
     </div>
+      </div>
+    </details>
   `;
 }
 
@@ -10011,7 +10062,9 @@ function paintEstadoUnidadMaq(list, { puedeSupervisarEstadoUnidad, esOperador })
   if (puedeSupervisarEstadoUnidad) {
     const criticos = list.filter((u) => u.tiene_critico).length;
     html += `
-      <h3 class="section-title mt-16">Estado de las unidades${criticos ? ` — ⚠️ ${criticos} con punto crítico` : ''}</h3>
+      <details class="maq-section" data-maq-section="estado-unidad" ${maqSectionOpenAttr('estado-unidad', false)}>
+        ${maqSectionSummaryHtml('Estado de las unidades', list.length, criticos ? `⚠️ ${criticos} con punto crítico` : null)}
+        <div class="maq-section-body">
       ${!list.length ? '<p class="muted">No hay equipos registrados.</p>' : `
       <div class="table-scroll">
         <table>
@@ -10031,10 +10084,13 @@ function paintEstadoUnidadMaq(list, { puedeSupervisarEstadoUnidad, esOperador })
         </table>
       </div>
       `}
+        </div>
+      </details>
     `;
   }
 
   el.innerHTML = html;
+  bindMaqSectionToggles(el);
   $$('[data-ver-historico-eu]', el).forEach((btn) => {
     btn.addEventListener('click', () => openHistoricoEstadoUnidadMaqModal(Number(btn.dataset.verHistoricoEu), btn.dataset.nombreEu));
   });
@@ -10190,21 +10246,27 @@ async function paintConsumiblesMaq(dataInicial, { puedeSupervisarConsumibles, es
   }
 
   async function pintar(data) {
-    let html = `<h3 class="section-title mt-16">Consumibles</h3>`;
+    let html = '';
     if (puedeSupervisarConsumibles) {
       html += `
+        <details class="maq-section" data-maq-section="consumibles" ${maqSectionOpenAttr('consumibles', false)}>
+          ${maqSectionSummaryHtml('Consumibles', data.resumen.length)}
+          <div class="maq-section-body">
         <div class="section-actions">
           <button class="btn ${periodo === 'semana' ? 'btn-primary' : ''}" data-periodo-cm="semana">Esta semana</button>
           <button class="btn ${periodo === 'mes' ? 'btn-primary' : ''}" data-periodo-cm="mes">Este mes</button>
           <button class="btn ${periodo === 'todo' ? 'btn-primary' : ''}" data-periodo-cm="todo">Todo</button>
         </div>
         <div id="cmResumenTabla" class="mt-8">${tablaResumenHtml(data.resumen)}</div>
+          </div>
+        </details>
       `;
     }
     if (esOperador) {
-      html += `<h4 class="mt-12">Mis consumibles capturados</h4>${misCapturasHtml(data.registros)}`;
+      html += `<h3 class="section-title mt-16">Consumibles</h3><h4 class="mt-12">Mis consumibles capturados</h4>${misCapturasHtml(data.registros)}`;
     }
     el.innerHTML = html;
+    bindMaqSectionToggles(el);
     $$('[data-periodo-cm]', el).forEach((btn) => {
       btn.addEventListener('click', async () => {
         periodo = btn.dataset.periodoCm;

@@ -44,7 +44,7 @@ const auth = require('./auth');
 const { sendXlsxExport, buildExportFilename } = require('./exportHelper');
 const { sendMatricesNeodataExport } = require('./matricesNeodataExport');
 const { extraerDatosContrato, CAMPOS_CONTRATO } = require('./extraccionContrato');
-const { crearNotificacion, notificarAdmins, CATEGORIAS_NOTIFICACION, TODOS_LOS_TIPOS } = require('./notificaciones');
+const { crearNotificacion, notificarAdmins, CATEGORIAS_NOTIFICACION, TODOS_LOS_TIPOS, ROLES_POR_TIPO } = require('./notificaciones');
 const { buildEstimacionPdf } = require('./estimacionesPdf');
 const { buildNominaReporteSemanalPdf } = require('./nominaReporteSemanalPdf');
 const { calcularDiasRestantes, determinarUmbral, construirMensaje } = require('./alertasContrato');
@@ -773,12 +773,19 @@ app.get('/api/notificaciones/preferencias', h(async (req, res) => {
     'SELECT tipo, activo FROM notificacion_preferencias WHERE usuario_id = $1', [req.user.id]
   );
   const desactivados = new Set(rows.filter((r) => !r.activo).map((r) => r.tipo));
+  // prompt-44-critico-operadores-bloqueados.md: antes se devolvía el catálogo
+  // completo a cualquier puesto (ej. operador veía "Aprobaciones pendientes"
+  // de Requisición/OC/Avance/Destajo/Estimación pese a que ninguna le aplica
+  // — esos tipos solo los recibe admin/cabo/residente según el caso, ver
+  // ROLES_POR_TIPO). admin/desarrollador siguen viendo el catálogo completo
+  // (mismo bypass superusuario que el resto de la app).
+  const esSuperusuario = req.user.puesto === 'admin' || req.user.puesto === 'desarrollador';
   const categorias = Object.entries(CATEGORIAS_NOTIFICACION).map(([clave, cat]) => ({
     clave, label: cat.label,
-    tipos: Object.entries(cat.tipos).map(([tipo, label]) => ({
-      tipo, label, activo: !desactivados.has(tipo),
-    })),
-  }));
+    tipos: Object.entries(cat.tipos)
+      .filter(([tipo]) => esSuperusuario || (ROLES_POR_TIPO[tipo] || []).includes(req.user.puesto))
+      .map(([tipo, label]) => ({ tipo, label, activo: !desactivados.has(tipo) })),
+  })).filter((cat) => cat.tipos.length > 0);
   res.json({ categorias });
 }));
 

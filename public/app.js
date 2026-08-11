@@ -1406,6 +1406,18 @@ function goToGlobalAdminView(viewId) {
   switchToView(viewId);
 }
 
+// Estado expandido/colapsado de cada grupo de sección del sidebar
+// (prompt-42-sidebar-desplegable-sin-navegar.md) — persistido en
+// localStorage por sección, mismo patrón ya usado en PR #114 para las
+// secciones colapsables de Maquinaria (maqSectionOpenAttr, retirado en
+// prompt-39 cuando esa pantalla pasó a galería — se reintroduce aquí). Sin
+// preferencia guardada, abre por default solo la sección activa
+// (state.section === sectionId) — igual que el comportamiento pre-PR#116.
+function sbarGroupIsOpen(sectionId, isActive) {
+  const v = localStorage.getItem(`sbar_sec_${sectionId}`);
+  return v === 'open' ? true : v === 'closed' ? false : !!isActive;
+}
+
 function renderSidebar() {
   updateGalleryDrawerGlobalLinks();
   const nav = $('#sidebarNav');
@@ -1465,7 +1477,8 @@ function renderSidebar() {
     if (!sectionRenderableTabs.length) return;
 
     const isActive = state.section === sectionId;
-    html += `<div class="sbar-group ${isActive ? 'open' : ''}">
+    const isOpen = sbarGroupIsOpen(sectionId, isActive);
+    html += `<div class="sbar-group ${isOpen ? 'open' : ''}">
       <button class="sbar-group-header ${isActive ? 'active' : ''}" data-sbar-group="${sectionId}" title="${esc(def.label)}">
         <span class="sbar-icon">${def.emoji}</span>
         <span class="sbar-label">${esc(def.label)}</span>
@@ -1529,39 +1542,46 @@ function renderSidebar() {
 
   nav.innerHTML = html;
 
-  // Toggle de grupo
+  // Toggle de grupo (prompt-42-sidebar-desplegable-sin-navegar.md) — el
+  // click en el NOMBRE de la sección solo expande/colapsa la lista inline,
+  // NUNCA navega ni cambia el contenido de la pantalla actual (a
+  // diferencia del comportamiento pre-PR#116, que sí navegaba al primer
+  // tab la primera vez que se expandía en desktop — confirmado como bug a
+  // corregir, no a replicar). Solo el click en un sub-ítem específico
+  // navega. Acordeón: abrir una sección cierra las demás, igual que antes
+  // — cada cambio se persiste por sección (sbarGroupIsOpen arriba).
   $$('.sbar-group-header', nav).forEach((btn) => {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
       const group = btn.closest('.sbar-group');
       const sectionId = btn.dataset.sbarGroup;
       const isCollapsed = $('#sidebar').classList.contains('collapsed');
-      const isMobile = window.innerWidth <= 860;
 
-      // En sidebar colapsada (desktop icon-only): navegar directamente sin expandir
+      // Sidebar colapsada (desktop icono-solo): no hay espacio para
+      // desplegar la lista inline — navega a la galería de la sección
+      // (mismo patrón que las tarjetas "Secciones" de Inicio).
       if (isCollapsed) {
-        const def = SECTION_DEFS[sectionId];
-        const firstTab = def.tabs.find((t) => state.allowedTabs.includes(t));
-        if (firstTab) switchToView(firstTab);
+        goToSection(sectionId);
         return;
       }
 
       const wasClosed = !group.classList.contains('open');
-      // Cerrar todos los grupos
-      $$('.sbar-group', nav).forEach((g) => g.classList.remove('open'));
+      // Cerrar todos los grupos (acordeón) y persistir 'closed' para los
+      // que estaban abiertos.
+      $$('.sbar-group', nav).forEach((g) => {
+        if (g.classList.contains('open')) {
+          localStorage.setItem(`sbar_sec_${g.querySelector('[data-sbar-group]').dataset.sbarGroup}`, 'closed');
+        }
+        g.classList.remove('open');
+      });
       $$('.sbar-group-header', nav).forEach((h) => h.classList.remove('active'));
       if (wasClosed) {
         group.classList.add('open');
         btn.classList.add('active');
-        // En desktop: navegar al primer tab si el usuario no está ya en este grupo.
-        // En móvil: solo expandir — el usuario elige el tab desde los sub-ítems.
-        if (!isMobile && state.section !== sectionId) {
-          const def = SECTION_DEFS[sectionId];
-          const firstTab = def.tabs.find((t) => state.allowedTabs.includes(t));
-          if (firstTab) switchToView(firstTab);
-        }
+        localStorage.setItem(`sbar_sec_${sectionId}`, 'open');
+      } else {
+        localStorage.setItem(`sbar_sec_${sectionId}`, 'closed');
       }
-      // Si estaba abierto y se cerró: solo colapsar visualmente, sin navegar.
     });
   });
 

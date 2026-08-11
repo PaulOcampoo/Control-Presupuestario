@@ -1525,7 +1525,22 @@ function renderSidebar() {
   // desktop, sidebar colapsada y móvil — ya no hay grupo que expandir.
   $$('[data-sbar-section]', nav).forEach((btn) => {
     btn.addEventListener('click', () => {
-      goToSection(btn.dataset.sbarSection);
+      const sectionId = btn.dataset.sbarSection;
+      // prompt-41-feedback-seccion-actual.md: clic en la sección donde ya
+      // se está (cualquier subpestaña de esa sección, no solo su galería)
+      // no navegaba a ningún lado — sin señal visible de que el botón
+      // respondió. Toast en vez de re-navegar. setTimeout(…, 0): el
+      // listener global de document (más abajo, "if (!e.target.closest
+      // ('#toast')) …") oculta cualquier toast en CUALQUIER click fuera de
+      // él — incluido este mismo click, que también burbujea hasta
+      // document. Sin diferir, el propio evento que muestra el toast lo
+      // ocultaba en el mismo tick (confirmado en vivo con Playwright).
+      if (state.section === sectionId) {
+        setTimeout(() => toast(`Ya estás en ${SECTION_DEFS[sectionId].label}`), 0);
+        closeSidebar();
+        return;
+      }
+      goToSection(sectionId);
       closeSidebar(); // cierra en móvil; no hace nada en desktop
     });
   });
@@ -1544,10 +1559,27 @@ function renderSidebar() {
   const devBtn = $('#sbarDevPanel', nav);
   if (devBtn) devBtn.addEventListener('click', () => { switchToView('developer'); closeSidebar(); });
 
-  // Navegación directa a tabs
+  // Navegación directa a tabs (hoy solo "Resumen" — ver prompt-40)
   $$('[data-sbar-goto]', nav).forEach((btn) => {
     btn.addEventListener('click', () => {
-      switchToView(btn.dataset.sbarGoto);
+      const view = btn.dataset.sbarGoto;
+      // prompt-41-feedback-seccion-actual.md: mismo criterio que las
+      // secciones con galería, abajo. 'inicio' cuenta como "ya en Resumen"
+      // — selectProject()/bootApp() aterrizan ahí por defecto (nunca en
+      // 'resumen' literal) y renderView() los trata como el mismo caso
+      // (case 'resumen': case 'inicio': renderInicio(view)) — misma
+      // pantalla exacta para cualquier rol que tenga el tab 'resumen'
+      // (único caso en que este botón existe, ver renderableTabs arriba).
+      const yaAqui = view === 'resumen' ? (state.view === 'resumen' || state.view === 'inicio') : state.view === view;
+      if (yaAqui) {
+        // setTimeout(…, 0): ver comentario arriba, en [data-sbar-section] —
+        // mismo problema del listener global de document ocultando el
+        // toast en el mismo click que lo dispara.
+        setTimeout(() => toast(`Ya estás en ${TAB_LABELS[view] || view}`), 0);
+        closeSidebar();
+        return;
+      }
+      switchToView(view);
       closeSidebar(); // cierra en móvil; no hace nada en desktop
     });
   });

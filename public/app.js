@@ -1668,6 +1668,19 @@ function openQuickActionMenu() {
       actions.push({ label: 'Registrar Avance',     icon: 'avance',        goto: 'avance' });
     if (puedeGenerarOC() && state.allowedTabs.includes('ordenes'))
       actions.push({ label: 'Nueva Orden de Compra', icon: 'ordenes',      goto: 'ordenes' });
+    // prompt-44-critico-operadores-bloqueados.md: roles cuyas únicas pestañas
+    // son de Maquinaria (operador, jefe_maquinaria) no tenían NINGUNA acción
+    // aquí — el "+" siempre caía al fallback "No tienes permiso para esta
+    // función" sin importar sus permisos reales en permisos_usuario. Navegan
+    // al tab, igual que el resto de acciones de este menú (el "+" real de
+    // cada vista sigue siendo el que exige el permiso granular vía
+    // checkPermiso — este atajo solo lleva ahí).
+    if (ROLES_CAPTURAN_HORAS_MAQ.includes(effectivePuesto()) && state.allowedTabs.includes('maquinaria_horas'))
+      actions.push({ label: 'Capturar horas de maquinaria', icon: 'maquinaria_horas', goto: 'maquinaria_horas' });
+    if (ROLES_CAPTURAN_ESTADO_UNIDAD_MAQ.includes(effectivePuesto()) && state.allowedTabs.includes('maquinaria_estado_unidad'))
+      actions.push({ label: 'Estado de la unidad', icon: 'maquinaria_estado_unidad', goto: 'maquinaria_estado_unidad' });
+    if (ROLES_CAPTURAN_ESTADO_UNIDAD_MAQ.includes(effectivePuesto()) && state.allowedTabs.includes('maquinaria_consumibles'))
+      actions.push({ label: 'Consumibles', icon: 'maquinaria_consumibles', goto: 'maquinaria_consumibles' });
   }
   // Mismos accesos que en el panel "Presupuestos cargados" (drawer) — mismo
   // handler, mismo permiso (isAdmin()), solo un atajo adicional. No requieren

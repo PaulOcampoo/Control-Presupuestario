@@ -14153,21 +14153,35 @@ async function renderNominasGlobal(view) {
     wireExportButton('#btnExportReportePdf', `/clientes/${clienteId}/nominas-reporte-semanal/export-pdf?fecha=${fecha}`);
   }
 
-  // prompt-45-reporte-dias-trabajados-siroc.md: días trabajados (estado
-  // 'presente' en asistencia_diaria) por trabajador, agrupados por obra y
-  // cliente, para el direccionamiento mensual al SIROC (IMSS). Mes calendario
-  // completo, filtro opcional por cliente/obra — mismo nivel de acceso que
-  // "Reporte semanal por cliente" arriba (admin/desarrollador, confirmado con
-  // Paul: mismo precedente de sensibilidad que Nómina).
+  // prompt-45-reporte-dias-trabajados-siroc.md, ampliado en prompt-46-siroc-
+  // consolidado-mensual.md: días trabajados (estado 'presente' en
+  // asistencia_diaria) por trabajador, agrupados por obra y cliente, para el
+  // direccionamiento al SIROC (IMSS). Vista consolidada de entrada (todos
+  // los clientes/obras, sin selección previa — mismo patrón que "Presupuesto
+  // sugerido por cliente" de Maquinaria), rango de meses (default: últimos 3
+  // meses, confirmado con Paul) con toggle Acumulado/Comparativo mensual.
+  // Mismo nivel de acceso que "Reporte semanal por cliente" arriba
+  // (admin/desarrollador, sin cambios de permisos en este prompt).
   async function showDiasSiroc() {
     subView = 'siroc';
     const clientes = await api('/clientes');
     const hoy = new Date();
+    const mesesNombres = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+    const hastaDefault = { anio: hoy.getFullYear(), mes: hoy.getMonth() + 1 };
+    const desdeDate = new Date(hoy.getFullYear(), hoy.getMonth() - 2, 1); // mes en curso + 2 anteriores
+    const desdeDefault = { anio: desdeDate.getFullYear(), mes: desdeDate.getMonth() + 1 };
+    let vista = 'acumulado';
+
+    const selectMes = (id, seleccionado) => `
+      <select id="${id}">
+        ${mesesNombres.map((m, i) => `<option value="${i + 1}" ${i + 1 === seleccionado ? 'selected' : ''}>${m}</option>`).join('')}
+      </select>`;
+
     view.innerHTML = `
       <h2 class="section-title">Nómina — todas las obras</h2>
       ${renderSubNav()}
-      <p class="muted mt-12">Días trabajados (estado "presente") por trabajador en el mes seleccionado, agrupados por obra y cliente — para el direccionamiento mensual al SIROC.</p>
-      <div class="row gap-8 mt-8">
+      <p class="muted mt-12">Días trabajados (estado "presente") por trabajador, obra y cliente — vista consolidada de todas las obras para el direccionamiento al SIROC. Filtra por cliente si lo necesitas.</p>
+      <div class="row gap-8 mt-8 flex-wrap">
         <div class="field flex-1">
           <label>Cliente (opcional)</label>
           <select id="siroCliente">
@@ -14175,44 +14189,56 @@ async function renderNominasGlobal(view) {
             ${clientes.map((c) => `<option value="${c.id}">${esc(c.nombre)}</option>`).join('')}
           </select>
         </div>
-        <div class="field"><label>Mes</label>
-          <select id="siroMes">
-            ${['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre']
-              .map((m, i) => `<option value="${i + 1}" ${i + 1 === hoy.getMonth() + 1 ? 'selected' : ''}>${m}</option>`).join('')}
-          </select>
-        </div>
-        <div class="field"><label>Año</label><input id="siroAnio" type="number" value="${hoy.getFullYear()}" min="2020" max="2100" /></div>
+        <div class="field"><label>Desde</label>${selectMes('siroMesDesde', desdeDefault.mes)}</div>
+        <div class="field"><label>Año</label><input id="siroAnioDesde" type="number" value="${desdeDefault.anio}" min="2020" max="2100" style="width:90px" /></div>
+        <div class="field"><label>Hasta</label>${selectMes('siroMesHasta', hastaDefault.mes)}</div>
+        <div class="field"><label>Año</label><input id="siroAnioHasta" type="number" value="${hastaDefault.anio}" min="2020" max="2100" style="width:90px" /></div>
       </div>
-      <div class="row mt-8">
-        <button class="btn btn-primary" id="btnVerReporteSiroc">Ver reporte</button>
+      <div class="row gap-8 mt-8">
+        <button class="btn btn-primary" id="btnVistaAcumulado">Acumulado</button>
+        <button class="btn" id="btnVistaComparativo">Comparativo mensual</button>
+        <button class="btn" id="btnVerReporteSiroc" style="margin-left:auto">Actualizar</button>
       </div>
-      <div id="reporteSirocBody" class="mt-12"></div>
+      <div id="reporteSirocBody" class="mt-12"><div class="spinner"></div></div>
     `;
     bindSubNav();
 
-    $('#btnVerReporteSiroc').addEventListener('click', async () => {
+    async function cargarReporte() {
       const clienteId = $('#siroCliente').value;
-      const mes = $('#siroMes').value;
-      const anio = $('#siroAnio').value;
+      const desde = `${$('#siroAnioDesde').value}-${String($('#siroMesDesde').value).padStart(2, '0')}`;
+      const hasta = `${$('#siroAnioHasta').value}-${String($('#siroMesHasta').value).padStart(2, '0')}`;
       const body = $('#reporteSirocBody');
       body.innerHTML = '<div class="spinner"></div>';
       try {
-        const qs = new URLSearchParams({ anio, mes });
+        const qs = new URLSearchParams({ desde, hasta });
         if (clienteId) qs.set('cliente_id', clienteId);
         const reporte = await api(`/reporte-dias-trabajados?${qs}`);
-        pintarReporteSiroc(body, reporte, qs);
+        pintarReporteSiroc(body, reporte, qs, vista);
       } catch (err) {
         body.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
       }
-    });
+    }
+    function actualizarBotonesVista() {
+      $('#btnVistaAcumulado').classList.toggle('btn-primary', vista === 'acumulado');
+      $('#btnVistaComparativo').classList.toggle('btn-primary', vista === 'comparativo');
+    }
+    $('#btnVistaAcumulado').addEventListener('click', () => { vista = 'acumulado'; actualizarBotonesVista(); cargarReporte(); });
+    $('#btnVistaComparativo').addEventListener('click', () => { vista = 'comparativo'; actualizarBotonesVista(); cargarReporte(); });
+    $('#btnVerReporteSiroc').addEventListener('click', cargarReporte);
+
+    // CP1: vista consolidada de entrada, sin selección previa — carga sola.
+    await cargarReporte();
   }
 
-  function pintarReporteSiroc(body, reporte, qs) {
+  function pintarReporteSiroc(body, reporte, qs, vista) {
     if (!reporte.clientes.length) {
       body.innerHTML = '<div class="empty-state">Sin días trabajados registrados para este periodo.</div>';
       return;
     }
     const totalGeneral = reporte.clientes.reduce((s, c) => s + c.total_dias, 0);
+    const theadMeses = vista === 'comparativo'
+      ? `${reporte.meses.map((m) => `<th class="num">${esc(m.clave)}</th>`).join('')}<th class="num">Total</th>`
+      : '<th class="num">Días</th>';
     body.innerHTML = `
       <div class="section-actions mb-12">
         <button class="btn" id="btnExportReporteSiroc">⭳ Exportar a Excel</button>
@@ -14227,7 +14253,7 @@ async function renderNominasGlobal(view) {
             </div>
             <div class="table-scroll mt-8">
               <table>
-                <thead><tr><th>Trabajador</th><th>CURP</th><th>NSS</th><th>Puesto</th><th class="num">Días</th></tr></thead>
+                <thead><tr><th>Trabajador</th><th>CURP</th><th>NSS</th><th>Puesto</th>${theadMeses}</tr></thead>
                 <tbody>
                   ${obra.trabajadores.map((t) => `
                   <tr>
@@ -14235,7 +14261,9 @@ async function renderNominasGlobal(view) {
                     <td>${esc(t.curp || '—')}</td>
                     <td>${esc(t.nss || '—')}</td>
                     <td>${esc(t.puesto || '—')}</td>
-                    <td class="num">${t.dias_trabajados}</td>
+                    ${vista === 'comparativo'
+                      ? `${reporte.meses.map((m) => `<td class="num">${t.por_mes[m.clave] || 0}</td>`).join('')}<td class="num fw600">${t.total_dias}</td>`
+                      : `<td class="num">${t.total_dias}</td>`}
                   </tr>`).join('')}
                 </tbody>
               </table>
@@ -14247,7 +14275,9 @@ async function renderNominasGlobal(view) {
         <div class="card-row"><span class="k">Total del periodo</span><span class="v fw600">${totalGeneral} días</span></div>
       </div>
     `;
-    wireExportButton('#btnExportReporteSiroc', `/reporte-dias-trabajados/export?${qs}`);
+    const qsExport = new URLSearchParams(qs);
+    qsExport.set('vista', vista);
+    wireExportButton('#btnExportReporteSiroc', `/reporte-dias-trabajados/export?${qsExport}`);
   }
 
   await showTodas();

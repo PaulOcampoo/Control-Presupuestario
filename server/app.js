@@ -8039,17 +8039,36 @@ app.get('/api/clientes/:id/nominas-reporte-semanal/export-pdf', h(auth.allow()),
 }));
 
 // Reporte de días trabajados por obra/cliente para SIROC mensual (prompt-45
-// -reporte-dias-trabajados-siroc.md). "Día trabajado" = estado='presente' en
-// asistencia_diaria (mismo criterio que ya usa nómina para pagar — confirmado
-// con Paul, falta_justificada/falta_injustificada/sin_registro NO cuentan).
-// Mes calendario completo, admin/desarrollador-only (mismo nivel que el
-// reporte de Nómina semanal por cliente de arriba, el precedente más cercano
-// en sensibilidad — confirmado con Paul). Con el modelo N:N trabajador-obra
-// (PR #111) cada fila de asistencia_diaria ya trae su propio project_id, así
-// que el desglose por obra sale directo del GROUP BY, sin lógica nueva.
-async function construirReporteDiasTrabajados(anio, mes, { clienteId, projectId } = {}) {
-  const fechaInicio = `${anio}-${String(mes).padStart(2, '0')}-01`;
-  const fechaFin = new Date(Date.UTC(anio, mes, 0)).toISOString().slice(0, 10); // último día del mes
+// -reporte-dias-trabajados-siroc.md, ampliado en prompt-46-siroc-consolidado-
+// mensual.md a un rango de meses con vista consolidada cross-cliente/obra,
+// mismo patrón sin preselección que maquinaria.getReportePorCliente() —
+// itera TODOS los clientes/obras, cliente_id/project_id quedan como filtros
+// opcionales). "Día trabajado" = estado='presente' en asistencia_diaria
+// (mismo criterio que ya usa nómina para pagar — confirmado con Paul,
+// falta_justificada/falta_injustificada/sin_registro NO cuentan, SIN CAMBIOS
+// en este prompt). admin/desarrollador-only (mismo nivel que el reporte de
+// Nómina semanal por cliente de arriba, SIN CAMBIOS). Con el modelo N:N
+// trabajador-obra (PR #111) cada fila de asistencia_diaria ya trae su propio
+// project_id, así que el desglose por obra sale directo del GROUP BY.
+function mesesEnRango(desde, hasta) {
+  const [anioIni, mesIni] = desde.split('-').map(Number);
+  const [anioFin, mesFin] = hasta.split('-').map(Number);
+  const meses = [];
+  let anio = anioIni, mes = mesIni;
+  while (anio < anioFin || (anio === anioFin && mes <= mesFin)) {
+    meses.push({ anio, mes, clave: `${anio}-${String(mes).padStart(2, '0')}` });
+    mes++;
+    if (mes > 12) { mes = 1; anio++; }
+  }
+  return meses;
+}
+
+async function construirReporteDiasTrabajados(desde, hasta, { clienteId, projectId } = {}) {
+  const meses = mesesEnRango(desde, hasta);
+  const clavesMeses = meses.map((m) => m.clave);
+  const fechaInicio = `${desde}-01`;
+  const [anioFin, mesFin] = hasta.split('-').map(Number);
+  const fechaFin = new Date(Date.UTC(anioFin, mesFin, 0)).toISOString().slice(0, 10); // último día del mes "hasta"
 
   const params = [fechaInicio, fechaFin];
   let filtro = '';
@@ -8062,17 +8081,19 @@ async function construirReporteDiasTrabajados(anio, mes, { clienteId, projectId 
       p.id AS project_id, p.nombre AS obra_nombre,
       t.id AS trabajador_id, t.nombre AS trabajador_nombre,
       t.curp, t.nss, t.puesto,
+      to_char(a.fecha, 'YYYY-MM') AS mes_clave,
       COUNT(*) FILTER (WHERE a.estado = 'presente') AS dias_trabajados
     FROM asistencia_diaria a
     JOIN trabajadores t ON t.id = a.trabajador_id
     JOIN proyectos p ON p.id = a.project_id
     JOIN clientes c ON c.id = p.cliente_id
     WHERE a.fecha BETWEEN $1 AND $2 ${filtro}
-    GROUP BY c.id, c.nombre, p.id, p.nombre, t.id, t.nombre, t.curp, t.nss, t.puesto
+    GROUP BY c.id, c.nombre, p.id, p.nombre, t.id, t.nombre, t.curp, t.nss, t.puesto, mes_clave
     HAVING COUNT(*) FILTER (WHERE a.estado = 'presente') > 0
-    ORDER BY c.nombre, p.nombre, t.nombre
+    ORDER BY c.nombre, p.nombre, t.nombre, mes_clave
   `, params);
 
+  const porMesVacio = () => Object.fromEntries(clavesMeses.map((c) => [c, 0]));
   const clientesMap = new Map();
   const trabajadoresMap = new Map();
   for (const r of rows) {
@@ -8082,80 +8103,107 @@ async function construirReporteDiasTrabajados(anio, mes, { clienteId, projectId 
     }
     const cli = clientesMap.get(r.cliente_id);
     if (!cli.obras.has(r.project_id)) {
-      cli.obras.set(r.project_id, { project_id: r.project_id, obra_nombre: r.obra_nombre, total_dias: 0, trabajadores: [] });
+      cli.obras.set(r.project_id, { project_id: r.project_id, obra_nombre: r.obra_nombre, total_dias: 0, trabajadores: new Map() });
     }
     const obra = cli.obras.get(r.project_id);
-    obra.trabajadores.push({
-      trabajador_id: r.trabajador_id, nombre: r.trabajador_nombre,
-      curp: r.curp, nss: r.nss, puesto: r.puesto, dias_trabajados: dias,
-    });
+    if (!obra.trabajadores.has(r.trabajador_id)) {
+      obra.trabajadores.set(r.trabajador_id, {
+        trabajador_id: r.trabajador_id, nombre: r.trabajador_nombre,
+        curp: r.curp, nss: r.nss, puesto: r.puesto, total_dias: 0, por_mes: porMesVacio(),
+      });
+    }
+    const tw = obra.trabajadores.get(r.trabajador_id);
+    tw.por_mes[r.mes_clave] = dias;
+    tw.total_dias += dias;
     obra.total_dias += dias;
     cli.total_dias += dias;
 
     // Consolidado por trabajador (relevante cuando trabajó en 2+ obras del
-    // mismo cliente en el mismo mes, modelo N:N — desglose sin mezclar días).
+    // mismo cliente en el mismo rango, modelo N:N — desglose sin mezclar
+    // días; por_mes suma entre obras si coincide el mes).
     if (!trabajadoresMap.has(r.trabajador_id)) {
       trabajadoresMap.set(r.trabajador_id, {
         trabajador_id: r.trabajador_id, nombre: r.trabajador_nombre,
-        curp: r.curp, nss: r.nss, puesto: r.puesto, total_dias: 0, obras: [],
+        curp: r.curp, nss: r.nss, puesto: r.puesto, total_dias: 0, por_mes: porMesVacio(), obras: [],
       });
     }
-    const tw = trabajadoresMap.get(r.trabajador_id);
-    tw.total_dias += dias;
-    tw.obras.push({ project_id: r.project_id, obra_nombre: r.obra_nombre, cliente_nombre: r.cliente_nombre, dias_trabajados: dias });
+    const twg = trabajadoresMap.get(r.trabajador_id);
+    twg.total_dias += dias;
+    twg.por_mes[r.mes_clave] = (twg.por_mes[r.mes_clave] || 0) + dias;
+    twg.obras.push({ project_id: r.project_id, obra_nombre: r.obra_nombre, cliente_nombre: r.cliente_nombre, mes_clave: r.mes_clave, dias_trabajados: dias });
   }
 
-  const clientes = [...clientesMap.values()].map((c) => ({ ...c, obras: [...c.obras.values()] }));
-  return { anio, mes, clientes, trabajadores_consolidado: [...trabajadoresMap.values()] };
+  const clientes = [...clientesMap.values()].map((c) => ({
+    ...c, obras: [...c.obras.values()].map((o) => ({ ...o, trabajadores: [...o.trabajadores.values()] })),
+  }));
+  return { desde, hasta, meses, clientes, trabajadores_consolidado: [...trabajadoresMap.values()] };
+}
+
+// YYYY-MM, desde <= hasta — validación compartida por ambos endpoints.
+function parseRangoMeses(query) {
+  const { desde, hasta } = query;
+  if (!/^\d{4}-\d{2}$/.test(desde || '') || !/^\d{4}-\d{2}$/.test(hasta || '')) {
+    return { error: 'Indica desde y hasta en formato YYYY-MM' };
+  }
+  if (hasta < desde) return { error: 'El mes "hasta" debe ser igual o posterior a "desde"' };
+  return {
+    desde, hasta,
+    clienteId: query.cliente_id ? Number(query.cliente_id) : null,
+    projectId: query.project_id ? Number(query.project_id) : null,
+  };
 }
 
 app.get('/api/reporte-dias-trabajados', h(auth.allow()), h(async (req, res) => {
-  const anio = Number(req.query.anio);
-  const mes = Number(req.query.mes);
-  if (!anio || !mes || mes < 1 || mes > 12) return res.status(400).json({ error: 'Indica año y mes válidos' });
-  const clienteId = req.query.cliente_id ? Number(req.query.cliente_id) : null;
-  const projectId = req.query.project_id ? Number(req.query.project_id) : null;
-  const reporte = await construirReporteDiasTrabajados(anio, mes, { clienteId, projectId });
+  const parsed = parseRangoMeses(req.query);
+  if (parsed.error) return res.status(400).json({ error: parsed.error });
+  const { desde, hasta, clienteId, projectId } = parsed;
+  const reporte = await construirReporteDiasTrabajados(desde, hasta, { clienteId, projectId });
   res.json(reporte);
 }));
 
 app.get('/api/reporte-dias-trabajados/export', h(auth.allow()), h(async (req, res) => {
-  const anio = Number(req.query.anio);
-  const mes = Number(req.query.mes);
-  if (!anio || !mes || mes < 1 || mes > 12) return res.status(400).json({ error: 'Indica año y mes válidos' });
-  const clienteId = req.query.cliente_id ? Number(req.query.cliente_id) : null;
-  const projectId = req.query.project_id ? Number(req.query.project_id) : null;
-  const reporte = await construirReporteDiasTrabajados(anio, mes, { clienteId, projectId });
+  const parsed = parseRangoMeses(req.query);
+  if (parsed.error) return res.status(400).json({ error: parsed.error });
+  const { desde, hasta, clienteId, projectId } = parsed;
+  // Vista activa en pantalla — el export debe reflejarla tal cual (prompt-46,
+  // CP3): 'comparativo' agrega una columna por mes, 'acumulado' (default)
+  // solo el total del rango.
+  const vista = req.query.vista === 'comparativo' ? 'comparativo' : 'acumulado';
+  const reporte = await construirReporteDiasTrabajados(desde, hasta, { clienteId, projectId });
+
+  const columnasBase = [
+    { header: 'Cliente', key: 'cliente', width: 26 },
+    { header: 'Obra', key: 'obra', width: 26 },
+    { header: 'Trabajador', key: 'trabajador', width: 26 },
+    { header: 'CURP', key: 'curp', width: 20 },
+    { header: 'NSS', key: 'nss', width: 16 },
+    { header: 'Puesto', key: 'puesto', width: 18 },
+  ];
+  const columnasMeses = vista === 'comparativo'
+    ? reporte.meses.map((m) => ({ header: m.clave, key: `mes_${m.clave}`, width: 12, format: 'int' }))
+    : [];
+  const columnaTotal = { header: vista === 'comparativo' ? 'Total' : 'Días trabajados', key: 'total', width: 14, format: 'int' };
 
   const rows = [];
   for (const cliente of reporte.clientes) {
     for (const obra of cliente.obras) {
       for (const t of obra.trabajadores) {
-        rows.push({
-          cliente: cliente.cliente_nombre,
-          obra: obra.obra_nombre,
-          trabajador: t.nombre,
-          curp: t.curp || '',
-          nss: t.nss || '',
-          puesto: t.puesto || '',
-          dias_trabajados: t.dias_trabajados,
-        });
+        const row = {
+          cliente: cliente.cliente_nombre, obra: obra.obra_nombre, trabajador: t.nombre,
+          curp: t.curp || '', nss: t.nss || '', puesto: t.puesto || '', total: t.total_dias,
+        };
+        if (vista === 'comparativo') {
+          for (const m of reporte.meses) row[`mes_${m.clave}`] = t.por_mes[m.clave] || 0;
+        }
+        rows.push(row);
       }
     }
   }
   await sendXlsxExport(res, {
-    filename: buildExportFilename(`DiasTrabajadosSIROC_${anio}-${String(mes).padStart(2, '0')}`),
+    filename: buildExportFilename(`DiasTrabajadosSIROC_${desde}_a_${hasta}`),
     sheets: [{
       sheetName: 'Días trabajados',
-      columns: [
-        { header: 'Cliente', key: 'cliente', width: 26 },
-        { header: 'Obra', key: 'obra', width: 26 },
-        { header: 'Trabajador', key: 'trabajador', width: 26 },
-        { header: 'CURP', key: 'curp', width: 20 },
-        { header: 'NSS', key: 'nss', width: 16 },
-        { header: 'Puesto', key: 'puesto', width: 18 },
-        { header: 'Días trabajados', key: 'dias_trabajados', width: 14, format: 'int' },
-      ],
+      columns: [...columnasBase, ...columnasMeses, columnaTotal],
       rows,
     }],
   });

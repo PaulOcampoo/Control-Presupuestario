@@ -1956,6 +1956,32 @@ body.body-scroll-locked { overflow: hidden; }
      controles de acción para no duplicar lo que ya vive en la barra inferior */
   .topbar .icon-btn:not(#btnMenu),
   .topbar .notif-wrap { display: none !important; }
+  /* Liquid glass (prompt-hamburguesa-liquid-glass.md), solo mobile — el resto
+     de los .icon-btn del topbar ya quedan ocultos por la regla de arriba, así
+     que #btnMenu es el único que necesita este tratamiento aquí. color-mix
+     con --text-primary (no un blanco fijo) para que el tinte y el contraste
+     del ícono se adapten solos a dark/light y a las 4 paletas de tema, sin
+     overrides adicionales por tema/paleta. */
+  #btnMenu {
+    background: color-mix(in srgb, var(--text-primary) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--text-primary) 20%, transparent);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    box-shadow: 0 4px 14px rgba(0,0,0,0.12);
+    color: var(--text-primary);
+  }
+  /* Mismo efecto para #btnGalleryMenu (pantalla de bienvenida, fondo
+     degradado dorado de .gallery-hero) — tinte oscuro de marca (#04212f) en
+     vez de --text-primary, mismo criterio de color que ya usa el sibling
+     ".gallery-hero-top .btn.small" ("Salir") sobre este mismo banner, para
+     no inventar un segundo criterio de contraste ahí. */
+  #btnGalleryMenu {
+    background: rgba(4,33,47,0.12);
+    border: 1px solid rgba(4,33,47,0.25);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    color: #04212f;
+  }
   /* Título de proyecto: pill interactiva con chevron — indica que es tappable */
   .topbar-title {
     cursor: pointer; user-select: none;

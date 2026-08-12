@@ -1939,7 +1939,14 @@ function openMobileAjustes() {
   api('/notificaciones/preferencias').then(({ categorias }) => {
     const section = $('#ajustesNotifSection');
     if (!section) return; // modal ya se cerró antes de que respondiera
-    section.innerHTML = `<div class="ajustes-section-title">Notificaciones</div>${renderNotifPrefsHtml(categorias)}`;
+    // prompt-44-critico-operadores-bloqueados.md (seguimiento): tras filtrar
+    // por rol (ROLES_POR_TIPO en server/notificaciones.js), un rol sin NINGÚN
+    // tipo aplicable (ej. operador hoy) recibía categorias:[] y esta sección
+    // quedaba con el título "Notificaciones" pero sin nada debajo — parecía
+    // rota. Mensaje explícito en vez de un bloque vacío.
+    section.innerHTML = categorias.length
+      ? `<div class="ajustes-section-title">Notificaciones</div>${renderNotifPrefsHtml(categorias)}`
+      : `<div class="ajustes-section-title">Notificaciones</div><div class="ajustes-item"><span class="muted fs-08">Tu rol no tiene notificaciones configurables por ahora.</span></div>`;
     $$('.chkNotifTipo', section).forEach((chk) => {
       chk.addEventListener('change', async (e) => {
         const tipo = e.target.dataset.tipo;

@@ -3097,7 +3097,10 @@ async function selectProject(id, targetView) {
   state.cache[id] = state.cache[id] || {};
   await actualizarNavPorObra(id);
   const p = state.projects.find((x) => x.id === id);
-  $('#projectName').textContent = p ? `Trabajando en: ${p.nombre}` : '';
+  // prompt-trabajando-en-acento.md: nombre del proyecto en <span> propio para
+  // aplicarle el color de acento del tema — "Trabajando en:" se queda con el
+  // .muted heredado del padre (#projectName), sin acento.
+  $('#projectName').innerHTML = p ? `Trabajando en: <span class="project-name-accent">${esc(p.nombre)}</span>` : '';
   const sn = $('#sidebarProjectName'); if (sn) sn.textContent = p ? p.nombre : 'Sin presupuesto';
   state.view = targetView || (state.allowedTabs.length <= 1 ? (state.allowedTabs[0] || 'inicio') : 'inicio');
   state.section = VIEW_TO_SECTION[state.view] || null;

@@ -241,6 +241,13 @@ button, a, select, label,
 }
 .topbar-title { display: flex; flex-direction: column; justify-content: center; line-height: 1.2; flex: 1; min-width: 0; }
 .topbar-title span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* prompt-trabajando-en-acento.md: nombre de la obra activa en el indicador
+   "Trabajando en" con el color de acento del tema + resplandor sutil (mismo
+   criterio de intensidad que el glow ya usado en .btn-primary/.icon-btn-
+   accent/.fab más abajo) — "Trabajando en:" se queda en el .muted heredado
+   de #projectName, sin acento, para no competir visualmente con el nombre.
+   Estático (sin transición/animación), no requiere gate de reduced-motion. */
+.project-name-accent { color: var(--accent-gold); text-shadow: 0 0 8px color-mix(in srgb, var(--accent-gold) 45%, transparent); }
 
 .icon-btn {
   background: var(--bg-surface-2); color: var(--accent-silver); border: 1px solid var(--border-color);

@@ -13983,12 +13983,14 @@ async function renderNominasGlobal(view) {
       <div class="nominas-subnav">
         <button class="btn ${subView === 'todas' ? 'btn-primary' : ''}" id="btnSubTodasNominas">Todas las nóminas</button>
         <button class="btn ${subView === 'reporte' ? 'btn-primary' : ''}" id="btnSubReporteSemanal">Reporte semanal por cliente</button>
+        <button class="btn ${subView === 'siroc' ? 'btn-primary' : ''}" id="btnSubDiasSiroc">Días trabajados (SIROC)</button>
       </div>
     `;
   }
   function bindSubNav() {
     $('#btnSubTodasNominas').addEventListener('click', showTodas);
     $('#btnSubReporteSemanal').addEventListener('click', showReporte);
+    $('#btnSubDiasSiroc').addEventListener('click', showDiasSiroc);
   }
 
   async function showTodas() {
@@ -14139,6 +14141,103 @@ async function renderNominasGlobal(view) {
     `;
     wireExportButton('#btnExportReporteXlsx', `/clientes/${clienteId}/nominas-reporte-semanal/export?fecha=${fecha}`);
     wireExportButton('#btnExportReportePdf', `/clientes/${clienteId}/nominas-reporte-semanal/export-pdf?fecha=${fecha}`);
+  }
+
+  // prompt-45-reporte-dias-trabajados-siroc.md: días trabajados (estado
+  // 'presente' en asistencia_diaria) por trabajador, agrupados por obra y
+  // cliente, para el direccionamiento mensual al SIROC (IMSS). Mes calendario
+  // completo, filtro opcional por cliente/obra — mismo nivel de acceso que
+  // "Reporte semanal por cliente" arriba (admin/desarrollador, confirmado con
+  // Paul: mismo precedente de sensibilidad que Nómina).
+  async function showDiasSiroc() {
+    subView = 'siroc';
+    const clientes = await api('/clientes');
+    const hoy = new Date();
+    view.innerHTML = `
+      <h2 class="section-title">Nómina — todas las obras</h2>
+      ${renderSubNav()}
+      <p class="muted mt-12">Días trabajados (estado "presente") por trabajador en el mes seleccionado, agrupados por obra y cliente — para el direccionamiento mensual al SIROC.</p>
+      <div class="row gap-8 mt-8">
+        <div class="field flex-1">
+          <label>Cliente (opcional)</label>
+          <select id="siroCliente">
+            <option value="">Todos los clientes</option>
+            ${clientes.map((c) => `<option value="${c.id}">${esc(c.nombre)}</option>`).join('')}
+          </select>
+        </div>
+        <div class="field"><label>Mes</label>
+          <select id="siroMes">
+            ${['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre']
+              .map((m, i) => `<option value="${i + 1}" ${i + 1 === hoy.getMonth() + 1 ? 'selected' : ''}>${m}</option>`).join('')}
+          </select>
+        </div>
+        <div class="field"><label>Año</label><input id="siroAnio" type="number" value="${hoy.getFullYear()}" min="2020" max="2100" /></div>
+      </div>
+      <div class="row mt-8">
+        <button class="btn btn-primary" id="btnVerReporteSiroc">Ver reporte</button>
+      </div>
+      <div id="reporteSirocBody" class="mt-12"></div>
+    `;
+    bindSubNav();
+
+    $('#btnVerReporteSiroc').addEventListener('click', async () => {
+      const clienteId = $('#siroCliente').value;
+      const mes = $('#siroMes').value;
+      const anio = $('#siroAnio').value;
+      const body = $('#reporteSirocBody');
+      body.innerHTML = '<div class="spinner"></div>';
+      try {
+        const qs = new URLSearchParams({ anio, mes });
+        if (clienteId) qs.set('cliente_id', clienteId);
+        const reporte = await api(`/reporte-dias-trabajados?${qs}`);
+        pintarReporteSiroc(body, reporte, qs);
+      } catch (err) {
+        body.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+      }
+    });
+  }
+
+  function pintarReporteSiroc(body, reporte, qs) {
+    if (!reporte.clientes.length) {
+      body.innerHTML = '<div class="empty-state">Sin días trabajados registrados para este periodo.</div>';
+      return;
+    }
+    const totalGeneral = reporte.clientes.reduce((s, c) => s + c.total_dias, 0);
+    body.innerHTML = `
+      <div class="section-actions mb-12">
+        <button class="btn" id="btnExportReporteSiroc">⭳ Exportar a Excel</button>
+      </div>
+      ${reporte.clientes.map((cliente) => `
+        <h3 class="section-title mt14-mb8">${esc(cliente.cliente_nombre)} <span class="muted fs-08">(${cliente.total_dias} días)</span></h3>
+        ${cliente.obras.map((obra) => `
+          <div class="card mb-12">
+            <div class="row between">
+              <strong>${esc(obra.obra_nombre)}</strong>
+              <span class="fw600">${obra.total_dias} días</span>
+            </div>
+            <div class="table-scroll mt-8">
+              <table>
+                <thead><tr><th>Trabajador</th><th>CURP</th><th>NSS</th><th>Puesto</th><th class="num">Días</th></tr></thead>
+                <tbody>
+                  ${obra.trabajadores.map((t) => `
+                  <tr>
+                    <td>${esc(t.nombre)}</td>
+                    <td>${esc(t.curp || '—')}</td>
+                    <td>${esc(t.nss || '—')}</td>
+                    <td>${esc(t.puesto || '—')}</td>
+                    <td class="num">${t.dias_trabajados}</td>
+                  </tr>`).join('')}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        `).join('')}
+      `).join('')}
+      <div class="card">
+        <div class="card-row"><span class="k">Total del periodo</span><span class="v fw600">${totalGeneral} días</span></div>
+      </div>
+    `;
+    wireExportButton('#btnExportReporteSiroc', `/reporte-dias-trabajados/export?${qs}`);
   }
 
   await showTodas();

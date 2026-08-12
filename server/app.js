@@ -8038,6 +8038,129 @@ app.get('/api/clientes/:id/nominas-reporte-semanal/export-pdf', h(auth.allow()),
   res.send(pdfBuffer);
 }));
 
+// Reporte de días trabajados por obra/cliente para SIROC mensual (prompt-45
+// -reporte-dias-trabajados-siroc.md). "Día trabajado" = estado='presente' en
+// asistencia_diaria (mismo criterio que ya usa nómina para pagar — confirmado
+// con Paul, falta_justificada/falta_injustificada/sin_registro NO cuentan).
+// Mes calendario completo, admin/desarrollador-only (mismo nivel que el
+// reporte de Nómina semanal por cliente de arriba, el precedente más cercano
+// en sensibilidad — confirmado con Paul). Con el modelo N:N trabajador-obra
+// (PR #111) cada fila de asistencia_diaria ya trae su propio project_id, así
+// que el desglose por obra sale directo del GROUP BY, sin lógica nueva.
+async function construirReporteDiasTrabajados(anio, mes, { clienteId, projectId } = {}) {
+  const fechaInicio = `${anio}-${String(mes).padStart(2, '0')}-01`;
+  const fechaFin = new Date(Date.UTC(anio, mes, 0)).toISOString().slice(0, 10); // último día del mes
+
+  const params = [fechaInicio, fechaFin];
+  let filtro = '';
+  if (clienteId) { params.push(clienteId); filtro += ` AND c.id = $${params.length}`; }
+  if (projectId) { params.push(projectId); filtro += ` AND p.id = $${params.length}`; }
+
+  const { rows } = await db.pool.query(`
+    SELECT
+      c.id AS cliente_id, c.nombre AS cliente_nombre,
+      p.id AS project_id, p.nombre AS obra_nombre,
+      t.id AS trabajador_id, t.nombre AS trabajador_nombre,
+      t.curp, t.nss, t.puesto,
+      COUNT(*) FILTER (WHERE a.estado = 'presente') AS dias_trabajados
+    FROM asistencia_diaria a
+    JOIN trabajadores t ON t.id = a.trabajador_id
+    JOIN proyectos p ON p.id = a.project_id
+    JOIN clientes c ON c.id = p.cliente_id
+    WHERE a.fecha BETWEEN $1 AND $2 ${filtro}
+    GROUP BY c.id, c.nombre, p.id, p.nombre, t.id, t.nombre, t.curp, t.nss, t.puesto
+    HAVING COUNT(*) FILTER (WHERE a.estado = 'presente') > 0
+    ORDER BY c.nombre, p.nombre, t.nombre
+  `, params);
+
+  const clientesMap = new Map();
+  const trabajadoresMap = new Map();
+  for (const r of rows) {
+    const dias = Number(r.dias_trabajados);
+    if (!clientesMap.has(r.cliente_id)) {
+      clientesMap.set(r.cliente_id, { cliente_id: r.cliente_id, cliente_nombre: r.cliente_nombre, total_dias: 0, obras: new Map() });
+    }
+    const cli = clientesMap.get(r.cliente_id);
+    if (!cli.obras.has(r.project_id)) {
+      cli.obras.set(r.project_id, { project_id: r.project_id, obra_nombre: r.obra_nombre, total_dias: 0, trabajadores: [] });
+    }
+    const obra = cli.obras.get(r.project_id);
+    obra.trabajadores.push({
+      trabajador_id: r.trabajador_id, nombre: r.trabajador_nombre,
+      curp: r.curp, nss: r.nss, puesto: r.puesto, dias_trabajados: dias,
+    });
+    obra.total_dias += dias;
+    cli.total_dias += dias;
+
+    // Consolidado por trabajador (relevante cuando trabajó en 2+ obras del
+    // mismo cliente en el mismo mes, modelo N:N — desglose sin mezclar días).
+    if (!trabajadoresMap.has(r.trabajador_id)) {
+      trabajadoresMap.set(r.trabajador_id, {
+        trabajador_id: r.trabajador_id, nombre: r.trabajador_nombre,
+        curp: r.curp, nss: r.nss, puesto: r.puesto, total_dias: 0, obras: [],
+      });
+    }
+    const tw = trabajadoresMap.get(r.trabajador_id);
+    tw.total_dias += dias;
+    tw.obras.push({ project_id: r.project_id, obra_nombre: r.obra_nombre, cliente_nombre: r.cliente_nombre, dias_trabajados: dias });
+  }
+
+  const clientes = [...clientesMap.values()].map((c) => ({ ...c, obras: [...c.obras.values()] }));
+  return { anio, mes, clientes, trabajadores_consolidado: [...trabajadoresMap.values()] };
+}
+
+app.get('/api/reporte-dias-trabajados', h(auth.allow()), h(async (req, res) => {
+  const anio = Number(req.query.anio);
+  const mes = Number(req.query.mes);
+  if (!anio || !mes || mes < 1 || mes > 12) return res.status(400).json({ error: 'Indica año y mes válidos' });
+  const clienteId = req.query.cliente_id ? Number(req.query.cliente_id) : null;
+  const projectId = req.query.project_id ? Number(req.query.project_id) : null;
+  const reporte = await construirReporteDiasTrabajados(anio, mes, { clienteId, projectId });
+  res.json(reporte);
+}));
+
+app.get('/api/reporte-dias-trabajados/export', h(auth.allow()), h(async (req, res) => {
+  const anio = Number(req.query.anio);
+  const mes = Number(req.query.mes);
+  if (!anio || !mes || mes < 1 || mes > 12) return res.status(400).json({ error: 'Indica año y mes válidos' });
+  const clienteId = req.query.cliente_id ? Number(req.query.cliente_id) : null;
+  const projectId = req.query.project_id ? Number(req.query.project_id) : null;
+  const reporte = await construirReporteDiasTrabajados(anio, mes, { clienteId, projectId });
+
+  const rows = [];
+  for (const cliente of reporte.clientes) {
+    for (const obra of cliente.obras) {
+      for (const t of obra.trabajadores) {
+        rows.push({
+          cliente: cliente.cliente_nombre,
+          obra: obra.obra_nombre,
+          trabajador: t.nombre,
+          curp: t.curp || '',
+          nss: t.nss || '',
+          puesto: t.puesto || '',
+          dias_trabajados: t.dias_trabajados,
+        });
+      }
+    }
+  }
+  await sendXlsxExport(res, {
+    filename: buildExportFilename(`DiasTrabajadosSIROC_${anio}-${String(mes).padStart(2, '0')}`),
+    sheets: [{
+      sheetName: 'Días trabajados',
+      columns: [
+        { header: 'Cliente', key: 'cliente', width: 26 },
+        { header: 'Obra', key: 'obra', width: 26 },
+        { header: 'Trabajador', key: 'trabajador', width: 26 },
+        { header: 'CURP', key: 'curp', width: 20 },
+        { header: 'NSS', key: 'nss', width: 16 },
+        { header: 'Puesto', key: 'puesto', width: 18 },
+        { header: 'Días trabajados', key: 'dias_trabajados', width: 14, format: 'int' },
+      ],
+      rows,
+    }],
+  });
+}));
+
 app.get('/api/projects/:id/nominas', h(auth.allow('residente', 'cabo')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('nominas', 'puede_ver')), h(async (req, res) => {
   // Un residente solo ve las nóminas que él mismo creó — verificarAccesoObra ya
   // garantiza que está asignado a esta obra, pero varios residentes pueden

@@ -1,9 +1,11 @@
 // Integration tests para Contabilidad Fase 1
 // (prompt-contabilidad-fase1-cuentas-polizas.md) — catálogo de cuentas
-// contables y pólizas, gateados por auth.requireContabilidadAccess
-// (whitelist de usuario_id [46, 8] = Paul/Fer, server/auth.js), nunca por
-// rol. Corren contra la base de datos real apuntada por DATABASE_URL. Mismo
-// patrón que tests/control-financiero.test.js.
+// contables y pólizas, gateados por auth.requireContabilidadAccess. Desde
+// prompt-contabilidad-acceso-admin.md el gate es whitelist de usuario_id
+// [46, 8] = Paul/Fer, server/auth.js) OR puesto admin/desarrollador (mismo
+// criterio que allow()/tienePermiso() en el resto del sistema) — ya NO es
+// whitelist pura. Corren contra la base de datos real apuntada por
+// DATABASE_URL. Mismo patrón que tests/control-financiero.test.js.
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import request from 'supertest';
 import jwt from 'jsonwebtoken';
@@ -14,9 +16,10 @@ const ADMIN_USER = process.env.ADMIN_USER || 'admin';
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
 const SESSION_SECRET = process.env.SESSION_SECRET;
 
-let adminToken; // usuario real autenticado pero FUERA de la whitelist
+let adminToken; // usuario real autenticado, puesto='admin' — con acceso automático desde prompt-contabilidad-acceso-admin.md
 let paulToken;
 let ferToken;
+let residenteToken; // usuario real (id 45, activo) pero fuera de whitelist y sin rol admin/desarrollador — debe seguir recibiendo 403
 let testProjectId;
 let cuentaId;
 let polizaId;
@@ -38,9 +41,21 @@ beforeAll(async () => {
   if (loginRes.body.user.id === 46 || loginRes.body.user.id === 8) {
     throw new Error('La cuenta admin de pruebas coincide con la whitelist — ajustar el test.');
   }
+  if (loginRes.body.user.puesto !== 'admin') {
+    throw new Error(`La cuenta admin de pruebas no tiene puesto='admin' (tiene '${loginRes.body.user.puesto}') — ajustar el test.`);
+  }
 
   paulToken = tokenPara(46, 'PAUL OCAMPO', 'paul.ocmp', 'desarrollador');
   ferToken = tokenPara(8, 'Fernando Olvera Monroy', 'folvera', 'admin');
+
+  // Usuario real (para pasar el chequeo de token_valid_since en requireAuth),
+  // fuera de USUARIOS_CONTABILIDAD y con un puesto que NO es admin/desarrollador
+  // — el caso real de "sigue sin acceso" tras prompt-contabilidad-acceso-admin.md.
+  const { rows: residenteRows } = await db.pool.query(
+    "SELECT id FROM usuarios WHERE activo = true AND puesto NOT IN ('admin','desarrollador') AND id NOT IN (46,8) ORDER BY id LIMIT 1"
+  );
+  if (!residenteRows[0]) throw new Error('No hay ningún usuario activo fuera de whitelist/admin/desarrollador contra el cual probar el 403.');
+  residenteToken = tokenPara(residenteRows[0].id, 'RESIDENTE PRUEBA', 'residente.prueba', 'residente');
 
   const { rows } = await db.pool.query('SELECT id FROM proyectos ORDER BY id LIMIT 1');
   if (!rows[0]) throw new Error('No hay ningún proyecto contra el cual correr la suite.');
@@ -75,25 +90,48 @@ describe('Contabilidad — schema', () => {
   });
 });
 
-describe('Contabilidad — whitelist (nunca por rol)', () => {
-  it('GET /contabilidad/cuentas — usuario admin fuera de whitelist recibe 403', async () => {
+describe('Contabilidad — whitelist OR admin/desarrollador (prompt-contabilidad-acceso-admin.md)', () => {
+  it('GET /contabilidad/cuentas — puesto admin (fuera de la whitelist original) recibe 200', async () => {
     const res = await request(app).get('/api/contabilidad/cuentas').set('Authorization', `Bearer ${adminToken}`);
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(200);
   });
 
-  it('GET /contabilidad/polizas — usuario admin fuera de whitelist recibe 403', async () => {
+  it('GET /contabilidad/polizas — puesto admin (fuera de la whitelist original) recibe 200', async () => {
     const res = await request(app).get('/api/contabilidad/polizas').set('Authorization', `Bearer ${adminToken}`);
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(200);
   });
 
-  it('GET /contabilidad/cuentas — Paul (id 46, whitelist) recibe 200', async () => {
+  it('GET /contabilidad/cuentas — Paul (id 46, whitelist, puesto desarrollador) recibe 200', async () => {
     const res = await request(app).get('/api/contabilidad/cuentas').set('Authorization', `Bearer ${paulToken}`);
     expect(res.status).toBe(200);
   });
 
-  it('GET /contabilidad/polizas — Fer (id 8, whitelist) recibe 200', async () => {
+  it('GET /contabilidad/polizas — Fer (id 8, whitelist, puesto admin) recibe 200', async () => {
     const res = await request(app).get('/api/contabilidad/polizas').set('Authorization', `Bearer ${ferToken}`);
     expect(res.status).toBe(200);
+  });
+
+  // Paul y Fer son en la vida real desarrollador/admin — ambos ya pasarían
+  // por el OR de rol. Para probar de verdad que la whitelist por ID sigue
+  // funcionando de forma INDEPENDIENTE del rol (el escenario real que
+  // justifica no tocar USUARIOS_CONTABILIDAD), se firma un token con el
+  // mismo id real de Paul (46, pasa el chequeo de token_valid_since) pero
+  // con un puesto deliberadamente sin bypass — si esto pasara por el rol en
+  // vez de por el id, cambiar el puesto lo tumbaría a 403.
+  it('GET /contabilidad/cuentas — id 46 (whitelist) con puesto NO admin/desarrollador sigue recibiendo 200 (por ID, no por rol)', async () => {
+    const tokenSoloWhitelist = tokenPara(46, 'PAUL OCAMPO', 'paul.ocmp', 'residente');
+    const res = await request(app).get('/api/contabilidad/cuentas').set('Authorization', `Bearer ${tokenSoloWhitelist}`);
+    expect(res.status).toBe(200);
+  });
+
+  it('GET /contabilidad/cuentas — usuario fuera de whitelist y sin rol admin/desarrollador sigue recibiendo 403', async () => {
+    const res = await request(app).get('/api/contabilidad/cuentas').set('Authorization', `Bearer ${residenteToken}`);
+    expect(res.status).toBe(403);
+  });
+
+  it('GET /contabilidad/polizas — usuario fuera de whitelist y sin rol admin/desarrollador sigue recibiendo 403', async () => {
+    const res = await request(app).get('/api/contabilidad/polizas').set('Authorization', `Bearer ${residenteToken}`);
+    expect(res.status).toBe(403);
   });
 });
 

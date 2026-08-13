@@ -783,9 +783,21 @@ function requireEstadoResultadosAccess(req, res, next) {
 // constante INDEPENDIENTE a propósito (mismo criterio documentado en esas
 // tres: aunque hoy tenga los mismos 2 IDs, un candado distinto para un dato
 // distinto no debe evolucionar acoplado a los otros).
+//
+// prompt-contabilidad-acceso-admin.md: a diferencia de las 3 constantes
+// hermanas (whitelist pura, deliberadamente SIN bypass de rol — ver sus
+// propios comentarios), Contabilidad además da acceso automático a
+// admin/desarrollador — mismo criterio que allow()/tienePermiso() en el
+// resto del sistema, donde esos dos roles siempre tienen bypass universal.
+// USUARIOS_CONTABILIDAD en sí NO se toca (conserva el acceso ya otorgado
+// por ID a cuentas que no sean admin/desarrollador, ej. si algún día se
+// suma un contador externo con otro rol).
 const USUARIOS_CONTABILIDAD = [46, 8];
+function tieneAccesoContabilidad(user) {
+  return user.puesto === 'admin' || user.puesto === 'desarrollador' || USUARIOS_CONTABILIDAD.includes(user.id);
+}
 function requireContabilidadAccess(req, res, next) {
-  if (!USUARIOS_CONTABILIDAD.includes(req.user.id)) {
+  if (!tieneAccesoContabilidad(req.user)) {
     logDenied(req, 'sin acceso a Contabilidad (whitelist)');
     return res.status(403).json({ error: 'No tienes permiso para realizar esta acción' });
   }
@@ -795,8 +807,10 @@ function requireContabilidadAccess(req, res, next) {
 // Agrega los tabs 'cuentas'/'controlFinanciero'/'contabilidad' a la lista
 // SOLO para los usuarios en la whitelist correspondiente — el resto de
 // admin/desarrollador (incluida la cuenta bootstrap genérica y cualquier
-// alta futura) ni siquiera ve el link en el sidebar. Ocultar el tab es solo
-// cortesía de UI (nunca el gate real — ver requireControlCuentasAccess/
+// alta futura) ni siquiera ve el link en el sidebar, EXCEPTO para
+// 'contabilidad' (ver tieneAccesoContabilidad arriba), que sí es visible
+// para cualquier admin/desarrollador. Ocultar el tab es solo cortesía de UI
+// (nunca el gate real — ver requireControlCuentasAccess/
 // requireControlFinancieroAccess/requireContabilidadAccess arriba, que es
 // lo único que de verdad protege los datos); por eso vive como wrapper
 // sobre PERMISSIONS.tabs en vez de duplicar la lista de tabs por usuario.
@@ -809,7 +823,7 @@ function tabsParaUsuario(user) {
     if (!base.includes('estadoResultados')) extra.push('estadoResultados');
     if (!base.includes('estadoResultadosGlobal')) extra.push('estadoResultadosGlobal');
   }
-  if (USUARIOS_CONTABILIDAD.includes(user.id) && !base.includes('contabilidad')) extra.push('contabilidad');
+  if (tieneAccesoContabilidad(user) && !base.includes('contabilidad')) extra.push('contabilidad');
   return extra.length ? [...base, ...extra] : base;
 }
 

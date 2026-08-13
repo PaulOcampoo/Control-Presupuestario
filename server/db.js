@@ -1240,13 +1240,19 @@ const SCHEMA = `
   );
   CREATE INDEX IF NOT EXISTS idx_estado_unidad_equipo ON estado_unidad(equipo_id, creado_en DESC);
 
-  -- Catálogo fijo de actividad (prompt-2-rol-operador-actividades.md):
-  -- Excavaciones/Cepas/Rellenos/Acarreos/Carga de material/Limpiezas.
-  -- Validado en código (server/app.js ACTIVIDADES_MAQUINARIA), no con CHECK
-  -- constraint — mismo patrón ya confirmado para usuarios.puesto en el
-  -- Prompt 1 (isValidPuesto, sin restricción a nivel BD). Nullable: los
-  -- reportes históricos ya guardados sin este campo no se rompen; el
-  -- endpoint de captura sí lo exige para reportes nuevos.
+  -- Catálogo fijo de actividad (prompt-2-rol-operador-actividades.md,
+  -- ampliado por prompt-3-actividades-operador-taller-renta.md y
+  -- prompt-operador-multiactividad.md): Excavaciones/Cepas/Rellenos/
+  -- Acarreos/Carga de material/Limpiezas/Taller/Renta/Conformación de
+  -- terreno. Validado en código (server/app.js ACTIVIDADES_MAQUINARIA), no
+  -- con CHECK constraint — mismo patrón ya confirmado para usuarios.puesto
+  -- en el Prompt 1 (isValidPuesto, sin restricción a nivel BD). Nullable:
+  -- los reportes históricos ya guardados sin este campo no se rompen; el
+  -- endpoint de captura sí lo exige para reportes nuevos. Desde
+  -- prompt-operador-multiactividad.md la captura permite multi-selección:
+  -- se guarda como texto con las actividades unidas por ", " en este mismo
+  -- campo TEXT (Opción A del diagnóstico — no se parte en varios
+  -- registros porque nada agrega por actividad hoy).
   ALTER TABLE reportes_horas_maquinaria ADD COLUMN IF NOT EXISTS actividad TEXT;
 
   -- Flujo de aprobación operador (captura) -> cabo (autoriza/rechaza)

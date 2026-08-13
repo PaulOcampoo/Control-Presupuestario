@@ -1459,7 +1459,7 @@ app.get('/api/maquinaria/horas', h(auth.checkPermiso('maquinaria', 'puede_ver'))
 // validado aquí en el backend, nunca solo en el frontend (mismo criterio de
 // "auto-llenado" que ya usa el resto de la app: el rol 'operador' elige de
 // esta lista, no escribe texto libre).
-const ACTIVIDADES_MAQUINARIA = ['Excavaciones', 'Cepas', 'Rellenos', 'Acarreos', 'Carga de material', 'Limpiezas', 'Taller', 'Renta'];
+const ACTIVIDADES_MAQUINARIA = ['Excavaciones', 'Cepas', 'Rellenos', 'Acarreos', 'Carga de material', 'Limpiezas', 'Taller', 'Renta', 'Conformación de terreno'];
 
 // Operador captura sus propias horas (operador_id = quien está autenticado,
 // se ignora cualquier operador_id enviado); admin/desarrollador sí pueden
@@ -1473,13 +1473,22 @@ app.post('/api/maquinaria/horas', h(auth.checkPermiso('maquinaria_captura', 'pue
   if (!equipo_id || !fecha || !(horas > 0)) {
     return res.status(400).json({ error: 'Indica equipo, fecha y horas válidas' });
   }
-  if (!ACTIVIDADES_MAQUINARIA.includes(actividad)) {
-    return res.status(400).json({ error: `Indica una actividad válida: ${ACTIVIDADES_MAQUINARIA.join(', ')}` });
+  // prompt-operador-multiactividad.md: multi-selección — el frontend manda
+  // un array de actividades (una sesión de captura puede cubrir varias).
+  // Se guardan unidas por ", " en la misma columna TEXT `actividad` (Opción
+  // A del diagnóstico: nada en Finanzas/reportes agrega por actividad hoy,
+  // así que no vale la pena partir en un registro por actividad — eso
+  // multiplicaría horas/notificaciones/aprobaciones de cabo por una sola
+  // sesión real de trabajo).
+  const actividades = Array.isArray(actividad) ? actividad : (actividad ? [actividad] : []);
+  if (!actividades.length || actividades.some((a) => !ACTIVIDADES_MAQUINARIA.includes(a))) {
+    return res.status(400).json({ error: `Indica una o más actividades válidas: ${ACTIVIDADES_MAQUINARIA.join(', ')}` });
   }
+  const actividadFinal = actividades.join(', ');
   const esAdmin = req.user.puesto === 'admin' || req.user.puesto === 'desarrollador';
   const operadorFinal = esAdmin && operador_id ? Number(operador_id) : req.user.id;
   const registro = await maquinaria.createHoras({
-    equipo_id: Number(equipo_id), operador_id: operadorFinal, fecha, horas: Number(horas), obra_id, actividad,
+    equipo_id: Number(equipo_id), operador_id: operadorFinal, fecha, horas: Number(horas), obra_id, actividad: actividadFinal,
   });
   // Avisa a todos los cabo activos (sin scoping por obra — mismo alcance sin
   // asignación por-obra que el resto del módulo Maquinaria, ver diagnóstico
@@ -1490,7 +1499,7 @@ app.post('/api/maquinaria/horas', h(auth.checkPermiso('maquinaria_captura', 'pue
   const { rows: cabosActivos } = await db.pool.query("SELECT id FROM usuarios WHERE puesto = 'cabo' AND activo = true");
   await Promise.all(cabosActivos.map((c) => crearNotificacion(
     c.id, obra_id || null, 'maquinaria_horas_pendiente', registro.id,
-    `${req.user.nombre} capturó un reporte de horas (${actividad}) pendiente de autorización`
+    `${req.user.nombre} capturó un reporte de horas (${actividadFinal}) pendiente de autorización`
   )));
   res.status(201).json(registro);
 }));

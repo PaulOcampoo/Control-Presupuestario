@@ -1,8 +1,10 @@
 // Integration tests para Contabilidad Fase 2 — repositorio de CFDI
-// (prompt-contabilidad-fase2-cfdi.md). Mismo whitelist que Fase 1
-// (auth.requireContabilidadAccess), mismo patrón preview->confirm->proxy
-// de descarga que Contrato. Corren contra la base de datos real apuntada
-// por DATABASE_URL y suben/borran blobs reales en Vercel Blob.
+// (prompt-contabilidad-fase2-cfdi.md). Mismo gate que Fase 1
+// (auth.requireContabilidadAccess) — desde prompt-contabilidad-acceso-
+// admin.md ya no es whitelist pura: whitelist [46,8] OR puesto admin/
+// desarrollador. Mismo patrón preview->confirm->proxy de descarga que
+// Contrato. Corren contra la base de datos real apuntada por DATABASE_URL
+// y suben/borran blobs reales en Vercel Blob.
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import request from 'supertest';
 import jwt from 'jsonwebtoken';
@@ -14,8 +16,9 @@ const ADMIN_USER = process.env.ADMIN_USER || 'admin';
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
 const SESSION_SECRET = process.env.SESSION_SECRET;
 
-let adminToken;
+let adminToken; // puesto='admin' real — acceso automático desde prompt-contabilidad-acceso-admin.md
 let paulToken;
+let residenteToken; // usuario real, fuera de whitelist y sin rol admin/desarrollador — debe seguir en 403
 let cfdiId;
 let xmlBlobUrl;
 let pdfBlobUrl;
@@ -53,7 +56,16 @@ beforeAll(async () => {
   if (loginRes.body.user.id === 46 || loginRes.body.user.id === 8) {
     throw new Error('La cuenta admin de pruebas coincide con la whitelist — ajustar el test.');
   }
+  if (loginRes.body.user.puesto !== 'admin') {
+    throw new Error(`La cuenta admin de pruebas no tiene puesto='admin' (tiene '${loginRes.body.user.puesto}') — ajustar el test.`);
+  }
   paulToken = tokenPara(46, 'PAUL OCAMPO', 'paul.ocmp', 'desarrollador');
+
+  const { rows: residenteRows } = await db.pool.query(
+    "SELECT id FROM usuarios WHERE activo = true AND puesto NOT IN ('admin','desarrollador') AND id NOT IN (46,8) ORDER BY id LIMIT 1"
+  );
+  if (!residenteRows[0]) throw new Error('No hay ningún usuario activo fuera de whitelist/admin/desarrollador contra el cual probar el 403.');
+  residenteToken = tokenPara(residenteRows[0].id, 'RESIDENTE PRUEBA', 'residente.prueba', 'residente');
 });
 
 afterAll(async () => {
@@ -63,15 +75,20 @@ afterAll(async () => {
   await db.pool.end();
 });
 
-describe('CFDI — whitelist (nunca por rol)', () => {
-  it('GET /contabilidad/cfdi — usuario admin fuera de whitelist recibe 403', async () => {
+describe('CFDI — whitelist OR admin/desarrollador (prompt-contabilidad-acceso-admin.md)', () => {
+  it('GET /contabilidad/cfdi — puesto admin (fuera de la whitelist original) recibe 200', async () => {
     const res = await request(app).get('/api/contabilidad/cfdi').set('Authorization', `Bearer ${adminToken}`);
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(200);
   });
 
   it('GET /contabilidad/cfdi — Paul (id 46, whitelist) recibe 200', async () => {
     const res = await request(app).get('/api/contabilidad/cfdi').set('Authorization', `Bearer ${paulToken}`);
     expect(res.status).toBe(200);
+  });
+
+  it('GET /contabilidad/cfdi — usuario fuera de whitelist y sin rol admin/desarrollador sigue recibiendo 403', async () => {
+    const res = await request(app).get('/api/contabilidad/cfdi').set('Authorization', `Bearer ${residenteToken}`);
+    expect(res.status).toBe(403);
   });
 });
 
@@ -201,10 +218,10 @@ describe('CFDI — descarga vía proxy autenticado', () => {
     expect(res.headers['content-type']).toContain('pdf');
   });
 
-  it('GET /contabilidad/cfdi/:id/archivo — usuario fuera de whitelist recibe 403, nunca el archivo', async () => {
+  it('GET /contabilidad/cfdi/:id/archivo — usuario fuera de whitelist y sin rol admin/desarrollador recibe 403, nunca el archivo', async () => {
     const res = await request(app)
       .get(`/api/contabilidad/cfdi/${cfdiId}/archivo?tipo=xml`)
-      .set('Authorization', `Bearer ${adminToken}`);
+      .set('Authorization', `Bearer ${residenteToken}`);
     expect(res.status).toBe(403);
   });
 });

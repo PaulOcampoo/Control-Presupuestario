@@ -1481,6 +1481,49 @@ const SCHEMA = `
   CREATE INDEX IF NOT EXISTS idx_polizas_project ON polizas(project_id);
   CREATE INDEX IF NOT EXISTS idx_polizas_cuenta ON polizas(cuenta_id);
 
+  -- Contabilidad Fase 2 (prompt-contabilidad-fase2-cfdi.md) — repositorio de
+  -- CFDI (facturas fiscales), catálogo consultable por UUID/RFC/fecha.
+  -- Deliberadamente SIN FK desde polizas (diagnóstico Fase 2, punto 3,
+  -- confirmado con Paul): forzar que cada póliza apunte a un cfdi_id en el
+  -- momento de captura añadiría fricción justo en el flujo pensado para ser
+  -- rápido — polizas.referencia_factura se queda como texto libre,
+  -- correlacionable a simple vista, sin integridad referencial forzada.
+  --
+  -- origen: 'xml' (caso normal, parseo determinista) o 'pdf_representacion'
+  -- (fallback vía Claude API cuando el usuario solo tiene el PDF impreso, sin
+  -- el XML — extraccionCFDIPdf.js). xml_blob_url/nombre_archivo_xml son
+  -- NULLABLE (no NOT NULL como en la propuesta original del diagnóstico)
+  -- precisamente para permitir ese caso: un registro origen='pdf_representacion'
+  -- no tiene XML que subir. El CHECK de abajo exige que exista al menos un
+  -- archivo (XML o PDF) — nunca un registro sin ningún archivo real detrás.
+  --
+  -- estatus_sat es manual (vigente/cancelado) — sin integración con el SAT
+  -- en esta fase (diagnóstico Fase 2, punto 4). Sin DELETE físico, mismo
+  -- criterio que cuentas_contables/polizas.
+  CREATE TABLE IF NOT EXISTS cfdi (
+    id SERIAL PRIMARY KEY,
+    uuid TEXT NOT NULL UNIQUE,
+    rfc_emisor TEXT NOT NULL,
+    rfc_receptor TEXT NOT NULL,
+    fecha_emision TIMESTAMPTZ NOT NULL,
+    subtotal DOUBLE PRECISION NOT NULL,
+    iva DOUBLE PRECISION NOT NULL DEFAULT 0,
+    total DOUBLE PRECISION NOT NULL,
+    tipo_comprobante TEXT,
+    estatus_sat TEXT NOT NULL DEFAULT 'vigente' CHECK (estatus_sat IN ('vigente', 'cancelado')),
+    origen TEXT NOT NULL DEFAULT 'xml' CHECK (origen IN ('xml', 'pdf_representacion')),
+    xml_blob_url TEXT,
+    pdf_blob_url TEXT,
+    nombre_archivo_xml TEXT,
+    nombre_archivo_pdf TEXT,
+    project_id INTEGER REFERENCES proyectos(id) ON DELETE CASCADE,
+    subido_por INTEGER REFERENCES usuarios(id),
+    subido_en TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT cfdi_al_menos_un_archivo CHECK (xml_blob_url IS NOT NULL OR pdf_blob_url IS NOT NULL)
+  );
+  CREATE INDEX IF NOT EXISTS idx_cfdi_project ON cfdi(project_id);
+  CREATE INDEX IF NOT EXISTS idx_cfdi_rfc_emisor ON cfdi(rfc_emisor);
+
   -- % estándar de referencia para Composición de costos (docs/diseno-desglose-
   -- presupuesto-categorias) — usado como "base" de comparación contra el %
   -- real (insumos.categoria) cuando una obra NO tiene contrato/cédula cargado.

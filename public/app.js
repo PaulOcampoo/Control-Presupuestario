@@ -2845,6 +2845,15 @@ const AYUDA_CONTENIDO = {
       'Este registro es auxiliar para reportarle al contador externo — no sustituye la contabilidad formal de la empresa ni se cruza automáticamente con Finanzas/Erogado Real.',
     ],
   },
+  contabilidadCfdi: {
+    titulo: 'CFDI',
+    pasos: [
+      'Un CFDI es la factura electrónica fiscal mexicana. Sube el archivo XML (recomendado) — los datos se leen directo de ahí, sin margen de error de transcripción.',
+      'Si solo tienes el PDF de representación impresa (sin el XML), también se puede subir — los datos se extraen con IA en ese caso, así que revísalos con cuidado antes de guardar.',
+      'El estatus "Vigente/Cancelado" se marca manualmente desde aquí — esta app NO valida en tiempo real contra el SAT, así que confirma con el portal del SAT si necesitas certeza total sobre un CFDI en particular.',
+      'Puedes descargar el XML y el PDF de cada CFDI desde su detalle en cualquier momento.',
+    ],
+  },
 };
 
 // Botón "?" reutilizable — colócalo junto al título/acción de cualquier
@@ -11883,7 +11892,7 @@ const TIPO_CUENTA_CONT_LABELS = { activo: 'Activo', pasivo: 'Pasivo', capital: '
 const TIPO_POLIZA_CONT_LABELS = { ingreso: 'Ingreso', egreso: 'Egreso', diario: 'Diario' };
 
 async function renderContabilidad(view) {
-  let subView = 'cuentas'; // 'cuentas' | 'polizas'
+  let subView = 'cuentas'; // 'cuentas' | 'polizas' | 'cfdi'
   let cuentasActivasCache = []; // para el selector de cuenta en el modal de nueva póliza
 
   function renderSubNav() {
@@ -11891,12 +11900,14 @@ async function renderContabilidad(view) {
       <div class="nominas-subnav">
         <button class="btn ${subView === 'cuentas' ? 'btn-primary' : ''}" id="btnContSubCuentas">Catálogo de Cuentas</button>
         <button class="btn ${subView === 'polizas' ? 'btn-primary' : ''}" id="btnContSubPolizas">Pólizas</button>
+        <button class="btn ${subView === 'cfdi' ? 'btn-primary' : ''}" id="btnContSubCfdi">CFDI</button>
       </div>
     `;
   }
   function bindSubNav() {
     $('#btnContSubCuentas').addEventListener('click', showCuentas);
     $('#btnContSubPolizas').addEventListener('click', showPolizas);
+    $('#btnContSubCfdi').addEventListener('click', showCfdi);
   }
 
   async function showCuentas() {
@@ -12053,6 +12064,90 @@ async function renderContabilidad(view) {
       `;
       $$('[data-poliza-id]', list).forEach((row) => {
         row.addEventListener('click', () => openDetallePolizaContModal(polizas.find((p) => p.id === Number(row.dataset.polizaId)), cargarPolizas));
+      });
+    } catch (err) {
+      list.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+    }
+  }
+
+  async function showCfdi() {
+    subView = 'cfdi';
+    view.innerHTML = `
+      <h2 class="section-title">Contabilidad ${renderHelpBtn('contabilidadCfdi')}</h2>
+      <p class="muted">Catálogo de cuentas contables y registro de pólizas — acceso restringido.</p>
+      ${renderSubNav()}
+      <div class="card mt-12">
+        <label>RFC Emisor</label>
+        <input id="contCfdiRfcEmisorFiltro" placeholder="Ej. VITE850101" />
+        <label class="mt-8">RFC Receptor</label>
+        <input id="contCfdiRfcReceptorFiltro" placeholder="Ej. ROF120202" />
+        <label class="mt-8">Obra</label>
+        <select id="contCfdiObraFiltro">
+          <option value="">Todas</option>
+          <option value="sin-obra">Corporativo / sin obra</option>
+          ${state.projects.map((p) => `<option value="${p.id}">${esc(p.nombre)}</option>`).join('')}
+        </select>
+        <label class="mt-8">Estatus SAT</label>
+        <select id="contCfdiEstatusFiltro">
+          <option value="">Todos</option>
+          <option value="vigente">Vigente</option>
+          <option value="cancelado">Cancelado</option>
+        </select>
+      </div>
+      <div class="section-actions mt-12">
+        <button class="btn btn-primary" id="btnNuevoCfdiCont">+ Nuevo CFDI</button>
+      </div>
+      <div id="contCfdiList" class="mt-12"></div>
+    `;
+    bindSubNav();
+    $('#contCfdiRfcEmisorFiltro').addEventListener('change', cargarCfdi);
+    $('#contCfdiRfcReceptorFiltro').addEventListener('change', cargarCfdi);
+    $('#contCfdiObraFiltro').addEventListener('change', cargarCfdi);
+    $('#contCfdiEstatusFiltro').addEventListener('change', cargarCfdi);
+    $('#btnNuevoCfdiCont').addEventListener('click', () => openNuevoCfdiContModal(cargarCfdi));
+    await cargarCfdi();
+  }
+
+  async function cargarCfdi() {
+    const list = $('#contCfdiList');
+    list.innerHTML = '<div class="spinner"></div>';
+    try {
+      const params = new URLSearchParams();
+      const rfcEmisor = $('#contCfdiRfcEmisorFiltro').value.trim();
+      const rfcReceptor = $('#contCfdiRfcReceptorFiltro').value.trim();
+      const obra = $('#contCfdiObraFiltro').value;
+      const estatus = $('#contCfdiEstatusFiltro').value;
+      if (rfcEmisor) params.set('rfc_emisor', rfcEmisor);
+      if (rfcReceptor) params.set('rfc_receptor', rfcReceptor);
+      if (obra) params.set('project_id', obra);
+      if (estatus) params.set('estatus_sat', estatus);
+      const cfdis = await api(`/contabilidad/cfdi${params.toString() ? `?${params}` : ''}`);
+      if (!cfdis.length) { list.innerHTML = '<div class="empty-state">Sin CFDI registrados.</div>'; return; }
+      const totalVigente = cfdis.filter((c) => c.estatus_sat === 'vigente').reduce((s, c) => s + Number(c.total), 0);
+      list.innerHTML = `
+        <div class="kpi-grid">
+          <div class="kpi accent"><div class="label">Total (vigentes, filtro actual)</div><div class="value">${fmtMoney(totalVigente)}</div></div>
+        </div>
+        <div class="table-scroll mt-12">
+          <table>
+            <thead><tr><th>Fecha</th><th>UUID</th><th>RFC Emisor</th><th>RFC Receptor</th><th class="num">Total</th><th>Estatus</th></tr></thead>
+            <tbody>
+              ${cfdis.map((c) => `
+                <tr class="row-click" data-cfdi-id="${c.id}">
+                  <td>${fmtDate(c.fecha_emision)}</td>
+                  <td class="fs-08">${esc(c.uuid)}</td>
+                  <td>${esc(c.rfc_emisor)}</td>
+                  <td>${esc(c.rfc_receptor)}</td>
+                  <td class="num">${fmtMoney(c.total)}</td>
+                  <td>${c.estatus_sat === 'vigente' ? 'Vigente' : '<span class="muted">Cancelado</span>'}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+      `;
+      $$('[data-cfdi-id]', list).forEach((row) => {
+        row.addEventListener('click', () => openDetalleCfdiContModal(cfdis.find((c) => c.id === Number(row.dataset.cfdiId)), cargarCfdi));
       });
     } catch (err) {
       list.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
@@ -12226,6 +12321,147 @@ function openDetallePolizaContModal(poliza, onChange) {
     try {
       await api(`/contabilidad/polizas/${poliza.id}/cancelar`, { method: 'PUT' });
       toast('Póliza cancelada', 'success');
+      closeModal();
+      onChange();
+    } catch (err) { toast(err.message, 'danger'); }
+  });
+}
+
+// Contabilidad Fase 2 (prompt-contabilidad-fase2-cfdi.md) — sube XML (+ PDF
+// opcional) a /contabilidad/cfdi/preview (extrae + sube a Blob, no persiste),
+// el usuario revisa los campos, y /contabilidad/cfdi/confirm persiste —
+// mismo patrón preview→confirm que Contrato (promptUploadContrato/
+// openContratoFormModal).
+function openNuevoCfdiContModal(onSaved) {
+  openModal(`
+    <h3>Nuevo CFDI</h3>
+    <p class="muted fs-08">Sube el XML del CFDI (recomendado — los datos se leen directo del archivo). Si solo tienes el PDF de representación impresa, se pueden extraer los datos con IA, pero revísalos con cuidado antes de guardar.</p>
+    <div class="field"><label>XML del CFDI</label><input type="file" id="cfdiFileXml" accept=".xml" /></div>
+    <div class="field"><label>PDF de representación (opcional si subiste el XML)</label><input type="file" id="cfdiFilePdf" accept=".pdf" /></div>
+    <div class="modal-actions">
+      <button class="btn" id="btnCancelCfdiUpload">Cerrar</button>
+      <button class="btn btn-primary" id="btnExtraerCfdi">Extraer datos</button>
+    </div>
+  `);
+  $('#btnCancelCfdiUpload').addEventListener('click', closeModal);
+  $('#btnExtraerCfdi').addEventListener('click', async () => {
+    const xmlFile = $('#cfdiFileXml').files[0];
+    const pdfFile = $('#cfdiFilePdf').files[0];
+    if (!xmlFile && !pdfFile) { toast('Sube el XML o al menos el PDF de representación', 'danger'); return; }
+    const btn = $('#btnExtraerCfdi');
+    btn.disabled = true; btn.textContent = 'Extrayendo…';
+    try {
+      const fd = new FormData();
+      if (xmlFile) fd.append('xml', xmlFile);
+      if (pdfFile) fd.append('pdf', pdfFile);
+      const preview = await api('/contabilidad/cfdi/preview', { method: 'POST', body: fd });
+      closeModal();
+      openCfdiConfirmModal(preview, onSaved);
+    } catch (err) {
+      toast(err.message, 'danger');
+      btn.disabled = false; btn.textContent = 'Extraer datos';
+    }
+  });
+}
+
+function openCfdiConfirmModal(preview, onSaved) {
+  const c = preview.campos;
+  openModal(`
+    <h3>Confirmar CFDI</h3>
+    ${preview.origen === 'pdf_representacion'
+      ? '<div class="alert-box danger">⚠️ Datos extraídos con IA desde el PDF de representación (no se subió XML) — revisa que sean correctos antes de guardar.</div>'
+      : '<p class="muted">Datos extraídos directo del XML.</p>'}
+    <div class="field"><label>UUID (folio fiscal) *</label><input id="cfdiConfUuid" value="${esc(c.uuid || '')}" /></div>
+    <div class="field"><label>RFC emisor *</label><input id="cfdiConfRfcEmisor" value="${esc(c.rfc_emisor || '')}" /></div>
+    <div class="field"><label>RFC receptor *</label><input id="cfdiConfRfcReceptor" value="${esc(c.rfc_receptor || '')}" /></div>
+    <div class="field"><label>Fecha de emisión *</label><input id="cfdiConfFecha" value="${esc(c.fecha_emision || '')}" placeholder="YYYY-MM-DD" /></div>
+    <div class="field"><label>Subtotal *</label><input id="cfdiConfSubtotal" type="number" step="0.01" min="0" value="${c.subtotal ?? ''}" /></div>
+    <div class="field"><label>IVA</label><input id="cfdiConfIva" type="number" step="0.01" min="0" value="${c.iva ?? 0}" /></div>
+    <div class="field"><label>Total *</label><input id="cfdiConfTotal" type="number" step="0.01" min="0" value="${c.total ?? ''}" /></div>
+    <div class="field"><label>Obra</label>
+      <select id="cfdiConfObra">
+        <option value="">Sin obra / Corporativo</option>
+        ${state.projects.map((p) => `<option value="${p.id}">${esc(p.nombre)}</option>`).join('')}
+      </select>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" id="btnCancelCfdiConf">Cerrar</button>
+      <button class="btn btn-primary" id="btnSaveCfdiConf">Guardar</button>
+    </div>
+  `);
+  $('#btnCancelCfdiConf').addEventListener('click', closeModal);
+  $('#btnSaveCfdiConf').addEventListener('click', async () => {
+    const body = {
+      campos: {
+        uuid: $('#cfdiConfUuid').value.trim(),
+        rfc_emisor: $('#cfdiConfRfcEmisor').value.trim(),
+        rfc_receptor: $('#cfdiConfRfcReceptor').value.trim(),
+        fecha_emision: $('#cfdiConfFecha').value.trim(),
+        subtotal: Number($('#cfdiConfSubtotal').value),
+        iva: Number($('#cfdiConfIva').value) || 0,
+        total: Number($('#cfdiConfTotal').value),
+        tipo_comprobante: c.tipo_comprobante || null,
+      },
+      origen: preview.origen,
+      xml_blob_url: preview.xml_blob_url,
+      pdf_blob_url: preview.pdf_blob_url,
+      nombre_archivo_xml: preview.nombre_archivo_xml,
+      nombre_archivo_pdf: preview.nombre_archivo_pdf,
+      project_id: $('#cfdiConfObra').value ? Number($('#cfdiConfObra').value) : null,
+    };
+    if (!body.campos.uuid || !body.campos.rfc_emisor || !body.campos.rfc_receptor || !body.campos.fecha_emision ||
+        !(body.campos.subtotal >= 0) || !(body.campos.total >= 0)) {
+      toast('Completa UUID, RFCs, fecha, subtotal y total', 'danger'); return;
+    }
+    const btn = $('#btnSaveCfdiConf');
+    btn.disabled = true;
+    try {
+      await api('/contabilidad/cfdi/confirm', { method: 'POST', body });
+      toast('CFDI guardado', 'success');
+      closeModal();
+      onSaved();
+    } catch (err) {
+      toast(err.message, 'danger');
+      btn.disabled = false;
+    }
+  });
+}
+
+function openDetalleCfdiContModal(cfdi, onChange) {
+  openModal(`
+    <h3>Detalle de CFDI</h3>
+    <p>UUID: <strong>${esc(cfdi.uuid)}</strong></p>
+    <p>Emisor: ${esc(cfdi.rfc_emisor)}</p>
+    <p>Receptor: ${esc(cfdi.rfc_receptor)}</p>
+    <p>Fecha: ${fmtDate(cfdi.fecha_emision)}</p>
+    <p>Subtotal: ${fmtMoney(cfdi.subtotal)} · IVA: ${fmtMoney(cfdi.iva)} · Total: ${fmtMoney(cfdi.total)}</p>
+    <p>Obra: ${cfdi.project_nombre ? esc(cfdi.project_nombre) : 'Corporativo (sin obra)'}</p>
+    <p>Origen: ${cfdi.origen === 'pdf_representacion' ? 'PDF de representación (extraído con IA)' : 'XML'}</p>
+    <p>Capturado por: ${esc(cfdi.subido_por_nombre || '—')}</p>
+    <p>Estatus SAT: ${cfdi.estatus_sat === 'vigente' ? 'Vigente' : '<span class="muted">Cancelado</span>'} <span class="muted fs-07">(manual, no se valida contra el SAT)</span></p>
+    <div class="modal-actions">
+      <button class="btn" id="btnCerrarCfdiDetalle">Cerrar</button>
+      ${cfdi.xml_blob_url ? '<button class="btn" id="btnDescargarCfdiXml">⭳ XML</button>' : ''}
+      ${cfdi.pdf_blob_url ? '<button class="btn" id="btnDescargarCfdiPdf">⭳ PDF</button>' : ''}
+      <button class="btn ${cfdi.estatus_sat === 'vigente' ? 'btn-danger' : ''}" id="btnToggleCfdiEstatus">${cfdi.estatus_sat === 'vigente' ? 'Marcar cancelado' : 'Marcar vigente'}</button>
+    </div>
+  `);
+  $('#btnCerrarCfdiDetalle').addEventListener('click', () => { closeModal(); onChange(); });
+  $('#btnDescargarCfdiXml')?.addEventListener('click', async () => {
+    try { await downloadExport(`/contabilidad/cfdi/${cfdi.id}/archivo?tipo=xml`); }
+    catch (err) { toast(err.message, 'danger'); }
+  });
+  $('#btnDescargarCfdiPdf')?.addEventListener('click', async () => {
+    try { await downloadExport(`/contabilidad/cfdi/${cfdi.id}/archivo?tipo=pdf`); }
+    catch (err) { toast(err.message, 'danger'); }
+  });
+  $('#btnToggleCfdiEstatus').addEventListener('click', async () => {
+    const nuevo = cfdi.estatus_sat === 'vigente' ? 'cancelado' : 'vigente';
+    const ok = await confirmDialog(`¿Marcar este CFDI como "${nuevo}"? Es manual — esta app no valida contra el SAT.`, { titulo: 'Confirmar' });
+    if (!ok) return;
+    try {
+      await api(`/contabilidad/cfdi/${cfdi.id}/estatus`, { method: 'PUT', body: { estatus_sat: nuevo } });
+      toast('Estatus actualizado', 'success');
       closeModal();
       onChange();
     } catch (err) { toast(err.message, 'danger'); }

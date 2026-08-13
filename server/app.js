@@ -55,6 +55,7 @@ const { calcularJornal, calcularDestajo, totalConIvaEsValido, numeroALetra, calc
 const { validarClabe } = require('./catalogoBancos');
 const estadoResultados = require('./estadoResultados');
 const contabilidad = require('./contabilidad');
+const { extraerDatosCFDI, extraerDatosCFDIDesdePdf } = require('./cfdiParser');
 const { emparejarConceptos, calcularCambios } = require('./reintegracionPresupuesto');
 
 // CN-007: nombre_archivo/pdf_filename vienen del cliente (upload); una comilla
@@ -107,11 +108,18 @@ app.use((_req, res, next) => {
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
 // Verifica magic bytes del archivo temporal para detectar extensiones falsas.
-// Lee solo los primeros 12 bytes — no carga el archivo completo en memoria.
+// Lee solo los primeros bytes — no carga el archivo completo en memoria.
+// BUF_LEN=64 (antes 12): XML no tiene magic bytes binarios fijos como los
+// demás tipos — hay que leer texto suficiente para encontrar '<?xml' o
+// '<cfdi:Comprobante' después de un BOM UTF-8 opcional (prompt-contabilidad-
+// fase2-cfdi.md, punto 5b). 64 bytes cubre eso con margen sin costo real
+// (siguen siendo unos cuantos bytes por archivo).
+const MAGIC_BUF_LEN = 64;
 async function checkFileMagic(filepath, allowedTypes) {
-  const buf = Buffer.alloc(12);
+  const buf = Buffer.alloc(MAGIC_BUF_LEN);
   const fd = await fs.promises.open(filepath, 'r');
-  try { await fd.read(buf, 0, 12, 0); } finally { await fd.close(); }
+  let bytesRead = 0;
+  try { ({ bytesRead } = await fd.read(buf, 0, MAGIC_BUF_LEN, 0)); } finally { await fd.close(); }
   for (const type of allowedTypes) {
     if (type === 'pdf'  && buf[0] === 0x25 && buf[1] === 0x50 && buf[2] === 0x44 && buf[3] === 0x46) return true;
     if (type === 'jpeg' && buf[0] === 0xFF && buf[1] === 0xD8 && buf[2] === 0xFF) return true;
@@ -119,6 +127,12 @@ async function checkFileMagic(filepath, allowedTypes) {
     if (type === 'gif'  && buf[0] === 0x47 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x38) return true;
     if (type === 'webp' && buf[0] === 0x52 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x46 &&
                            buf[8] === 0x57 && buf[9] === 0x45 && buf[10] === 0x42 && buf[11] === 0x50) return true;
+    if (type === 'xml') {
+      let texto = buf.slice(0, bytesRead).toString('utf8');
+      if (texto.charCodeAt(0) === 0xFEFF) texto = texto.slice(1);
+      texto = texto.trimStart();
+      if (texto.startsWith('<?xml') || /^<[a-zA-Z0-9_]*:?Comprobante\b/.test(texto)) return true;
+    }
   }
   return false;
 }
@@ -141,6 +155,19 @@ const uploadPdf = multer({
   fileFilter: (_req, file, cb) => {
     const ok = /\.pdf$/i.test(file.originalname);
     cb(ok ? null : new Error('Solo se admiten archivos .pdf'), ok);
+  },
+});
+
+// Multer para CFDI (Contabilidad Fase 2) — dos campos opcionales, 'xml' y
+// 'pdf' (representación impresa); el endpoint exige al menos uno de los dos.
+// Un CFDI XML pesa típicamente unos KB, pero se deja el mismo límite que
+// otros PDFs del proyecto por generosidad, no por necesidad real.
+const uploadCfdi = multer({
+  dest: os.tmpdir(),
+  limits: { fileSize: 15 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const ok = /\.(xml|pdf)$/i.test(file.originalname);
+    cb(ok ? null : new Error('Solo se admiten archivos .xml o .pdf'), ok);
   },
 });
 
@@ -3466,6 +3493,185 @@ app.put('/api/contabilidad/polizas/:id/cancelar', h(auth.requireContabilidadAcce
   const poliza = await contabilidad.cancelarPoliza(Number(req.params.id), req.user.id);
   if (!poliza) return res.status(404).json({ error: 'Póliza no encontrada o ya cancelada' });
   res.json(poliza);
+}));
+
+// ---------------------------------------------------------------------------
+// Contabilidad Fase 2 (prompt-contabilidad-fase2-cfdi.md) — repositorio de
+// CFDI. Mismo whitelist que Fase 1 (auth.requireContabilidadAccess) en TODAS
+// las rutas. Mismo patrón preview→confirm→proxy de descarga que Contrato
+// (server/app.js ~3924-4048): preview sube a Blob y extrae campos SIN
+// persistir; confirm persiste tras revisión del usuario; el archivo nunca se
+// expone por URL directa de Blob, solo vía proxy autenticado.
+// SIN FK obligatorio desde `polizas` (diagnóstico Fase 2, punto 3) —
+// `polizas.referencia_factura` se queda como texto libre, sin tocar.
+// CFDI_PREVIEW_IA_LIMIT solo protege el camino de fallback por IA (PDF de
+// representación sin XML) — el camino XML es parseo local determinista, no
+// cuesta llamadas a la API, así que no se limita.
+// ---------------------------------------------------------------------------
+const CFDI_PREVIEW_IA_LIMIT = 10; // máx fallbacks PDF->IA por usuario por hora, mismo límite que Contrato
+
+app.post('/api/contabilidad/cfdi/preview',
+  h(auth.requireContabilidadAccess),
+  uploadCfdi.fields([{ name: 'xml', maxCount: 1 }, { name: 'pdf', maxCount: 1 }]),
+  h(async (req, res) => {
+    const xmlFile = req.files?.xml?.[0] || null;
+    const pdfFile = req.files?.pdf?.[0] || null;
+    const cleanup = () => {
+      if (xmlFile) fs.rm(xmlFile.path, () => {});
+      if (pdfFile) fs.rm(pdfFile.path, () => {});
+    };
+    if (!xmlFile && !pdfFile) {
+      cleanup();
+      return res.status(400).json({ error: 'Sube el XML del CFDI, o al menos el PDF de representación impresa' });
+    }
+    try {
+      if (xmlFile && !await checkFileMagic(xmlFile.path, ['xml'])) {
+        return res.status(400).json({ error: 'El archivo XML no parece válido (no empieza con <?xml ni <cfdi:Comprobante)' });
+      }
+      if (pdfFile && !await checkFileMagic(pdfFile.path, ['pdf'])) {
+        return res.status(400).json({ error: 'El archivo PDF no es un PDF válido (firma de contenido incorrecta)' });
+      }
+
+      const bufferXml = xmlFile ? await fs.promises.readFile(xmlFile.path) : null;
+      const bufferPdf = pdfFile ? await fs.promises.readFile(pdfFile.path) : null;
+
+      let campos;
+      let origen;
+      if (bufferXml) {
+        campos = extraerDatosCFDI(bufferXml);
+        origen = 'xml';
+      } else {
+        // Fallback por IA: solo cuando no hay XML — rate limit propio.
+        const { rows: rlRows } = await db.pool.query(
+          `SELECT COUNT(*)::int AS n FROM api_rate_limits
+           WHERE usuario_id = $1 AND endpoint = 'cfdi_preview_ia'
+             AND creado_en > NOW() - INTERVAL '1 hour'`,
+          [req.user.id]
+        );
+        if (rlRows[0].n >= CFDI_PREVIEW_IA_LIMIT) {
+          return res.status(429).json({ error: `Límite de ${CFDI_PREVIEW_IA_LIMIT} extracciones por PDF por hora alcanzado. Intenta más tarde, o sube el XML directamente.` });
+        }
+        await db.pool.query('INSERT INTO api_rate_limits (usuario_id, endpoint) VALUES ($1, $2)', [req.user.id, 'cfdi_preview_ia']);
+        campos = await extraerDatosCFDIDesdePdf(bufferPdf);
+        origen = 'pdf_representacion';
+      }
+
+      // Falla rápido si el UUID ya existe — el UNIQUE de la tabla es la
+      // garantía real (contra condiciones de carrera), esto es solo UX.
+      const { rows: dupRows } = await db.pool.query('SELECT id FROM cfdi WHERE uuid = $1', [campos.uuid]);
+      if (dupRows[0]) {
+        return res.status(409).json({ error: `Ya existe un CFDI registrado con el UUID ${campos.uuid}` });
+      }
+
+      let xmlBlobUrl = null;
+      let pdfBlobUrl = null;
+      if (bufferXml) {
+        const blobKey = `cfdi/${Date.now()}-${Math.random().toString(36).slice(2)}.xml`;
+        const blobResult = await put(blobKey, bufferXml, { access: 'private', contentType: 'application/xml' });
+        xmlBlobUrl = blobResult.url;
+      }
+      if (bufferPdf) {
+        const blobKey = `cfdi/${Date.now()}-${Math.random().toString(36).slice(2)}.pdf`;
+        const blobResult = await put(blobKey, bufferPdf, { access: 'private', contentType: 'application/pdf' });
+        pdfBlobUrl = blobResult.url;
+      }
+
+      res.json({
+        campos, origen,
+        xml_blob_url: xmlBlobUrl, pdf_blob_url: pdfBlobUrl,
+        nombre_archivo_xml: xmlFile?.originalname || null,
+        nombre_archivo_pdf: pdfFile?.originalname || null,
+      });
+    } catch (err) {
+      res.status(err.status || 500).json({ error: err.message });
+    } finally {
+      cleanup();
+    }
+  })
+);
+
+app.post('/api/contabilidad/cfdi/confirm', h(auth.requireContabilidadAccess), h(async (req, res) => {
+  const b = req.body || {};
+  const campos = b.campos || {};
+  if (!campos.uuid || !campos.rfc_emisor || !campos.rfc_receptor || !campos.fecha_emision ||
+      !(Number(campos.subtotal) >= 0) || !(Number(campos.total) >= 0)) {
+    return res.status(400).json({ error: 'Faltan campos obligatorios del CFDI' });
+  }
+  if (!b.xml_blob_url && !b.pdf_blob_url) {
+    return res.status(400).json({ error: 'No se recibió ningún archivo — vuelve a intentar la subida' });
+  }
+  try {
+    const { rows } = await db.pool.query(
+      `INSERT INTO cfdi (
+         uuid, rfc_emisor, rfc_receptor, fecha_emision, subtotal, iva, total, tipo_comprobante,
+         origen, xml_blob_url, pdf_blob_url, nombre_archivo_xml, nombre_archivo_pdf, project_id, subido_por
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+       RETURNING *`,
+      [
+        campos.uuid, campos.rfc_emisor, campos.rfc_receptor, campos.fecha_emision || null,
+        campos.subtotal != null ? Number(campos.subtotal) : null, Number(campos.iva) || 0, Number(campos.total),
+        campos.tipo_comprobante || null, b.origen === 'pdf_representacion' ? 'pdf_representacion' : 'xml',
+        b.xml_blob_url || null, b.pdf_blob_url || null,
+        b.nombre_archivo_xml || null, b.nombre_archivo_pdf || null,
+        b.project_id ? Number(b.project_id) : null, req.user.id,
+      ]
+    );
+    res.status(201).json(rows[0]);
+  } catch (err) {
+    if (err.code === '23505') { // unique_violation (uuid)
+      return res.status(409).json({ error: `Ya existe un CFDI registrado con el UUID ${campos.uuid}` });
+    }
+    throw err;
+  }
+}));
+
+app.get('/api/contabilidad/cfdi', h(auth.requireContabilidadAccess), h(async (req, res) => {
+  const { project_id, rfc_emisor, rfc_receptor, desde, hasta, estatus_sat } = req.query;
+  const where = [];
+  const params = [];
+  if (project_id === 'sin-obra') {
+    where.push('c.project_id IS NULL');
+  } else if (project_id) {
+    params.push(Number(project_id)); where.push(`c.project_id = $${params.length}`);
+  }
+  if (rfc_emisor) { params.push(`%${rfc_emisor}%`); where.push(`c.rfc_emisor ILIKE $${params.length}`); }
+  if (rfc_receptor) { params.push(`%${rfc_receptor}%`); where.push(`c.rfc_receptor ILIKE $${params.length}`); }
+  if (desde) { params.push(desde); where.push(`c.fecha_emision >= $${params.length}`); }
+  if (hasta) { params.push(hasta); where.push(`c.fecha_emision <= $${params.length}`); }
+  if (estatus_sat) { params.push(estatus_sat); where.push(`c.estatus_sat = $${params.length}`); }
+  const { rows } = await db.pool.query(`
+    SELECT c.*, p.nombre AS project_nombre, u.nombre AS subido_por_nombre
+    FROM cfdi c
+    LEFT JOIN proyectos p ON p.id = c.project_id
+    LEFT JOIN usuarios u ON u.id = c.subido_por
+    ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
+    ORDER BY c.fecha_emision DESC, c.id DESC
+  `, params);
+  res.json(rows);
+}));
+
+app.put('/api/contabilidad/cfdi/:id/estatus', h(auth.requireContabilidadAccess), h(async (req, res) => {
+  const { estatus_sat } = req.body || {};
+  if (!['vigente', 'cancelado'].includes(estatus_sat)) return res.status(400).json({ error: 'Estatus inválido' });
+  const { rows } = await db.pool.query('UPDATE cfdi SET estatus_sat = $1 WHERE id = $2 RETURNING *', [estatus_sat, Number(req.params.id)]);
+  if (!rows[0]) return res.status(404).json({ error: 'CFDI no encontrado' });
+  res.json(rows[0]);
+}));
+
+// Proxy autenticado — nunca se expone la URL de Blob directa (mismo patrón
+// que GET /contrato/pdf, server/app.js ~4040).
+app.get('/api/contabilidad/cfdi/:id/archivo', h(auth.requireContabilidadAccess), h(async (req, res) => {
+  const tipo = req.query.tipo === 'pdf' ? 'pdf' : 'xml';
+  const { rows } = await db.pool.query('SELECT xml_blob_url, pdf_blob_url, nombre_archivo_xml, nombre_archivo_pdf FROM cfdi WHERE id = $1', [Number(req.params.id)]);
+  if (!rows[0]) return res.status(404).json({ error: 'CFDI no encontrado' });
+  const blobUrl = tipo === 'pdf' ? rows[0].pdf_blob_url : rows[0].xml_blob_url;
+  const nombreArchivo = (tipo === 'pdf' ? rows[0].nombre_archivo_pdf : rows[0].nombre_archivo_xml) || `cfdi.${tipo}`;
+  if (!blobUrl) return res.status(404).json({ error: `Este CFDI no tiene archivo ${tipo.toUpperCase()} adjunto` });
+  const blobResult = await get(blobUrl, { access: 'private' });
+  if (!blobResult) return res.status(404).json({ error: 'Archivo no encontrado en almacenamiento' });
+  res.setHeader('Content-Type', tipo === 'pdf' ? 'application/pdf' : 'application/xml');
+  res.setHeader('Content-Disposition', safeContentDisposition('inline', nombreArchivo));
+  await pipeline(Readable.fromWeb(blobResult.stream), res);
 }));
 
 // ---------------------------------------------------------------------------

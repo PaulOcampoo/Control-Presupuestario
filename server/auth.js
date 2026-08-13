@@ -777,14 +777,29 @@ function requireEstadoResultadosAccess(req, res, next) {
   next();
 }
 
-// Agrega los tabs 'cuentas'/'controlFinanciero' a la lista SOLO para los
-// usuarios en la whitelist correspondiente — el resto de admin/desarrollador
-// (incluida la cuenta bootstrap genérica y cualquier alta futura) ni
-// siquiera ve el link en el sidebar. Ocultar el tab es solo cortesía de UI
-// (nunca el gate real — ver requireControlCuentasAccess/
-// requireControlFinancieroAccess arriba, que es lo único que de verdad
-// protege los datos); por eso vive como wrapper sobre PERMISSIONS.tabs en
-// vez de duplicar la lista de tabs por usuario.
+// Contabilidad Fase 1 (prompt-contabilidad-fase1-cuentas-polizas.md) —
+// catálogo de cuentas contables + pólizas. Mismo patrón de whitelist que
+// Control de Cuentas/Control Financiero/Estado de Resultados arriba, pero
+// constante INDEPENDIENTE a propósito (mismo criterio documentado en esas
+// tres: aunque hoy tenga los mismos 2 IDs, un candado distinto para un dato
+// distinto no debe evolucionar acoplado a los otros).
+const USUARIOS_CONTABILIDAD = [46, 8];
+function requireContabilidadAccess(req, res, next) {
+  if (!USUARIOS_CONTABILIDAD.includes(req.user.id)) {
+    logDenied(req, 'sin acceso a Contabilidad (whitelist)');
+    return res.status(403).json({ error: 'No tienes permiso para realizar esta acción' });
+  }
+  next();
+}
+
+// Agrega los tabs 'cuentas'/'controlFinanciero'/'contabilidad' a la lista
+// SOLO para los usuarios en la whitelist correspondiente — el resto de
+// admin/desarrollador (incluida la cuenta bootstrap genérica y cualquier
+// alta futura) ni siquiera ve el link en el sidebar. Ocultar el tab es solo
+// cortesía de UI (nunca el gate real — ver requireControlCuentasAccess/
+// requireControlFinancieroAccess/requireContabilidadAccess arriba, que es
+// lo único que de verdad protege los datos); por eso vive como wrapper
+// sobre PERMISSIONS.tabs en vez de duplicar la lista de tabs por usuario.
 function tabsParaUsuario(user) {
   const base = PERMISSIONS[user.puesto] ? PERMISSIONS[user.puesto].tabs : [];
   const extra = [];
@@ -794,6 +809,7 @@ function tabsParaUsuario(user) {
     if (!base.includes('estadoResultados')) extra.push('estadoResultados');
     if (!base.includes('estadoResultadosGlobal')) extra.push('estadoResultadosGlobal');
   }
+  if (USUARIOS_CONTABILIDAD.includes(user.id) && !base.includes('contabilidad')) extra.push('contabilidad');
   return extra.length ? [...base, ...extra] : base;
 }
 
@@ -858,6 +874,7 @@ module.exports = {
   requireControlCuentasAccess,
   requireControlFinancieroAccess,
   requireEstadoResultadosAccess,
+  requireContabilidadAccess,
   tabsParaUsuario,
   verificarAccesoObra,
   ensureBootstrapAdmin,

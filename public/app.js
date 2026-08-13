@@ -1149,11 +1149,12 @@ const SECTION_DEFS = {
   // Composición de costos reubicadas aquí (antes en obra/administracion) —
   // pura reubicación de navegación, misma lógica/endpoints de siempre.
   presupuestos:  { label: 'Presupuestos',   icon: 'presupuestos',   emoji: '📑',   tabs: ['matrices', 'costos', 'composicion_costos'], proximamente: [] },
-  // Placeholder: tabs: [] hace que goToSection() muestre el tooltip
-  // "Próximamente" sin navegar (mismo tratamiento que tuvo Maquinaria antes
-  // de prompt-39-maquinaria-galeria-subsecciones.md) — contenido real
-  // pendiente de un prompt posterior.
-  contabilidad:  { label: 'Contabilidad',   icon: 'contabilidad',   emoji: '📘',   tabs: [], proximamente: [] },
+  // prompt-contabilidad-fase1-cuentas-polizas.md: catálogo de cuentas +
+  // pólizas. Un solo tab 'contabilidad' con subnav interno (mismo patrón que
+  // 'controlFinanciero' arriba para Ingresos/Gastos Indirectos) — visible
+  // solo para la whitelist USUARIOS_CONTABILIDAD (server/auth.js,
+  // tabsParaUsuario), el resto de admin/desarrollador ni ve el tab.
+  contabilidad:  { label: 'Contabilidad',   icon: 'contabilidad',   emoji: '📘',   tabs: ['contabilidad'], proximamente: [] },
 };
 
 const TAB_ICONS = {
@@ -1164,7 +1165,7 @@ const TAB_ICONS = {
   maquinaria_consumibles: '⛽', maquinaria_reportes_cliente: '📊',
   nominas_global: '💵', trabajadores_global: '👷', cotizador: '🔍',
   estadoResultados: '📈', estadoResultadosGlobal: '📈', costos: '💲', avance_clientes: '📈', composicion_costos: '🧮',
-  cuentas: '🏦', matrices: '🧱', controlFinanciero: '💹',
+  cuentas: '🏦', matrices: '🧱', controlFinanciero: '💹', contabilidad: '📘',
 };
 const TAB_LABELS = {
   resumen: 'Resumen', contrato: 'Contrato', impuestos: 'Impuestos', insumos: 'Insumos', requisiciones: 'Requisiciones',
@@ -1177,6 +1178,7 @@ const TAB_LABELS = {
   cotizador: 'Cotizador', estadoResultados: 'Estado de Resultados', estadoResultadosGlobal: 'Estado de Resultados (todas las obras)',
   costos: 'Costos', avance_clientes: 'Avance por cliente', composicion_costos: 'Composición de costos',
   cuentas: 'Cuentas', matrices: 'Matrices de precio unitario', controlFinanciero: 'Control Financiero',
+  contabilidad: 'Contabilidad',
 };
 
 const VIEW_TO_SECTION = {};
@@ -3883,11 +3885,12 @@ function destroyCharts() {
 async function renderView() {
   destroyCharts();
   const view = $('#view');
-  if (state.view === 'usuarios' || state.view === 'proveedores' || MAQUINARIA_TABS_ADMIN.includes(state.view) || state.view === 'nominas_global' || state.view === 'trabajadores_global' || state.view === 'cotizador' || state.view === 'estadoResultadosGlobal' || state.view === 'costos' || state.view === 'avance_clientes' || state.view === 'composicion_costos' || state.view === 'cuentas' || state.view === 'controlFinanciero') {
+  if (state.view === 'usuarios' || state.view === 'proveedores' || MAQUINARIA_TABS_ADMIN.includes(state.view) || state.view === 'nominas_global' || state.view === 'trabajadores_global' || state.view === 'cotizador' || state.view === 'estadoResultadosGlobal' || state.view === 'costos' || state.view === 'avance_clientes' || state.view === 'composicion_costos' || state.view === 'cuentas' || state.view === 'controlFinanciero' || state.view === 'contabilidad') {
     try {
       if (state.view === 'usuarios') { await renderUsuarios(view, state.usuariosSubView); state.usuariosSubView = null; }
       else if (state.view === 'cuentas') await renderControlCuentas(view);
       else if (state.view === 'controlFinanciero') await renderControlFinanciero(view);
+      else if (state.view === 'contabilidad') await renderContabilidad(view);
       else if (state.view === 'proveedores') await renderProveedores(view);
       else if (state.view === 'nominas_global') await renderNominasGlobal(view);
       else if (state.view === 'trabajadores_global') await renderTrabajadoresGlobal(view);
@@ -11846,6 +11849,367 @@ function openEditarGastoIndirectoCfModal(gasto, onSaved) {
       toast(err.message, 'danger');
       btn.disabled = false;
     }
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Contabilidad Fase 1 (prompt-contabilidad-fase1-cuentas-polizas.md) —
+// catálogo de cuentas contables + pólizas. Mismo patrón que
+// renderControlFinanciero: un tab con subnav interno, filas clicables que
+// abren un modal con el detalle/acción (en vez de botones por fila — no
+// existe un componente de "select custom" en el proyecto, se usa <select>
+// nativo consistente con el resto de Control Financiero/Costos/etc.).
+// ---------------------------------------------------------------------------
+const TIPO_CUENTA_CONT_LABELS = { activo: 'Activo', pasivo: 'Pasivo', capital: 'Capital', ingreso: 'Ingreso', gasto: 'Gasto' };
+const TIPO_POLIZA_CONT_LABELS = { ingreso: 'Ingreso', egreso: 'Egreso', diario: 'Diario' };
+
+async function renderContabilidad(view) {
+  let subView = 'cuentas'; // 'cuentas' | 'polizas'
+  let cuentasActivasCache = []; // para el selector de cuenta en el modal de nueva póliza
+
+  function renderSubNav() {
+    return `
+      <div class="nominas-subnav">
+        <button class="btn ${subView === 'cuentas' ? 'btn-primary' : ''}" id="btnContSubCuentas">Catálogo de Cuentas</button>
+        <button class="btn ${subView === 'polizas' ? 'btn-primary' : ''}" id="btnContSubPolizas">Pólizas</button>
+      </div>
+    `;
+  }
+  function bindSubNav() {
+    $('#btnContSubCuentas').addEventListener('click', showCuentas);
+    $('#btnContSubPolizas').addEventListener('click', showPolizas);
+  }
+
+  async function showCuentas() {
+    subView = 'cuentas';
+    view.innerHTML = `
+      <h2 class="section-title">Contabilidad</h2>
+      <p class="muted">Catálogo de cuentas contables y registro de pólizas — acceso restringido.</p>
+      ${renderSubNav()}
+      <div class="card mt-12">
+        <label>Tipo</label>
+        <select id="contCuentasTipoFiltro">
+          <option value="">Todos</option>
+          ${Object.entries(TIPO_CUENTA_CONT_LABELS).map(([v, l]) => `<option value="${v}">${l}</option>`).join('')}
+        </select>
+        <label class="mt-8">Estatus</label>
+        <select id="contCuentasEstatusFiltro">
+          <option value="">Todos</option>
+          <option value="activa">Activa</option>
+          <option value="inactiva">Inactiva</option>
+        </select>
+      </div>
+      <div class="section-actions mt-12">
+        <button class="btn btn-primary" id="btnNuevaCuentaCont">+ Nueva cuenta</button>
+      </div>
+      <div id="contCuentasList" class="mt-12"></div>
+    `;
+    bindSubNav();
+    $('#contCuentasTipoFiltro').addEventListener('change', cargarCuentas);
+    $('#contCuentasEstatusFiltro').addEventListener('change', cargarCuentas);
+    $('#btnNuevaCuentaCont').addEventListener('click', () => openNuevaCuentaContModal(cargarCuentas));
+    await cargarCuentas();
+  }
+
+  async function cargarCuentas() {
+    const list = $('#contCuentasList');
+    list.innerHTML = '<div class="spinner"></div>';
+    try {
+      const tipo = $('#contCuentasTipoFiltro').value;
+      const estatus = $('#contCuentasEstatusFiltro').value;
+      const params = new URLSearchParams();
+      if (tipo) params.set('tipo', tipo);
+      if (estatus) params.set('estatus', estatus);
+      const cuentas = await api(`/contabilidad/cuentas${params.toString() ? `?${params}` : ''}`);
+      if (!cuentas.length) { list.innerHTML = '<div class="empty-state">Sin cuentas registradas.</div>'; return; }
+      list.innerHTML = `
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th>Código</th><th>Nombre</th><th>Tipo</th><th>Estatus</th></tr></thead>
+            <tbody>
+              ${cuentas.map((c) => `
+                <tr class="row-click" data-cuenta-id="${c.id}">
+                  <td>${esc(c.codigo)}</td>
+                  <td>${esc(c.nombre)}</td>
+                  <td>${TIPO_CUENTA_CONT_LABELS[c.tipo] || esc(c.tipo)}</td>
+                  <td>${c.estatus === 'activa' ? 'Activa' : '<span class="muted">Inactiva</span>'}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+      `;
+      $$('[data-cuenta-id]', list).forEach((row) => {
+        row.addEventListener('click', () => openEditarCuentaContModal(cuentas.find((c) => c.id === Number(row.dataset.cuentaId)), cargarCuentas));
+      });
+    } catch (err) {
+      list.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+    }
+  }
+
+  async function cargarCuentasActivasCache() {
+    try { cuentasActivasCache = await api('/contabilidad/cuentas?estatus=activa'); }
+    catch { cuentasActivasCache = []; }
+  }
+
+  async function showPolizas() {
+    subView = 'polizas';
+    view.innerHTML = `
+      <h2 class="section-title">Contabilidad</h2>
+      <p class="muted">Catálogo de cuentas contables y registro de pólizas — acceso restringido.</p>
+      ${renderSubNav()}
+      <div class="card mt-12">
+        <label>Tipo</label>
+        <select id="contPolizasTipoFiltro">
+          <option value="">Todos</option>
+          ${Object.entries(TIPO_POLIZA_CONT_LABELS).map(([v, l]) => `<option value="${v}">${l}</option>`).join('')}
+        </select>
+        <label class="mt-8">Obra</label>
+        <select id="contPolizasObraFiltro">
+          <option value="">Todas</option>
+          <option value="sin-obra">Corporativo / sin obra</option>
+          ${state.projects.map((p) => `<option value="${p.id}">${esc(p.nombre)}</option>`).join('')}
+        </select>
+        <label class="mt-8">Estatus</label>
+        <select id="contPolizasEstatusFiltro">
+          <option value="">Todos</option>
+          <option value="activa">Activa</option>
+          <option value="cancelada">Cancelada</option>
+        </select>
+      </div>
+      <div class="section-actions mt-12">
+        <button class="btn btn-primary" id="btnNuevaPolizaCont">+ Nueva póliza</button>
+      </div>
+      <div id="contPolizasList" class="mt-12"></div>
+    `;
+    bindSubNav();
+    $('#contPolizasTipoFiltro').addEventListener('change', cargarPolizas);
+    $('#contPolizasObraFiltro').addEventListener('change', cargarPolizas);
+    $('#contPolizasEstatusFiltro').addEventListener('change', cargarPolizas);
+    $('#btnNuevaPolizaCont').addEventListener('click', async () => {
+      if (!cuentasActivasCache.length) await cargarCuentasActivasCache();
+      if (!cuentasActivasCache.length) { toast('Da de alta al menos una cuenta activa antes de capturar pólizas', 'danger'); return; }
+      openNuevaPolizaContModal(cuentasActivasCache, cargarPolizas);
+    });
+    await cargarCuentasActivasCache();
+    await cargarPolizas();
+  }
+
+  async function cargarPolizas() {
+    const list = $('#contPolizasList');
+    list.innerHTML = '<div class="spinner"></div>';
+    try {
+      const params = new URLSearchParams();
+      const tipo = $('#contPolizasTipoFiltro').value;
+      const obra = $('#contPolizasObraFiltro').value;
+      const estatus = $('#contPolizasEstatusFiltro').value;
+      if (tipo) params.set('tipo', tipo);
+      if (obra) params.set('project_id', obra);
+      if (estatus) params.set('estatus', estatus);
+      const polizas = await api(`/contabilidad/polizas${params.toString() ? `?${params}` : ''}`);
+      if (!polizas.length) { list.innerHTML = '<div class="empty-state">Sin pólizas registradas.</div>'; return; }
+      const totalActivo = polizas.filter((p) => p.estatus === 'activa').reduce((s, p) => s + Number(p.monto), 0);
+      list.innerHTML = `
+        <div class="kpi-grid">
+          <div class="kpi accent"><div class="label">Total (activas, filtro actual)</div><div class="value">${fmtMoney(totalActivo)}</div></div>
+        </div>
+        <div class="table-scroll mt-12">
+          <table>
+            <thead><tr><th>Fecha</th><th>Tipo</th><th>Cuenta</th><th>Concepto</th><th>Obra</th><th class="num">Monto</th><th>Estatus</th></tr></thead>
+            <tbody>
+              ${polizas.map((p) => `
+                <tr class="row-click" data-poliza-id="${p.id}">
+                  <td>${fmtDate(p.fecha)}</td>
+                  <td>${TIPO_POLIZA_CONT_LABELS[p.tipo] || esc(p.tipo)}</td>
+                  <td>${esc(p.cuenta_codigo)} — ${esc(p.cuenta_nombre)}</td>
+                  <td>${esc(p.concepto)}</td>
+                  <td>${p.project_nombre ? esc(p.project_nombre) : '<span class="muted">Corporativo</span>'}</td>
+                  <td class="num">${fmtMoney(p.monto)}</td>
+                  <td>${p.estatus === 'activa' ? 'Activa' : '<span class="muted">Cancelada</span>'}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+      `;
+      $$('[data-poliza-id]', list).forEach((row) => {
+        row.addEventListener('click', () => openDetallePolizaContModal(polizas.find((p) => p.id === Number(row.dataset.polizaId)), cargarPolizas));
+      });
+    } catch (err) {
+      list.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+    }
+  }
+
+  await showCuentas();
+}
+
+function openNuevaCuentaContModal(onSaved) {
+  openModal(`
+    <h3>Nueva cuenta contable</h3>
+    <p class="muted fs-08">Código numérico con prefijo por tipo: 1xxx=Activo, 2xxx=Pasivo, 3xxx=Capital, 4xxx=Ingreso, 5xxx=Gasto. No se puede editar después de creada.</p>
+    <div class="field"><label>Código *</label><input id="contCtaCodigo" placeholder="Ej. 1103" /></div>
+    <div class="field"><label>Nombre *</label><input id="contCtaNombre" /></div>
+    <div class="field"><label>Tipo *</label>
+      <select id="contCtaTipo">
+        <option value="">Selecciona…</option>
+        ${Object.entries(TIPO_CUENTA_CONT_LABELS).map(([v, l]) => `<option value="${v}">${l}</option>`).join('')}
+      </select>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" id="btnCancelContCta">Cerrar</button>
+      <button class="btn btn-primary" id="btnSaveContCta">Guardar</button>
+    </div>
+  `);
+  $('#btnCancelContCta').addEventListener('click', closeModal);
+  $('#btnSaveContCta').addEventListener('click', async () => {
+    const body = {
+      codigo: $('#contCtaCodigo').value.trim(),
+      nombre: $('#contCtaNombre').value.trim(),
+      tipo: $('#contCtaTipo').value,
+    };
+    if (!body.codigo || !body.nombre || !body.tipo) { toast('Completa código, nombre y tipo', 'danger'); return; }
+    const btn = $('#btnSaveContCta');
+    btn.disabled = true;
+    try {
+      await api('/contabilidad/cuentas', { method: 'POST', body });
+      toast('Cuenta creada', 'success');
+      closeModal();
+      onSaved();
+    } catch (err) {
+      toast(err.message, 'danger');
+      btn.disabled = false;
+    }
+  });
+}
+
+function openEditarCuentaContModal(cuenta, onSaved) {
+  openModal(`
+    <h3>Editar cuenta</h3>
+    <p class="muted">Código: <strong>${esc(cuenta.codigo)}</strong> (no editable)</p>
+    <div class="field"><label>Nombre *</label><input id="contCtaEditNombre" value="${esc(cuenta.nombre)}" /></div>
+    <div class="field"><label>Tipo *</label>
+      <select id="contCtaEditTipo">
+        ${Object.entries(TIPO_CUENTA_CONT_LABELS).map(([v, l]) => `<option value="${v}" ${v === cuenta.tipo ? 'selected' : ''}>${l}</option>`).join('')}
+      </select>
+    </div>
+    <p class="muted fs-08">El tipo solo puede cambiarse si sigue siendo compatible con el prefijo del código (${esc(cuenta.codigo[0])}xxx).</p>
+    <div class="modal-actions">
+      <button class="btn" id="btnCancelContCtaEdit">Cerrar</button>
+      <button class="btn ${cuenta.estatus === 'activa' ? 'btn-danger' : ''}" id="btnToggleContCta">${cuenta.estatus === 'activa' ? 'Inactivar' : 'Activar'}</button>
+      <button class="btn btn-primary" id="btnSaveContCtaEdit">Guardar cambios</button>
+    </div>
+  `);
+  $('#btnCancelContCtaEdit').addEventListener('click', closeModal);
+  $('#btnSaveContCtaEdit').addEventListener('click', async () => {
+    const body = { nombre: $('#contCtaEditNombre').value.trim(), tipo: $('#contCtaEditTipo').value };
+    if (!body.nombre) { toast('El nombre es requerido', 'danger'); return; }
+    const btn = $('#btnSaveContCtaEdit');
+    btn.disabled = true;
+    try {
+      await api(`/contabilidad/cuentas/${cuenta.id}`, { method: 'PUT', body });
+      toast('Cuenta actualizada', 'success');
+      closeModal();
+      onSaved();
+    } catch (err) {
+      toast(err.message, 'danger');
+      btn.disabled = false;
+    }
+  });
+  $('#btnToggleContCta').addEventListener('click', async () => {
+    const nuevoEstatus = cuenta.estatus === 'activa' ? 'inactiva' : 'activa';
+    const ok = await confirmDialog(`¿${nuevoEstatus === 'inactiva' ? 'Inactivar' : 'Activar'} la cuenta "${cuenta.nombre}"?`, { titulo: 'Confirmar', claseAceptar: nuevoEstatus === 'inactiva' ? 'btn-danger' : 'btn-primary' });
+    if (!ok) return;
+    try {
+      await api(`/contabilidad/cuentas/${cuenta.id}/estatus`, { method: 'PUT', body: { estatus: nuevoEstatus } });
+      toast('Cuenta actualizada', 'success');
+      closeModal();
+      onSaved();
+    } catch (err) { toast(err.message, 'danger'); }
+  });
+}
+
+function openNuevaPolizaContModal(cuentasActivas, onSaved) {
+  openModal(`
+    <h3>Nueva póliza</h3>
+    <div class="field"><label>Tipo *</label>
+      <select id="contPolTipo">
+        ${Object.entries(TIPO_POLIZA_CONT_LABELS).map(([v, l]) => `<option value="${v}">${l}</option>`).join('')}
+      </select>
+    </div>
+    <div class="field"><label>Fecha *</label><input id="contPolFecha" type="date" value="${new Date().toISOString().slice(0, 10)}" /></div>
+    <div class="field"><label>Cuenta *</label>
+      <select id="contPolCuenta">
+        ${cuentasActivas.map((c) => `<option value="${c.id}">${esc(c.codigo)} — ${esc(c.nombre)}</option>`).join('')}
+      </select>
+    </div>
+    <div class="field"><label>Monto *</label><input id="contPolMonto" type="number" min="0" step="0.01" /></div>
+    <div class="field"><label>Concepto *</label><input id="contPolConcepto" /></div>
+    <div class="field"><label>Referencia (factura, etc.)</label><input id="contPolReferencia" /></div>
+    <div class="field"><label>Obra</label>
+      <select id="contPolObra">
+        <option value="">Sin obra / Corporativo</option>
+        ${state.projects.map((p) => `<option value="${p.id}">${esc(p.nombre)}</option>`).join('')}
+      </select>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" id="btnCancelContPol">Cerrar</button>
+      <button class="btn btn-primary" id="btnSaveContPol">Guardar</button>
+    </div>
+  `);
+  $('#btnCancelContPol').addEventListener('click', closeModal);
+  $('#btnSaveContPol').addEventListener('click', async () => {
+    const body = {
+      tipo: $('#contPolTipo').value,
+      fecha: $('#contPolFecha').value,
+      cuenta_id: Number($('#contPolCuenta').value),
+      monto: Number($('#contPolMonto').value),
+      concepto: $('#contPolConcepto').value.trim(),
+      referencia_factura: $('#contPolReferencia').value.trim() || null,
+      project_id: $('#contPolObra').value ? Number($('#contPolObra').value) : null,
+    };
+    if (!body.fecha || !body.cuenta_id || !(body.monto > 0) || !body.concepto) {
+      toast('Completa fecha, cuenta, monto y concepto', 'danger'); return;
+    }
+    const btn = $('#btnSaveContPol');
+    btn.disabled = true;
+    try {
+      await api('/contabilidad/polizas', { method: 'POST', body });
+      toast('Póliza creada', 'success');
+      closeModal();
+      onSaved();
+    } catch (err) {
+      toast(err.message, 'danger');
+      btn.disabled = false;
+    }
+  });
+}
+
+function openDetallePolizaContModal(poliza, onChange) {
+  openModal(`
+    <h3>Detalle de póliza</h3>
+    <p><strong>${TIPO_POLIZA_CONT_LABELS[poliza.tipo] || esc(poliza.tipo)}</strong> — ${fmtDate(poliza.fecha)}</p>
+    <p>Cuenta: ${esc(poliza.cuenta_codigo)} — ${esc(poliza.cuenta_nombre)}</p>
+    <p>Concepto: ${esc(poliza.concepto)}</p>
+    <p>Monto: ${fmtMoney(poliza.monto)}</p>
+    <p>Obra: ${poliza.project_nombre ? esc(poliza.project_nombre) : 'Corporativo (sin obra)'}</p>
+    ${poliza.referencia_factura ? `<p>Referencia: ${esc(poliza.referencia_factura)}</p>` : ''}
+    <p>Capturado por: ${esc(poliza.usuario_nombre || '—')}</p>
+    <p>Estatus: ${poliza.estatus === 'activa' ? 'Activa' : `<span class="muted">Cancelada</span>`}</p>
+    <div class="modal-actions">
+      <button class="btn" id="btnCerrarContPolDetalle">Cerrar</button>
+      ${poliza.estatus === 'activa' ? '<button class="btn btn-danger" id="btnCancelarContPol">Cancelar póliza</button>' : ''}
+    </div>
+  `);
+  $('#btnCerrarContPolDetalle').addEventListener('click', () => { closeModal(); onChange(); });
+  $('#btnCancelarContPol')?.addEventListener('click', async () => {
+    const ok = await confirmDialog('¿Cancelar esta póliza? El registro no se borra, solo cambia su estatus.', { titulo: 'Cancelar póliza', textoAceptar: 'Cancelar póliza', claseAceptar: 'btn-danger' });
+    if (!ok) return;
+    try {
+      await api(`/contabilidad/polizas/${poliza.id}/cancelar`, { method: 'PUT' });
+      toast('Póliza cancelada', 'success');
+      closeModal();
+      onChange();
+    } catch (err) { toast(err.message, 'danger'); }
   });
 }
 

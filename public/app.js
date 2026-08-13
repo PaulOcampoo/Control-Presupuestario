@@ -9167,7 +9167,7 @@ const MAQUINARIA_TIPOS = ['retroexcavadora', 'equipo menor', 'herramienta eléct
 // operador elige de esta lista (auto-llenado), no escribe texto libre.
 // Espejo exacto de ACTIVIDADES_MAQUINARIA en server/app.js, que es quien
 // valida de verdad (esto es solo para pintar el <select>).
-const ACTIVIDADES_MAQUINARIA = ['Excavaciones', 'Cepas', 'Rellenos', 'Acarreos', 'Carga de material', 'Limpiezas', 'Taller', 'Renta'];
+const ACTIVIDADES_MAQUINARIA = ['Excavaciones', 'Cepas', 'Rellenos', 'Acarreos', 'Carga de material', 'Limpiezas', 'Taller', 'Renta', 'Conformación de terreno'];
 let maquinariaEquiposCache = [];
 
 // Checklist de "estado de la unidad" (prompt-6-estado-unidad-operador.md) —
@@ -10033,8 +10033,13 @@ function openHorasMaqModal(equipos, proyectos) {
     <div class="field"><label>Equipo *</label><select id="hrEquipo">${equipoSelectOptions(equipos, true)}</select></div>
     <div class="field"><label>Fecha *</label><input id="hrFecha" type="date" value="${new Date().toISOString().slice(0, 10)}" /></div>
     <div class="field"><label>Horas *</label><input id="hrHoras" type="number" min="0" step="0.1" /></div>
-    <div class="field"><label>Actividad *</label>
-      <select id="hrActividad"><option value="">Selecciona…</option>${ACTIVIDADES_MAQUINARIA.map((a) => `<option value="${esc(a)}">${esc(a)}</option>`).join('')}</select>
+    <div class="field"><label>Actividad(es) *</label>
+      <div id="hrActividadList">
+        ${ACTIVIDADES_MAQUINARIA.map((a) => `
+          <label class="checkbox-row-fw400">
+            <input type="checkbox" class="w-auto hrActividadChk" value="${esc(a)}" /> ${esc(a)}
+          </label>`).join('')}
+      </div>
     </div>
     <div class="field"><label>Obra</label>
       <select id="hrObra"><option value="">Sin especificar</option>${proyectos.map((p) => `<option value="${p.id}">${esc(p.nombre)}</option>`).join('')}</select>
@@ -10046,16 +10051,17 @@ function openHorasMaqModal(equipos, proyectos) {
   `);
   $('#btnCancelHr').addEventListener('click', closeModal);
   $('#btnSaveHr').addEventListener('click', async () => {
+    const actividades = $$('.hrActividadChk', $('#hrActividadList')).filter((cb) => cb.checked).map((cb) => cb.value);
     const body = {
       equipo_id: Number($('#hrEquipo').value), fecha: $('#hrFecha').value,
       horas: Number($('#hrHoras').value), obra_id: $('#hrObra').value ? Number($('#hrObra').value) : null,
-      actividad: $('#hrActividad').value || null,
+      actividad: actividades,
     };
     if (!body.equipo_id || !body.fecha || !(body.horas > 0)) {
       toast('Completa equipo, fecha y horas', 'danger'); return;
     }
-    if (!body.actividad) {
-      toast('Selecciona una actividad', 'danger'); return;
+    if (!actividades.length) {
+      toast('Selecciona al menos una actividad', 'danger'); return;
     }
     const btn = $('#btnSaveHr');
     btn.disabled = true;

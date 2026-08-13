@@ -54,6 +54,7 @@ const { metaToObject, presupuestoTotalDe, getFinanzasResumenData } = require('./
 const { calcularJornal, calcularDestajo, totalConIvaEsValido, numeroALetra, calcularSplitCuentas } = require('./calculos');
 const { validarClabe } = require('./catalogoBancos');
 const estadoResultados = require('./estadoResultados');
+const contabilidad = require('./contabilidad');
 const { emparejarConceptos, calcularCambios } = require('./reintegracionPresupuesto');
 
 // CN-007: nombre_archivo/pdf_filename vienen del cliente (upload); una comilla
@@ -3392,6 +3393,79 @@ app.put('/api/control-financiero/gastos-indirectos/:id', h(auth.requireControlFi
   );
   if (!rows[0]) return res.status(404).json({ error: 'Gasto no encontrado' });
   res.json(rows[0]);
+}));
+
+// ---------------------------------------------------------------------------
+// Contabilidad Fase 1 (prompt-contabilidad-fase1-cuentas-polizas.md) —
+// catálogo de cuentas contables + pólizas. Gateado por
+// auth.requireContabilidadAccess (whitelist de usuario_id, server/auth.js)
+// en TODAS las rutas — nunca por rol ni por checkPermiso, mismo criterio que
+// Control Financiero/Control de Cuentas arriba. Silo separado de Finanzas/
+// Erogado Real (diagnóstico Fase 0, punto 4) — sin cruce automático.
+// "Eliminar" = inactivar (cuentas) o cancelar (pólizas), nunca DELETE físico.
+// ---------------------------------------------------------------------------
+app.get('/api/contabilidad/cuentas', h(auth.requireContabilidadAccess), h(async (req, res) => {
+  const { tipo, estatus } = req.query;
+  res.json(await contabilidad.listCuentas({ tipo, estatus }));
+}));
+
+app.post('/api/contabilidad/cuentas', h(auth.requireContabilidadAccess), h(async (req, res) => {
+  const { codigo, nombre, tipo } = req.body || {};
+  if (!codigo?.trim()) return res.status(400).json({ error: 'El código es requerido' });
+  if (!nombre?.trim()) return res.status(400).json({ error: 'El nombre es requerido' });
+  if (!['activo', 'pasivo', 'capital', 'ingreso', 'gasto'].includes(tipo)) {
+    return res.status(400).json({ error: 'Tipo inválido' });
+  }
+  const cuenta = await contabilidad.createCuenta({
+    codigo: codigo.trim(), nombre: nombre.trim(), tipo, creado_por: req.user.id,
+  });
+  res.status(201).json(cuenta);
+}));
+
+app.put('/api/contabilidad/cuentas/:id', h(auth.requireContabilidadAccess), h(async (req, res) => {
+  const { nombre, tipo } = req.body || {};
+  if (tipo && !['activo', 'pasivo', 'capital', 'ingreso', 'gasto'].includes(tipo)) {
+    return res.status(400).json({ error: 'Tipo inválido' });
+  }
+  const cuenta = await contabilidad.updateCuenta(Number(req.params.id), { nombre, tipo });
+  if (!cuenta) return res.status(404).json({ error: 'Cuenta no encontrada' });
+  res.json(cuenta);
+}));
+
+app.put('/api/contabilidad/cuentas/:id/estatus', h(auth.requireContabilidadAccess), h(async (req, res) => {
+  const { estatus } = req.body || {};
+  if (!['activa', 'inactiva'].includes(estatus)) return res.status(400).json({ error: 'Estatus inválido' });
+  const cuenta = await contabilidad.setCuentaEstatus(Number(req.params.id), estatus);
+  if (!cuenta) return res.status(404).json({ error: 'Cuenta no encontrada' });
+  res.json(cuenta);
+}));
+
+app.get('/api/contabilidad/polizas', h(auth.requireContabilidadAccess), h(async (req, res) => {
+  const { tipo, cuenta_id, project_id, desde, hasta, estatus } = req.query;
+  res.json(await contabilidad.listPolizas({
+    tipo, cuenta_id: cuenta_id ? Number(cuenta_id) : undefined, project_id, desde, hasta, estatus,
+  }));
+}));
+
+app.post('/api/contabilidad/polizas', h(auth.requireContabilidadAccess), h(async (req, res) => {
+  const { tipo, fecha, cuenta_id, monto, concepto, referencia_factura, project_id } = req.body || {};
+  if (!['ingreso', 'egreso', 'diario'].includes(tipo)) return res.status(400).json({ error: 'Tipo de póliza inválido' });
+  if (!cuenta_id) return res.status(400).json({ error: 'Indica la cuenta contable' });
+  if (!concepto?.trim()) return res.status(400).json({ error: 'El concepto es requerido' });
+  const montoNum = Number(monto);
+  if (!Number.isFinite(montoNum) || montoNum <= 0) return res.status(400).json({ error: 'Indica un monto válido' });
+  const poliza = await contabilidad.createPoliza({
+    tipo, fecha, cuenta_id: Number(cuenta_id), monto: montoNum, concepto: concepto.trim(),
+    referencia_factura: referencia_factura?.trim() || null,
+    project_id: project_id ? Number(project_id) : null, usuario_id: req.user.id,
+  });
+  res.status(201).json(poliza);
+}));
+
+app.put('/api/contabilidad/polizas/:id/cancelar', h(auth.requireContabilidadAccess), h(async (req, res) => {
+  const poliza = await contabilidad.cancelarPoliza(Number(req.params.id), req.user.id);
+  if (!poliza) return res.status(404).json({ error: 'Póliza no encontrada o ya cancelada' });
+  res.json(poliza);
 }));
 
 // ---------------------------------------------------------------------------

@@ -1407,6 +1407,80 @@ const SCHEMA = `
   );
   CREATE INDEX IF NOT EXISTS idx_gastos_indirectos_project ON gastos_indirectos_corporativos(project_id);
 
+  -- Contabilidad Fase 1 (prompt-contabilidad-fase1-cuentas-polizas.md) —
+  -- catálogo de cuentas contables + registro de pólizas. Silo intencionalmente
+  -- separado de Finanzas/Erogado Real (diagnóstico Fase 0, prompt-contabilidad-
+  -- fase0-diagnostico.md, punto 4) — sin cruce automático, misma decisión que
+  -- ya rige Control Financiero vs Finanzas. Gateado por
+  -- auth.requireContabilidadAccess (whitelist), no por checkPermiso.
+  --
+  -- codigo: formato numérico con prefijo por tipo (confirmado con Paul,
+  -- diagnóstico Fase 0) — 1xxx=activo, 2xxx=pasivo, 3xxx=capital,
+  -- 4xxx=ingreso, 5xxx=gasto. El CHECK de abajo valida el primer dígito
+  -- contra el tipo; server/contabilidad.js valida lo mismo antes del INSERT
+  -- para dar un mensaje de error legible en vez del texto crudo de Postgres.
+  -- codigo NUNCA se edita una vez creada la cuenta (para no romper
+  -- referencias históricas en polizas.cuenta_id) — para corregir un código
+  -- mal capturado: inactivar + dar de alta una cuenta nueva.
+  CREATE TABLE IF NOT EXISTS cuentas_contables (
+    id SERIAL PRIMARY KEY,
+    codigo TEXT NOT NULL UNIQUE,
+    nombre TEXT NOT NULL,
+    tipo TEXT NOT NULL CHECK (tipo IN ('activo','pasivo','capital','ingreso','gasto')),
+    estatus TEXT NOT NULL DEFAULT 'activa' CHECK (estatus IN ('activa','inactiva')),
+    creado_por INTEGER REFERENCES usuarios(id),
+    creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT cuentas_contables_codigo_prefijo_tipo CHECK (
+      (tipo = 'activo'  AND codigo ~ '^1[0-9]{3,}$') OR
+      (tipo = 'pasivo'  AND codigo ~ '^2[0-9]{3,}$') OR
+      (tipo = 'capital' AND codigo ~ '^3[0-9]{3,}$') OR
+      (tipo = 'ingreso' AND codigo ~ '^4[0-9]{3,}$') OR
+      (tipo = 'gasto'   AND codigo ~ '^5[0-9]{3,}$')
+    )
+  );
+
+  -- Catálogo base sembrado (confirmado con Paul, diagnóstico Fase 0) — punto
+  -- de partida editable/ampliable desde la UI, no un catálogo cerrado.
+  INSERT INTO cuentas_contables (codigo, nombre, tipo) VALUES
+    ('1101', 'Caja', 'activo'),
+    ('1102', 'Bancos', 'activo'),
+    ('1201', 'Clientes', 'activo'),
+    ('2101', 'Proveedores', 'pasivo'),
+    ('2102', 'Acreedores diversos', 'pasivo'),
+    ('2201', 'Impuestos por pagar', 'pasivo'),
+    ('3101', 'Capital social', 'capital'),
+    ('4101', 'Ingresos por obra', 'ingreso'),
+    ('4102', 'Otros ingresos', 'ingreso'),
+    ('5101', 'Gastos indirectos corporativos', 'gasto'),
+    ('5102', 'Nómina de oficina', 'gasto'),
+    ('5103', 'Renta', 'gasto'),
+    ('5104', 'Honorarios contables', 'gasto'),
+    ('5105', 'Gastos financieros', 'gasto'),
+    ('5106', 'Gastos varios', 'gasto')
+  ON CONFLICT (codigo) DO NOTHING;
+
+  -- project_id NULLABLE = póliza corporativa sin obra específica, mismo
+  -- patrón que gastos_indirectos_corporativos. cancelado_por/cancelado_en:
+  -- quedan NULL mientras estatus='activa'; se llenan al cancelar (nunca
+  -- DELETE físico — regla dura del proyecto).
+  CREATE TABLE IF NOT EXISTS polizas (
+    id SERIAL PRIMARY KEY,
+    tipo TEXT NOT NULL CHECK (tipo IN ('ingreso','egreso','diario')),
+    fecha DATE NOT NULL DEFAULT CURRENT_DATE,
+    cuenta_id INTEGER NOT NULL REFERENCES cuentas_contables(id),
+    monto DOUBLE PRECISION NOT NULL,
+    concepto TEXT NOT NULL,
+    referencia_factura TEXT,
+    project_id INTEGER REFERENCES proyectos(id) ON DELETE CASCADE,
+    usuario_id INTEGER NOT NULL REFERENCES usuarios(id),
+    estatus TEXT NOT NULL DEFAULT 'activa' CHECK (estatus IN ('activa','cancelada')),
+    cancelado_por INTEGER REFERENCES usuarios(id),
+    cancelado_en TIMESTAMPTZ,
+    creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
+  CREATE INDEX IF NOT EXISTS idx_polizas_project ON polizas(project_id);
+  CREATE INDEX IF NOT EXISTS idx_polizas_cuenta ON polizas(cuenta_id);
+
   -- % estándar de referencia para Composición de costos (docs/diseno-desglose-
   -- presupuesto-categorias) — usado como "base" de comparación contra el %
   -- real (insumos.categoria) cuando una obra NO tiene contrato/cédula cargado.

@@ -2862,6 +2862,15 @@ const AYUDA_CONTENIDO = {
       'Puedes descargar el XML y el PDF de cada CFDI desde su detalle en cualquier momento.',
     ],
   },
+  contabilidadConciliacion: {
+    titulo: 'Conciliación Bancaria',
+    pasos: [
+      'Primero da de alta al menos una cuenta bancaria (botón "Cuentas bancarias") — ya arranca con una llamada "Cuenta principal" que puedes renombrar.',
+      'Para importar movimientos, sube el archivo .xlsx o .csv que exporta tu banco. Antes de guardar nada verás un preview con lo que se agregaría — las filas en gris ya existen y se omiten automáticamente, no se duplican aunque reimportes el mismo archivo por error.',
+      'Un movimiento se concilia manualmente: si el sistema encuentra una póliza con el mismo monto y fecha cercana (±3 días) te la sugiere, pero tú decides si aceptarla o elegir otra — nunca se concilia solo.',
+      '"Desconciliar" no borra nada — solo quita el vínculo con la póliza y el movimiento vuelve a quedar pendiente, por si te equivocaste.',
+    ],
+  },
 };
 
 // Botón "?" reutilizable — colócalo junto al título/acción de cualquier
@@ -11900,8 +11909,9 @@ const TIPO_CUENTA_CONT_LABELS = { activo: 'Activo', pasivo: 'Pasivo', capital: '
 const TIPO_POLIZA_CONT_LABELS = { ingreso: 'Ingreso', egreso: 'Egreso', diario: 'Diario' };
 
 async function renderContabilidad(view) {
-  let subView = 'cuentas'; // 'cuentas' | 'polizas' | 'cfdi'
+  let subView = 'cuentas'; // 'cuentas' | 'polizas' | 'cfdi' | 'conciliacion'
   let cuentasActivasCache = []; // para el selector de cuenta en el modal de nueva póliza
+  let cuentaBancariaSeleccionada = null;
 
   function renderSubNav() {
     return `
@@ -11909,6 +11919,7 @@ async function renderContabilidad(view) {
         <button class="btn ${subView === 'cuentas' ? 'btn-primary' : ''}" id="btnContSubCuentas">Catálogo de Cuentas</button>
         <button class="btn ${subView === 'polizas' ? 'btn-primary' : ''}" id="btnContSubPolizas">Pólizas</button>
         <button class="btn ${subView === 'cfdi' ? 'btn-primary' : ''}" id="btnContSubCfdi">CFDI</button>
+        <button class="btn ${subView === 'conciliacion' ? 'btn-primary' : ''}" id="btnContSubConciliacion">Conciliación Bancaria</button>
       </div>
     `;
   }
@@ -11916,6 +11927,7 @@ async function renderContabilidad(view) {
     $('#btnContSubCuentas').addEventListener('click', showCuentas);
     $('#btnContSubPolizas').addEventListener('click', showPolizas);
     $('#btnContSubCfdi').addEventListener('click', showCfdi);
+    $('#btnContSubConciliacion').addEventListener('click', showConciliacion);
   }
 
   async function showCuentas() {
@@ -12156,6 +12168,104 @@ async function renderContabilidad(view) {
       `;
       $$('[data-cfdi-id]', list).forEach((row) => {
         row.addEventListener('click', () => openDetalleCfdiContModal(cfdis.find((c) => c.id === Number(row.dataset.cfdiId)), cargarCfdi));
+      });
+    } catch (err) {
+      list.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+    }
+  }
+
+  async function showConciliacion() {
+    subView = 'conciliacion';
+    view.innerHTML = `
+      <h2 class="section-title">Contabilidad ${renderHelpBtn('contabilidadConciliacion')}</h2>
+      <p class="muted">Catálogo de cuentas contables y registro de pólizas — acceso restringido.</p>
+      ${renderSubNav()}
+      <div class="card mt-12">
+        <label>Cuenta bancaria</label>
+        <select id="contConcCuentaSelect"><option value="">Cargando…</option></select>
+        <label class="mt-8">Estatus</label>
+        <select id="contConcEstatusFiltro">
+          <option value="">Todos</option>
+          <option value="pendiente">Pendiente</option>
+          <option value="conciliado">Conciliado</option>
+        </select>
+      </div>
+      <div class="section-actions mt-12">
+        <button class="btn" id="btnGestionarCuentasBancarias">Cuentas bancarias</button>
+        <button class="btn btn-primary" id="btnImportarMovimientos">+ Importar movimientos</button>
+      </div>
+      <div id="contConcList" class="mt-12"><div class="spinner"></div></div>
+    `;
+    bindSubNav();
+    await cargarCuentasBancariasSelect();
+    $('#contConcCuentaSelect').addEventListener('change', (e) => {
+      cuentaBancariaSeleccionada = e.target.value ? Number(e.target.value) : null;
+      cargarMovimientos();
+    });
+    $('#contConcEstatusFiltro').addEventListener('change', cargarMovimientos);
+    $('#btnGestionarCuentasBancarias').addEventListener('click', () => openGestionCuentasBancariasModal(async () => {
+      await cargarCuentasBancariasSelect();
+      await cargarMovimientos();
+    }));
+    $('#btnImportarMovimientos').addEventListener('click', () => {
+      if (!cuentaBancariaSeleccionada) { toast('Da de alta o selecciona una cuenta bancaria primero', 'danger'); return; }
+      openImportarMovimientosModal(cuentaBancariaSeleccionada, cargarMovimientos);
+    });
+    await cargarMovimientos();
+  }
+
+  async function cargarCuentasBancariasSelect() {
+    const select = $('#contConcCuentaSelect');
+    if (!select) return;
+    try {
+      const cuentas = await api('/contabilidad/cuentas-bancarias?activo=true');
+      if (!cuentaBancariaSeleccionada && cuentas.length) cuentaBancariaSeleccionada = cuentas[0].id;
+      if (cuentaBancariaSeleccionada && !cuentas.some((c) => c.id === cuentaBancariaSeleccionada)) cuentaBancariaSeleccionada = cuentas[0]?.id || null;
+      select.innerHTML = cuentas.length
+        ? cuentas.map((c) => `<option value="${c.id}" ${c.id === cuentaBancariaSeleccionada ? 'selected' : ''}>${esc(c.nombre)}${c.banco ? ` — ${esc(c.banco)}` : ''}</option>`).join('')
+        : '<option value="">Sin cuentas activas</option>';
+    } catch (err) {
+      select.innerHTML = '<option value="">Error al cargar</option>';
+    }
+  }
+
+  async function cargarMovimientos() {
+    const list = $('#contConcList');
+    if (!list) return;
+    if (!cuentaBancariaSeleccionada) { list.innerHTML = '<div class="empty-state">Da de alta o selecciona una cuenta bancaria.</div>'; return; }
+    list.innerHTML = '<div class="spinner"></div>';
+    try {
+      const params = new URLSearchParams();
+      params.set('cuenta_bancaria_id', cuentaBancariaSeleccionada);
+      const estatus = $('#contConcEstatusFiltro').value;
+      if (estatus) params.set('estatus', estatus);
+      const movimientos = await api(`/contabilidad/movimientos?${params}`);
+      if (!movimientos.length) { list.innerHTML = '<div class="empty-state">Sin movimientos para esta cuenta/filtro.</div>'; return; }
+      list.innerHTML = `
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th>Fecha</th><th>Descripción</th><th>Tipo</th><th class="num">Monto</th><th>Estatus</th><th>Póliza / Sugerencia</th></tr></thead>
+            <tbody>
+              ${movimientos.map((m) => `
+                <tr class="row-click" data-mov-id="${m.id}">
+                  <td>${fmtDate(m.fecha)}</td>
+                  <td>${esc(m.descripcion)}</td>
+                  <td>${m.tipo === 'cargo' ? 'Cargo' : 'Abono'}</td>
+                  <td class="num">${fmtMoney(m.monto)}</td>
+                  <td>${m.estatus === 'conciliado' ? 'Conciliado' : '<span class="muted">Pendiente</span>'}</td>
+                  <td class="fs-08">
+                    ${m.estatus === 'conciliado'
+                      ? esc(m.poliza_concepto || '')
+                      : (m.sugerencia_poliza_id ? `💡 ${esc(m.sugerencia_concepto)}` : '<span class="muted">Sin sugerencia</span>')}
+                  </td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+      `;
+      $$('[data-mov-id]', list).forEach((row) => {
+        row.addEventListener('click', () => openDetalleMovimientoModal(movimientos.find((m) => m.id === Number(row.dataset.movId)), cargarMovimientos));
       });
     } catch (err) {
       list.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
@@ -12473,6 +12583,288 @@ function openDetalleCfdiContModal(cfdi, onChange) {
       closeModal();
       onChange();
     } catch (err) { toast(err.message, 'danger'); }
+  });
+}
+
+// Contabilidad Fase 3 (prompt-contabilidad-fase3-conciliacion.md) — cuentas
+// bancarias corporativas + importación/conciliación de movimientos.
+// COMPLETAMENTE separado de Control de Cuentas (cuentas_control, saldo
+// personal de Paul/Fer) — no confundir con esa otra sección.
+function openGestionCuentasBancariasModal(onChange) {
+  openModal(`
+    <h3>Cuentas bancarias</h3>
+    <div id="cbList" class="mt-8"><div class="spinner"></div></div>
+    <div class="modal-actions">
+      <button class="btn" id="btnCerrarCbModal">Cerrar</button>
+      <button class="btn btn-primary" id="btnNuevaCuentaBancaria">+ Nueva cuenta</button>
+    </div>
+  `);
+  $('#btnCerrarCbModal').addEventListener('click', () => { closeModal(); onChange(); });
+  $('#btnNuevaCuentaBancaria').addEventListener('click', () => openNuevaCuentaBancariaModal(onChange));
+  cargarListaCuentasBancariasModal(onChange);
+}
+
+async function cargarListaCuentasBancariasModal(onChange) {
+  const list = $('#cbList');
+  if (!list) return;
+  list.innerHTML = '<div class="spinner"></div>';
+  try {
+    const cuentas = await api('/contabilidad/cuentas-bancarias');
+    list.innerHTML = !cuentas.length ? '<div class="empty-state">Sin cuentas bancarias todavía.</div>' : `
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Nombre</th><th>Banco</th><th>No. cuenta</th><th>Estatus</th></tr></thead>
+          <tbody>
+            ${cuentas.map((c) => `
+              <tr class="row-click" data-cb-id="${c.id}">
+                <td>${esc(c.nombre)}</td>
+                <td>${esc(c.banco || '—')}</td>
+                <td>${esc(c.numero_cuenta || '—')}</td>
+                <td>${c.activo ? 'Activa' : '<span class="muted">Inactiva</span>'}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+    `;
+    $$('[data-cb-id]', list).forEach((row) => {
+      row.addEventListener('click', () => openEditarCuentaBancariaModal(cuentas.find((c) => c.id === Number(row.dataset.cbId)), onChange));
+    });
+  } catch (err) {
+    list.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+  }
+}
+
+function openNuevaCuentaBancariaModal(onChange) {
+  openModal(`
+    <h3>Nueva cuenta bancaria</h3>
+    <div class="field"><label>Nombre *</label><input id="cbNombre" /></div>
+    <div class="field"><label>Banco</label><input id="cbBanco" /></div>
+    <div class="field"><label>Número de cuenta</label><input id="cbNumero" placeholder="Últimos dígitos o CLABE" /></div>
+    <div class="modal-actions">
+      <button class="btn" id="btnCancelCb">Cancelar</button>
+      <button class="btn btn-primary" id="btnSaveCb">Guardar</button>
+    </div>
+  `);
+  $('#btnCancelCb').addEventListener('click', () => openGestionCuentasBancariasModal(onChange));
+  $('#btnSaveCb').addEventListener('click', async () => {
+    const nombre = $('#cbNombre').value.trim();
+    if (!nombre) { toast('El nombre es requerido', 'danger'); return; }
+    try {
+      await api('/contabilidad/cuentas-bancarias', {
+        method: 'POST',
+        body: { nombre, banco: $('#cbBanco').value.trim() || null, numero_cuenta: $('#cbNumero').value.trim() || null },
+      });
+      toast('Cuenta bancaria creada', 'success');
+      openGestionCuentasBancariasModal(onChange);
+    } catch (err) { toast(err.message, 'danger'); }
+  });
+}
+
+function openEditarCuentaBancariaModal(cuenta, onChange) {
+  openModal(`
+    <h3>Editar cuenta bancaria</h3>
+    <div class="field"><label>Nombre *</label><input id="cbNombre" value="${esc(cuenta.nombre)}" /></div>
+    <div class="field"><label>Banco</label><input id="cbBanco" value="${esc(cuenta.banco || '')}" /></div>
+    <div class="field"><label>Número de cuenta</label><input id="cbNumero" value="${esc(cuenta.numero_cuenta || '')}" /></div>
+    <div class="modal-actions">
+      <button class="btn" id="btnCancelCbEdit">Cancelar</button>
+      <button class="btn ${cuenta.activo ? 'btn-danger' : ''}" id="btnToggleCb">${cuenta.activo ? 'Desactivar' : 'Activar'}</button>
+      <button class="btn btn-primary" id="btnSaveCbEdit">Guardar</button>
+    </div>
+  `);
+  $('#btnCancelCbEdit').addEventListener('click', () => openGestionCuentasBancariasModal(onChange));
+  $('#btnSaveCbEdit').addEventListener('click', async () => {
+    const nombre = $('#cbNombre').value.trim();
+    if (!nombre) { toast('El nombre es requerido', 'danger'); return; }
+    try {
+      await api(`/contabilidad/cuentas-bancarias/${cuenta.id}`, {
+        method: 'PUT',
+        body: { nombre, banco: $('#cbBanco').value.trim() || null, numero_cuenta: $('#cbNumero').value.trim() || null },
+      });
+      toast('Cuenta bancaria actualizada', 'success');
+      openGestionCuentasBancariasModal(onChange);
+    } catch (err) { toast(err.message, 'danger'); }
+  });
+  $('#btnToggleCb').addEventListener('click', async () => {
+    const ok = await confirmDialog(`¿${cuenta.activo ? 'Desactivar' : 'Activar'} la cuenta "${cuenta.nombre}"?`, { titulo: 'Confirmar', claseAceptar: cuenta.activo ? 'btn-danger' : 'btn-primary' });
+    if (!ok) return;
+    try {
+      await api(`/contabilidad/cuentas-bancarias/${cuenta.id}`, { method: 'PUT', body: { activo: !cuenta.activo } });
+      toast('Cuenta bancaria actualizada', 'success');
+      openGestionCuentasBancariasModal(onChange);
+    } catch (err) { toast(err.message, 'danger'); }
+  });
+}
+
+// Importación de movimientos — mismo patrón preview→confirm que
+// Actualización de Presupuesto (abrirModalActualizarPresupuesto/
+// pintarPreviewActualizacionPresupuesto): sube directo a Blob desde el
+// navegador → preview parsea y muestra el diff SIN guardar nada → confirmar
+// explícito re-parsea el mismo archivo y aplica con ON CONFLICT DO NOTHING.
+function openImportarMovimientosModal(cuentaBancariaId, onImportado) {
+  openModal(`
+    <h3>Importar movimientos bancarios</h3>
+    <p class="muted fs-08">Sube el archivo .xlsx o .csv exportado del banco. Columnas esperadas: Fecha, Descripción, Monto, Tipo (Cargo/Abono) — el nombre exacto puede variar un poco (ej. "Detalle" en vez de "Descripción").</p>
+    <input type="file" id="movImportFile" accept=".xlsx,.csv" />
+    <div class="modal-actions">
+      <button class="btn" id="btnCancelMovImport">Cerrar</button>
+    </div>
+  `);
+  $('#btnCancelMovImport').addEventListener('click', closeModal);
+  $('#movImportFile').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    if (!/\.(xlsx|csv)$/i.test(file.name)) { toast('Solo se admiten archivos .xlsx o .csv', 'danger'); return; }
+    openModal(`<h3>Subiendo y analizando…</h3><div class="spinner"></div>`);
+    try {
+      const blob = await VercelBlobClient.upload(file.name, file, {
+        access: 'private',
+        handleUploadUrl: '/api/contabilidad/movimientos/upload-token',
+        headers: state.token ? { Authorization: `Bearer ${state.token}` } : {},
+      });
+      const preview = await api('/contabilidad/movimientos/preview', {
+        method: 'POST',
+        body: { archivo_url: blob.url, archivo_nombre: file.name, cuenta_bancaria_id: cuentaBancariaId },
+      });
+      pintarPreviewImportacionMovimientos(preview, blob.url, file.name, cuentaBancariaId, onImportado);
+    } catch (err) {
+      closeModal();
+      toast(err.message, 'danger');
+    }
+  });
+}
+
+function pintarPreviewImportacionMovimientos(preview, archivoUrl, archivoNombre, cuentaBancariaId, onImportado) {
+  const filaHtml = (m, esNuevo) => `
+    <tr class="${esNuevo ? '' : 'muted'}">
+      <td>${fmtDate(m.fecha)}</td>
+      <td>${esc(m.descripcion)}</td>
+      <td>${m.tipo === 'cargo' ? 'Cargo' : 'Abono'}</td>
+      <td class="num">${fmtMoney(m.monto)}</td>
+      <td class="fs-08">${esNuevo ? '<span class="badge green">Nuevo</span>' : 'Ya existe'}</td>
+    </tr>
+  `;
+  openModal(`
+    <h3>Preview de importación</h3>
+    <p class="muted">Nada se ha guardado todavía. Revisa antes de confirmar.</p>
+    <div class="card">
+      <div class="row between"><span>Movimientos nuevos</span><strong>${preview.nuevos.length}</strong></div>
+      <div class="row between"><span>Ya existentes (se omiten)</span><strong>${preview.ya_existentes.length}</strong></div>
+      ${preview.filas_invalidas.length ? `<div class="row between"><span>Filas inválidas (ignoradas)</span><strong>${preview.filas_invalidas.length}</strong></div>` : ''}
+    </div>
+    ${preview.filas_invalidas.length ? `
+      <details class="mt-8">
+        <summary>Ver filas inválidas (${preview.filas_invalidas.length})</summary>
+        <ul class="fs-08">${preview.filas_invalidas.map((f) => `<li>Fila ${f.fila}: ${esc(f.motivo)}</li>`).join('')}</ul>
+      </details>
+    ` : ''}
+    <div class="table-scroll mt-12">
+      <table>
+        <thead><tr><th>Fecha</th><th>Descripción</th><th>Tipo</th><th class="num">Monto</th><th>Estatus</th></tr></thead>
+        <tbody>
+          ${preview.nuevos.map((m) => filaHtml(m, true)).join('')}
+          ${preview.ya_existentes.map((m) => filaHtml(m, false)).join('')}
+        </tbody>
+      </table>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" id="btnCancelMovConfirm">Cancelar</button>
+      <button class="btn btn-primary" id="btnMovConfirm" ${preview.nuevos.length ? '' : 'disabled'}>Confirmar importación</button>
+    </div>
+  `);
+  $('#btnCancelMovConfirm').addEventListener('click', closeModal);
+  $('#btnMovConfirm')?.addEventListener('click', async () => {
+    const btn = $('#btnMovConfirm');
+    btn.disabled = true; btn.textContent = 'Importando…';
+    try {
+      const result = await api('/contabilidad/movimientos/confirmar', {
+        method: 'POST',
+        body: { archivo_url: archivoUrl, archivo_nombre: archivoNombre, cuenta_bancaria_id: cuentaBancariaId, confirmado: true },
+      });
+      closeModal();
+      toast(`${result.insertados} movimiento(s) importado(s)${result.omitidos ? `, ${result.omitidos} ya existían` : ''}`, 'success');
+      onImportado();
+    } catch (err) {
+      toast(err.message, 'danger');
+      btn.disabled = false; btn.textContent = 'Confirmar importación';
+    }
+  });
+}
+
+// Conciliación manual — sugerencia visual (mismo monto, fecha ±3 días) más
+// selector de cualquier póliza activa para elegir otra a mano. Nunca
+// auto-concilia: siempre requiere el click explícito del usuario.
+function openDetalleMovimientoModal(movimiento, onChange) {
+  const conciliado = movimiento.estatus === 'conciliado';
+  openModal(`
+    <h3>Detalle de movimiento</h3>
+    <p>${fmtDate(movimiento.fecha)} — ${esc(movimiento.descripcion)}</p>
+    <p>${movimiento.tipo === 'cargo' ? 'Cargo' : 'Abono'}: ${fmtMoney(movimiento.monto)}</p>
+    <p>Cuenta: ${esc(movimiento.cuenta_nombre)}</p>
+    ${conciliado ? `
+      <p>Conciliado con: <strong>${esc(movimiento.poliza_concepto || '')}</strong> (${fmtDate(movimiento.poliza_fecha)}, ${fmtMoney(movimiento.poliza_monto)})</p>
+      <div class="modal-actions">
+        <button class="btn" id="btnCerrarDetalleMov">Cerrar</button>
+        <button class="btn btn-danger" id="btnDesconciliarMov">Desconciliar</button>
+      </div>
+    ` : `
+      ${movimiento.sugerencia_poliza_id ? `
+        <div class="alert-box">
+          💡 <strong>Sugerencia:</strong> ${esc(movimiento.sugerencia_concepto)} — ${fmtDate(movimiento.sugerencia_fecha)} — ${fmtMoney(movimiento.sugerencia_monto)}
+          <div class="row end mt-8"><button class="btn btn-primary" id="btnConciliarSugerida">Conciliar con esta</button></div>
+        </div>
+      ` : '<p class="muted fs-08">Sin sugerencia automática (mismo monto y fecha ±3 días) para este movimiento.</p>'}
+      <div class="field mt-12"><label>O elige otra póliza manualmente</label>
+        <select id="movConciliarPolizaSelect"><option value="">Cargando…</option></select>
+      </div>
+      <div class="modal-actions">
+        <button class="btn" id="btnCerrarDetalleMov">Cerrar</button>
+        <button class="btn btn-primary" id="btnConciliarManual">Conciliar</button>
+      </div>
+    `}
+  `);
+  $('#btnCerrarDetalleMov').addEventListener('click', () => { closeModal(); onChange(); });
+
+  if (conciliado) {
+    $('#btnDesconciliarMov').addEventListener('click', async () => {
+      const ok = await confirmDialog('¿Desconciliar este movimiento? Vuelve a quedar pendiente.', { titulo: 'Confirmar' });
+      if (!ok) return;
+      try {
+        await api(`/contabilidad/movimientos/${movimiento.id}/desconciliar`, { method: 'PUT' });
+        toast('Movimiento desconciliado', 'success');
+        closeModal();
+        onChange();
+      } catch (err) { toast(err.message, 'danger'); }
+    });
+    return;
+  }
+
+  async function conciliarCon(polizaId) {
+    try {
+      await api(`/contabilidad/movimientos/${movimiento.id}/conciliar`, { method: 'PUT', body: { poliza_id: polizaId } });
+      toast('Movimiento conciliado', 'success');
+      closeModal();
+      onChange();
+    } catch (err) { toast(err.message, 'danger'); }
+  }
+
+  $('#btnConciliarSugerida')?.addEventListener('click', () => conciliarCon(movimiento.sugerencia_poliza_id));
+  $('#btnConciliarManual').addEventListener('click', () => {
+    const val = $('#movConciliarPolizaSelect').value;
+    if (!val) { toast('Selecciona una póliza', 'danger'); return; }
+    conciliarCon(Number(val));
+  });
+
+  api('/contabilidad/polizas?estatus=activa').then((polizas) => {
+    const select = $('#movConciliarPolizaSelect');
+    if (!select) return;
+    select.innerHTML = polizas.length
+      ? `<option value="">Selecciona…</option>${polizas.map((p) => `<option value="${p.id}" ${p.id === movimiento.sugerencia_poliza_id ? 'selected' : ''}>${esc(p.concepto)} — ${fmtDate(p.fecha)} — ${fmtMoney(p.monto)}</option>`).join('')}`
+      : '<option value="">Sin pólizas activas</option>';
+  }).catch(() => {
+    const select = $('#movConciliarPolizaSelect');
+    if (select) select.innerHTML = '<option value="">Error al cargar pólizas</option>';
   });
 }
 

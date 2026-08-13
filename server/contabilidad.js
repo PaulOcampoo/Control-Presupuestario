@@ -137,6 +137,150 @@ async function cancelarPoliza(id, canceladoPor) {
   return rows[0] || null;
 }
 
+/*
+ * Contabilidad Fase 3 (prompt-contabilidad-fase3-conciliacion.md) —
+ * cuentas bancarias corporativas + importación/conciliación de movimientos
+ * bancarios. COMPLETAMENTE separado de cuentas_control/movimientos_control
+ * (control personal de saldo de Paul/Fer) — nunca reusar esas tablas aquí,
+ * confirmado en diagnóstico Fase 3.
+ */
+
+async function listCuentasBancarias({ activo } = {}) {
+  const where = [];
+  const params = [];
+  if (activo != null) { params.push(activo === 'true' || activo === true); where.push(`activo = $${params.length}`); }
+  const { rows } = await db.pool.query(
+    `SELECT * FROM cuentas_bancarias ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY nombre`,
+    params
+  );
+  return rows;
+}
+
+async function createCuentaBancaria({ nombre, banco, numero_cuenta }) {
+  const { rows } = await db.pool.query(
+    `INSERT INTO cuentas_bancarias (nombre, banco, numero_cuenta) VALUES ($1,$2,$3) RETURNING *`,
+    [nombre, banco || null, numero_cuenta || null]
+  );
+  return rows[0];
+}
+
+async function updateCuentaBancaria(id, { nombre, banco, numero_cuenta, activo }) {
+  const { rows } = await db.pool.query(
+    `UPDATE cuentas_bancarias SET
+       nombre = COALESCE($1, nombre),
+       banco = COALESCE($2, banco),
+       numero_cuenta = COALESCE($3, numero_cuenta),
+       activo = COALESCE($4, activo)
+     WHERE id = $5 RETURNING *`,
+    [nombre?.trim() || null, banco?.trim() || null, numero_cuenta?.trim() || null, activo, id]
+  );
+  return rows[0] || null;
+}
+
+// Separa las filas ya parseadas en nuevas vs. ya existentes según el mismo
+// criterio del UNIQUE compuesto (cuenta_bancaria_id, fecha, monto,
+// descripcion) — el preview nunca escribe, solo informa qué pasaría.
+async function diffMovimientosImportacion(cuentaBancariaId, movimientos) {
+  if (!movimientos.length) return { nuevos: [], yaExistentes: [] };
+  const { rows: existentes } = await db.pool.query(
+    `SELECT fecha, monto, descripcion FROM movimientos_bancarios WHERE cuenta_bancaria_id = $1`,
+    [cuentaBancariaId]
+  );
+  const clave = (m) => `${m.fecha}|${Number(m.monto).toFixed(2)}|${m.descripcion}`;
+  const existentesSet = new Set(existentes.map((e) => clave({ ...e, fecha: String(e.fecha).slice(0, 10) })));
+  const nuevos = [];
+  const yaExistentes = [];
+  for (const m of movimientos) {
+    (existentesSet.has(clave(m)) ? yaExistentes : nuevos).push(m);
+  }
+  return { nuevos, yaExistentes };
+}
+
+// Inserta dentro de una transacción con ON CONFLICT DO NOTHING — reimportar
+// el mismo archivo (o uno con filas repetidas) es un no-op seguro para las
+// filas repetidas, nunca un error ni un duplicado.
+async function confirmarImportacionMovimientos(cuentaBancariaId, movimientos, importadoPor) {
+  return db.withTransaction(async (client) => {
+    let insertados = 0;
+    for (const m of movimientos) {
+      const { rows } = await client.query(
+        `INSERT INTO movimientos_bancarios (cuenta_bancaria_id, fecha, descripcion, monto, tipo, importado_por)
+         VALUES ($1,$2,$3,$4,$5,$6)
+         ON CONFLICT (cuenta_bancaria_id, fecha, monto, descripcion) DO NOTHING
+         RETURNING id`,
+        [cuentaBancariaId, m.fecha, m.descripcion, m.monto, m.tipo, importadoPor]
+      );
+      if (rows[0]) insertados += 1;
+    }
+    return { insertados, omitidos: movimientos.length - insertados };
+  });
+}
+
+// Sugerencia de póliza (diagnóstico Fase 3, punto 3): mismo monto exacto,
+// fecha dentro de ±3 días, póliza activa y que ningún otro movimiento ya
+// haya usado — nunca auto-concilia, solo se muestra como sugerencia visual
+// para que el usuario confirme o elija otra.
+async function listMovimientos({ cuenta_bancaria_id, estatus, desde, hasta } = {}) {
+  const where = [];
+  const params = [];
+  if (cuenta_bancaria_id) { params.push(cuenta_bancaria_id); where.push(`m.cuenta_bancaria_id = $${params.length}`); }
+  if (estatus) { params.push(estatus); where.push(`m.estatus = $${params.length}`); }
+  if (desde) { params.push(desde); where.push(`m.fecha >= $${params.length}`); }
+  if (hasta) { params.push(hasta); where.push(`m.fecha <= $${params.length}`); }
+  const sql = `
+    SELECT m.*, cb.nombre AS cuenta_nombre,
+           pz.concepto AS poliza_concepto, pz.fecha AS poliza_fecha, pz.monto AS poliza_monto,
+           sug.id AS sugerencia_poliza_id, sug.concepto AS sugerencia_concepto,
+           sug.fecha AS sugerencia_fecha, sug.monto AS sugerencia_monto
+    FROM movimientos_bancarios m
+    JOIN cuentas_bancarias cb ON cb.id = m.cuenta_bancaria_id
+    LEFT JOIN polizas pz ON pz.id = m.poliza_id
+    LEFT JOIN LATERAL (
+      SELECT p2.id, p2.concepto, p2.fecha, p2.monto
+      FROM polizas p2
+      WHERE p2.estatus = 'activa'
+        AND p2.monto = m.monto
+        AND p2.fecha BETWEEN m.fecha - INTERVAL '3 days' AND m.fecha + INTERVAL '3 days'
+        AND NOT EXISTS (SELECT 1 FROM movimientos_bancarios m2 WHERE m2.poliza_id = p2.id)
+      ORDER BY ABS(p2.fecha - m.fecha)
+      LIMIT 1
+    ) sug ON m.estatus = 'pendiente'
+    ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
+    ORDER BY m.fecha DESC, m.id DESC
+  `;
+  const { rows } = await db.pool.query(sql, params);
+  return rows;
+}
+
+async function conciliarMovimiento(id, polizaId, conciliadoPor) {
+  const { rows: polizaRows } = await db.pool.query('SELECT estatus FROM polizas WHERE id = $1', [polizaId]);
+  if (!polizaRows[0]) {
+    const err = new Error('La póliza indicada no existe');
+    err.status = 400;
+    throw err;
+  }
+  if (polizaRows[0].estatus !== 'activa') {
+    const err = new Error('La póliza indicada está cancelada');
+    err.status = 400;
+    throw err;
+  }
+  const { rows } = await db.pool.query(
+    `UPDATE movimientos_bancarios SET poliza_id = $1, estatus = 'conciliado', conciliado_por = $2, conciliado_en = NOW()
+     WHERE id = $3 AND estatus = 'pendiente' RETURNING *`,
+    [polizaId, conciliadoPor, id]
+  );
+  return rows[0] || null;
+}
+
+async function desconciliarMovimiento(id) {
+  const { rows } = await db.pool.query(
+    `UPDATE movimientos_bancarios SET poliza_id = NULL, estatus = 'pendiente', conciliado_por = NULL, conciliado_en = NULL
+     WHERE id = $1 AND estatus = 'conciliado' RETURNING *`,
+    [id]
+  );
+  return rows[0] || null;
+}
+
 module.exports = {
   listCuentas,
   createCuenta,
@@ -145,4 +289,12 @@ module.exports = {
   listPolizas,
   createPoliza,
   cancelarPoliza,
+  listCuentasBancarias,
+  createCuentaBancaria,
+  updateCuentaBancaria,
+  diffMovimientosImportacion,
+  confirmarImportacionMovimientos,
+  listMovimientos,
+  conciliarMovimiento,
+  desconciliarMovimiento,
 };

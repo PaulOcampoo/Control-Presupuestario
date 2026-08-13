@@ -56,6 +56,7 @@ const { validarClabe } = require('./catalogoBancos');
 const estadoResultados = require('./estadoResultados');
 const contabilidad = require('./contabilidad');
 const { extraerDatosCFDI, extraerDatosCFDIDesdePdf } = require('./cfdiParser');
+const { parseMovimientosBancarios } = require('./movimientosBancariosParser');
 const { emparejarConceptos, calcularCambios } = require('./reintegracionPresupuesto');
 
 // CN-007: nombre_archivo/pdf_filename vienen del cliente (upload); una comilla
@@ -3672,6 +3673,123 @@ app.get('/api/contabilidad/cfdi/:id/archivo', h(auth.requireContabilidadAccess),
   res.setHeader('Content-Type', tipo === 'pdf' ? 'application/pdf' : 'application/xml');
   res.setHeader('Content-Disposition', safeContentDisposition('inline', nombreArchivo));
   await pipeline(Readable.fromWeb(blobResult.stream), res);
+}));
+
+// ---------------------------------------------------------------------------
+// Contabilidad Fase 3 (prompt-contabilidad-fase3-conciliacion.md) — cuentas
+// bancarias corporativas + importación/conciliación de movimientos
+// bancarios. Mismo whitelist que Fase 1/2 (auth.requireContabilidadAccess)
+// en TODAS las rutas. Mismo patrón preview→confirm que Actualización de
+// Presupuesto (server/app.js ~4337-4413): sube a Blob → preview parsea y
+// muestra diff SIN persistir → confirm exige confirmado:true y aplica en
+// transacción con ON CONFLICT DO NOTHING (dedup real, ver
+// server/contabilidad.js). COMPLETAMENTE separado de cuentas_control/
+// movimientos_control (control personal de Paul/Fer) — nunca tocar esas
+// tablas desde aquí.
+// ---------------------------------------------------------------------------
+app.post('/api/contabilidad/movimientos/upload-token', h(auth.requireContabilidadAccess), h(async (req, res) => {
+  try {
+    const jsonResponse = await handleUpload({
+      body: req.body,
+      request: req,
+      onBeforeGenerateToken: async (pathname) => {
+        if (!/\.(xlsx|csv)$/i.test(pathname)) {
+          throw new Error('Solo se admiten archivos .xlsx o .csv');
+        }
+        return {
+          allowedContentTypes: [
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'text/csv', 'application/csv', 'application/vnd.ms-excel',
+          ],
+          addRandomSuffix: true,
+          maximumSizeInBytes: 15 * 1024 * 1024,
+        };
+      },
+    });
+    res.json(jsonResponse);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+}));
+
+app.get('/api/contabilidad/cuentas-bancarias', h(auth.requireContabilidadAccess), h(async (req, res) => {
+  res.json(await contabilidad.listCuentasBancarias({ activo: req.query.activo }));
+}));
+
+app.post('/api/contabilidad/cuentas-bancarias', h(auth.requireContabilidadAccess), h(async (req, res) => {
+  const { nombre, banco, numero_cuenta } = req.body || {};
+  if (!nombre?.trim()) return res.status(400).json({ error: 'El nombre es requerido' });
+  const cuenta = await contabilidad.createCuentaBancaria({ nombre: nombre.trim(), banco, numero_cuenta });
+  res.status(201).json(cuenta);
+}));
+
+app.put('/api/contabilidad/cuentas-bancarias/:id', h(auth.requireContabilidadAccess), h(async (req, res) => {
+  const { nombre, banco, numero_cuenta, activo } = req.body || {};
+  const cuenta = await contabilidad.updateCuentaBancaria(Number(req.params.id), { nombre, banco, numero_cuenta, activo });
+  if (!cuenta) return res.status(404).json({ error: 'Cuenta bancaria no encontrada' });
+  res.json(cuenta);
+}));
+
+app.post('/api/contabilidad/movimientos/preview', h(auth.requireContabilidadAccess), h(async (req, res) => {
+  const { archivo_url, archivo_nombre, cuenta_bancaria_id } = req.body || {};
+  if (!archivo_url) return res.status(400).json({ error: 'Sube un archivo .xlsx o .csv de movimientos bancarios' });
+  if (!cuenta_bancaria_id) return res.status(400).json({ error: 'Indica la cuenta bancaria' });
+  const tmpPath = path.join(os.tmpdir(), `movimientos-bancarios-${Date.now()}-${Math.round(Math.random() * 1e9)}${/\.csv$/i.test(archivo_nombre || '') ? '.csv' : '.xlsx'}`);
+  try {
+    await descargarBlobXlsxATmp(archivo_url, tmpPath);
+    const { movimientos, filasInvalidas } = await parseMovimientosBancarios(tmpPath, archivo_nombre);
+    if (!movimientos.length) {
+      return res.status(400).json({ error: 'No se reconoció ningún movimiento válido en el archivo.' });
+    }
+    const { nuevos, yaExistentes } = await contabilidad.diffMovimientosImportacion(Number(cuenta_bancaria_id), movimientos);
+    res.json({ nuevos, ya_existentes: yaExistentes, filas_invalidas: filasInvalidas });
+  } catch (err) {
+    res.status(err.status || 400).json({ error: err.message });
+  } finally {
+    fs.rm(tmpPath, () => {});
+  }
+}));
+
+app.post('/api/contabilidad/movimientos/confirmar', h(auth.requireContabilidadAccess), h(async (req, res) => {
+  const { archivo_url, archivo_nombre, cuenta_bancaria_id, confirmado } = req.body || {};
+  if (!archivo_url) return res.status(400).json({ error: 'Sube un archivo .xlsx o .csv de movimientos bancarios' });
+  if (!cuenta_bancaria_id) return res.status(400).json({ error: 'Indica la cuenta bancaria' });
+  if (confirmado !== true) return res.status(400).json({ error: 'Falta confirmar explícitamente la importación' });
+  const tmpPath = path.join(os.tmpdir(), `movimientos-bancarios-${Date.now()}-${Math.round(Math.random() * 1e9)}${/\.csv$/i.test(archivo_nombre || '') ? '.csv' : '.xlsx'}`);
+  try {
+    await descargarBlobXlsxATmp(archivo_url, tmpPath);
+    const { movimientos } = await parseMovimientosBancarios(tmpPath, archivo_nombre);
+    if (!movimientos.length) {
+      return res.status(400).json({ error: 'No se reconoció ningún movimiento válido en el archivo.' });
+    }
+    const resultado = await contabilidad.confirmarImportacionMovimientos(Number(cuenta_bancaria_id), movimientos, req.user.id);
+    res.json(resultado);
+  } catch (err) {
+    res.status(err.status || 400).json({ error: err.message });
+  } finally {
+    fs.rm(tmpPath, () => {});
+  }
+}));
+
+app.get('/api/contabilidad/movimientos', h(auth.requireContabilidadAccess), h(async (req, res) => {
+  const { cuenta_bancaria_id, estatus, desde, hasta } = req.query;
+  res.json(await contabilidad.listMovimientos({
+    cuenta_bancaria_id: cuenta_bancaria_id ? Number(cuenta_bancaria_id) : undefined, estatus, desde, hasta,
+  }));
+}));
+
+app.put('/api/contabilidad/movimientos/:id/conciliar', h(auth.requireContabilidadAccess), h(async (req, res) => {
+  const { poliza_id } = req.body || {};
+  if (!poliza_id) return res.status(400).json({ error: 'Indica la póliza con la que conciliar' });
+  const movimiento = await contabilidad.conciliarMovimiento(Number(req.params.id), Number(poliza_id), req.user.id);
+  if (!movimiento) return res.status(404).json({ error: 'Movimiento no encontrado o ya conciliado' });
+  res.json(movimiento);
+}));
+
+app.put('/api/contabilidad/movimientos/:id/desconciliar', h(auth.requireContabilidadAccess), h(async (req, res) => {
+  const movimiento = await contabilidad.desconciliarMovimiento(Number(req.params.id));
+  if (!movimiento) return res.status(404).json({ error: 'Movimiento no encontrado o no está conciliado' });
+  res.json(movimiento);
 }));
 
 // ---------------------------------------------------------------------------

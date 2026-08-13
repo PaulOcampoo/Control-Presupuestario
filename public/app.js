@@ -2826,6 +2826,25 @@ const AYUDA_CONTENIDO = {
       'Al generar un presupuesto nuevo desde el catálogo, puedes editar cantidad y precio de cada concepto (o quitarlo) antes de confirmar — nada se crea en la app hasta que confirmes.',
     ],
   },
+  contabilidadCuentas: {
+    titulo: 'Catálogo de Cuentas',
+    pasos: [
+      'Una cuenta contable es una categoría para clasificar movimientos de dinero: activo, pasivo, capital, ingreso o gasto.',
+      'El código indica el tipo: 1xxx = Activo, 2xxx = Pasivo, 3xxx = Capital, 4xxx = Ingreso, 5xxx = Gasto — debe empezar con el dígito del tipo que elijas.',
+      'El código no se puede editar una vez creada la cuenta. Si te equivocaste, inactívala y da de alta una nueva con el código correcto.',
+      'El nombre y el tipo sí se pueden editar después (el tipo solo si sigue siendo compatible con el código ya asignado).',
+      '"Inactivar" una cuenta no la borra — deja de estar disponible para pólizas nuevas, pero las pólizas ya capturadas con ella no se ven afectadas.',
+    ],
+  },
+  contabilidadPolizas: {
+    titulo: 'Pólizas',
+    pasos: [
+      'Una póliza registra un movimiento de dinero: ingreso, egreso, o diario (para ajustes internos que no son ni uno ni otro).',
+      'Para capturarla indica tipo, fecha, la cuenta contable, el monto y un concepto. La obra es opcional — déjala en "Corporativo / sin obra" si el movimiento no pertenece a ninguna obra específica.',
+      '"Cancelar" una póliza no la borra: solo cambia su estatus a cancelada y queda registrado quién la canceló y cuándo, para conservar el historial completo.',
+      'Este registro es auxiliar para reportarle al contador externo — no sustituye la contabilidad formal de la empresa ni se cruza automáticamente con Finanzas/Erogado Real.',
+    ],
+  },
 };
 
 // Botón "?" reutilizable — colócalo junto al título/acción de cualquier
@@ -11883,7 +11902,7 @@ async function renderContabilidad(view) {
   async function showCuentas() {
     subView = 'cuentas';
     view.innerHTML = `
-      <h2 class="section-title">Contabilidad</h2>
+      <h2 class="section-title">Contabilidad ${renderHelpBtn('contabilidadCuentas')}</h2>
       <p class="muted">Catálogo de cuentas contables y registro de pólizas — acceso restringido.</p>
       ${renderSubNav()}
       <div class="card mt-12">
@@ -11955,7 +11974,7 @@ async function renderContabilidad(view) {
   async function showPolizas() {
     subView = 'polizas';
     view.innerHTML = `
-      <h2 class="section-title">Contabilidad</h2>
+      <h2 class="section-title">Contabilidad ${renderHelpBtn('contabilidadPolizas')}</h2>
       <p class="muted">Catálogo de cuentas contables y registro de pólizas — acceso restringido.</p>
       ${renderSubNav()}
       <div class="card mt-12">

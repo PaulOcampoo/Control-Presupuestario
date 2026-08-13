@@ -1140,11 +1140,20 @@ const TAB_POR_TIPO_NOTIF = {
 // def.tabs.length === 0 es 100% futura (hoy solo Maquinaria).
 // ---------------------------------------------------------------------------
 const SECTION_DEFS = {
-  obra:          { label: 'Obra',           icon: 'obra',           emoji: '🏗️',  tabs: ['programa', 'avance', 'destajo', 'estimaciones', 'matrices'],     proximamente: [] },
+  obra:          { label: 'Obra',           icon: 'obra',           emoji: '🏗️',  tabs: ['programa', 'avance', 'destajo', 'estimaciones'],     proximamente: [] },
   compras:       { label: 'Compras',        icon: 'compras',        emoji: '🛒',   tabs: ['requisiciones', 'insumos', 'proveedores', 'ordenes', 'cotizador'], proximamente: ['Subcontratos'] },
-  tesoreria:     { label: 'Tesorería',      icon: 'tesoreria',      emoji: '💰',   tabs: ['finanzas', 'estadoResultados', 'estadoResultadosGlobal', 'impuestos'], proximamente: [] },
-  administracion:{ label: 'Administración', icon: 'administracion', emoji: '📂',  tabs: ['mapeo', 'contrato', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'costos', 'avance_clientes', 'composicion_costos', 'usuarios', 'cuentas', 'controlFinanciero'], proximamente: ['Almacenes'] },
+  tesoreria:     { label: 'Tesorería',      icon: 'tesoreria',      emoji: '💰',   tabs: ['finanzas', 'estadoResultados', 'estadoResultadosGlobal', 'impuestos', 'controlFinanciero'], proximamente: [] },
+  administracion:{ label: 'Administración', icon: 'administracion', emoji: '📂',  tabs: ['mapeo', 'contrato', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'avance_clientes', 'usuarios', 'cuentas'], proximamente: ['Almacenes'] },
   maquinaria:    { label: 'Maquinaria',     icon: 'maquinaria',     emoji: '🚜',   tabs: MAQUINARIA_TABS_ADMIN,                                 proximamente: [] },
+  // prompt-secciones-presupuestos-contabilidad.md: Matrices de PU/Costos/
+  // Composición de costos reubicadas aquí (antes en obra/administracion) —
+  // pura reubicación de navegación, misma lógica/endpoints de siempre.
+  presupuestos:  { label: 'Presupuestos',   icon: 'presupuestos',   emoji: '📑',   tabs: ['matrices', 'costos', 'composicion_costos'], proximamente: [] },
+  // Placeholder: tabs: [] hace que goToSection() muestre el tooltip
+  // "Próximamente" sin navegar (mismo tratamiento que tuvo Maquinaria antes
+  // de prompt-39-maquinaria-galeria-subsecciones.md) — contenido real
+  // pendiente de un prompt posterior.
+  contabilidad:  { label: 'Contabilidad',   icon: 'contabilidad',   emoji: '📘',   tabs: [], proximamente: [] },
 };
 
 const TAB_ICONS = {
@@ -1185,7 +1194,7 @@ Object.entries(SECTION_DEFS).forEach(([sectionId, def]) => {
 // en prompt-39-maquinaria-galeria-subsecciones.md (antes tenía tabs:
 // ['maquinaria'], una sola pestaña que el guard de goToSection()
 // (tabsPermitidos.length > 1) saltaba directo sin mostrar galería).
-const SECTIONS_WITH_GALLERY = new Set(['obra', 'compras', 'tesoreria', 'administracion', 'maquinaria']);
+const SECTIONS_WITH_GALLERY = new Set(['obra', 'compras', 'tesoreria', 'administracion', 'maquinaria', 'presupuestos']);
 SECTIONS_WITH_GALLERY.forEach((sectionId) => { VIEW_TO_SECTION[`${sectionId}_gallery`] = sectionId; });
 
 // Historial de navegación (botón atrás del navegador / gesto equivalente en

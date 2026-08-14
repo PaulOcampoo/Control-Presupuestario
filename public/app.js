@@ -27,8 +27,13 @@ const MAQUINARIA_TABS_CABO = ['maquinaria_catalogo', 'maquinaria_horas', 'maquin
 const MAQUINARIA_TABS_JEFE = ['maquinaria_catalogo', 'maquinaria_bitacora', 'maquinaria_estado_unidad', 'maquinaria_consumibles', 'maquinaria_reportes_cliente'];
 const MAQUINARIA_TABS_OPERADOR = ['maquinaria_horas', 'maquinaria_estado_unidad', 'maquinaria_consumibles'];
 
+// Las 5 subsecciones reales de Contabilidad (prompt-contabilidad-galeria-
+// tiles.md) — constante única reusada aquí y en SECTION_DEFS.contabilidad.tabs
+// más abajo, mismo patrón que MAQUINARIA_TABS_ADMIN arriba.
+const CONTABILIDAD_TABS = ['contabilidadCuentas', 'contabilidadPolizas', 'contabilidadCfdi', 'contabilidadConciliacion', 'contabilidadDepreciacion'];
+
 const ROLE_TABS = {
-  // 'contabilidad' aquí (solo admin/desarrollador): desde PR #130,
+  // CONTABILIDAD_TABS aquí (solo admin/desarrollador): desde PR #130,
   // requireContabilidadAccess/tabsParaUsuario (server/auth.js) dan acceso
   // automático a esos dos roles, no solo por whitelist de ID — a diferencia
   // de 'controlFinanciero'/'cuentas'/'estadoResultados' (whitelist PURA por
@@ -36,8 +41,8 @@ const ROLE_TABS = {
   // simulación de rol no puede simular "soy el usuario 8", solo "soy rol X"
   // (prompt-fix-role-tabs-contabilidad.md) — limitación conocida y
   // aceptada para esos tres, no un bug.
-  admin:          ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'finanzas', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', ...MAQUINARIA_TABS_ADMIN, 'cotizador', 'costos', 'matrices', 'avance_clientes', 'composicion_costos', 'contabilidad'],
-  desarrollador:  ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'finanzas', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', ...MAQUINARIA_TABS_ADMIN, 'cotizador', 'costos', 'matrices', 'avance_clientes', 'composicion_costos', 'contabilidad'],
+  admin:          ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'finanzas', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', ...MAQUINARIA_TABS_ADMIN, 'cotizador', 'costos', 'matrices', 'avance_clientes', 'composicion_costos', ...CONTABILIDAD_TABS],
+  desarrollador:  ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'finanzas', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', ...MAQUINARIA_TABS_ADMIN, 'cotizador', 'costos', 'matrices', 'avance_clientes', 'composicion_costos', ...CONTABILIDAD_TABS],
   residente:      ['programa', 'avance', 'destajo', 'requisiciones', 'insumos', 'ordenes', 'nominas', 'trabajadores', 'estimaciones', 'matrices'],
   cabo:           ['destajo', 'insumos', 'avance', 'requisiciones', ...MAQUINARIA_TABS_CABO, 'trabajadores', 'nominas'],
   compras:        ['programa', 'requisiciones', 'insumos', 'ordenes', 'proveedores', 'cotizador'],
@@ -1157,12 +1162,13 @@ const SECTION_DEFS = {
   // Composición de costos reubicadas aquí (antes en obra/administracion) —
   // pura reubicación de navegación, misma lógica/endpoints de siempre.
   presupuestos:  { label: 'Presupuestos',   icon: 'presupuestos',   emoji: '📑',   tabs: ['matrices', 'costos', 'composicion_costos'], proximamente: [] },
-  // prompt-contabilidad-fase1-cuentas-polizas.md: catálogo de cuentas +
-  // pólizas. Un solo tab 'contabilidad' con subnav interno (mismo patrón que
-  // 'controlFinanciero' arriba para Ingresos/Gastos Indirectos) — visible
-  // solo para la whitelist USUARIOS_CONTABILIDAD (server/auth.js,
-  // tabsParaUsuario), el resto de admin/desarrollador ni ve el tab.
-  contabilidad:  { label: 'Contabilidad',   icon: 'contabilidad',   emoji: '📘',   tabs: ['contabilidad'], proximamente: [] },
+  // prompt-contabilidad-fase1/2/3/4 + prompt-contabilidad-galeria-tiles.md:
+  // 5 subsecciones reales (antes: un solo tab 'contabilidad' con subnav
+  // interno propio, mismo patrón que 'controlFinanciero' — reemplazado por
+  // galería de tiles real, ver SECTIONS_WITH_GALLERY más abajo). Visibles
+  // solo para la whitelist USUARIOS_CONTABILIDAD + admin/desarrollador
+  // (server/auth.js, tabsParaUsuario) — el resto ni ve el tile de sección.
+  contabilidad:  { label: 'Contabilidad',   icon: 'contabilidad',   emoji: '📘',   tabs: CONTABILIDAD_TABS, proximamente: [] },
 };
 
 const TAB_ICONS = {
@@ -1173,7 +1179,9 @@ const TAB_ICONS = {
   maquinaria_consumibles: '⛽', maquinaria_reportes_cliente: '📊',
   nominas_global: '💵', trabajadores_global: '👷', cotizador: '🔍',
   estadoResultados: '📈', estadoResultadosGlobal: '📈', costos: '💲', avance_clientes: '📈', composicion_costos: '🧮',
-  cuentas: '🏦', matrices: '🧱', controlFinanciero: '💹', contabilidad: '📘',
+  cuentas: '🏦', matrices: '🧱', controlFinanciero: '💹',
+  contabilidadCuentas: '📒', contabilidadPolizas: '🧾', contabilidadCfdi: '📑',
+  contabilidadConciliacion: '🏦', contabilidadDepreciacion: '📉',
 };
 const TAB_LABELS = {
   resumen: 'Resumen', contrato: 'Contrato', impuestos: 'Impuestos', insumos: 'Insumos', requisiciones: 'Requisiciones',
@@ -1186,7 +1194,8 @@ const TAB_LABELS = {
   cotizador: 'Cotizador', estadoResultados: 'Estado de Resultados', estadoResultadosGlobal: 'Estado de Resultados (todas las obras)',
   costos: 'Costos', avance_clientes: 'Avance por cliente', composicion_costos: 'Composición de costos',
   cuentas: 'Cuentas', matrices: 'Matrices de precio unitario', controlFinanciero: 'Control Financiero',
-  contabilidad: 'Contabilidad',
+  contabilidadCuentas: 'Catálogo de Cuentas', contabilidadPolizas: 'Pólizas', contabilidadCfdi: 'CFDI',
+  contabilidadConciliacion: 'Conciliación Bancaria', contabilidadDepreciacion: 'Depreciación de Maquinaria',
 };
 
 const VIEW_TO_SECTION = {};
@@ -1204,7 +1213,7 @@ Object.entries(SECTION_DEFS).forEach(([sectionId, def]) => {
 // en prompt-39-maquinaria-galeria-subsecciones.md (antes tenía tabs:
 // ['maquinaria'], una sola pestaña que el guard de goToSection()
 // (tabsPermitidos.length > 1) saltaba directo sin mostrar galería).
-const SECTIONS_WITH_GALLERY = new Set(['obra', 'compras', 'tesoreria', 'administracion', 'maquinaria', 'presupuestos']);
+const SECTIONS_WITH_GALLERY = new Set(['obra', 'compras', 'tesoreria', 'administracion', 'maquinaria', 'presupuestos', 'contabilidad']);
 SECTIONS_WITH_GALLERY.forEach((sectionId) => { VIEW_TO_SECTION[`${sectionId}_gallery`] = sectionId; });
 
 // Historial de navegación (botón atrás del navegador / gesto equivalente en
@@ -3940,12 +3949,16 @@ function destroyCharts() {
 async function renderView() {
   destroyCharts();
   const view = $('#view');
-  if (state.view === 'usuarios' || state.view === 'proveedores' || MAQUINARIA_TABS_ADMIN.includes(state.view) || state.view === 'nominas_global' || state.view === 'trabajadores_global' || state.view === 'cotizador' || state.view === 'estadoResultadosGlobal' || state.view === 'costos' || state.view === 'avance_clientes' || state.view === 'composicion_costos' || state.view === 'cuentas' || state.view === 'controlFinanciero' || state.view === 'contabilidad') {
+  if (state.view === 'usuarios' || state.view === 'proveedores' || MAQUINARIA_TABS_ADMIN.includes(state.view) || state.view === 'nominas_global' || state.view === 'trabajadores_global' || state.view === 'cotizador' || state.view === 'estadoResultadosGlobal' || state.view === 'costos' || state.view === 'avance_clientes' || state.view === 'composicion_costos' || state.view === 'cuentas' || state.view === 'controlFinanciero' || SECTION_DEFS.contabilidad.tabs.includes(state.view)) {
     try {
       if (state.view === 'usuarios') { await renderUsuarios(view, state.usuariosSubView); state.usuariosSubView = null; }
       else if (state.view === 'cuentas') await renderControlCuentas(view);
       else if (state.view === 'controlFinanciero') await renderControlFinanciero(view);
-      else if (state.view === 'contabilidad') await renderContabilidad(view);
+      else if (state.view === 'contabilidadCuentas') await renderContabilidadCuentas(view);
+      else if (state.view === 'contabilidadPolizas') await renderContabilidadPolizas(view);
+      else if (state.view === 'contabilidadCfdi') await renderContabilidadCfdi(view);
+      else if (state.view === 'contabilidadConciliacion') await renderContabilidadConciliacion(view);
+      else if (state.view === 'contabilidadDepreciacion') await renderContabilidadDepreciacion(view);
       else if (state.view === 'proveedores') await renderProveedores(view);
       else if (state.view === 'nominas_global') await renderNominasGlobal(view);
       else if (state.view === 'trabajadores_global') await renderTrabajadoresGlobal(view);
@@ -11909,71 +11922,46 @@ function openEditarGastoIndirectoCfModal(gasto, onSaved) {
 
 // ---------------------------------------------------------------------------
 // Contabilidad Fase 1 (prompt-contabilidad-fase1-cuentas-polizas.md) —
-// catálogo de cuentas contables + pólizas. Mismo patrón que
-// renderControlFinanciero: un tab con subnav interno, filas clicables que
-// abren un modal con el detalle/acción (en vez de botones por fila — no
-// existe un componente de "select custom" en el proyecto, se usa <select>
-// nativo consistente con el resto de Control Financiero/Costos/etc.).
+// catálogo de cuentas contables + pólizas. Fase 5 (prompt-contabilidad-
+// galeria-tiles.md) reemplazó el subnav interno con pills por 5 tabs reales
+// de SECTION_DEFS + galería de tiles (mismo mecanismo que Obra/Compras/etc,
+// ver SECTIONS_WITH_GALLERY) — renderTabsBar() ya pinta las pills entre las
+// 5 subsecciones automáticamente, no hace falta un subnav propio. Filas
+// clicables que abren un modal con el detalle/acción (en vez de botones por
+// fila — no existe un componente de "select custom" en el proyecto, se usa
+// <select> nativo consistente con el resto de Control Financiero/Costos/etc.).
 // ---------------------------------------------------------------------------
 const TIPO_CUENTA_CONT_LABELS = { activo: 'Activo', pasivo: 'Pasivo', capital: 'Capital', ingreso: 'Ingreso', gasto: 'Gasto' };
 const TIPO_POLIZA_CONT_LABELS = { ingreso: 'Ingreso', egreso: 'Egreso', diario: 'Diario' };
+// Estado que debe sobrevivir entre re-renders de su propia subsección (no
+// entre las 5 — cada una es ahora una vista independiente, como Mapeo/
+// Contrato/etc. dentro de Obra) — mismo patrón que matricesSelectedConceptoId
+// (module-level, no local a la función de render).
+let contCuentaBancariaSeleccionada = null;
+let contMesDeprecSeleccionado = null; // 'YYYY-MM'; null = mes actual (default del backend)
 
-async function renderContabilidad(view) {
-  let subView = 'cuentas'; // 'cuentas' | 'polizas' | 'cfdi' | 'conciliacion' | 'depreciacion'
-  let cuentasActivasCache = []; // para el selector de cuenta en el modal de nueva póliza
-  let cuentaBancariaSeleccionada = null;
-  let mesDeprecSeleccionado = null; // 'YYYY-MM'; null = mes actual (default del backend)
-
-  function renderSubNav() {
-    return `
-      <div class="nominas-subnav">
-        <button class="btn ${subView === 'cuentas' ? 'btn-primary' : ''}" id="btnContSubCuentas">Catálogo de Cuentas</button>
-        <button class="btn ${subView === 'polizas' ? 'btn-primary' : ''}" id="btnContSubPolizas">Pólizas</button>
-        <button class="btn ${subView === 'cfdi' ? 'btn-primary' : ''}" id="btnContSubCfdi">CFDI</button>
-        <button class="btn ${subView === 'conciliacion' ? 'btn-primary' : ''}" id="btnContSubConciliacion">Conciliación Bancaria</button>
-        <button class="btn ${subView === 'depreciacion' ? 'btn-primary' : ''}" id="btnContSubDepreciacion">Depreciación de Maquinaria</button>
-      </div>
-    `;
-  }
-  function bindSubNav() {
-    $('#btnContSubCuentas').addEventListener('click', showCuentas);
-    $('#btnContSubPolizas').addEventListener('click', showPolizas);
-    $('#btnContSubCfdi').addEventListener('click', showCfdi);
-    $('#btnContSubConciliacion').addEventListener('click', showConciliacion);
-    $('#btnContSubDepreciacion').addEventListener('click', showDepreciacion);
-  }
-
-  async function showCuentas() {
-    subView = 'cuentas';
-    view.innerHTML = `
-      <h2 class="section-title">Contabilidad ${renderHelpBtn('contabilidadCuentas')}</h2>
-      <p class="muted">Catálogo de cuentas contables y registro de pólizas — acceso restringido.</p>
-      ${renderSubNav()}
-      <div class="card mt-12">
-        <label>Tipo</label>
-        <select id="contCuentasTipoFiltro">
-          <option value="">Todos</option>
-          ${Object.entries(TIPO_CUENTA_CONT_LABELS).map(([v, l]) => `<option value="${v}">${l}</option>`).join('')}
-        </select>
-        <label class="mt-8">Estatus</label>
-        <select id="contCuentasEstatusFiltro">
-          <option value="">Todos</option>
-          <option value="activa">Activa</option>
-          <option value="inactiva">Inactiva</option>
-        </select>
-      </div>
-      <div class="section-actions mt-12">
-        <button class="btn btn-primary" id="btnNuevaCuentaCont">+ Nueva cuenta</button>
-      </div>
-      <div id="contCuentasList" class="mt-12"></div>
-    `;
-    bindSubNav();
-    $('#contCuentasTipoFiltro').addEventListener('change', cargarCuentas);
-    $('#contCuentasEstatusFiltro').addEventListener('change', cargarCuentas);
-    $('#btnNuevaCuentaCont').addEventListener('click', () => openNuevaCuentaContModal(cargarCuentas));
-    await cargarCuentas();
-  }
-
+async function renderContabilidadCuentas(view) {
+  view.innerHTML = `
+    <h2 class="section-title">Catálogo de Cuentas ${renderHelpBtn('contabilidadCuentas')}</h2>
+    <p class="muted">Catálogo de cuentas contables — acceso restringido.</p>
+    <div class="card mt-12">
+      <label>Tipo</label>
+      <select id="contCuentasTipoFiltro">
+        <option value="">Todos</option>
+        ${Object.entries(TIPO_CUENTA_CONT_LABELS).map(([v, l]) => `<option value="${v}">${l}</option>`).join('')}
+      </select>
+      <label class="mt-8">Estatus</label>
+      <select id="contCuentasEstatusFiltro">
+        <option value="">Todos</option>
+        <option value="activa">Activa</option>
+        <option value="inactiva">Inactiva</option>
+      </select>
+    </div>
+    <div class="section-actions mt-12">
+      <button class="btn btn-primary" id="btnNuevaCuentaCont">+ Nueva cuenta</button>
+    </div>
+    <div id="contCuentasList" class="mt-12"></div>
+  `;
   async function cargarCuentas() {
     const list = $('#contCuentasList');
     list.innerHTML = '<div class="spinner"></div>';
@@ -12009,55 +11997,45 @@ async function renderContabilidad(view) {
       list.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
     }
   }
+  $('#contCuentasTipoFiltro').addEventListener('change', cargarCuentas);
+  $('#contCuentasEstatusFiltro').addEventListener('change', cargarCuentas);
+  $('#btnNuevaCuentaCont').addEventListener('click', () => openNuevaCuentaContModal(cargarCuentas));
+  await cargarCuentas();
+}
 
+async function renderContabilidadPolizas(view) {
+  let cuentasActivasCache = []; // para el selector de cuenta en el modal de nueva póliza
+  view.innerHTML = `
+    <h2 class="section-title">Pólizas ${renderHelpBtn('contabilidadPolizas')}</h2>
+    <p class="muted">Registro de pólizas — acceso restringido.</p>
+    <div class="card mt-12">
+      <label>Tipo</label>
+      <select id="contPolizasTipoFiltro">
+        <option value="">Todos</option>
+        ${Object.entries(TIPO_POLIZA_CONT_LABELS).map(([v, l]) => `<option value="${v}">${l}</option>`).join('')}
+      </select>
+      <label class="mt-8">Obra</label>
+      <select id="contPolizasObraFiltro">
+        <option value="">Todas</option>
+        <option value="sin-obra">Corporativo / sin obra</option>
+        ${state.projects.map((p) => `<option value="${p.id}">${esc(p.nombre)}</option>`).join('')}
+      </select>
+      <label class="mt-8">Estatus</label>
+      <select id="contPolizasEstatusFiltro">
+        <option value="">Todos</option>
+        <option value="activa">Activa</option>
+        <option value="cancelada">Cancelada</option>
+      </select>
+    </div>
+    <div class="section-actions mt-12">
+      <button class="btn btn-primary" id="btnNuevaPolizaCont">+ Nueva póliza</button>
+    </div>
+    <div id="contPolizasList" class="mt-12"></div>
+  `;
   async function cargarCuentasActivasCache() {
     try { cuentasActivasCache = await api('/contabilidad/cuentas?estatus=activa'); }
     catch { cuentasActivasCache = []; }
   }
-
-  async function showPolizas() {
-    subView = 'polizas';
-    view.innerHTML = `
-      <h2 class="section-title">Contabilidad ${renderHelpBtn('contabilidadPolizas')}</h2>
-      <p class="muted">Catálogo de cuentas contables y registro de pólizas — acceso restringido.</p>
-      ${renderSubNav()}
-      <div class="card mt-12">
-        <label>Tipo</label>
-        <select id="contPolizasTipoFiltro">
-          <option value="">Todos</option>
-          ${Object.entries(TIPO_POLIZA_CONT_LABELS).map(([v, l]) => `<option value="${v}">${l}</option>`).join('')}
-        </select>
-        <label class="mt-8">Obra</label>
-        <select id="contPolizasObraFiltro">
-          <option value="">Todas</option>
-          <option value="sin-obra">Corporativo / sin obra</option>
-          ${state.projects.map((p) => `<option value="${p.id}">${esc(p.nombre)}</option>`).join('')}
-        </select>
-        <label class="mt-8">Estatus</label>
-        <select id="contPolizasEstatusFiltro">
-          <option value="">Todos</option>
-          <option value="activa">Activa</option>
-          <option value="cancelada">Cancelada</option>
-        </select>
-      </div>
-      <div class="section-actions mt-12">
-        <button class="btn btn-primary" id="btnNuevaPolizaCont">+ Nueva póliza</button>
-      </div>
-      <div id="contPolizasList" class="mt-12"></div>
-    `;
-    bindSubNav();
-    $('#contPolizasTipoFiltro').addEventListener('change', cargarPolizas);
-    $('#contPolizasObraFiltro').addEventListener('change', cargarPolizas);
-    $('#contPolizasEstatusFiltro').addEventListener('change', cargarPolizas);
-    $('#btnNuevaPolizaCont').addEventListener('click', async () => {
-      if (!cuentasActivasCache.length) await cargarCuentasActivasCache();
-      if (!cuentasActivasCache.length) { toast('Da de alta al menos una cuenta activa antes de capturar pólizas', 'danger'); return; }
-      openNuevaPolizaContModal(cuentasActivasCache, cargarPolizas);
-    });
-    await cargarCuentasActivasCache();
-    await cargarPolizas();
-  }
-
   async function cargarPolizas() {
     const list = $('#contPolizasList');
     list.innerHTML = '<div class="spinner"></div>';
@@ -12102,45 +12080,45 @@ async function renderContabilidad(view) {
       list.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
     }
   }
+  $('#contPolizasTipoFiltro').addEventListener('change', cargarPolizas);
+  $('#contPolizasObraFiltro').addEventListener('change', cargarPolizas);
+  $('#contPolizasEstatusFiltro').addEventListener('change', cargarPolizas);
+  $('#btnNuevaPolizaCont').addEventListener('click', async () => {
+    if (!cuentasActivasCache.length) await cargarCuentasActivasCache();
+    if (!cuentasActivasCache.length) { toast('Da de alta al menos una cuenta activa antes de capturar pólizas', 'danger'); return; }
+    openNuevaPolizaContModal(cuentasActivasCache, cargarPolizas);
+  });
+  await cargarCuentasActivasCache();
+  await cargarPolizas();
+}
 
-  async function showCfdi() {
-    subView = 'cfdi';
-    view.innerHTML = `
-      <h2 class="section-title">Contabilidad ${renderHelpBtn('contabilidadCfdi')}</h2>
-      <p class="muted">Catálogo de cuentas contables y registro de pólizas — acceso restringido.</p>
-      ${renderSubNav()}
-      <div class="card mt-12">
-        <label>RFC Emisor</label>
-        <input id="contCfdiRfcEmisorFiltro" placeholder="Ej. VITE850101" />
-        <label class="mt-8">RFC Receptor</label>
-        <input id="contCfdiRfcReceptorFiltro" placeholder="Ej. ROF120202" />
-        <label class="mt-8">Obra</label>
-        <select id="contCfdiObraFiltro">
-          <option value="">Todas</option>
-          <option value="sin-obra">Corporativo / sin obra</option>
-          ${state.projects.map((p) => `<option value="${p.id}">${esc(p.nombre)}</option>`).join('')}
-        </select>
-        <label class="mt-8">Estatus SAT</label>
-        <select id="contCfdiEstatusFiltro">
-          <option value="">Todos</option>
-          <option value="vigente">Vigente</option>
-          <option value="cancelado">Cancelado</option>
-        </select>
-      </div>
-      <div class="section-actions mt-12">
-        <button class="btn btn-primary" id="btnNuevoCfdiCont">+ Nuevo CFDI</button>
-      </div>
-      <div id="contCfdiList" class="mt-12"></div>
-    `;
-    bindSubNav();
-    $('#contCfdiRfcEmisorFiltro').addEventListener('change', cargarCfdi);
-    $('#contCfdiRfcReceptorFiltro').addEventListener('change', cargarCfdi);
-    $('#contCfdiObraFiltro').addEventListener('change', cargarCfdi);
-    $('#contCfdiEstatusFiltro').addEventListener('change', cargarCfdi);
-    $('#btnNuevoCfdiCont').addEventListener('click', () => openNuevoCfdiContModal(cargarCfdi));
-    await cargarCfdi();
-  }
-
+async function renderContabilidadCfdi(view) {
+  view.innerHTML = `
+    <h2 class="section-title">CFDI ${renderHelpBtn('contabilidadCfdi')}</h2>
+    <p class="muted">Repositorio de CFDI — acceso restringido.</p>
+    <div class="card mt-12">
+      <label>RFC Emisor</label>
+      <input id="contCfdiRfcEmisorFiltro" placeholder="Ej. VITE850101" />
+      <label class="mt-8">RFC Receptor</label>
+      <input id="contCfdiRfcReceptorFiltro" placeholder="Ej. ROF120202" />
+      <label class="mt-8">Obra</label>
+      <select id="contCfdiObraFiltro">
+        <option value="">Todas</option>
+        <option value="sin-obra">Corporativo / sin obra</option>
+        ${state.projects.map((p) => `<option value="${p.id}">${esc(p.nombre)}</option>`).join('')}
+      </select>
+      <label class="mt-8">Estatus SAT</label>
+      <select id="contCfdiEstatusFiltro">
+        <option value="">Todos</option>
+        <option value="vigente">Vigente</option>
+        <option value="cancelado">Cancelado</option>
+      </select>
+    </div>
+    <div class="section-actions mt-12">
+      <button class="btn btn-primary" id="btnNuevoCfdiCont">+ Nuevo CFDI</button>
+    </div>
+    <div id="contCfdiList" class="mt-12"></div>
+  `;
   async function cargarCfdi() {
     const list = $('#contCfdiList');
     list.innerHTML = '<div class="spinner"></div>';
@@ -12186,70 +12164,56 @@ async function renderContabilidad(view) {
       list.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
     }
   }
+  $('#contCfdiRfcEmisorFiltro').addEventListener('change', cargarCfdi);
+  $('#contCfdiRfcReceptorFiltro').addEventListener('change', cargarCfdi);
+  $('#contCfdiObraFiltro').addEventListener('change', cargarCfdi);
+  $('#contCfdiEstatusFiltro').addEventListener('change', cargarCfdi);
+  $('#btnNuevoCfdiCont').addEventListener('click', () => openNuevoCfdiContModal(cargarCfdi));
+  await cargarCfdi();
+}
 
-  async function showConciliacion() {
-    subView = 'conciliacion';
-    view.innerHTML = `
-      <h2 class="section-title">Contabilidad ${renderHelpBtn('contabilidadConciliacion')}</h2>
-      <p class="muted">Catálogo de cuentas contables y registro de pólizas — acceso restringido.</p>
-      ${renderSubNav()}
-      <div class="card mt-12">
-        <label>Cuenta bancaria</label>
-        <select id="contConcCuentaSelect"><option value="">Cargando…</option></select>
-        <label class="mt-8">Estatus</label>
-        <select id="contConcEstatusFiltro">
-          <option value="">Todos</option>
-          <option value="pendiente">Pendiente</option>
-          <option value="conciliado">Conciliado</option>
-        </select>
-      </div>
-      <div class="section-actions mt-12">
-        <button class="btn" id="btnGestionarCuentasBancarias">Cuentas bancarias</button>
-        <button class="btn btn-primary" id="btnImportarMovimientos">+ Importar movimientos</button>
-      </div>
-      <div id="contConcList" class="mt-12"><div class="spinner"></div></div>
-    `;
-    bindSubNav();
-    await cargarCuentasBancariasSelect();
-    $('#contConcCuentaSelect').addEventListener('change', (e) => {
-      cuentaBancariaSeleccionada = e.target.value ? Number(e.target.value) : null;
-      cargarMovimientos();
-    });
-    $('#contConcEstatusFiltro').addEventListener('change', cargarMovimientos);
-    $('#btnGestionarCuentasBancarias').addEventListener('click', () => openGestionCuentasBancariasModal(async () => {
-      await cargarCuentasBancariasSelect();
-      await cargarMovimientos();
-    }));
-    $('#btnImportarMovimientos').addEventListener('click', () => {
-      if (!cuentaBancariaSeleccionada) { toast('Da de alta o selecciona una cuenta bancaria primero', 'danger'); return; }
-      openImportarMovimientosModal(cuentaBancariaSeleccionada, cargarMovimientos);
-    });
-    await cargarMovimientos();
-  }
-
+async function renderContabilidadConciliacion(view) {
+  view.innerHTML = `
+    <h2 class="section-title">Conciliación Bancaria ${renderHelpBtn('contabilidadConciliacion')}</h2>
+    <p class="muted">Importación y conciliación de movimientos bancarios — acceso restringido.</p>
+    <div class="card mt-12">
+      <label>Cuenta bancaria</label>
+      <select id="contConcCuentaSelect"><option value="">Cargando…</option></select>
+      <label class="mt-8">Estatus</label>
+      <select id="contConcEstatusFiltro">
+        <option value="">Todos</option>
+        <option value="pendiente">Pendiente</option>
+        <option value="conciliado">Conciliado</option>
+      </select>
+    </div>
+    <div class="section-actions mt-12">
+      <button class="btn" id="btnGestionarCuentasBancarias">Cuentas bancarias</button>
+      <button class="btn btn-primary" id="btnImportarMovimientos">+ Importar movimientos</button>
+    </div>
+    <div id="contConcList" class="mt-12"><div class="spinner"></div></div>
+  `;
   async function cargarCuentasBancariasSelect() {
     const select = $('#contConcCuentaSelect');
     if (!select) return;
     try {
       const cuentas = await api('/contabilidad/cuentas-bancarias?activo=true');
-      if (!cuentaBancariaSeleccionada && cuentas.length) cuentaBancariaSeleccionada = cuentas[0].id;
-      if (cuentaBancariaSeleccionada && !cuentas.some((c) => c.id === cuentaBancariaSeleccionada)) cuentaBancariaSeleccionada = cuentas[0]?.id || null;
+      if (!contCuentaBancariaSeleccionada && cuentas.length) contCuentaBancariaSeleccionada = cuentas[0].id;
+      if (contCuentaBancariaSeleccionada && !cuentas.some((c) => c.id === contCuentaBancariaSeleccionada)) contCuentaBancariaSeleccionada = cuentas[0]?.id || null;
       select.innerHTML = cuentas.length
-        ? cuentas.map((c) => `<option value="${c.id}" ${c.id === cuentaBancariaSeleccionada ? 'selected' : ''}>${esc(c.nombre)}${c.banco ? ` — ${esc(c.banco)}` : ''}</option>`).join('')
+        ? cuentas.map((c) => `<option value="${c.id}" ${c.id === contCuentaBancariaSeleccionada ? 'selected' : ''}>${esc(c.nombre)}${c.banco ? ` — ${esc(c.banco)}` : ''}</option>`).join('')
         : '<option value="">Sin cuentas activas</option>';
     } catch (err) {
       select.innerHTML = '<option value="">Error al cargar</option>';
     }
   }
-
   async function cargarMovimientos() {
     const list = $('#contConcList');
     if (!list) return;
-    if (!cuentaBancariaSeleccionada) { list.innerHTML = '<div class="empty-state">Da de alta o selecciona una cuenta bancaria.</div>'; return; }
+    if (!contCuentaBancariaSeleccionada) { list.innerHTML = '<div class="empty-state">Da de alta o selecciona una cuenta bancaria.</div>'; return; }
     list.innerHTML = '<div class="spinner"></div>';
     try {
       const params = new URLSearchParams();
-      params.set('cuenta_bancaria_id', cuentaBancariaSeleccionada);
+      params.set('cuenta_bancaria_id', contCuentaBancariaSeleccionada);
       const estatus = $('#contConcEstatusFiltro').value;
       if (estatus) params.set('estatus', estatus);
       const movimientos = await api(`/contabilidad/movimientos?${params}`);
@@ -12284,44 +12248,43 @@ async function renderContabilidad(view) {
       list.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
     }
   }
+  $('#contConcCuentaSelect').addEventListener('change', (e) => {
+    contCuentaBancariaSeleccionada = e.target.value ? Number(e.target.value) : null;
+    cargarMovimientos();
+  });
+  $('#contConcEstatusFiltro').addEventListener('change', cargarMovimientos);
+  $('#btnGestionarCuentasBancarias').addEventListener('click', () => openGestionCuentasBancariasModal(async () => {
+    await cargarCuentasBancariasSelect();
+    await cargarMovimientos();
+  }));
+  $('#btnImportarMovimientos').addEventListener('click', () => {
+    if (!contCuentaBancariaSeleccionada) { toast('Da de alta o selecciona una cuenta bancaria primero', 'danger'); return; }
+    openImportarMovimientosModal(contCuentaBancariaSeleccionada, cargarMovimientos);
+  });
+  await cargarCuentasBancariasSelect();
+  await cargarMovimientos();
+}
 
-  async function showDepreciacion() {
-    subView = 'depreciacion';
-    view.innerHTML = `
-      <h2 class="section-title">Contabilidad ${renderHelpBtn('contabilidadDepreciacion')}</h2>
-      <p class="muted">Catálogo de cuentas contables y registro de pólizas — acceso restringido.</p>
-      ${renderSubNav()}
-      <div class="card mt-12">
-        <label>Mes a consultar</label>
-        <input type="month" id="contDeprecMesInput" value="${mesDeprecSeleccionado || mesActualInputValue()}" />
-      </div>
-      <div class="section-actions mt-12">
-        <button class="btn btn-primary" id="btnConfigurarDeprecEquipo">+ Configurar depreciación</button>
-      </div>
-      <div id="contDeprecList" class="mt-12"></div>
-    `;
-    bindSubNav();
-    $('#contDeprecMesInput').addEventListener('change', (e) => {
-      mesDeprecSeleccionado = e.target.value || null;
-      cargarDepreciacion();
-    });
-    $('#btnConfigurarDeprecEquipo').addEventListener('click', async () => {
-      try {
-        const equipos = await api('/contabilidad/depreciacion/equipos-disponibles');
-        if (!equipos.length) { toast('No hay equipos disponibles — todos los equipos activos de Maquinaria ya tienen parámetros configurados', ''); return; }
-        openConfigurarDepreciacionModal(equipos, cargarDepreciacion);
-      } catch (err) { toast(err.message, 'danger'); }
-    });
-    await cargarDepreciacion();
-  }
-
+async function renderContabilidadDepreciacion(view) {
+  view.innerHTML = `
+    <h2 class="section-title">Depreciación de Maquinaria ${renderHelpBtn('contabilidadDepreciacion')}</h2>
+    <p class="muted">Parámetros y cálculo de depreciación de maquinaria — acceso restringido.</p>
+    <div class="card mt-12">
+      <label>Mes a consultar</label>
+      <input type="month" id="contDeprecMesInput" value="${contMesDeprecSeleccionado || mesActualInputValue()}" />
+    </div>
+    <div class="section-actions mt-12">
+      <button class="btn btn-primary" id="btnConfigurarDeprecEquipo">+ Configurar depreciación</button>
+    </div>
+    <div id="contDeprecList" class="mt-12"></div>
+  `;
   async function cargarDepreciacion() {
     const list = $('#contDeprecList');
     if (!list) return;
     list.innerHTML = '<div class="spinner"></div>';
     try {
       const params = new URLSearchParams();
-      if (mesDeprecSeleccionado) params.set('mes', mesDeprecSeleccionado);
+      if (contMesDeprecSeleccionado) params.set('mes', contMesDeprecSeleccionado);
       const filas = await api(`/contabilidad/depreciacion${params.toString() ? `?${params}` : ''}`);
       if (!filas.length) { list.innerHTML = '<div class="empty-state">Sin equipos con depreciación configurada todavía.</div>'; return; }
       const totalAcumulada = filas.reduce((s, f) => s + Number(f.depreciacion_acumulada), 0);
@@ -12348,14 +12311,24 @@ async function renderContabilidad(view) {
         </div>
       `;
       $$('[data-deprec-id]', list).forEach((row) => {
-        row.addEventListener('click', () => openDetalleDepreciacionModal(filas.find((f) => f.id === Number(row.dataset.deprecId)), mesDeprecSeleccionado || filas[0].mes, cargarDepreciacion));
+        row.addEventListener('click', () => openDetalleDepreciacionModal(filas.find((f) => f.id === Number(row.dataset.deprecId)), contMesDeprecSeleccionado || filas[0].mes, cargarDepreciacion));
       });
     } catch (err) {
       list.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
     }
   }
-
-  await showCuentas();
+  $('#contDeprecMesInput').addEventListener('change', (e) => {
+    contMesDeprecSeleccionado = e.target.value || null;
+    cargarDepreciacion();
+  });
+  $('#btnConfigurarDeprecEquipo').addEventListener('click', async () => {
+    try {
+      const equipos = await api('/contabilidad/depreciacion/equipos-disponibles');
+      if (!equipos.length) { toast('No hay equipos disponibles — todos los equipos activos de Maquinaria ya tienen parámetros configurados', ''); return; }
+      openConfigurarDepreciacionModal(equipos, cargarDepreciacion);
+    } catch (err) { toast(err.message, 'danger'); }
+  });
+  await cargarDepreciacion();
 }
 
 function mesActualInputValue() {

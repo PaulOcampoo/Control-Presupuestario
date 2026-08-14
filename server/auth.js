@@ -804,11 +804,19 @@ function requireContabilidadAccess(req, res, next) {
   next();
 }
 
-// Agrega los tabs 'cuentas'/'controlFinanciero'/'contabilidad' a la lista
+// Los 5 tabs reales de Contabilidad (prompt-contabilidad-galeria-tiles.md —
+// antes un solo tab 'contabilidad' con subnav interno, ver public/app.js
+// CONTABILIDAD_TABS, misma lista literal duplicada aquí porque este archivo
+// no comparte módulo con el frontend). Cambiar el mecanismo de navegación
+// (subnav -> galería de tiles) no cambia QUIÉN tiene acceso — tieneAccesoContabilidad
+// sigue siendo exactamente el mismo criterio (whitelist OR admin/desarrollador).
+const CONTABILIDAD_TABS = ['contabilidadCuentas', 'contabilidadPolizas', 'contabilidadCfdi', 'contabilidadConciliacion', 'contabilidadDepreciacion'];
+
+// Agrega los tabs 'cuentas'/'controlFinanciero'/CONTABILIDAD_TABS a la lista
 // SOLO para los usuarios en la whitelist correspondiente — el resto de
 // admin/desarrollador (incluida la cuenta bootstrap genérica y cualquier
 // alta futura) ni siquiera ve el link en el sidebar, EXCEPTO para
-// 'contabilidad' (ver tieneAccesoContabilidad arriba), que sí es visible
+// Contabilidad (ver tieneAccesoContabilidad arriba), que sí es visible
 // para cualquier admin/desarrollador. Ocultar el tab es solo cortesía de UI
 // (nunca el gate real — ver requireControlCuentasAccess/
 // requireControlFinancieroAccess/requireContabilidadAccess arriba, que es
@@ -823,7 +831,9 @@ function tabsParaUsuario(user) {
     if (!base.includes('estadoResultados')) extra.push('estadoResultados');
     if (!base.includes('estadoResultadosGlobal')) extra.push('estadoResultadosGlobal');
   }
-  if (tieneAccesoContabilidad(user) && !base.includes('contabilidad')) extra.push('contabilidad');
+  if (tieneAccesoContabilidad(user)) {
+    CONTABILIDAD_TABS.forEach((t) => { if (!base.includes(t)) extra.push(t); });
+  }
   return extra.length ? [...base, ...extra] : base;
 }
 

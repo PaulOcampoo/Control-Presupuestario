@@ -1524,6 +1524,55 @@ const SCHEMA = `
   CREATE INDEX IF NOT EXISTS idx_cfdi_project ON cfdi(project_id);
   CREATE INDEX IF NOT EXISTS idx_cfdi_rfc_emisor ON cfdi(rfc_emisor);
 
+  -- Contabilidad Fase 3 (prompt-contabilidad-fase3-conciliacion.md) —
+  -- catálogo de cuentas bancarias corporativas + importación/conciliación
+  -- de movimientos bancarios. Gateado por la misma auth.requireContabilidadAccess
+  -- de Fase 1/2. COMPLETAMENTE separado de cuentas_control/movimientos_control
+  -- (server/db.js, control PERSONAL de saldo de Paul/Fer, USUARIOS_CONTROL_
+  -- CUENTAS) — decisión confirmada en diagnóstico Fase 3, nunca reusar esas
+  -- tablas aquí.
+  CREATE TABLE IF NOT EXISTS cuentas_bancarias (
+    id SERIAL PRIMARY KEY,
+    nombre TEXT NOT NULL,
+    banco TEXT,
+    numero_cuenta TEXT,
+    activo BOOLEAN NOT NULL DEFAULT true,
+    creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
+  -- Seed de una cuenta genérica para que el flujo de importación funcione
+  -- desde el día uno sin bloquear en un catálogo vacío — Paul la edita/
+  -- renombra después y puede agregar más cuando las necesite (diagnóstico
+  -- Fase 3, punto 4: multi-cuenta soportado desde el diseño, sin forzarlo).
+  INSERT INTO cuentas_bancarias (nombre)
+    SELECT 'Cuenta principal' WHERE NOT EXISTS (SELECT 1 FROM cuentas_bancarias);
+
+  -- poliza_id NULLABLE a propósito (diagnóstico Fase 3, punto 2): no todo
+  -- movimiento bancario tiene una póliza correspondiente (comisiones,
+  -- intereses, traspasos entre cuentas propias), y la conciliación casi
+  -- nunca ocurre en el mismo momento que la importación. UNIQUE compuesto +
+  -- ON CONFLICT DO NOTHING en el confirm (server/contabilidad.js) es la
+  -- defensa real contra reimportar el mismo archivo dos veces — mismo
+  -- patrón ya usado en alertas_contrato_enviadas.UNIQUE(project_id, umbral)
+  -- y cfdi.uuid. Sin DELETE físico, mismo criterio que el resto de
+  -- Contabilidad.
+  CREATE TABLE IF NOT EXISTS movimientos_bancarios (
+    id SERIAL PRIMARY KEY,
+    cuenta_bancaria_id INTEGER NOT NULL REFERENCES cuentas_bancarias(id),
+    fecha DATE NOT NULL,
+    descripcion TEXT NOT NULL,
+    monto DOUBLE PRECISION NOT NULL,
+    tipo TEXT NOT NULL CHECK (tipo IN ('cargo', 'abono')),
+    poliza_id INTEGER REFERENCES polizas(id),
+    estatus TEXT NOT NULL DEFAULT 'pendiente' CHECK (estatus IN ('pendiente', 'conciliado')),
+    conciliado_por INTEGER REFERENCES usuarios(id),
+    conciliado_en TIMESTAMPTZ,
+    importado_por INTEGER REFERENCES usuarios(id),
+    importado_en TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(cuenta_bancaria_id, fecha, monto, descripcion)
+  );
+  CREATE INDEX IF NOT EXISTS idx_movimientos_bancarios_cuenta ON movimientos_bancarios(cuenta_bancaria_id, fecha);
+  CREATE INDEX IF NOT EXISTS idx_movimientos_bancarios_poliza ON movimientos_bancarios(poliza_id);
+
   -- % estándar de referencia para Composición de costos (docs/diseno-desglose-
   -- presupuesto-categorias) — usado como "base" de comparación contra el %
   -- real (insumos.categoria) cuando una obra NO tiene contrato/cédula cargado.

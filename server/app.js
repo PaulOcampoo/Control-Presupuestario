@@ -3855,6 +3855,108 @@ app.post('/api/contabilidad/depreciacion/:id/generar-poliza', h(auth.requireCont
 }));
 
 // ---------------------------------------------------------------------------
+// Contabilidad Fase 5 (prompt-contabilidad-fase5-exportacion.md) — export
+// mensual consolidado a Excel (4 hojas: Pólizas, CFDI, Movimientos Bancarios
+// Conciliados, Depreciación). Mismo whitelist que Fase 1-4, mismo patrón de
+// rate limiting que el resto de exports del proyecto (EXPORT_RATE_LIMIT,
+// server ~3837). Nunca persiste/cachea — se genera al vuelo en cada request.
+// Si las 4 fuentes están vacías para el mes/obra pedidos, 400 con mensaje
+// claro en vez de generar un .xlsx con 4 hojas sin una sola fila (diagnóstico
+// Fase 5, checkpoint "mensaje claro antes de generar").
+// ---------------------------------------------------------------------------
+app.get('/api/contabilidad/export', h(auth.requireContabilidadAccess), h(async (req, res) => {
+  const { mes, project_id } = req.query;
+  if (!mes || !MES_YYYY_MM_RE.test(mes)) return res.status(400).json({ error: 'Indica el mes en formato YYYY-MM' });
+  const projectId = project_id ? Number(project_id) : null;
+
+  const { rows: rlRows } = await db.pool.query(
+    `SELECT COUNT(*)::int AS n FROM api_rate_limits
+     WHERE usuario_id = $1 AND endpoint = 'export_contabilidad'
+       AND creado_en > NOW() - INTERVAL '1 hour'`,
+    [req.user.id]
+  );
+  if (rlRows[0].n >= EXPORT_RATE_LIMIT) {
+    return res.status(429).json({ error: `Límite de exports alcanzado (${EXPORT_RATE_LIMIT} por hora). Intenta más tarde.` });
+  }
+
+  const { polizas, cfdi, movimientos, depreciacion } = await contabilidad.getDatosExportacionMes({ mes, projectId });
+  if (!polizas.length && !cfdi.length && !movimientos.length && !depreciacion.length) {
+    return res.status(400).json({ error: `No hay datos de Contabilidad (pólizas, CFDI, movimientos conciliados ni depreciación) para ${mes}${projectId ? ' en esta obra' : ''}.` });
+  }
+
+  await db.pool.query('INSERT INTO api_rate_limits (usuario_id, endpoint) VALUES ($1, $2)', [req.user.id, 'export_contabilidad']);
+
+  let projectNombre = null;
+  if (projectId) {
+    const { rows } = await db.pool.query('SELECT nombre FROM proyectos WHERE id = $1', [projectId]);
+    projectNombre = rows[0]?.nombre || null;
+  }
+
+  await sendXlsxExport(res, {
+    filename: buildExportFilename(`Contabilidad_${mes}`, projectNombre),
+    sheets: [
+      {
+        sheetName: 'Pólizas',
+        columns: [
+          { header: 'Fecha', key: 'fecha', width: 14 },
+          { header: 'Tipo', key: 'tipo', width: 12 },
+          { header: 'Código Cuenta', key: 'cuenta_codigo', width: 14 },
+          { header: 'Cuenta', key: 'cuenta_nombre', width: 26 },
+          { header: 'Concepto', key: 'concepto', width: 34 },
+          { header: 'Obra', key: 'project_nombre', width: 24 },
+          { header: 'Monto', key: 'monto', width: 16, format: 'money' },
+          { header: 'Referencia', key: 'referencia_factura', width: 20 },
+          { header: 'Estatus', key: 'estatus', width: 12 },
+        ],
+        rows: polizas.map((p) => ({ ...p, project_nombre: p.project_nombre || 'Corporativo', referencia_factura: p.referencia_factura || '' })),
+      },
+      {
+        sheetName: 'CFDI',
+        columns: [
+          { header: 'UUID', key: 'uuid', width: 38 },
+          { header: 'RFC Emisor', key: 'rfc_emisor', width: 16 },
+          { header: 'RFC Receptor', key: 'rfc_receptor', width: 16 },
+          { header: 'Fecha', key: 'fecha_emision', width: 14 },
+          { header: 'Subtotal', key: 'subtotal', width: 16, format: 'money' },
+          { header: 'IVA', key: 'iva', width: 14, format: 'money' },
+          { header: 'Total', key: 'total', width: 16, format: 'money' },
+          { header: 'Tipo Comprobante', key: 'tipo_comprobante', width: 16 },
+          { header: 'Obra', key: 'project_nombre', width: 24 },
+          { header: 'Estatus SAT', key: 'estatus_sat', width: 14 },
+        ],
+        rows: cfdi.map((c) => ({ ...c, project_nombre: c.project_nombre || 'Corporativo', tipo_comprobante: c.tipo_comprobante || '' })),
+      },
+      {
+        sheetName: 'Mov. Bancarios Conciliados',
+        columns: [
+          { header: 'Cuenta Bancaria', key: 'cuenta_nombre', width: 22 },
+          { header: 'Fecha', key: 'fecha', width: 14 },
+          { header: 'Descripción', key: 'descripcion', width: 34 },
+          { header: 'Tipo', key: 'tipo', width: 10 },
+          { header: 'Monto', key: 'monto', width: 16, format: 'money' },
+          { header: 'Póliza conciliada', key: 'poliza_concepto', width: 30 },
+          { header: 'Fecha conciliación', key: 'conciliado_en', width: 16 },
+        ],
+        rows: movimientos,
+      },
+      {
+        sheetName: 'Depreciación',
+        columns: [
+          { header: 'Equipo', key: 'equipo_nombre', width: 26 },
+          { header: 'Identificador', key: 'equipo_identificador', width: 16 },
+          { header: 'Valor Adquisición', key: 'valor_adquisicion', width: 18, format: 'money' },
+          { header: 'Depreciación Mensual', key: 'depreciacion_mensual', width: 18, format: 'money' },
+          { header: 'Depreciación Acumulada', key: 'depreciacion_acumulada', width: 20, format: 'money' },
+          { header: 'Valor en Libros', key: 'valor_en_libros', width: 16, format: 'money' },
+          { header: 'Fecha de Baja', key: 'fecha_baja', width: 14 },
+        ],
+        rows: depreciacion.map((d) => ({ ...d, fecha_baja: d.fecha_baja || '' })),
+      },
+    ],
+  });
+}));
+
+// ---------------------------------------------------------------------------
 // Bienvenida — resumen ligero por proyecto para la pantalla de bienvenida
 // ---------------------------------------------------------------------------
 app.get('/api/bienvenida', h(auth.allow('residente', 'cabo', 'compras', 'tesoreria', 'administracion', 'logistica', 'jefe_maquinaria', 'operador')), h(async (req, res) => {

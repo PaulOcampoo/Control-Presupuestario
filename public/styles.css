@@ -35,6 +35,20 @@
   --muted: var(--text-secondary);
   --color-warning: var(--yellow);
 
+  /* Más deuda técnica resuelta (prompt-diseno-fase1-fixes-default-marca.md,
+     auditoría de diseño previa): --text-muted/--accent-blue/--accent-green
+     se referenciaban en .btn-cerrar-sesiones y .badge-estado-* sin estar
+     definidas — caían en unset/herencia silenciosa. --text-muted es alias
+     directo de --text-secondary (mismo patrón que --muted arriba, ya varía
+     correctamente por paleta/tema). --accent-green es alias de --green (ya
+     usado por .badge.green — no un color nuevo). --accent-blue SÍ es nuevo
+     (no existía ningún azul semántico en la paleta) — valor fijo, igual en
+     las 4 paletas (como --green/--yellow/--red), porque es semántico de
+     estatus, no de marca. */
+  --text-muted: var(--text-secondary);
+  --accent-blue: #3b82f6;
+  --accent-green: var(--green);
+
   --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
   --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
 
@@ -2349,11 +2363,19 @@ body.body-scroll-locked { overflow: hidden; }
 
 .brecha-value { font-size: 1.4rem; font-weight: 700; }
 
-.badge-estado { font-size: 0.75rem; font-weight: 600; }
-.badge-estado-pendiente { color: var(--accent-gold); }
-.badge-estado-revisada { color: var(--accent-blue); } /* --accent-blue no está definida — preexistente, no se toca aquí */
-.badge-estado-implementada { color: var(--accent-green); } /* --accent-green no está definida — preexistente, no se toca aquí */
-.badge-estado-descartada { color: var(--text-secondary); }
+/* Unificado con el patrón visual de .badge (píldora, fondo translúcido +
+   texto sólido) — prompt-diseno-fase1-fixes-default-marca.md. Antes era solo
+   color de texto sin fondo, un segundo sistema de badge coexistiendo con
+   .badge/.badge.green/etc. Se mantiene el nombre de clase (referenciado en
+   public/app.js) y el mismo color por estado que ya tenía asignado. */
+.badge-estado {
+  display: inline-flex; align-items: center; gap: 4px; font-size: 0.72rem; font-weight: 700;
+  padding: 3px 8px; border-radius: 999px; white-space: nowrap;
+}
+.badge-estado-pendiente { background: color-mix(in srgb, var(--accent-gold) 15%, transparent); color: var(--accent-gold); }
+.badge-estado-revisada { background: color-mix(in srgb, var(--accent-blue) 15%, transparent); color: var(--accent-blue); }
+.badge-estado-implementada { background: rgba(34,197,94,0.15); color: var(--accent-green); }
+.badge-estado-descartada { background: rgba(148,163,184,0.15); color: var(--text-secondary); }
 
 .epp-item-nombre { font-weight: 600; font-size: 0.88rem; }
 .epp-item-inactivo { opacity: 0.5; text-decoration: line-through; }

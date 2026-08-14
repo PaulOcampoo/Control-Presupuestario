@@ -155,8 +155,13 @@ function icon(name, size = 18) {
 const THEME_KEY = 'cp_theme';
 const _mqDark = window.matchMedia('(prefers-color-scheme: dark)');
 
+// Default para usuarios sin preferencia guardada: 'dark' (identidad de
+// marca Grupo Roforb — prompt-diseno-fase1-fixes-default-marca.md, corrige
+// la discrepancia con el comentario de cabecera de styles.css que ya
+// documentaba dark como default). Usuarios con algo ya guardado en
+// localStorage no se ven afectados — este fallback solo aplica sin key.
 function getTheme() {
-  return localStorage.getItem(THEME_KEY) || 'light';
+  return localStorage.getItem(THEME_KEY) || 'dark';
 }
 
 function getEffectiveTheme() {
@@ -297,12 +302,14 @@ function toggleTheme() {
 // ---------------------------------------------------------------------------
 const PALETTE_KEY = 'cp_palette';
 
-// Default para usuarios sin preferencia guardada (prompt-fix-chart-y-2-
-// paletas-nuevas.md): pasa de 'dorada' a 'morada' ("Tema NYRA"). Usuarios
-// que YA tienen algo guardado en localStorage (dorada o morada) no se ven
-// afectados — este fallback solo aplica cuando la key ni existe.
+// Default para usuarios sin preferencia guardada (prompt-diseno-fase1-fixes-
+// default-marca.md): vuelve de 'morada' a 'dorada' — identidad de marca
+// Grupo Roforb (plata/dorado del logotipo), alineado con el comentario de
+// cabecera de styles.css. Usuarios que YA tienen algo guardado en
+// localStorage (cualquiera de las 4 paletas) no se ven afectados — este
+// fallback solo aplica cuando la key ni existe.
 function getPalette() {
-  return localStorage.getItem(PALETTE_KEY) || 'morada';
+  return localStorage.getItem(PALETTE_KEY) || 'dorada';
 }
 
 function applyPalette(pref) {

@@ -799,10 +799,29 @@ label { display: block; font-size: var(--fs-sm); color: var(--text-secondary); m
 table { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }
 th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--border-color); }
 th { color: var(--text-secondary); font-weight: 600; font-size: var(--fs-xs); text-transform: uppercase; }
+/* Fase 3 (prompt-diseno-fase3-tablas.md): separación header/cuerpo con
+   fondo un escalón más claro (misma escalera tonal bg-surface→bg-surface-2
+   ya usada en el resto de la app) + --shadow-sm como borde inferior suave
+   en vez de una línea dura — mismo padding/line-height, cero cambio de
+   densidad de filas. */
+thead th { background: var(--bg-surface-2); box-shadow: var(--shadow-sm); }
 td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
 tr.row-click { cursor: pointer; }
-tr.row-pendiente { background: rgba(234,179,8,0.10); }
+/* Hover solo en filas realmente clicables (tr.row-click) — no en toda la
+   tabla, para no insinuar interactividad donde no la hay. (hover: hover)
+   evita el hover "pegado" típico de mobile al tocar. Mismo tinte dorado
+   ya usado en .perm-matriz-table (línea ~3184), reutilizado por
+   consistencia en vez de inventar un color nuevo. */
+@media (hover: hover) {
+  tr.row-click:hover td { background: color-mix(in srgb, var(--accent-gold) 6%, transparent); }
+}
+/* tr.row-pendiente ya era la única fila de estatus formal en la app
+   (nómina — periodos pendientes de autorización); no existen análogos
+   para otros estados (conciliado/cancelado/etc. se comunican con .badge,
+   no con fondo de fila) — se formaliza tokenizando el color, mismo valor
+   visual de antes (rgba(234,179,8,.10) === --yellow al 10%). */
+tr.row-pendiente { background: color-mix(in srgb, var(--yellow) 10%, transparent); }
 
 .fab {
   position: fixed; right: 18px; bottom: calc(22px + var(--safe-bottom));
@@ -2208,6 +2227,13 @@ body.body-scroll-locked { overflow: hidden; }
   padding: 0; text-align: center; box-sizing: border-box;
   border: 3px solid transparent; background-clip: padding-box;
 }
+/* Excepción al header genérico de Fase 3 (thead th, más arriba): esta es
+   una grilla de calendario densa (columnas de 44px), no una tabla de datos
+   estándar — el fondo/sombra de separación de header se vería como ruido
+   repetido por columna en vez de una sola línea de separación. Mantiene su
+   propio tratamiento (borde de 3px transparente + fondos puntuales de
+   .semana-actual/.hoy). */
+.asist-grid-table thead th { background: none; box-shadow: none; }
 /* Fila de "Sem N" (prompt-p4-asistencia-autollenado.md), un nivel arriba del
    header de días — border-bottom con !important porque .asist-grid-table th
    ya fija border:3px solid transparent (arriba) con mayor especificidad

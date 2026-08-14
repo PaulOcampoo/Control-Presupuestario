@@ -30,7 +30,7 @@ const MAQUINARIA_TABS_OPERADOR = ['maquinaria_horas', 'maquinaria_estado_unidad'
 // Las 5 subsecciones reales de Contabilidad (prompt-contabilidad-galeria-
 // tiles.md) — constante única reusada aquí y en SECTION_DEFS.contabilidad.tabs
 // más abajo, mismo patrón que MAQUINARIA_TABS_ADMIN arriba.
-const CONTABILIDAD_TABS = ['contabilidadCuentas', 'contabilidadPolizas', 'contabilidadCfdi', 'contabilidadConciliacion', 'contabilidadDepreciacion'];
+const CONTABILIDAD_TABS = ['contabilidadCuentas', 'contabilidadPolizas', 'contabilidadCfdi', 'contabilidadConciliacion', 'contabilidadDepreciacion', 'contabilidadExport'];
 
 const ROLE_TABS = {
   // CONTABILIDAD_TABS aquí (solo admin/desarrollador): desde PR #130,
@@ -1181,7 +1181,7 @@ const TAB_ICONS = {
   estadoResultados: '📈', estadoResultadosGlobal: '📈', costos: '💲', avance_clientes: '📈', composicion_costos: '🧮',
   cuentas: '🏦', matrices: '🧱', controlFinanciero: '💹',
   contabilidadCuentas: '📒', contabilidadPolizas: '🧾', contabilidadCfdi: '📑',
-  contabilidadConciliacion: '🏦', contabilidadDepreciacion: '📉',
+  contabilidadConciliacion: '🏦', contabilidadDepreciacion: '📉', contabilidadExport: '📤',
 };
 const TAB_LABELS = {
   resumen: 'Resumen', contrato: 'Contrato', impuestos: 'Impuestos', insumos: 'Insumos', requisiciones: 'Requisiciones',
@@ -1196,6 +1196,7 @@ const TAB_LABELS = {
   cuentas: 'Cuentas', matrices: 'Matrices de precio unitario', controlFinanciero: 'Control Financiero',
   contabilidadCuentas: 'Catálogo de Cuentas', contabilidadPolizas: 'Pólizas', contabilidadCfdi: 'CFDI',
   contabilidadConciliacion: 'Conciliación Bancaria', contabilidadDepreciacion: 'Depreciación de Maquinaria',
+  contabilidadExport: 'Exportar / Reporte Mensual',
 };
 
 const VIEW_TO_SECTION = {};
@@ -2890,6 +2891,16 @@ const AYUDA_CONTENIDO = {
       'Esta pantalla nunca modifica el catálogo de Maquinaria (equipos_maquinaria) — solo lee los equipos ya dados de alta ahí para configurarles parámetros de depreciación.',
     ],
   },
+  contabilidadExport: {
+    titulo: 'Exportar / Reporte Mensual',
+    pasos: [
+      'Genera un solo archivo Excel con 4 hojas: Pólizas, CFDI, Movimientos Bancarios Conciliados y Depreciación — todo lo capturado en Contabilidad para el mes elegido.',
+      'La hoja de Movimientos Bancarios solo incluye los ya conciliados con una póliza — un movimiento pendiente todavía no tiene contraparte contable, así que no aparece en el reporte.',
+      'La hoja de Depreciación no lista "eventos del mes" (no existen) — muestra el cálculo de línea recta evaluado para el mes elegido, igual que en la pantalla de Depreciación de Maquinaria.',
+      '"Obra" es opcional — déjalo en "Corporativo / todas las obras" para incluir todo, o elige una obra específica para filtrar las 4 hojas a esa obra.',
+      'Si el mes/obra elegidos no tienen ningún dato en ninguna de las 4 fuentes, no se genera el archivo — verás un mensaje claro en vez de un Excel vacío.',
+    ],
+  },
 };
 
 // Botón "?" reutilizable — colócalo junto al título/acción de cualquier
@@ -3959,6 +3970,7 @@ async function renderView() {
       else if (state.view === 'contabilidadCfdi') await renderContabilidadCfdi(view);
       else if (state.view === 'contabilidadConciliacion') await renderContabilidadConciliacion(view);
       else if (state.view === 'contabilidadDepreciacion') await renderContabilidadDepreciacion(view);
+      else if (state.view === 'contabilidadExport') await renderContabilidadExport(view);
       else if (state.view === 'proveedores') await renderProveedores(view);
       else if (state.view === 'nominas_global') await renderNominasGlobal(view);
       else if (state.view === 'trabajadores_global') await renderTrabajadoresGlobal(view);
@@ -12329,6 +12341,49 @@ async function renderContabilidadDepreciacion(view) {
     } catch (err) { toast(err.message, 'danger'); }
   });
   await cargarDepreciacion();
+}
+
+// Contabilidad Fase 5 (prompt-contabilidad-fase5-exportacion.md) — export
+// mensual consolidado a Excel (Pólizas + CFDI + Movimientos Bancarios
+// Conciliados + Depreciación en un solo .xlsx de 4 hojas). Sin tabla propia
+// que listar aquí — es solo el formulario de filtros + botón, el archivo se
+// genera al vuelo en el backend (nunca se persiste ni se cachea).
+async function renderContabilidadExport(view) {
+  view.innerHTML = `
+    <h2 class="section-title">Exportar / Reporte Mensual ${renderHelpBtn('contabilidadExport')}</h2>
+    <p class="muted">Exportación consolidada a Excel para el contador externo — acceso restringido.</p>
+    <div class="card mt-12">
+      <label>Mes</label>
+      <input type="month" id="contExportMesInput" value="${mesActualInputValue()}" />
+      <label class="mt-8">Obra</label>
+      <select id="contExportObraSelect">
+        <option value="">Corporativo / todas las obras</option>
+        ${state.projects.map((p) => `<option value="${p.id}">${esc(p.nombre)}</option>`).join('')}
+      </select>
+    </div>
+    <div class="section-actions mt-12">
+      <button class="btn btn-primary" id="btnExportarContabilidad">⭳ Exportar a Excel</button>
+    </div>
+  `;
+  $('#btnExportarContabilidad').addEventListener('click', async () => {
+    const btn = $('#btnExportarContabilidad');
+    const mes = $('#contExportMesInput').value;
+    if (!mes) { toast('Selecciona un mes', 'danger'); return; }
+    const obra = $('#contExportObraSelect').value;
+    const params = new URLSearchParams({ mes });
+    if (obra) params.set('project_id', obra);
+    btn.disabled = true;
+    const textoOriginal = btn.textContent;
+    btn.textContent = 'Exportando…';
+    try {
+      await downloadExport(`/contabilidad/export?${params}`);
+    } catch (err) {
+      toast(err.message, 'danger');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = textoOriginal;
+    }
+  });
 }
 
 function mesActualInputValue() {

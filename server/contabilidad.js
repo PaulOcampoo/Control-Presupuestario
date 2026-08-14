@@ -422,6 +422,97 @@ async function generarPolizaDepreciacion(depreciacionId, mes, usuarioId) {
   return rows[0];
 }
 
+/*
+ * Contabilidad Fase 5 (prompt-contabilidad-fase5-exportacion.md) — export
+ * mensual consolidado a Excel. Silo separado de Finanzas/Erogado Real
+ * (diagnóstico Fase 0) — solo consolida las 4 fuentes propias de
+ * Contabilidad, nunca cruza con esos datos. Sin persistir/cachear nada:
+ * las 4 queries corren al vuelo en cada request, igual que el resto del
+ * módulo.
+ */
+
+// Límites [inicio, fin) del mes 'YYYY-MM', como DATE strings — fin es el
+// día 1 del mes siguiente (exclusivo), para no depender de cuántos días
+// tiene el mes ni de zonas horarias en la comparación.
+function limitesMes(mes) {
+  const [anio, m] = mes.split('-').map(Number);
+  const inicio = `${mes}-01`;
+  const anioFin = m === 12 ? anio + 1 : anio;
+  const mesFin = m === 12 ? 1 : m + 1;
+  const fin = `${anioFin}-${String(mesFin).padStart(2, '0')}-01`;
+  return { inicio, fin };
+}
+
+// project_id no existe directo en movimientos_bancarios — el filtro de obra
+// para esa hoja usa el project_id de la póliza con la que se concilió
+// (diagnóstico Fase 5, punto 2 — confirmado como JOIN correcto, no
+// ambiguo: todo movimiento con estatus='conciliado' tiene poliza_id
+// NOT NULL por construcción, conciliarMovimiento/desconciliarMovimiento
+// siempre actualizan ambos juntos, así que el JOIN nunca deja fuera un
+// conciliado real).
+async function getDatosExportacionMes({ mes, projectId }) {
+  const { inicio, fin } = limitesMes(mes);
+
+  const paramsPolizas = [inicio, fin];
+  let wherePolizas = 'p.fecha >= $1 AND p.fecha < $2';
+  if (projectId) { paramsPolizas.push(projectId); wherePolizas += ` AND p.project_id = $${paramsPolizas.length}`; }
+  const { rows: polizas } = await db.pool.query(`
+    SELECT p.*, c.codigo AS cuenta_codigo, c.nombre AS cuenta_nombre, pr.nombre AS project_nombre
+    FROM polizas p
+    JOIN cuentas_contables c ON c.id = p.cuenta_id
+    LEFT JOIN proyectos pr ON pr.id = p.project_id
+    WHERE ${wherePolizas}
+    ORDER BY p.fecha, p.id
+  `, paramsPolizas);
+
+  const paramsCfdi = [inicio, fin];
+  let whereCfdi = 'c.fecha_emision >= $1 AND c.fecha_emision < $2';
+  if (projectId) { paramsCfdi.push(projectId); whereCfdi += ` AND c.project_id = $${paramsCfdi.length}`; }
+  const { rows: cfdi } = await db.pool.query(`
+    SELECT c.*, pr.nombre AS project_nombre
+    FROM cfdi c
+    LEFT JOIN proyectos pr ON pr.id = c.project_id
+    WHERE ${whereCfdi}
+    ORDER BY c.fecha_emision, c.id
+  `, paramsCfdi);
+
+  // Solo estatus='conciliado' — un movimiento pendiente no tiene contraparte
+  // contable todavía y no aporta al reporte del contador (forbidden action
+  // explícita del prompt).
+  const paramsMov = [inicio, fin];
+  let whereMov = "m.estatus = 'conciliado' AND m.fecha >= $1 AND m.fecha < $2";
+  if (projectId) { paramsMov.push(projectId); whereMov += ` AND pz.project_id = $${paramsMov.length}`; }
+  const { rows: movimientos } = await db.pool.query(`
+    SELECT m.*, cb.nombre AS cuenta_nombre, pz.concepto AS poliza_concepto
+    FROM movimientos_bancarios m
+    JOIN cuentas_bancarias cb ON cb.id = m.cuenta_bancaria_id
+    JOIN polizas pz ON pz.id = m.poliza_id
+    WHERE ${whereMov}
+    ORDER BY m.fecha, m.id
+  `, paramsMov);
+
+  // Depreciación no tiene "eventos del mes" (cálculo on-the-fly, sin
+  // snapshot) — se evalúa calcularDepreciacion() en `mes` para cada equipo
+  // configurado, cruzando equipos_maquinaria.obra_id para el filtro de obra.
+  // fecha_adquisicion < fin del mes consultado: un equipo comprado DESPUÉS
+  // del mes que se está exportando no debe aparecer (encontrado probando el
+  // mes-sin-datos del checkpoint — sin este filtro, todo equipo configurado
+  // aparecía sin importar el mes pedido, incluso años antes de comprarlo).
+  const paramsDeprec = [fin];
+  let whereDeprec = 'd.fecha_adquisicion < $1';
+  if (projectId) { paramsDeprec.push(projectId); whereDeprec += ` AND e.obra_id = $${paramsDeprec.length}`; }
+  const { rows: deprecRows } = await db.pool.query(`
+    SELECT d.*, e.nombre AS equipo_nombre, e.identificador AS equipo_identificador
+    FROM depreciacion_maquinaria d
+    JOIN equipos_maquinaria e ON e.id = d.equipo_id
+    WHERE ${whereDeprec}
+    ORDER BY e.nombre
+  `, paramsDeprec);
+  const depreciacion = deprecRows.map((r) => ({ ...r, ...calcularDepreciacion(r, mes) }));
+
+  return { polizas, cfdi, movimientos, depreciacion };
+}
+
 module.exports = {
   listCuentas,
   createCuenta,
@@ -444,4 +535,5 @@ module.exports = {
   createDepreciacion,
   updateDepreciacion,
   generarPolizaDepreciacion,
+  getDatosExportacionMes,
 };

@@ -810,7 +810,7 @@ function requireContabilidadAccess(req, res, next) {
 // no comparte módulo con el frontend). Cambiar el mecanismo de navegación
 // (subnav -> galería de tiles) no cambia QUIÉN tiene acceso — tieneAccesoContabilidad
 // sigue siendo exactamente el mismo criterio (whitelist OR admin/desarrollador).
-const CONTABILIDAD_TABS = ['contabilidadCuentas', 'contabilidadPolizas', 'contabilidadCfdi', 'contabilidadConciliacion', 'contabilidadDepreciacion'];
+const CONTABILIDAD_TABS = ['contabilidadCuentas', 'contabilidadPolizas', 'contabilidadCfdi', 'contabilidadConciliacion', 'contabilidadDepreciacion', 'contabilidadExport'];
 
 // Agrega los tabs 'cuentas'/'controlFinanciero'/CONTABILIDAD_TABS a la lista
 // SOLO para los usuarios en la whitelist correspondiente — el resto de

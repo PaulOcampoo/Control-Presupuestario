@@ -2871,6 +2871,16 @@ const AYUDA_CONTENIDO = {
       '"Desconciliar" no borra nada — solo quita el vínculo con la póliza y el movimiento vuelve a quedar pendiente, por si te equivocaste.',
     ],
   },
+  contabilidadDepreciacion: {
+    titulo: 'Depreciación de Maquinaria',
+    pasos: [
+      'Se calcula por línea recta: (valor de adquisición − valor de rescate) ÷ vida útil en meses = depreciación mensual. El mes de adquisición ya cuenta como el primer mes depreciado.',
+      'El cálculo se hace al momento de consultar (no se guarda un histórico mes a mes) — cambia el selector de mes para ver la depreciación acumulada y el valor en libros en cualquier punto del tiempo.',
+      'Si un equipo se da de baja (vendido, siniestrado) antes de agotar su vida útil, edítalo y captura la fecha de baja — la depreciación deja de acumular a partir de ese mes, sin importar qué mes consultes después.',
+      '"Registrar como póliza" es opcional y siempre requiere tu confirmación — nunca se genera sola. Crea una póliza tipo Diario con la cuenta 5107 (Depreciación) por el monto mensual del mes que estés consultando.',
+      'Esta pantalla nunca modifica el catálogo de Maquinaria (equipos_maquinaria) — solo lee los equipos ya dados de alta ahí para configurarles parámetros de depreciación.',
+    ],
+  },
 };
 
 // Botón "?" reutilizable — colócalo junto al título/acción de cualquier
@@ -11909,9 +11919,10 @@ const TIPO_CUENTA_CONT_LABELS = { activo: 'Activo', pasivo: 'Pasivo', capital: '
 const TIPO_POLIZA_CONT_LABELS = { ingreso: 'Ingreso', egreso: 'Egreso', diario: 'Diario' };
 
 async function renderContabilidad(view) {
-  let subView = 'cuentas'; // 'cuentas' | 'polizas' | 'cfdi' | 'conciliacion'
+  let subView = 'cuentas'; // 'cuentas' | 'polizas' | 'cfdi' | 'conciliacion' | 'depreciacion'
   let cuentasActivasCache = []; // para el selector de cuenta en el modal de nueva póliza
   let cuentaBancariaSeleccionada = null;
+  let mesDeprecSeleccionado = null; // 'YYYY-MM'; null = mes actual (default del backend)
 
   function renderSubNav() {
     return `
@@ -11920,6 +11931,7 @@ async function renderContabilidad(view) {
         <button class="btn ${subView === 'polizas' ? 'btn-primary' : ''}" id="btnContSubPolizas">Pólizas</button>
         <button class="btn ${subView === 'cfdi' ? 'btn-primary' : ''}" id="btnContSubCfdi">CFDI</button>
         <button class="btn ${subView === 'conciliacion' ? 'btn-primary' : ''}" id="btnContSubConciliacion">Conciliación Bancaria</button>
+        <button class="btn ${subView === 'depreciacion' ? 'btn-primary' : ''}" id="btnContSubDepreciacion">Depreciación de Maquinaria</button>
       </div>
     `;
   }
@@ -11928,6 +11940,7 @@ async function renderContabilidad(view) {
     $('#btnContSubPolizas').addEventListener('click', showPolizas);
     $('#btnContSubCfdi').addEventListener('click', showCfdi);
     $('#btnContSubConciliacion').addEventListener('click', showConciliacion);
+    $('#btnContSubDepreciacion').addEventListener('click', showDepreciacion);
   }
 
   async function showCuentas() {
@@ -12272,7 +12285,82 @@ async function renderContabilidad(view) {
     }
   }
 
+  async function showDepreciacion() {
+    subView = 'depreciacion';
+    view.innerHTML = `
+      <h2 class="section-title">Contabilidad ${renderHelpBtn('contabilidadDepreciacion')}</h2>
+      <p class="muted">Catálogo de cuentas contables y registro de pólizas — acceso restringido.</p>
+      ${renderSubNav()}
+      <div class="card mt-12">
+        <label>Mes a consultar</label>
+        <input type="month" id="contDeprecMesInput" value="${mesDeprecSeleccionado || mesActualInputValue()}" />
+      </div>
+      <div class="section-actions mt-12">
+        <button class="btn btn-primary" id="btnConfigurarDeprecEquipo">+ Configurar depreciación</button>
+      </div>
+      <div id="contDeprecList" class="mt-12"></div>
+    `;
+    bindSubNav();
+    $('#contDeprecMesInput').addEventListener('change', (e) => {
+      mesDeprecSeleccionado = e.target.value || null;
+      cargarDepreciacion();
+    });
+    $('#btnConfigurarDeprecEquipo').addEventListener('click', async () => {
+      try {
+        const equipos = await api('/contabilidad/depreciacion/equipos-disponibles');
+        if (!equipos.length) { toast('No hay equipos disponibles — todos los equipos activos de Maquinaria ya tienen parámetros configurados', ''); return; }
+        openConfigurarDepreciacionModal(equipos, cargarDepreciacion);
+      } catch (err) { toast(err.message, 'danger'); }
+    });
+    await cargarDepreciacion();
+  }
+
+  async function cargarDepreciacion() {
+    const list = $('#contDeprecList');
+    if (!list) return;
+    list.innerHTML = '<div class="spinner"></div>';
+    try {
+      const params = new URLSearchParams();
+      if (mesDeprecSeleccionado) params.set('mes', mesDeprecSeleccionado);
+      const filas = await api(`/contabilidad/depreciacion${params.toString() ? `?${params}` : ''}`);
+      if (!filas.length) { list.innerHTML = '<div class="empty-state">Sin equipos con depreciación configurada todavía.</div>'; return; }
+      const totalAcumulada = filas.reduce((s, f) => s + Number(f.depreciacion_acumulada), 0);
+      list.innerHTML = `
+        <div class="kpi-grid">
+          <div class="kpi accent"><div class="label">Depreciación acumulada total (${esc(filas[0].mes)})</div><div class="value">${fmtMoney(totalAcumulada)}</div></div>
+        </div>
+        <div class="table-scroll mt-12">
+          <table>
+            <thead><tr><th>Equipo</th><th class="num">Valor adquisición</th><th class="num">Mensual</th><th class="num">Acumulada</th><th class="num">Valor en libros</th><th>Estatus</th></tr></thead>
+            <tbody>
+              ${filas.map((f) => `
+                <tr class="row-click" data-deprec-id="${f.id}">
+                  <td>${esc(f.equipo_nombre)}${f.equipo_identificador ? ` <span class="muted fs-07">(${esc(f.equipo_identificador)})</span>` : ''}</td>
+                  <td class="num">${fmtMoney(f.valor_adquisicion)}</td>
+                  <td class="num">${fmtMoney(f.depreciacion_mensual)}</td>
+                  <td class="num">${fmtMoney(f.depreciacion_acumulada)}</td>
+                  <td class="num">${fmtMoney(f.valor_en_libros)}</td>
+                  <td>${f.fecha_baja ? `<span class="badge red">Baja ${fmtDate(f.fecha_baja)}</span>` : 'Activo'}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+      `;
+      $$('[data-deprec-id]', list).forEach((row) => {
+        row.addEventListener('click', () => openDetalleDepreciacionModal(filas.find((f) => f.id === Number(row.dataset.deprecId)), mesDeprecSeleccionado || filas[0].mes, cargarDepreciacion));
+      });
+    } catch (err) {
+      list.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+    }
+  }
+
   await showCuentas();
+}
+
+function mesActualInputValue() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
 }
 
 function openNuevaCuentaContModal(onSaved) {
@@ -12865,6 +12953,129 @@ function openDetalleMovimientoModal(movimiento, onChange) {
   }).catch(() => {
     const select = $('#movConciliarPolizaSelect');
     if (select) select.innerHTML = '<option value="">Error al cargar pólizas</option>';
+  });
+}
+
+// Contabilidad Fase 4 (prompt-contabilidad-fase4-depreciacion.md) —
+// depreciación de maquinaria, línea recta, cálculo on-the-fly (sin
+// snapshot). Solo LEE equipos_maquinaria (catálogo operativo de
+// jefe_maquinaria) vía FK — nunca lo modifica. Póliza de depreciación
+// siempre requiere confirmación explícita, nunca automática.
+function openConfigurarDepreciacionModal(equipos, onSaved) {
+  openModal(`
+    <h3>Configurar depreciación</h3>
+    <div class="field"><label>Equipo *</label>
+      <select id="deprecEquipoSelect">
+        ${equipos.map((e) => `<option value="${e.id}">${esc(e.nombre)}${e.identificador ? ` (${esc(e.identificador)})` : ''}</option>`).join('')}
+      </select>
+    </div>
+    <div class="field"><label>Valor de adquisición *</label><input id="deprecValorAdq" type="number" min="0" step="0.01" /></div>
+    <div class="field"><label>Fecha de adquisición *</label><input id="deprecFechaAdq" type="date" /></div>
+    <div class="field"><label>Vida útil (meses) *</label><input id="deprecVidaUtil" type="number" min="1" step="1" /></div>
+    <div class="field"><label>Valor de rescate</label><input id="deprecValorRescate" type="number" min="0" step="0.01" value="0" /></div>
+    <div class="modal-actions">
+      <button class="btn" id="btnCancelDeprec">Cerrar</button>
+      <button class="btn btn-primary" id="btnSaveDeprec">Guardar</button>
+    </div>
+  `);
+  $('#btnCancelDeprec').addEventListener('click', closeModal);
+  $('#btnSaveDeprec').addEventListener('click', async () => {
+    const body = {
+      equipo_id: Number($('#deprecEquipoSelect').value),
+      valor_adquisicion: Number($('#deprecValorAdq').value),
+      fecha_adquisicion: $('#deprecFechaAdq').value,
+      vida_util_meses: Number($('#deprecVidaUtil').value),
+      valor_rescate: Number($('#deprecValorRescate').value) || 0,
+    };
+    if (!body.equipo_id || !(body.valor_adquisicion > 0) || !body.fecha_adquisicion || !(body.vida_util_meses > 0)) {
+      toast('Completa equipo, valor de adquisición, fecha y vida útil', 'danger'); return;
+    }
+    const btn = $('#btnSaveDeprec');
+    btn.disabled = true;
+    try {
+      await api('/contabilidad/depreciacion', { method: 'POST', body });
+      toast('Parámetros de depreciación guardados', 'success');
+      closeModal();
+      onSaved();
+    } catch (err) {
+      toast(err.message, 'danger');
+      btn.disabled = false;
+    }
+  });
+}
+
+function openDetalleDepreciacionModal(fila, mes, onChange) {
+  openModal(`
+    <h3>Depreciación — ${esc(fila.equipo_nombre)}</h3>
+    <p>Valor de adquisición: ${fmtMoney(fila.valor_adquisicion)} · Fecha: ${fmtDate(fila.fecha_adquisicion)}</p>
+    <p>Vida útil: ${fila.vida_util_meses} meses · Valor de rescate: ${fmtMoney(fila.valor_rescate)}</p>
+    ${fila.fecha_baja ? `<p><span class="badge red">Dado de baja el ${fmtDate(fila.fecha_baja)}</span> — la depreciación se detiene ahí.</p>` : ''}
+    <div class="card mt-8">
+      <div class="row between"><span>Mes consultado</span><strong>${esc(mes)}</strong></div>
+      <div class="row between"><span>Depreciación mensual</span><strong>${fmtMoney(fila.depreciacion_mensual)}</strong></div>
+      <div class="row between"><span>Depreciación acumulada</span><strong>${fmtMoney(fila.depreciacion_acumulada)}</strong></div>
+      <div class="row between"><span>Valor en libros</span><strong>${fmtMoney(fila.valor_en_libros)}</strong></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" id="btnCerrarDetalleDeprec">Cerrar</button>
+      <button class="btn" id="btnEditarDeprec">Editar parámetros</button>
+      <button class="btn btn-primary" id="btnGenerarPolizaDeprec">Registrar como póliza</button>
+    </div>
+  `);
+  $('#btnCerrarDetalleDeprec').addEventListener('click', () => { closeModal(); onChange(); });
+  $('#btnEditarDeprec').addEventListener('click', () => openEditarDepreciacionModal(fila, mes, onChange));
+  $('#btnGenerarPolizaDeprec').addEventListener('click', async () => {
+    const ok = await confirmDialog(
+      `¿Generar una póliza de depreciación por ${fmtMoney(fila.depreciacion_mensual)} para "${fila.equipo_nombre}" (mes ${mes})? Se registrará en Pólizas con la cuenta 5107 — Depreciación.`,
+      { titulo: 'Confirmar' }
+    );
+    if (!ok) return;
+    try {
+      await api(`/contabilidad/depreciacion/${fila.id}/generar-poliza`, { method: 'POST', body: { mes, confirmado: true } });
+      toast('Póliza de depreciación registrada', 'success');
+      closeModal();
+      onChange();
+    } catch (err) { toast(err.message, 'danger'); }
+  });
+}
+
+function openEditarDepreciacionModal(fila, mes, onChange) {
+  openModal(`
+    <h3>Editar parámetros — ${esc(fila.equipo_nombre)}</h3>
+    <div class="field"><label>Valor de adquisición *</label><input id="deprecEditValorAdq" type="number" min="0" step="0.01" value="${fila.valor_adquisicion}" /></div>
+    <div class="field"><label>Fecha de adquisición *</label><input id="deprecEditFechaAdq" type="date" value="${String(fila.fecha_adquisicion).slice(0, 10)}" /></div>
+    <div class="field"><label>Vida útil (meses) *</label><input id="deprecEditVidaUtil" type="number" min="1" step="1" value="${fila.vida_util_meses}" /></div>
+    <div class="field"><label>Valor de rescate</label><input id="deprecEditValorRescate" type="number" min="0" step="0.01" value="${fila.valor_rescate}" /></div>
+    <div class="field"><label>Fecha de baja (opcional)</label><input id="deprecEditFechaBaja" type="date" value="${fila.fecha_baja ? String(fila.fecha_baja).slice(0, 10) : ''}" /></div>
+    <p class="muted fs-08">Si el equipo se dio de baja (vendido, siniestrado), captura la fecha aquí — la depreciación deja de acumular después de ese mes. equipos_maquinaria.estado (Módulo Maquinaria) no se modifica desde aquí.</p>
+    <div class="modal-actions">
+      <button class="btn" id="btnCancelDeprecEdit">Cancelar</button>
+      <button class="btn btn-primary" id="btnSaveDeprecEdit">Guardar</button>
+    </div>
+  `);
+  $('#btnCancelDeprecEdit').addEventListener('click', () => openDetalleDepreciacionModal(fila, mes, onChange));
+  $('#btnSaveDeprecEdit').addEventListener('click', async () => {
+    const body = {
+      valor_adquisicion: Number($('#deprecEditValorAdq').value),
+      fecha_adquisicion: $('#deprecEditFechaAdq').value,
+      vida_util_meses: Number($('#deprecEditVidaUtil').value),
+      valor_rescate: Number($('#deprecEditValorRescate').value) || 0,
+      fecha_baja: $('#deprecEditFechaBaja').value || null,
+    };
+    if (!(body.valor_adquisicion > 0) || !body.fecha_adquisicion || !(body.vida_util_meses > 0)) {
+      toast('Completa valor de adquisición, fecha y vida útil', 'danger'); return;
+    }
+    const btn = $('#btnSaveDeprecEdit');
+    btn.disabled = true;
+    try {
+      await api(`/contabilidad/depreciacion/${fila.id}`, { method: 'PUT', body });
+      toast('Parámetros actualizados', 'success');
+      closeModal();
+      onChange();
+    } catch (err) {
+      toast(err.message, 'danger');
+      btn.disabled = false;
+    }
   });
 }
 

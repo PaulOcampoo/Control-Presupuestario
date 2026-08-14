@@ -281,6 +281,147 @@ async function desconciliarMovimiento(id) {
   return rows[0] || null;
 }
 
+/*
+ * Contabilidad Fase 4 (prompt-contabilidad-fase4-depreciacion.md) —
+ * parámetros de depreciación de maquinaria (línea recta), aislada de
+ * equipos_maquinaria (solo lectura vía FK). Sin snapshot mensual: todo se
+ * deriva on-the-fly en cada consulta desde depreciacion_maquinaria.
+ */
+
+function mesIndice(anio, mes) { return anio * 12 + (mes - 1); } // mes 1-12, índice absoluto para restar meses entre fechas
+
+// params: { valor_adquisicion, fecha_adquisicion, vida_util_meses, valor_rescate, fecha_baja }
+// mesConsultado: 'YYYY-MM'. Función pura, sin acceso a DB — fácil de probar a mano.
+function calcularDepreciacion(params, mesConsultado) {
+  const valorAdquisicion = Number(params.valor_adquisicion);
+  const valorRescate = Number(params.valor_rescate) || 0;
+  const vidaUtilMeses = Number(params.vida_util_meses);
+  const depreciable = valorAdquisicion - valorRescate;
+  const depreciacionMensual = vidaUtilMeses > 0 ? depreciable / vidaUtilMeses : 0;
+
+  const [anioConsulta, mesConsulta] = String(mesConsultado).split('-').map(Number);
+  const fAdq = new Date(params.fecha_adquisicion);
+  const anioAdq = fAdq.getUTCFullYear();
+  const mesAdq = fAdq.getUTCMonth() + 1;
+
+  // Si el equipo se dio de baja antes del mes consultado, el límite de
+  // acumulación es el mes de la baja, no el mes consultado (diagnóstico
+  // Fase 4, punto 5 — "depreciación truncada").
+  let limiteAnio = anioConsulta;
+  let limiteMes = mesConsulta;
+  if (params.fecha_baja) {
+    const fBaja = new Date(params.fecha_baja);
+    const idxBaja = mesIndice(fBaja.getUTCFullYear(), fBaja.getUTCMonth() + 1);
+    const idxConsulta = mesIndice(anioConsulta, mesConsulta);
+    if (idxBaja < idxConsulta) { limiteAnio = fBaja.getUTCFullYear(); limiteMes = fBaja.getUTCMonth() + 1; }
+  }
+
+  // +1: el mes de adquisición ya cuenta como el primer mes depreciado.
+  const mesesTranscurridos = Math.max(0, mesIndice(limiteAnio, limiteMes) - mesIndice(anioAdq, mesAdq) + 1);
+  const depreciacionAcumulada = Math.min(depreciacionMensual * mesesTranscurridos, depreciable);
+  const valorEnLibros = valorAdquisicion - depreciacionAcumulada;
+
+  return {
+    depreciacion_mensual: Number(depreciacionMensual.toFixed(2)),
+    meses_transcurridos: mesesTranscurridos,
+    depreciacion_acumulada: Number(depreciacionAcumulada.toFixed(2)),
+    valor_en_libros: Number(valorEnLibros.toFixed(2)),
+  };
+}
+
+function mesActualYYYYMM() {
+  const now = new Date();
+  return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
+}
+
+async function listDepreciacion({ mes } = {}) {
+  const mesConsultado = mes || mesActualYYYYMM();
+  const { rows } = await db.pool.query(`
+    SELECT d.*, e.nombre AS equipo_nombre, e.tipo AS equipo_tipo, e.identificador AS equipo_identificador, e.estado AS equipo_estado
+    FROM depreciacion_maquinaria d
+    JOIN equipos_maquinaria e ON e.id = d.equipo_id
+    ORDER BY e.nombre
+  `);
+  return rows.map((r) => ({ ...r, ...calcularDepreciacion(r, mesConsultado), mes: mesConsultado }));
+}
+
+// Equipos activos (soft-delete de equipos_maquinaria, no confundir con
+// estado='baja') que aún no tienen parámetros de depreciación capturados.
+async function listEquiposDisponiblesDepreciacion() {
+  const { rows } = await db.pool.query(`
+    SELECT e.* FROM equipos_maquinaria e
+    WHERE e.activo = true AND NOT EXISTS (SELECT 1 FROM depreciacion_maquinaria d WHERE d.equipo_id = e.id)
+    ORDER BY e.nombre
+  `);
+  return rows;
+}
+
+async function createDepreciacion({ equipo_id, valor_adquisicion, fecha_adquisicion, vida_util_meses, valor_rescate, creado_por }) {
+  const { rows: equipoRows } = await db.pool.query('SELECT id FROM equipos_maquinaria WHERE id = $1', [equipo_id]);
+  if (!equipoRows[0]) {
+    const err = new Error('El equipo indicado no existe');
+    err.status = 400;
+    throw err;
+  }
+  const { rows } = await db.pool.query(
+    `INSERT INTO depreciacion_maquinaria (equipo_id, valor_adquisicion, fecha_adquisicion, vida_util_meses, valor_rescate, creado_por)
+     VALUES ($1,$2,$3,$4,COALESCE($5,0),$6) RETURNING *`,
+    [equipo_id, valor_adquisicion, fecha_adquisicion, vida_util_meses, valor_rescate, creado_por]
+  );
+  return rows[0];
+}
+
+async function updateDepreciacion(id, { valor_adquisicion, fecha_adquisicion, vida_util_meses, valor_rescate, fecha_baja }) {
+  const { rows } = await db.pool.query(
+    `UPDATE depreciacion_maquinaria SET
+       valor_adquisicion = COALESCE($1, valor_adquisicion),
+       fecha_adquisicion = COALESCE($2::date, fecha_adquisicion),
+       vida_util_meses = COALESCE($3, vida_util_meses),
+       valor_rescate = COALESCE($4, valor_rescate),
+       fecha_baja = COALESCE($5::date, fecha_baja)
+     WHERE id = $6 RETURNING *`,
+    [valor_adquisicion, fecha_adquisicion, vida_util_meses, valor_rescate, fecha_baja, id]
+  );
+  return rows[0] || null;
+}
+
+// Póliza de depreciación — SIEMPRE opcional y confirmada explícitamente por
+// el usuario (server/app.js exige body.confirmado === true antes de llamar
+// esto); nunca se genera sola. cuenta_id fijo = 5107 (seed de Fase 1/4).
+async function generarPolizaDepreciacion(depreciacionId, mes, usuarioId) {
+  const { rows: depRows } = await db.pool.query(`
+    SELECT d.*, e.nombre AS equipo_nombre FROM depreciacion_maquinaria d
+    JOIN equipos_maquinaria e ON e.id = d.equipo_id
+    WHERE d.id = $1
+  `, [depreciacionId]);
+  if (!depRows[0]) {
+    const err = new Error('No se encontraron parámetros de depreciación para ese equipo');
+    err.status = 404;
+    throw err;
+  }
+  const { rows: cuentaRows } = await db.pool.query("SELECT id FROM cuentas_contables WHERE codigo = '5107'");
+  if (!cuentaRows[0]) {
+    const err = new Error('No existe la cuenta contable 5107 (Depreciación) — revisa el catálogo de cuentas');
+    err.status = 500;
+    throw err;
+  }
+  const dep = depRows[0];
+  const { depreciacion_mensual } = calcularDepreciacion(dep, mes);
+  if (!(depreciacion_mensual > 0)) {
+    const err = new Error('La depreciación calculada para este mes es 0 — no se genera póliza');
+    err.status = 400;
+    throw err;
+  }
+  const [anio, mesNum] = mes.split('-');
+  const nombreMes = new Date(Date.UTC(Number(anio), Number(mesNum) - 1, 1)).toLocaleDateString('es-MX', { month: 'long', year: 'numeric', timeZone: 'UTC' });
+  const { rows } = await db.pool.query(
+    `INSERT INTO polizas (tipo, fecha, cuenta_id, monto, concepto, usuario_id)
+     VALUES ('diario', CURRENT_DATE, $1, $2, $3, $4) RETURNING *`,
+    [cuentaRows[0].id, depreciacion_mensual, `Depreciación ${dep.equipo_nombre} — ${nombreMes}`, usuarioId]
+  );
+  return rows[0];
+}
+
 module.exports = {
   listCuentas,
   createCuenta,
@@ -297,4 +438,10 @@ module.exports = {
   listMovimientos,
   conciliarMovimiento,
   desconciliarMovimiento,
+  calcularDepreciacion,
+  listDepreciacion,
+  listEquiposDisponiblesDepreciacion,
+  createDepreciacion,
+  updateDepreciacion,
+  generarPolizaDepreciacion,
 };

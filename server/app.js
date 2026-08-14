@@ -3793,6 +3793,68 @@ app.put('/api/contabilidad/movimientos/:id/desconciliar', h(auth.requireContabil
 }));
 
 // ---------------------------------------------------------------------------
+// Contabilidad Fase 4 (prompt-contabilidad-fase4-depreciacion.md) —
+// depreciación de maquinaria (línea recta, on-the-fly). Mismo whitelist que
+// Fase 1-3. equipos_maquinaria SOLO se lee aquí, nunca se modifica —
+// catálogo operativo de jefe_maquinaria (checkPermiso('maquinaria', ...),
+// sistema de permisos distinto). Póliza de depreciación SIEMPRE requiere
+// confirmado:true explícito — nunca se genera sola (cron, on-load, etc.).
+// ---------------------------------------------------------------------------
+const MES_YYYY_MM_RE = /^\d{4}-\d{2}$/;
+
+app.get('/api/contabilidad/depreciacion', h(auth.requireContabilidadAccess), h(async (req, res) => {
+  const { mes } = req.query;
+  if (mes && !MES_YYYY_MM_RE.test(mes)) return res.status(400).json({ error: 'Formato de mes inválido, usa YYYY-MM' });
+  res.json(await contabilidad.listDepreciacion({ mes }));
+}));
+
+app.get('/api/contabilidad/depreciacion/equipos-disponibles', h(auth.requireContabilidadAccess), h(async (req, res) => {
+  res.json(await contabilidad.listEquiposDisponiblesDepreciacion());
+}));
+
+app.post('/api/contabilidad/depreciacion', h(auth.requireContabilidadAccess), h(async (req, res) => {
+  const { equipo_id, valor_adquisicion, fecha_adquisicion, vida_util_meses, valor_rescate } = req.body || {};
+  if (!equipo_id) return res.status(400).json({ error: 'Indica el equipo' });
+  if (!(Number(valor_adquisicion) > 0)) return res.status(400).json({ error: 'Indica un valor de adquisición válido' });
+  if (!fecha_adquisicion) return res.status(400).json({ error: 'Indica la fecha de adquisición' });
+  if (!(Number(vida_util_meses) > 0)) return res.status(400).json({ error: 'Indica una vida útil en meses válida' });
+  try {
+    const dep = await contabilidad.createDepreciacion({
+      equipo_id: Number(equipo_id), valor_adquisicion: Number(valor_adquisicion), fecha_adquisicion,
+      vida_util_meses: Number(vida_util_meses), valor_rescate: valor_rescate != null && valor_rescate !== '' ? Number(valor_rescate) : 0,
+      creado_por: req.user.id,
+    });
+    res.status(201).json(dep);
+  } catch (err) {
+    if (err.code === '23505') { // unique_violation (equipo_id)
+      return res.status(409).json({ error: 'Este equipo ya tiene parámetros de depreciación configurados' });
+    }
+    throw err;
+  }
+}));
+
+app.put('/api/contabilidad/depreciacion/:id', h(auth.requireContabilidadAccess), h(async (req, res) => {
+  const { valor_adquisicion, fecha_adquisicion, vida_util_meses, valor_rescate, fecha_baja } = req.body || {};
+  const dep = await contabilidad.updateDepreciacion(Number(req.params.id), {
+    valor_adquisicion: valor_adquisicion != null && valor_adquisicion !== '' ? Number(valor_adquisicion) : null,
+    fecha_adquisicion: fecha_adquisicion || null,
+    vida_util_meses: vida_util_meses != null && vida_util_meses !== '' ? Number(vida_util_meses) : null,
+    valor_rescate: valor_rescate != null && valor_rescate !== '' ? Number(valor_rescate) : null,
+    fecha_baja: fecha_baja || null,
+  });
+  if (!dep) return res.status(404).json({ error: 'Registro de depreciación no encontrado' });
+  res.json(dep);
+}));
+
+app.post('/api/contabilidad/depreciacion/:id/generar-poliza', h(auth.requireContabilidadAccess), h(async (req, res) => {
+  const { mes, confirmado } = req.body || {};
+  if (!mes || !MES_YYYY_MM_RE.test(mes)) return res.status(400).json({ error: 'Indica el mes en formato YYYY-MM' });
+  if (confirmado !== true) return res.status(400).json({ error: 'Falta confirmar explícitamente la generación de la póliza' });
+  const poliza = await contabilidad.generarPolizaDepreciacion(Number(req.params.id), mes, req.user.id);
+  res.status(201).json(poliza);
+}));
+
+// ---------------------------------------------------------------------------
 // Bienvenida — resumen ligero por proyecto para la pantalla de bienvenida
 // ---------------------------------------------------------------------------
 app.get('/api/bienvenida', h(auth.allow('residente', 'cabo', 'compras', 'tesoreria', 'administracion', 'logistica', 'jefe_maquinaria', 'operador')), h(async (req, res) => {

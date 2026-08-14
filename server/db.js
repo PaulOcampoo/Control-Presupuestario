@@ -1456,7 +1456,8 @@ const SCHEMA = `
     ('5103', 'Renta', 'gasto'),
     ('5104', 'Honorarios contables', 'gasto'),
     ('5105', 'Gastos financieros', 'gasto'),
-    ('5106', 'Gastos varios', 'gasto')
+    ('5106', 'Gastos varios', 'gasto'),
+    ('5107', 'Depreciación', 'gasto')
   ON CONFLICT (codigo) DO NOTHING;
 
   -- project_id NULLABLE = póliza corporativa sin obra específica, mismo
@@ -1572,6 +1573,38 @@ const SCHEMA = `
   );
   CREATE INDEX IF NOT EXISTS idx_movimientos_bancarios_cuenta ON movimientos_bancarios(cuenta_bancaria_id, fecha);
   CREATE INDEX IF NOT EXISTS idx_movimientos_bancarios_poliza ON movimientos_bancarios(poliza_id);
+
+  -- Contabilidad Fase 4 (prompt-contabilidad-fase4-depreciacion.md) —
+  -- parámetros de depreciación de maquinaria (línea recta). Deliberadamente
+  -- SEPARADA de equipos_maquinaria (catálogo operativo de jefe_maquinaria,
+  -- gateado por checkPermiso('maquinaria', ...), sistema de permisos
+  -- distinto al de Contabilidad) — esta tabla solo LEE equipos_maquinaria
+  -- vía FK, nunca la modifica ni le agrega columnas (diagnóstico Fase 4,
+  -- punto 1). UNIQUE(equipo_id): un equipo tiene a lo más un set de
+  -- parámetros de depreciación (1:1), no un histórico de revisiones.
+  --
+  -- fecha_baja vive AQUÍ, no en equipos_maquinaria — equipos_maquinaria.estado
+  -- ya tiene 'baja' como valor válido (columna existente, sin tocar), pero
+  -- no registra FECHA de cuándo pasó a ese estado; capturarla en Contabilidad
+  -- (al momento en que el usuario de Contabilidad confirma la baja para
+  -- efectos de depreciación) evita depender de que jefe_maquinaria la
+  -- hubiera registrado en su propio catálogo (diagnóstico Fase 4, punto 5).
+  --
+  -- Sin snapshot mensual persistido — el cálculo (depreciación mensual/
+  -- acumulada/valor en libros) se deriva on-the-fly en cada consulta desde
+  -- estas columnas (server/contabilidad.js, calcularDepreciacion), nunca se
+  -- guarda un resultado ya calculado.
+  CREATE TABLE IF NOT EXISTS depreciacion_maquinaria (
+    id SERIAL PRIMARY KEY,
+    equipo_id INTEGER NOT NULL UNIQUE REFERENCES equipos_maquinaria(id),
+    valor_adquisicion DOUBLE PRECISION NOT NULL,
+    fecha_adquisicion DATE NOT NULL,
+    vida_util_meses INTEGER NOT NULL,
+    valor_rescate DOUBLE PRECISION NOT NULL DEFAULT 0,
+    fecha_baja DATE,
+    creado_por INTEGER REFERENCES usuarios(id),
+    creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
 
   -- % estándar de referencia para Composición de costos (docs/diseno-desglose-
   -- presupuesto-categorias) — usado como "base" de comparación contra el %

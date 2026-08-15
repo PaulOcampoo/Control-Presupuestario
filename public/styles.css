@@ -89,10 +89,17 @@
    reutilizable).
 */
 :root {
-  --bg-primary: #0B1220;
-  --bg-surface: #131B2E;
-  --bg-surface-2: #1D2740;
-  --border-color: #28324A;
+  /* Negro-carbón neutro/cálido (prompt-paleta-roforb-carbon-glow.md) —
+     reemplaza el negro-azulado original (~220° de matiz). Mismo delta de
+     luminosidad relativa entre pasos que la escala anterior (fondo→card→
+     card elevada→borde), solo con el matiz removido y un sesgo cálido casi
+     imperceptible (R≥G≥B por 1-2 unidades) para que combine con el acento
+     dorado en vez de competirle en temperatura de color. Solo la paleta
+     Roforb dark — Morada/Jade/Terra y el modo light de Roforb no cambian. */
+  --bg-primary: #121110;
+  --bg-surface: #1A1917;
+  --bg-surface-2: #242220;
+  --border-color: #34312D;
   --text-primary: #E7EAF2;
   --text-secondary: #93A0B8;
   --accent-gold: #C9A24B;
@@ -130,6 +137,17 @@
   --shadow-glow-accent-hover: 0 0 16px color-mix(in srgb, var(--accent-gold) 25%, transparent);
   --shadow-ring-accent: 0 0 0 2px color-mix(in srgb, var(--accent-gold) 35%, transparent);
   --shadow-ring-accent-focus: 0 0 0 3px color-mix(in srgb, var(--accent-gold) 25%, transparent);
+  /* --shadow-glow-hero (prompt-paleta-roforb-carbon-glow.md): complementa
+     --shadow-glow-accent de arriba, no lo reemplaza — ese sigue siendo el
+     glow de interacción normal (botones/FAB en reposo, hover de tiles).
+     Este es más intenso (28px+56px en 2 capas: núcleo + halo ancho) y se
+     reserva para los 2-3 elementos de mayor jerarquía visual de la app
+     (.welcome-card, .proyecto-resumen-card, .gallery-hero), donde sí se
+     busca el efecto neón/LED real del moodboard, no solo feedback de
+     interacción. */
+  --shadow-glow-hero:
+    0 0 28px color-mix(in srgb, var(--accent-gold) 45%, transparent),
+    0 0 56px color-mix(in srgb, var(--accent-gold) 18%, transparent);
 
   /* Alias de deuda técnica (prompt_deuda_css): --border/--muted/--color-warning
      se usaban en styles.css sin estar definidas — no son colores nuevos, son
@@ -617,6 +635,31 @@ h3.section-title { margin: 18px 0 10px; font-size: var(--fs-base); color: var(--
 
 .chart-wrap { position: relative; height: 280px; margin: 6px 0 4px; }
 .chart-wrap.tall { height: 340px; }
+
+/* Glow dorado en la dona de resumen (prompt-paleta-roforb-carbon-glow.md)
+   — vía CSS `filter: drop-shadow`, no plugin de Chart.js: es la ruta más
+   simple (cero JS nuevo) y no toca los colores de dataset. Trade-off
+   aceptado: un solo color de glow para todo el canvas (no uno distinto
+   por segmento) — aceptable para un halo ambiental, no un "LED por
+   color". #globalPieChart es la dona de resumen global (dashboard admin,
+   entre proyectos); #chartResumenDona es su equivalente por proyecto
+   (tab Resumen) — mismo rol de "gráfica de mayor jerarquía" en cada
+   contexto, mismo tratamiento. drop-shadow (no box-shadow) porque sigue
+   la silueta real de lo pintado en el canvas, no el rectángulo del
+   elemento. Estático (sin animación continua) — sin riesgo de frame
+   drops en el refresh de tema. */
+/* Scope html[data-palette="dorada"]:not([data-theme="light"]) — SOLO Roforb
+   dark. --accent-gold es el mismo nombre de variable que reusan las otras
+   3 paletas (Morada/Jade/Terra, cada una con su propio hex) y el modo
+   light de Roforb: sin este scope el glow se pintaría en los 4 con el
+   acento de cada una, cambiando su apariencia — justo lo que este prompt
+   prohíbe tocar. "dorada" se setea explícito en <html> incluso para el
+   default (ver applyPalette() en app.js), así que el selector positivo es
+   seguro (no depende de la AUSENCIA de un atributo). */
+html[data-palette="dorada"]:not([data-theme="light"]) #globalPieChart,
+html[data-palette="dorada"]:not([data-theme="light"]) #chartResumenDona {
+  filter: drop-shadow(0 0 10px color-mix(in srgb, var(--accent-gold) 55%, transparent));
+}
 
 .empty-state { text-align: center; padding: 60px 20px; color: var(--text-secondary); }
 .empty-state .big { margin-bottom: 10px; display: flex; justify-content: center; }
@@ -1463,11 +1506,27 @@ body.body-scroll-locked { overflow: hidden; }
   padding: 24px 16px; overflow-y: auto;
   overscroll-behavior-y: contain;
 }
+/* Gradiente dorado-a-oscuro (prompt-paleta-roforb-carbon-glow.md), mismo
+   patrón que .gallery-hero pero adaptado: aquí el texto sigue siendo
+   --text-primary (claro, pensado para fondo oscuro) así que el gradiente
+   no puede saturarse a dorado pleno como el hero — se queda sutil (16% de
+   mezcla en la esquina más cálida) y se desvanece a --bg-surface normal
+   antes de la mitad de la tarjeta, para no perder contraste de texto. */
 .welcome-card {
   width: 100%; max-width: 720px; background: var(--bg-surface);
   border: 1px solid var(--border-color); border-radius: var(--radius-lg);
   padding: 32px 28px; box-shadow: var(--shadow-xl);
   margin-bottom: 24px;
+}
+/* Gradiente + glow hero SOLO Roforb dark — mismo motivo de scope que el
+   filter de la dona más arriba: --accent-gold es compartido por las 4
+   paletas y el modo light, así que sin este selector el gradiente se
+   pintaría también en Morada/Jade/Terra y en Roforb claro. */
+html[data-palette="dorada"]:not([data-theme="light"]) .welcome-card {
+  background: linear-gradient(135deg,
+    color-mix(in srgb, var(--accent-gold) 16%, var(--bg-surface)) 0%,
+    var(--bg-surface) 55%);
+  box-shadow: var(--shadow-xl), var(--shadow-glow-hero);
 }
 .welcome-logo-row { text-align: center; margin-bottom: 20px; }
 .welcome-logo { max-width: 200px; width: 60%; height: auto; display: block; margin: 0 auto; }

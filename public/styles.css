@@ -130,6 +130,32 @@
    th fija padding:0 con mayor especificidad que la clase sola) y no
    interfiere con usar un var() como valor — el !important sigue en el
    selector, ahora sobre un token en vez de un literal.
+
+   ── Densidad Cómoda/Compacta (prompt-densidad-fase3-toggle.md, Fase 3
+   del roadmap de espaciado) ──────────────────────────────────────────────
+   html[data-density="compacta"] sobreescribe 9 de los 13 tokens --space-*
+   (ver bloque justo después de :root). --space-0/2/4/6 quedan intactos —
+   son los gaps más chicos (ícono+texto, badges) donde reducir más
+   comprometería legibilidad/toques sin ganancia real de contenido visible.
+   Del resto, la reducción crece con el tamaño del token (de ~20% en
+   --space-10 a ~29% en --space-28), a propósito: los tokens grandes son
+   los que sobran de aire real (padding de card, gaps de sección) mientras
+   que los medianos (--space-10/12/14) se recortan con más cautela por
+   estar más cerca del límite de legibilidad:
+     --space-8: 8→6 (25%)   --space-16: 16→12 (25%)  --space-28: 28→20 (29%)
+     --space-10: 10→8 (20%) --space-20: 20→16 (20%)  --space-32: 32→24 (25%)
+     --space-12: 12→10 (17%)  --space-24: 24→18 (25%)
+     --space-14: 14→12 (14%)
+   --fs-* / --radius-* NO cambian con este toggle — eje independiente del
+   tamaño de fuente/accesibilidad (data-font-size), decisión ya tomada en
+   el diagnóstico de Fase 1 de este roadmap. .btn gana un min-height:44px
+   explícito (ver su regla más abajo) porque su altura en Cómoda ya
+   dependía implícitamente de --space-12 para llegar a los 44px de touch
+   target que comparte con .tab/.tab-back (ver comentario de --space-12
+   arriba) — sin el floor, Compacta la habría bajado a 40px. El resto de
+   los 44px documentados arriba (.tab, .tab-back, .gallery-drawer-header)
+   son valores literales, no derivados de --space-*, así que Compacta no
+   los toca.
 */
 :root {
   /* Negro-carbón neutro/cálido (prompt-paleta-roforb-carbon-glow.md) —
@@ -243,6 +269,24 @@
      Google Fonts no llega a cargar (offline en el primer visit, red lenta). */
   --font-heading: 'Manrope', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   --font-body: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+/* Densidad Compacta (prompt-densidad-fase3-toggle.md) — ver rationale de la
+   escala en el comentario de cabecera, sección "Densidad Cómoda/Compacta".
+   --space-0/2/4/6 no se listan aquí porque no cambian (heredan el valor de
+   :root). Independiente de data-theme/data-palette/data-font-size — puede
+   combinarse con cualquiera de los tres sin conflicto, todos leen su propio
+   atributo en <html>. */
+html[data-density="compacta"] {
+  --space-8: 6px;
+  --space-10: 8px;
+  --space-12: 10px;
+  --space-14: 12px;
+  --space-16: 12px;
+  --space-20: 16px;
+  --space-24: 18px;
+  --space-28: 20px;
+  --space-32: 24px;
 }
 
 [data-theme="light"] {
@@ -781,6 +825,12 @@ html[data-palette="dorada"]:not([data-theme="light"]) #chartResumenDona {
 .btn {
   border: 1px solid var(--border-color); background: var(--bg-surface-2); color: var(--text-primary);
   border-radius: var(--radius-control); padding: var(--space-12) var(--space-16); font-size: var(--fs-base); cursor: pointer;
+  /* Floor explícito (prompt-densidad-fase3-toggle.md): en Cómoda esta altura
+     ya salía en ~44px vía var(--space-12) (ver comentario de --space-12 en
+     la cabecera del archivo) para igualar el touch target de .tab/.tab-back.
+     En modo Compacta --space-12 se reduce a 10px — sin este min-height el
+     botón bajaría a ~40px, por debajo del mínimo de accesibilidad. */
+  min-height: 44px;
 }
 .btn:active { transform: scale(0.98); }
 .btn-primary { background: var(--accent-gold); border-color: var(--accent-gold); color: #04212f; font-weight: 700; }
@@ -807,7 +857,7 @@ html[data-palette="dorada"]:not([data-theme="light"]) #chartResumenDona {
 .btn-danger { background: var(--red); border-color: var(--red); color: #fff; }
 .btn-ghost { background: transparent; }
 .btn.full { width: 100%; }
-.btn.small { padding: var(--space-6) var(--space-12); font-size: var(--fs-sm); }
+.btn.small { padding: var(--space-6) var(--space-12); font-size: var(--fs-sm); min-height: 0; }
 .btn[disabled] { opacity: 0.5; cursor: not-allowed; }
 /* Autorizar/Rechazar (Avance y Destajo): acciones críticas de un solo toque
    para Administrador — se agrandan al tamaño de toque recomendado (44px)

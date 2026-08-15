@@ -22,4 +22,10 @@
   // del parseo — esos dos se aplican en app.js (applyA11ySettings()).
   var fs = localStorage.getItem('cp_a11y_font_size') || 'normal';
   document.documentElement.setAttribute('data-font-size', fs);
+  // Densidad (prompt-densidad-fase3-toggle.md) — mismo motivo que tema/
+  // fuente: --space-* toca padding/margin/gap en toda la app, así que
+  // aplicarlo tarde (en app.js) causaría un reflow visible al cargar.
+  // Debe coincidir con app.js getDensity().
+  var density = localStorage.getItem('cp_density') || 'comoda';
+  document.documentElement.setAttribute('data-density', density);
 })();

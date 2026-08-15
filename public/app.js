@@ -41,12 +41,12 @@ const ROLE_TABS = {
   // simulación de rol no puede simular "soy el usuario 8", solo "soy rol X"
   // (prompt-fix-role-tabs-contabilidad.md) — limitación conocida y
   // aceptada para esos tres, no un bug.
-  admin:          ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'finanzas', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', ...MAQUINARIA_TABS_ADMIN, 'cotizador', 'costos', 'matrices', 'avance_clientes', 'composicion_costos', ...CONTABILIDAD_TABS],
-  desarrollador:  ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'finanzas', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', ...MAQUINARIA_TABS_ADMIN, 'cotizador', 'costos', 'matrices', 'avance_clientes', 'composicion_costos', ...CONTABILIDAD_TABS],
+  admin:          ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'finanzas', 'compromisos', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', ...MAQUINARIA_TABS_ADMIN, 'cotizador', 'costos', 'matrices', 'avance_clientes', 'composicion_costos', ...CONTABILIDAD_TABS],
+  desarrollador:  ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'finanzas', 'compromisos', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', ...MAQUINARIA_TABS_ADMIN, 'cotizador', 'costos', 'matrices', 'avance_clientes', 'composicion_costos', ...CONTABILIDAD_TABS],
   residente:      ['programa', 'avance', 'destajo', 'requisiciones', 'insumos', 'ordenes', 'nominas', 'trabajadores', 'estimaciones', 'matrices'],
   cabo:           ['destajo', 'insumos', 'avance', 'requisiciones', ...MAQUINARIA_TABS_CABO, 'trabajadores', 'nominas'],
   compras:        ['programa', 'requisiciones', 'insumos', 'ordenes', 'proveedores', 'cotizador'],
-  tesoreria:      ['resumen', 'finanzas', 'ordenes', 'contrato', 'impuestos', 'proveedores'],
+  tesoreria:      ['resumen', 'finanzas', 'compromisos', 'ordenes', 'contrato', 'impuestos', 'proveedores'],
   administracion: ['resumen', 'programa', 'destajo', 'ordenes', 'proveedores', 'contrato', 'impuestos', 'mapeo'],
   logistica:      ['programa', 'avance', 'requisiciones', 'insumos', 'ordenes'],
   jefe_maquinaria: MAQUINARIA_TABS_JEFE,
@@ -1185,7 +1185,7 @@ const TAB_POR_TIPO_NOTIF = {
 const SECTION_DEFS = {
   obra:          { label: 'Obra',           icon: 'obra',           emoji: '🏗️',  tabs: ['programa', 'avance', 'destajo', 'estimaciones'],     proximamente: [] },
   compras:       { label: 'Compras',        icon: 'compras',        emoji: '🛒',   tabs: ['requisiciones', 'insumos', 'proveedores', 'ordenes', 'cotizador'], proximamente: ['Subcontratos'] },
-  tesoreria:     { label: 'Tesorería',      icon: 'tesoreria',      emoji: '💰',   tabs: ['finanzas', 'estadoResultados', 'estadoResultadosGlobal', 'impuestos', 'controlFinanciero'], proximamente: [] },
+  tesoreria:     { label: 'Tesorería',      icon: 'tesoreria',      emoji: '💰',   tabs: ['finanzas', 'compromisos', 'estadoResultados', 'estadoResultadosGlobal', 'impuestos', 'controlFinanciero'], proximamente: [] },
   administracion:{ label: 'Administración', icon: 'administracion', emoji: '📂',  tabs: ['mapeo', 'contrato', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'avance_clientes', 'usuarios', 'cuentas'], proximamente: ['Almacenes'] },
   maquinaria:    { label: 'Maquinaria',     icon: 'maquinaria',     emoji: '🚜',   tabs: MAQUINARIA_TABS_ADMIN,                                 proximamente: [] },
   // prompt-secciones-presupuestos-contabilidad.md: Matrices de PU/Costos/
@@ -1204,7 +1204,7 @@ const SECTION_DEFS = {
 const TAB_ICONS = {
   resumen: '📊', contrato: '📄', impuestos: '🧾', insumos: '📦', requisiciones: '🧾',
   proveedores: '🏭', ordenes: '🛒', programa: '🗓️', avance: '📈', destajo: '👷',
-  finanzas: '💰', mapeo: '🔗', usuarios: '👤', trabajadores: '👷', nominas: '💵', estimaciones: '🧮',
+  finanzas: '💰', compromisos: '📌', mapeo: '🔗', usuarios: '👤', trabajadores: '👷', nominas: '💵', estimaciones: '🧮',
   maquinaria_catalogo: '🛠️', maquinaria_horas: '⏱️', maquinaria_bitacora: '🔧', maquinaria_estado_unidad: '🚦',
   maquinaria_consumibles: '⛽', maquinaria_reportes_cliente: '📊',
   nominas_global: '💵', trabajadores_global: '👷', cotizador: '🔍',
@@ -1216,7 +1216,7 @@ const TAB_ICONS = {
 const TAB_LABELS = {
   resumen: 'Resumen', contrato: 'Contrato', impuestos: 'Impuestos', insumos: 'Insumos', requisiciones: 'Requisiciones',
   proveedores: 'Proveedores', ordenes: 'Órdenes de Compra', programa: 'Programa', avance: 'Avance', destajo: 'Destajo',
-  finanzas: 'Finanzas', mapeo: 'Mapeo', usuarios: 'Usuarios', trabajadores: 'Trabajadores', nominas: 'Nóminas', estimaciones: 'Estimaciones',
+  finanzas: 'Finanzas', compromisos: 'Compromisos Abiertos', mapeo: 'Mapeo', usuarios: 'Usuarios', trabajadores: 'Trabajadores', nominas: 'Nóminas', estimaciones: 'Estimaciones',
   maquinaria_catalogo: 'Catálogo de equipos', maquinaria_horas: 'Horas / Pendientes de autorizar',
   maquinaria_bitacora: 'Bitácora de taller', maquinaria_estado_unidad: 'Estado de las unidades',
   maquinaria_consumibles: 'Consumibles', maquinaria_reportes_cliente: 'Reportes por cliente',
@@ -2946,6 +2946,16 @@ const AYUDA_CONTENIDO = {
       'Si el mes/obra elegidos no tienen ningún dato en ninguna de las 4 fuentes, no se genera el archivo — verás un mensaje claro en vez de un Excel vacío.',
     ],
   },
+  compromisos: {
+    titulo: 'Compromisos Abiertos',
+    pasos: [
+      'Un "compromiso abierto" es dinero de una Orden de Compra ya confirmada (o con material ya recibido) que TODAVÍA no se le ha pagado al proveedor — es distinto de "Erogado Real", que solo cuenta pagos ya hechos.',
+      'Sirve para no confundir "presupuesto disponible" con dinero que en realidad ya está comprometido: aunque no se haya pagado, ese dinero ya no es libre de usarse en otra cosa.',
+      'Solo cuentan las OC en estado confirmada, recibida parcial o recibida completa — una OC en borrador o enviada (aún no aceptada por el proveedor) no representa un compromiso real todavía.',
+      'Cuando una OC mezcla insumos de más de una categoría (ej. materiales y mano de obra en la misma orden), el monto pagado/pendiente de cada categoría se PRORRATEA según el peso de esa categoría en el total de la orden — los pagos se registran contra la OC completa, no por renglón, así que es una estimación razonable, no un dato exacto. Esas filas se marcan con "≈".',
+      'El total de esta vista (sin filtros) coincide centavo a centavo con "Compras — comprometido (con IVA, real)" de la tarjeta de Finanzas — es el mismo cálculo, solo que aquí desglosado.',
+    ],
+  },
 };
 
 // Botón "?" reutilizable — colócalo junto al título/acción de cualquier
@@ -4085,6 +4095,7 @@ async function renderView() {
       case 'programa': await renderPrograma(view); break;
       case 'destajo': await renderDestajo(view); break;
       case 'finanzas': await renderFinanzas(view); break;
+      case 'compromisos': await renderCompromisosAbiertos(view); break;
       case 'estadoResultados': await renderEstadoResultados(view); break;
       case 'mapeo': await renderMapeo(view); break;
       case 'trabajadores': await renderTrabajadores(view); break;
@@ -8147,6 +8158,10 @@ const TAB_A_SECCION = {
   impuestos: 'impuestos', insumos: 'insumos', requisiciones: 'requisiciones',
   ordenes: 'ordenes_compra', avance: 'avance', destajo: 'destajo',
   usuarios: 'usuarios', proveedores: 'proveedores', finanzas: 'finanzas',
+  // 'compromisos' (prompt-compromisos-abiertos.md) reusa la sección
+  // 'finanzas' — mismo permiso, no una whitelist/sección nueva (mirror
+  // exacto de la misma decisión en server/auth.js TAB_A_SECCION).
+  compromisos: 'finanzas',
   estadoResultados: 'estado_resultados',
   mapeo: 'mapeo', nominas: 'nominas', estimaciones: 'estimaciones',
   // Las 6 subpestañas de Maquinaria (prompt-39, galería de subsecciones)
@@ -10766,6 +10781,123 @@ function openGastoModal(gasto) {
 }
 
 // =========================================================================
+// VISTA: Compromisos Abiertos (prompt-compromisos-abiertos.md) — listado de
+// OCs con estatus comprometible (confirmada/recibida_parcial/recibida_
+// completa), desglosado por categoría/proveedor. Mismo número que "Total
+// comprometido (no pagado)" de Finanzas, a detalle. Vista separada (no una
+// columna dentro de la tarjeta de Finanzas) por decisión ya confirmada con
+// Paul — ubicada como pestaña hermana de 'finanzas' dentro de la sección
+// Tesorería: aunque la fuente de datos son Órdenes de Compra, su propósito
+// es financiero (comparar contra presupuesto/flujo de caja), no operativo
+// de compras, así que vive junto a Finanzas y no dentro de Compras/Órdenes.
+// Filtrado 100% en cliente (categoría/proveedor/fechas): el endpoint trae
+// todo el desglose de la obra en una sola llamada y no hace falta volver a
+// pegarle al backend por cada cambio de filtro — el volumen de OCs
+// comprometidas de una sola obra es chico.
+// =========================================================================
+const COMPROMISOS_ESTADO_BADGE = { confirmada: 'green', recibida_parcial: 'yellow', recibida_completa: 'green' };
+
+async function renderCompromisosAbiertos(view) {
+  const data = await api(`/projects/${state.projectId}/finanzas/compromisos-abiertos`);
+
+  view.innerHTML = `
+    <h2 class="section-title">Compromisos Abiertos ${renderHelpBtn('compromisos')}</h2>
+    <p class="muted">Dinero de Órdenes de Compra ya confirmadas (o con material recibido) que todavía no se le paga al proveedor — desglosado por categoría y proveedor. Es el mismo "comprometido no pagado" que ya se ve en Finanzas, aquí a detalle.</p>
+    <div id="compromisosBody"></div>
+  `;
+
+  const body = $('#compromisosBody');
+  if (!data.filas.length) {
+    body.innerHTML = `<div class="empty-state"><div class="big">📌</div>No hay compromisos abiertos.<br>Aparecerán aquí las Órdenes de Compra confirmadas (o con material recibido) que todavía tengan saldo pendiente de pago.</div>`;
+    return;
+  }
+
+  const categorias = [...new Set(data.filas.map((f) => f.categoria))].sort((a, b) => a.localeCompare(b));
+  const proveedores = [...new Map(data.filas.map((f) => [f.proveedor_id, f.proveedor_nombre])).entries()]
+    .sort((a, b) => a[1].localeCompare(b[1]));
+
+  const filtro = { categoria: '', proveedor_id: '', desde: '', hasta: '' };
+
+  body.innerHTML = `
+    <div class="row compromisos-filtros-row">
+      <select id="compFiltroCategoria" class="compromisos-filtro-control">
+        <option value="">Todas las categorías</option>
+        ${categorias.map((c) => `<option value="${esc(c)}">${esc(c)}</option>`).join('')}
+      </select>
+      <select id="compFiltroProveedor" class="compromisos-filtro-control">
+        <option value="">Todos los proveedores</option>
+        ${proveedores.map(([id, nombre]) => `<option value="${id}">${esc(nombre)}</option>`).join('')}
+      </select>
+      <input id="compFiltroDesde" type="date" class="compromisos-filtro-control" title="Fecha desde" />
+      <input id="compFiltroHasta" type="date" class="compromisos-filtro-control" title="Fecha hasta" />
+    </div>
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>Folio</th><th>Proveedor</th><th>Fecha</th><th>Categoría</th><th>Estado</th>
+            <th class="num">Total</th><th class="num">Pagado</th><th class="num">Pendiente</th>
+          </tr>
+        </thead>
+        <tbody id="compromisosTbody"></tbody>
+      </table>
+    </div>
+    <p class="muted fs-078 mt-6">≈ = monto prorrateado (la orden mezcla más de una categoría; el pago se registra contra la orden completa, no por renglón).</p>
+    <div class="card mt-8" id="compromisosTotalCard"></div>
+  `;
+
+  function pintar() {
+    const filas = data.filas.filter((f) => (
+      (!filtro.categoria || f.categoria === filtro.categoria) &&
+      (!filtro.proveedor_id || f.proveedor_id === Number(filtro.proveedor_id)) &&
+      (!filtro.desde || f.fecha >= filtro.desde) &&
+      (!filtro.hasta || f.fecha <= filtro.hasta)
+    ));
+
+    $('#compromisosTbody').innerHTML = filas.length ? filas.map((f) => `
+      <tr class="row-click" data-oc="${f.oc_id}">
+        <td>${esc(f.folio)}</td>
+        <td>${esc(f.proveedor_nombre)}</td>
+        <td>${fmtDate(f.fecha)}</td>
+        <td>${esc(f.categoria)}</td>
+        <td><span class="badge ${COMPROMISOS_ESTADO_BADGE[f.estado] || 'muted'}">${esc(f.estado)}</span></td>
+        <td class="num">${f.prorrateado ? '≈ ' : ''}${fmtMoney(f.monto_total)}</td>
+        <td class="num">${f.prorrateado ? '≈ ' : ''}${fmtMoney(f.monto_pagado)}</td>
+        <td class="num">${f.prorrateado ? '≈ ' : ''}${fmtMoney(f.monto_pendiente)}</td>
+      </tr>
+    `).join('') : `<tr><td colspan="8" class="muted">Ningún compromiso coincide con estos filtros.</td></tr>`;
+
+    $$('[data-oc]', $('#compromisosTbody')).forEach((tr) => {
+      tr.addEventListener('click', () => openOrdenDetalle(Number(tr.dataset.oc)));
+    });
+
+    // Sin filtros: usa el total autoritativo del backend (mismo cálculo que
+    // compras_comprometido_con_iva de Finanzas, validado centavo a centavo).
+    // Con filtros: suma solo las filas visibles — un subtotal filtrado no
+    // tiene por qué (ni puede, matemáticamente) coincidir con ese total.
+    const filtrosActivos = filtro.categoria || filtro.proveedor_id || filtro.desde || filtro.hasta;
+    const totales = filtrosActivos
+      ? filas.reduce((acc, f) => ({
+          total: acc.total + f.monto_total, pagado: acc.pagado + f.monto_pagado, pendiente: acc.pendiente + f.monto_pendiente,
+        }), { total: 0, pagado: 0, pendiente: 0 })
+      : { total: data.total.monto_total, pagado: data.total.monto_pagado, pendiente: data.total.monto_pendiente };
+
+    $('#compromisosTotalCard').innerHTML = `
+      <div class="card-row"><span class="k">Total comprometido${filtrosActivos ? ' (filtrado)' : ''}</span><span class="v">${fmtMoney(totales.total)}</span></div>
+      <div class="card-row"><span class="k">Pagado a cuenta</span><span class="v">${fmtMoney(totales.pagado)}</span></div>
+      <div class="card-row"><span class="k">Pendiente de pagar</span><span class="v text-amarillo fw-700">${fmtMoney(totales.pendiente)}</span></div>
+    `;
+  }
+
+  $('#compFiltroCategoria').addEventListener('change', (e) => { filtro.categoria = e.target.value; pintar(); });
+  $('#compFiltroProveedor').addEventListener('change', (e) => { filtro.proveedor_id = e.target.value; pintar(); });
+  $('#compFiltroDesde').addEventListener('change', (e) => { filtro.desde = e.target.value; pintar(); });
+  $('#compFiltroHasta').addEventListener('change', (e) => { filtro.hasta = e.target.value; pintar(); });
+
+  pintar();
+}
+
+// =========================================================================
 // VISTA: Estado de Resultados (Tesorería) — prompt-estado-resultados-tesoreria.
 // Ingresos facturados (devengado, NO cobrado) vs Egresos (Erogado Real
 // completo de Finanzas, reutilizado vía GET .../estado-resultados) = Margen
@@ -11057,7 +11189,7 @@ fab.addEventListener('click', () => {
   }
 });
 function syncFab() {
-  const noFabViews = ['usuarios', 'proveedores', 'ordenes', 'finanzas', 'estadoResultados', 'estadoResultadosGlobal', 'mapeo', 'avance'];
+  const noFabViews = ['usuarios', 'proveedores', 'ordenes', 'finanzas', 'compromisos', 'estadoResultados', 'estadoResultadosGlobal', 'mapeo', 'avance'];
   const hasAction = ['requisiciones', 'insumos', 'destajo'].includes(state.view);
   const esGaleria = state.view.endsWith('_gallery');
   fab.style.display = !esGaleria && !noFabViews.includes(state.view) && state.projectId && (hasAction || isAdmin()) ? 'flex' : 'none';

@@ -50,7 +50,7 @@ const { buildNominaReporteSemanalPdf } = require('./nominaReporteSemanalPdf');
 const { calcularDiasRestantes, determinarUmbral, construirMensaje } = require('./alertasContrato');
 const maquinaria = require('./maquinaria');
 const cotizador = require('./cotizador');
-const { metaToObject, presupuestoTotalDe, getFinanzasResumenData } = require('./finanzas');
+const { metaToObject, presupuestoTotalDe, getFinanzasResumenData, getCompromisosAbiertosData } = require('./finanzas');
 const { calcularJornal, calcularDestajo, totalConIvaEsValido, numeroALetra, calcularSplitCuentas } = require('./calculos');
 const { validarClabe } = require('./catalogoBancos');
 const estadoResultados = require('./estadoResultados');
@@ -6307,6 +6307,14 @@ app.delete('/api/projects/:id/gastos/:gastoId', h(auth.allow()), h(requireProjec
 
 app.get('/api/projects/:id/finanzas/resumen', h(auth.allow('tesoreria')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('finanzas', 'puede_ver')), h(async (req, res) => {
   res.json(await getFinanzasResumenData(req.project.id));
+}));
+
+// Compromisos Abiertos (prompt-compromisos-abiertos.md): desglose por
+// categoría/proveedor del "comprometido no pagado" — mismo permiso que el
+// resto de Finanzas ('finanzas'/'puede_ver'), sin sección nueva en el
+// catálogo de permisos granulares.
+app.get('/api/projects/:id/finanzas/compromisos-abiertos', h(auth.allow('tesoreria')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('finanzas', 'puede_ver')), h(async (req, res) => {
+  res.json(await getCompromisosAbiertosData(req.project.id));
 }));
 
 // /export reutiliza el mismo permiso 'puede_ver' que /resumen — es la misma

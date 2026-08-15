@@ -156,4 +156,107 @@ async function getFinanzasResumenData(pid) {
   };
 }
 
-module.exports = { metaToObject, presupuestoTotalDe, getFinanzasResumenData };
+// ---------------------------------------------------------------------------
+// Compromisos Abiertos (prompt-compromisos-abiertos.md): desglose por
+// categoría/proveedor del mismo "comprometido no pagado" que ya calcula
+// getFinanzasResumenData arriba (mismo filtro de estatus de OC, misma
+// fórmula Math.max(0, total - pagado) por OC) — NO se toca ni se reusa esa
+// función para no arriesgar el número ya validado en producción; esta es una
+// query independiente que debe reproducir el mismo resultado agregado.
+//
+// Una OC puede mezclar insumos de varias categorías (insumos.categoria:
+// MATERIALES/MANO DE OBRA/EQUIPO Y HERRAMIENTA/...), pero los pagos se
+// registran contra la OC completa, no por renglón — no existe un dato real
+// de "cuánto de lo pagado corresponde a cada categoría". Decisión confirmada
+// con Paul: prorratear pagado/pendiente por el peso de cada categoría en el
+// importe total de la OC (peso = importe_categoria / importe_total_oc). Es
+// una estimación, no un hecho — el campo `prorrateado` marca las filas de
+// una OC con más de una categoría para que la UI lo etiquete como tal.
+//
+// La suma de Math.max(0, cat.importe - cat.pagado) sobre todas las
+// categorías de una OC es matemáticamente idéntica a Math.max(0,
+// importe_total_oc - pagado_oc) (el peso de pagado es uniforme entre
+// categorías de una misma OC), así que el total agregado aquí coincide
+// centavo a centavo con `compras_comprometido_con_iva` de
+// getFinanzasResumenData sin necesidad de compartir código.
+// ---------------------------------------------------------------------------
+async function getCompromisosAbiertosData(pid) {
+  const ESTATUS_COMPROMETIBLE = "('confirmada', 'recibida_parcial', 'recibida_completa')";
+
+  const { rows: itemRows } = await db.pool.query(`
+    SELECT oc.id AS oc_id, oc.folio, oc.fecha, oc.estado,
+           pv.id AS proveedor_id, pv.nombre AS proveedor_nombre,
+           i.categoria, COALESCE(SUM(oci.importe), 0) AS importe_categoria
+    FROM ordenes_compra oc
+    JOIN proveedores pv ON pv.id = oc.proveedor_id
+    JOIN orden_compra_items oci ON oci.orden_compra_id = oc.id
+    JOIN requisicion_items ri ON ri.id = oci.requisicion_item_id
+    JOIN insumos i ON i.id = ri.insumo_id
+    WHERE oc.project_id = $1 AND oc.estado IN ${ESTATUS_COMPROMETIBLE}
+    GROUP BY oc.id, oc.folio, oc.fecha, oc.estado, pv.id, pv.nombre, i.categoria
+    ORDER BY oc.fecha DESC, oc.id DESC
+  `, [pid]);
+
+  const { rows: pagoRows } = await db.pool.query(`
+    SELECT oc.id AS oc_id, COALESCE(SUM(p.monto), 0) AS pagado
+    FROM ordenes_compra oc
+    LEFT JOIN pagos p ON p.orden_compra_id = oc.id
+    WHERE oc.project_id = $1 AND oc.estado IN ${ESTATUS_COMPROMETIBLE}
+    GROUP BY oc.id
+  `, [pid]);
+  const pagadoPorOc = new Map(pagoRows.map((r) => [r.oc_id, Number(r.pagado)]));
+
+  const ocMap = new Map();
+  for (const row of itemRows) {
+    if (!ocMap.has(row.oc_id)) {
+      ocMap.set(row.oc_id, {
+        oc_id: row.oc_id, folio: row.folio, fecha: row.fecha, estado: row.estado,
+        proveedor_id: row.proveedor_id, proveedor_nombre: row.proveedor_nombre,
+        categorias: [], importe_total: 0,
+      });
+    }
+    const oc = ocMap.get(row.oc_id);
+    const importe = Number(row.importe_categoria);
+    oc.categorias.push({ categoria: row.categoria || 'Sin categoría', importe });
+    oc.importe_total += importe;
+  }
+
+  const filas = [];
+  let totalRaw = 0, pagadoRaw = 0, pendienteRaw = 0;
+  for (const oc of ocMap.values()) {
+    const pagadoOc = pagadoPorOc.get(oc.oc_id) || 0;
+    const prorrateado = oc.categorias.length > 1;
+    for (const cat of oc.categorias) {
+      const peso = oc.importe_total > 0 ? cat.importe / oc.importe_total : 0;
+      const pagadoCat = pagadoOc * peso;
+      const pendienteCat = Math.max(0, cat.importe - pagadoCat);
+      totalRaw += cat.importe;
+      pagadoRaw += pagadoCat;
+      pendienteRaw += pendienteCat;
+      filas.push({
+        oc_id: oc.oc_id,
+        folio: oc.folio || `OC #${oc.oc_id}`,
+        fecha: oc.fecha,
+        estado: oc.estado,
+        proveedor_id: oc.proveedor_id,
+        proveedor_nombre: oc.proveedor_nombre,
+        categoria: cat.categoria,
+        monto_total: Number(cat.importe.toFixed(2)),
+        monto_pagado: Number(pagadoCat.toFixed(2)),
+        monto_pendiente: Number(pendienteCat.toFixed(2)),
+        prorrateado,
+      });
+    }
+  }
+
+  return {
+    filas,
+    total: {
+      monto_total: Number(totalRaw.toFixed(2)),
+      monto_pagado: Number(pagadoRaw.toFixed(2)),
+      monto_pendiente: Number(pendienteRaw.toFixed(2)),
+    },
+  };
+}
+
+module.exports = { metaToObject, presupuestoTotalDe, getFinanzasResumenData, getCompromisosAbiertosData };

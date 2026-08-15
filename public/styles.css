@@ -193,6 +193,35 @@
   --accent-silver: #71798A;
 }
 
+/* Roforb light — crema cálido (prompt-roforb-light-crema.md), reemplaza el
+   blanco-azulado frío de arriba, mismo espíritu que el carbón cálido ya
+   aplicado al modo oscuro en PR #139 (prompt-paleta-roforb-carbon-glow.md).
+   Anclado en #F6E9C7 ("Blanche Dalmond") para --bg-primary, con el mismo
+   delta de luminosidad relativo entre pasos que ya tenía la escala fría
+   (surface más claro, surface-2 y border bajando en luminosidad, subiendo
+   en saturación cálida). Escopado explícito a
+   html[data-palette="dorada"][data-theme="light"] desde el inicio — no a
+   [data-theme="light"] a secas — porque --bg-primary/--border-color son
+   los mismos nombres de variable que reusan Morada/Jade/Terra; sin este
+   scope el cambio se habría filtrado a las otras 3 paletas, el mismo bug
+   que corrigió PR #139 para el glow del modo oscuro. Seguro por la misma
+   razón documentada arriba (línea ~656): "dorada" se setea explícito en
+   <html> incluso para el default (theme-init.js/applyPalette() en app.js),
+   así que el selector positivo no depende de la AUSENCIA de un atributo.
+   --text-primary/--text-secondary NO cambian (checkpoint de contraste
+   verificado: --text-secondary #475569 sobre #F6E9C7 da ~6.3:1, por encima
+   de los ~6.6:1 que daba sobre el blanco-azulado original — prácticamente
+   igual, sigue muy por encima del mínimo AA de 4.5:1). --accent-gold
+   tampoco cambia (prohibido por el prompt) — su contraste sobre el nuevo
+   fondo baja de ~3.13:1 a ~3.02:1, una diferencia marginal que no lo hace
+   ilegible. */
+html[data-palette="dorada"][data-theme="light"] {
+  --bg-primary: #F6E9C7;
+  --bg-surface: #FBF3DE;
+  --bg-surface-2: #EEDDAE;
+  --border-color: #DFC48C;
+}
+
 /* Paleta Morada (prompt-selector-paleta-colores.md) — inspirada en la
    landing MARGEN (React, proyecto independiente; solo se tomó de ahí la
    referencia de color, cero código compartido). Mismos tokens que la

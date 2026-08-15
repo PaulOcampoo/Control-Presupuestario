@@ -450,6 +450,29 @@ function setFontSize(size) { localStorage.setItem(A11Y_FONT_KEY, size); applyA11
 
 applyA11ySettings();
 
+// ---------------------------------------------------------------------------
+// Densidad Cómoda/Compacta (Ajustes > Apariencia, prompt-densidad-fase3-
+// toggle.md, Fase 3 del roadmap de espaciado) — mismo mecanismo que tema/
+// paleta/tamaño de fuente: atributo en <html> (data-density), persistido en
+// su propia key de localStorage, aplicado también en theme-init.js antes del
+// primer paint (evita el flash de reflow que tema/paleta/fuente ya evitan,
+// dado que --space-* toca padding/margin/gap en toda la app). Eje
+// independiente de --fs-*/--radius-* — no vive en Accesibilidad ni se
+// acopla a data-font-size, aunque ambos pueden combinarse sin conflicto
+// (ver bloque html[data-density="compacta"] en styles.css).
+// ---------------------------------------------------------------------------
+const DENSITY_KEY = 'cp_density'; // 'comoda' | 'compacta'
+
+function getDensity() { return localStorage.getItem(DENSITY_KEY) || 'comoda'; }
+
+function applyDensity() {
+  document.documentElement.setAttribute('data-density', getDensity());
+}
+
+function setDensity(val) { localStorage.setItem(DENSITY_KEY, val); applyDensity(); }
+
+applyDensity();
+
 // Selector de idioma — SOLO placeholder (addendum-selector-idioma-fase2.md):
 // la app no tiene infraestructura de i18n (100% strings en español, sin
 // externalizar), así que esto únicamente persiste la preferencia, igual que
@@ -1807,6 +1830,7 @@ function openMobileAjustes() {
   const pref = getTheme();
   const pal = getPalette();
   const fontSize = getFontSize();
+  const density = getDensity();
   const idioma = getIdioma();
   openModal(`
     <div class="modal-header-row">
@@ -1864,6 +1888,14 @@ function openMobileAjustes() {
           <button class="theme-opt ${idioma==='es'?'active':''}" data-idioma-set="es">Español</button>
           <button class="theme-opt ${idioma==='en'?'active':''}" data-idioma-set="en">English</button>
         </div>
+      </div>
+      <div class="ajustes-item">
+        <label class="ajustes-tema-label">Densidad</label>
+        <div class="theme-selector ajustes-theme-selector" id="densitySelector">
+          <button class="theme-opt ${density==='comoda'?'active':''}" data-density-set="comoda">Cómoda</button>
+          <button class="theme-opt ${density==='compacta'?'active':''}" data-density-set="compacta">Compacta</button>
+        </div>
+        <div class="muted fs-08">Compacta muestra más contenido por pantalla, reduciendo espaciados.</div>
       </div>
     </div>
 
@@ -1945,6 +1977,12 @@ function openMobileAjustes() {
       setIdioma(btn.dataset.idiomaSet);
       $$('.theme-opt[data-idioma-set]', $('#modal')).forEach((b) => b.classList.toggle('active', b.dataset.idiomaSet === btn.dataset.idiomaSet));
       if (btn.dataset.idiomaSet === 'en') showProximamenteTooltip('English');
+    });
+  });
+  $$('.theme-opt[data-density-set]', $('#modal')).forEach((btn) => {
+    btn.addEventListener('click', () => {
+      setDensity(btn.dataset.densitySet);
+      $$('.theme-opt[data-density-set]', $('#modal')).forEach((b) => b.classList.toggle('active', b.dataset.densitySet === btn.dataset.densitySet));
     });
   });
   $('#chkReduceMotion').addEventListener('change', (e) => setReduceMotion(e.target.checked));

@@ -41,12 +41,12 @@ const ROLE_TABS = {
   // simulación de rol no puede simular "soy el usuario 8", solo "soy rol X"
   // (prompt-fix-role-tabs-contabilidad.md) — limitación conocida y
   // aceptada para esos tres, no un bug.
-  admin:          ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'finanzas', 'compromisos', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', ...MAQUINARIA_TABS_ADMIN, 'cotizador', 'costos', 'matrices', 'avance_clientes', 'composicion_costos', ...CONTABILIDAD_TABS],
-  desarrollador:  ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'finanzas', 'compromisos', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', ...MAQUINARIA_TABS_ADMIN, 'cotizador', 'costos', 'matrices', 'avance_clientes', 'composicion_costos', ...CONTABILIDAD_TABS],
+  admin:          ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'finanzas', 'compromisos', 'fondoGarantia', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', ...MAQUINARIA_TABS_ADMIN, 'cotizador', 'costos', 'matrices', 'avance_clientes', 'composicion_costos', ...CONTABILIDAD_TABS],
+  desarrollador:  ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'finanzas', 'compromisos', 'fondoGarantia', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', ...MAQUINARIA_TABS_ADMIN, 'cotizador', 'costos', 'matrices', 'avance_clientes', 'composicion_costos', ...CONTABILIDAD_TABS],
   residente:      ['programa', 'avance', 'destajo', 'requisiciones', 'insumos', 'ordenes', 'nominas', 'trabajadores', 'estimaciones', 'matrices'],
   cabo:           ['destajo', 'insumos', 'avance', 'requisiciones', ...MAQUINARIA_TABS_CABO, 'trabajadores', 'nominas'],
   compras:        ['programa', 'requisiciones', 'insumos', 'ordenes', 'proveedores', 'cotizador'],
-  tesoreria:      ['resumen', 'finanzas', 'compromisos', 'ordenes', 'contrato', 'impuestos', 'proveedores'],
+  tesoreria:      ['resumen', 'finanzas', 'compromisos', 'fondoGarantia', 'ordenes', 'contrato', 'impuestos', 'proveedores'],
   administracion: ['resumen', 'programa', 'destajo', 'ordenes', 'proveedores', 'contrato', 'impuestos', 'mapeo'],
   logistica:      ['programa', 'avance', 'requisiciones', 'insumos', 'ordenes'],
   jefe_maquinaria: MAQUINARIA_TABS_JEFE,
@@ -1185,7 +1185,7 @@ const TAB_POR_TIPO_NOTIF = {
 const SECTION_DEFS = {
   obra:          { label: 'Obra',           icon: 'obra',           emoji: '🏗️',  tabs: ['programa', 'avance', 'destajo', 'estimaciones'],     proximamente: [] },
   compras:       { label: 'Compras',        icon: 'compras',        emoji: '🛒',   tabs: ['requisiciones', 'insumos', 'proveedores', 'ordenes', 'cotizador'], proximamente: ['Subcontratos'] },
-  tesoreria:     { label: 'Tesorería',      icon: 'tesoreria',      emoji: '💰',   tabs: ['finanzas', 'compromisos', 'estadoResultados', 'estadoResultadosGlobal', 'impuestos', 'controlFinanciero'], proximamente: [] },
+  tesoreria:     { label: 'Tesorería',      icon: 'tesoreria',      emoji: '💰',   tabs: ['finanzas', 'compromisos', 'fondoGarantia', 'estadoResultados', 'estadoResultadosGlobal', 'impuestos', 'controlFinanciero'], proximamente: [] },
   administracion:{ label: 'Administración', icon: 'administracion', emoji: '📂',  tabs: ['mapeo', 'contrato', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'avance_clientes', 'usuarios', 'cuentas'], proximamente: ['Almacenes'] },
   maquinaria:    { label: 'Maquinaria',     icon: 'maquinaria',     emoji: '🚜',   tabs: MAQUINARIA_TABS_ADMIN,                                 proximamente: [] },
   // prompt-secciones-presupuestos-contabilidad.md: Matrices de PU/Costos/
@@ -1204,7 +1204,7 @@ const SECTION_DEFS = {
 const TAB_ICONS = {
   resumen: '📊', contrato: '📄', impuestos: '🧾', insumos: '📦', requisiciones: '🧾',
   proveedores: '🏭', ordenes: '🛒', programa: '🗓️', avance: '📈', destajo: '👷',
-  finanzas: '💰', compromisos: '📌', mapeo: '🔗', usuarios: '👤', trabajadores: '👷', nominas: '💵', estimaciones: '🧮',
+  finanzas: '💰', compromisos: '📌', fondoGarantia: '🔒', mapeo: '🔗', usuarios: '👤', trabajadores: '👷', nominas: '💵', estimaciones: '🧮',
   maquinaria_catalogo: '🛠️', maquinaria_horas: '⏱️', maquinaria_bitacora: '🔧', maquinaria_estado_unidad: '🚦',
   maquinaria_consumibles: '⛽', maquinaria_reportes_cliente: '📊',
   nominas_global: '💵', trabajadores_global: '👷', cotizador: '🔍',
@@ -1216,7 +1216,7 @@ const TAB_ICONS = {
 const TAB_LABELS = {
   resumen: 'Resumen', contrato: 'Contrato', impuestos: 'Impuestos', insumos: 'Insumos', requisiciones: 'Requisiciones',
   proveedores: 'Proveedores', ordenes: 'Órdenes de Compra', programa: 'Programa', avance: 'Avance', destajo: 'Destajo',
-  finanzas: 'Finanzas', compromisos: 'Compromisos Abiertos', mapeo: 'Mapeo', usuarios: 'Usuarios', trabajadores: 'Trabajadores', nominas: 'Nóminas', estimaciones: 'Estimaciones',
+  finanzas: 'Finanzas', compromisos: 'Compromisos Abiertos', fondoGarantia: 'Fondo de Garantía', mapeo: 'Mapeo', usuarios: 'Usuarios', trabajadores: 'Trabajadores', nominas: 'Nóminas', estimaciones: 'Estimaciones',
   maquinaria_catalogo: 'Catálogo de equipos', maquinaria_horas: 'Horas / Pendientes de autorizar',
   maquinaria_bitacora: 'Bitácora de taller', maquinaria_estado_unidad: 'Estado de las unidades',
   maquinaria_consumibles: 'Consumibles', maquinaria_reportes_cliente: 'Reportes por cliente',
@@ -4096,6 +4096,7 @@ async function renderView() {
       case 'destajo': await renderDestajo(view); break;
       case 'finanzas': await renderFinanzas(view); break;
       case 'compromisos': await renderCompromisosAbiertos(view); break;
+      case 'fondoGarantia': await renderFondoGarantia(view); break;
       case 'estadoResultados': await renderEstadoResultados(view); break;
       case 'mapeo': await renderMapeo(view); break;
       case 'trabajadores': await renderTrabajadores(view); break;
@@ -4527,7 +4528,13 @@ const CONTRATO_FIELDS = [
   { key: 'iva_monto', label: 'IVA', inputType: 'number', format: 'money' },
   { key: 'total_contratado', label: 'Total contratado', inputType: 'number', format: 'money' },
   { key: 'anticipo_monto', label: 'Anticipo', inputType: 'number', format: 'money' },
-  { key: 'fondo_garantia_monto', label: 'Fondo de garantía', inputType: 'number', format: 'money' },
+  // fondo_garantia_monto: referencia textual del contrato original (puede ser
+  // un monto en pesos o venir vacío), NO alimenta el cálculo. El % que sí
+  // alimenta el cálculo de cada estimación es porcentaje_fondo_garantia
+  // (prompt-fondo-garantia-editable.md) — campo numérico separado a propósito,
+  // texto libre no es confiable para una fórmula financiera.
+  { key: 'fondo_garantia_monto', label: 'Fondo de garantía (referencia contrato)', inputType: 'number', format: 'money' },
+  { key: 'porcentaje_fondo_garantia', label: 'Fondo de garantía — % usado en estimaciones', inputType: 'number', format: 'percent' },
   { key: 'volumen_contratado', label: 'Volumen contratado', inputType: 'number', format: 'number' },
   { key: 'volumen_unidad', label: 'Unidad de volumen', inputType: 'text', format: 'text' },
   { key: 'personal_ejecuta', label: 'Personal que ejecuta', inputType: 'text', format: 'text' },
@@ -4560,6 +4567,7 @@ function formatContratoValor(field, value) {
   if (field.format === 'date') return fmtDate(value);
   if (field.format === 'money') return fmtMoney(value);
   if (field.format === 'number') return fmtNum(value);
+  if (field.format === 'percent') return fmtPct(value);
   return esc(value);
 }
 
@@ -4658,12 +4666,18 @@ function openContratoFormModal(preview, ctx) {
   const blobNombre = preview.blob_nombre || null;
 
   const fieldsHtml = CONTRATO_FIELDS.map((f) => {
-    const value = campos[f.key];
-    const isNull = value == null || value === '';
+    // porcentaje_fondo_garantia: 2% como valor sugerido/default al capturar
+    // (prompt-fondo-garantia-editable.md) — no se marca como "no detectado"
+    // (field-null) porque es un sugerido explícito, no un dato faltante del
+    // documento. min/max reflejan el mismo rango 0-15 que valida el backend.
+    const esFondoGarantiaPct = f.key === 'porcentaje_fondo_garantia';
+    const value = esFondoGarantiaPct && (campos[f.key] == null || campos[f.key] === '') ? 2 : campos[f.key];
+    const isNull = !esFondoGarantiaPct && (value == null || value === '');
+    const extraAttrs = esFondoGarantiaPct ? 'min="0" max="15"' : '';
     return `
       <div class="field ${isNull ? 'field-null' : ''}">
         <label>${esc(f.label)}</label>
-        <input type="${f.inputType}" id="contrato_${f.key}" ${f.inputType === 'number' ? 'step="any"' : ''} value="${esc(value ?? '')}" />
+        <input type="${f.inputType}" id="contrato_${f.key}" ${f.inputType === 'number' ? 'step="any"' : ''} ${extraAttrs} value="${esc(value ?? '')}" />
       </div>
     `;
   }).join('');
@@ -4700,6 +4714,13 @@ function openContratoFormModal(preview, ctx) {
       const el = $(`#contrato_${f.key}`);
       body[f.key] = el.value.trim() === '' ? null : el.value;
     });
+    if (body.porcentaje_fondo_garantia != null) {
+      const pct = Number(body.porcentaje_fondo_garantia);
+      if (!Number.isFinite(pct) || pct < 0 || pct > 15) {
+        toast('El % de fondo de garantía debe ser un número entre 0 y 15', 'danger');
+        return;
+      }
+    }
     let clienteIdElegido = null;
     if (ctx.mode === 'create') {
       clienteIdElegido = Number($('#contratoFormCliente').value);
@@ -8162,6 +8183,10 @@ const TAB_A_SECCION = {
   // 'finanzas' — mismo permiso, no una whitelist/sección nueva (mirror
   // exacto de la misma decisión en server/auth.js TAB_A_SECCION).
   compromisos: 'finanzas',
+  // 'fondoGarantia' (prompt-fondo-garantia-editable.md) reusa la sección
+  // 'finanzas' — mismo criterio que 'compromisos' arriba, mirror exacto de
+  // server/auth.js TAB_A_SECCION.
+  fondoGarantia: 'finanzas',
   estadoResultados: 'estado_resultados',
   mapeo: 'mapeo', nominas: 'nominas', estimaciones: 'estimaciones',
   // Las 6 subpestañas de Maquinaria (prompt-39, galería de subsecciones)
@@ -10898,6 +10923,47 @@ async function renderCompromisosAbiertos(view) {
 }
 
 // =========================================================================
+// VISTA: Fondo de Garantía acumulado (prompt-fondo-garantia-editable.md) —
+// % pactado de esta obra (Contrato, con 2% de fallback si no se capturó) +
+// SUM de fondo_garantia_monto de estimaciones ya APROBADAS (retenido "de
+// verdad", una en borrador/enviada todavía puede cambiar o rechazarse) +
+// histórico por estimación. Mismo permiso que Finanzas/Compromisos
+// ('finanzas'/'puede_ver'), misma ubicación como pestaña hermana en
+// Tesorería.
+// =========================================================================
+async function renderFondoGarantia(view) {
+  const data = await api(`/projects/${state.projectId}/finanzas/fondo-garantia`);
+
+  view.innerHTML = `
+    <h2 class="section-title">Fondo de Garantía</h2>
+    <p class="muted">Retención por fondo de garantía sobre cada estimación ya aprobada de esta obra — % pactado en Contrato (2% por default si no se capturó uno distinto).</p>
+    <div class="kpi-grid">
+      <div class="kpi"><div class="label">% pactado</div><div class="value">${fmtPct(data.porcentaje_pactado)}</div></div>
+      <div class="kpi green"><div class="label">Acumulado a la fecha</div><div class="value">${fmtMoney(data.acumulado)}</div></div>
+    </div>
+    ${!data.historico.length ? `<div class="empty-state"><div class="big">🔒</div>Aún no hay estimaciones aprobadas en esta obra.<br>El fondo de garantía retenido aparecerá aquí conforme se aprueben.</div>` : `
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr><th>Folio</th><th>Periodo</th><th>Aprobada</th><th class="num">Total periodo</th><th class="num">Fondo de garantía</th></tr>
+        </thead>
+        <tbody>
+          ${data.historico.map((h) => `
+            <tr>
+              <td>${esc(h.folio)}</td>
+              <td>${fmtDate(h.periodo_inicio)} – ${fmtDate(h.periodo_fin)}</td>
+              <td>${h.fecha_aprobacion ? fmtDate(h.fecha_aprobacion) : '—'}</td>
+              <td class="num">${fmtMoney(h.total_periodo)}</td>
+              <td class="num">${fmtMoney(h.fondo_garantia_monto)}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </div>`}
+  `;
+}
+
+// =========================================================================
 // VISTA: Estado de Resultados (Tesorería) — prompt-estado-resultados-tesoreria.
 // Ingresos facturados (devengado, NO cobrado) vs Egresos (Erogado Real
 // completo de Finanzas, reutilizado vía GET .../estado-resultados) = Margen
@@ -11189,7 +11255,7 @@ fab.addEventListener('click', () => {
   }
 });
 function syncFab() {
-  const noFabViews = ['usuarios', 'proveedores', 'ordenes', 'finanzas', 'compromisos', 'estadoResultados', 'estadoResultadosGlobal', 'mapeo', 'avance'];
+  const noFabViews = ['usuarios', 'proveedores', 'ordenes', 'finanzas', 'compromisos', 'fondoGarantia', 'estadoResultados', 'estadoResultadosGlobal', 'mapeo', 'avance'];
   const hasAction = ['requisiciones', 'insumos', 'destajo'].includes(state.view);
   const esGaleria = state.view.endsWith('_gallery');
   fab.style.display = !esGaleria && !noFabViews.includes(state.view) && state.projectId && (hasAction || isAdmin()) ? 'flex' : 'none';

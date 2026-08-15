@@ -259,4 +259,60 @@ async function getCompromisosAbiertosData(pid) {
   };
 }
 
-module.exports = { metaToObject, presupuestoTotalDe, getFinanzasResumenData, getCompromisosAbiertosData };
+// ---------------------------------------------------------------------------
+// Fondo de garantía (prompt-fondo-garantia-editable.md): % pactado por obra,
+// capturado en Contrato (meta.porcentaje_fondo_garantia, convención ya usada
+// para el resto de campos de contrato) en vez del 2% fijo que usaba antes el
+// cálculo de cada estimación. 2% sigue siendo el default cuando la obra no
+// tiene nada capturado (fallback, no una obligación de captura retroactiva).
+// Rango 0-15 valida errores de captura evidentes (CLAUDE.md: nunca de-facto
+// confiar en texto libre para alimentar una fórmula financiera).
+// ---------------------------------------------------------------------------
+const FONDO_GARANTIA_PCT_DEFAULT = 2;
+const FONDO_GARANTIA_PCT_MIN = 0;
+const FONDO_GARANTIA_PCT_MAX = 15;
+
+async function porcentajeFondoGarantiaDe(pid) {
+  const { rows } = await db.pool.query(
+    "SELECT valor FROM meta WHERE project_id = $1 AND clave = 'porcentaje_fondo_garantia'",
+    [pid]
+  );
+  const raw = rows[0] ? Number(rows[0].valor) : NaN;
+  if (!Number.isFinite(raw) || raw < FONDO_GARANTIA_PCT_MIN || raw > FONDO_GARANTIA_PCT_MAX) {
+    return FONDO_GARANTIA_PCT_DEFAULT;
+  }
+  return raw;
+}
+
+// Acumulado = SUM sobre estimaciones ya aprobadas únicamente — una estimación
+// en borrador/enviada todavía puede cambiar de monto (o rechazarse), no es
+// fondo de garantía "retenido" de verdad hasta que se aprueba.
+async function getFondoGarantiaData(pid) {
+  const porcentajePactado = await porcentajeFondoGarantiaDe(pid);
+  const { rows } = await db.pool.query(`
+    SELECT id, folio, periodo_inicio, periodo_fin, fecha_aprobacion, total_periodo, fondo_garantia_monto
+    FROM estimaciones
+    WHERE project_id = $1 AND estado = 'aprobada' AND activo = true
+    ORDER BY folio
+  `, [pid]);
+  const acumulado = rows.reduce((s, r) => s + Number(r.fondo_garantia_monto), 0);
+  return {
+    porcentaje_pactado: porcentajePactado,
+    acumulado: Number(acumulado.toFixed(2)),
+    historico: rows.map((r) => ({
+      estimacion_id: r.id,
+      folio: r.folio,
+      periodo_inicio: r.periodo_inicio,
+      periodo_fin: r.periodo_fin,
+      fecha_aprobacion: r.fecha_aprobacion,
+      total_periodo: Number(r.total_periodo),
+      fondo_garantia_monto: Number(r.fondo_garantia_monto),
+    })),
+  };
+}
+
+module.exports = {
+  metaToObject, presupuestoTotalDe, getFinanzasResumenData, getCompromisosAbiertosData,
+  porcentajeFondoGarantiaDe, getFondoGarantiaData,
+  FONDO_GARANTIA_PCT_DEFAULT, FONDO_GARANTIA_PCT_MIN, FONDO_GARANTIA_PCT_MAX,
+};

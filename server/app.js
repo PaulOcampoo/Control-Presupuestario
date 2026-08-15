@@ -50,7 +50,11 @@ const { buildNominaReporteSemanalPdf } = require('./nominaReporteSemanalPdf');
 const { calcularDiasRestantes, determinarUmbral, construirMensaje } = require('./alertasContrato');
 const maquinaria = require('./maquinaria');
 const cotizador = require('./cotizador');
-const { metaToObject, presupuestoTotalDe, getFinanzasResumenData, getCompromisosAbiertosData } = require('./finanzas');
+const {
+  metaToObject, presupuestoTotalDe, getFinanzasResumenData, getCompromisosAbiertosData,
+  porcentajeFondoGarantiaDe, getFondoGarantiaData,
+  FONDO_GARANTIA_PCT_MIN, FONDO_GARANTIA_PCT_MAX,
+} = require('./finanzas');
 const { calcularJornal, calcularDestajo, totalConIvaEsValido, numeroALetra, calcularSplitCuentas } = require('./calculos');
 const { validarClabe } = require('./catalogoBancos');
 const estadoResultados = require('./estadoResultados');
@@ -4466,6 +4470,17 @@ app.post('/api/projects/contrato-preview',
 // no hay req.project todavía — mismo mecanismo ya usado en Mapeo.
 app.post('/api/projects/contrato-confirm', h(auth.allow()), h(auth.checkPermiso('contrato', 'puede_crear')), h(async (req, res) => {
   const body = req.body || {};
+  // prompt-fondo-garantia-editable.md: validación explícita de rango (no
+  // silenciosa) para el % editable — a diferencia del fallback silencioso a
+  // 2% que hace porcentajeFondoGarantiaDe() cuando el dato guardado está
+  // corrupto/ausente, aquí SÍ se rechaza una captura evidentemente errónea
+  // en el momento de guardar.
+  if (body.porcentaje_fondo_garantia !== undefined && body.porcentaje_fondo_garantia !== null && body.porcentaje_fondo_garantia !== '') {
+    const pct = Number(body.porcentaje_fondo_garantia);
+    if (!Number.isFinite(pct) || pct < FONDO_GARANTIA_PCT_MIN || pct > FONDO_GARANTIA_PCT_MAX) {
+      return res.status(400).json({ error: `El % de fondo de garantía debe ser un número entre ${FONDO_GARANTIA_PCT_MIN} y ${FONDO_GARANTIA_PCT_MAX}` });
+    }
+  }
   const upsertMeta = `
     INSERT INTO meta (project_id, clave, valor) VALUES ($1, $2, $3)
     ON CONFLICT (project_id, clave) DO UPDATE SET valor = EXCLUDED.valor
@@ -6315,6 +6330,15 @@ app.get('/api/projects/:id/finanzas/resumen', h(auth.allow('tesoreria')), h(requ
 // catálogo de permisos granulares.
 app.get('/api/projects/:id/finanzas/compromisos-abiertos', h(auth.allow('tesoreria')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('finanzas', 'puede_ver')), h(async (req, res) => {
   res.json(await getCompromisosAbiertosData(req.project.id));
+}));
+
+// Fondo de Garantía acumulado (prompt-fondo-garantia-editable.md): % pactado
+// + SUM de fondo_garantia_monto de estimaciones aprobadas + histórico por
+// estimación — mismo permiso que el resto de Tesorería/Finanzas
+// ('finanzas'/'puede_ver'), mismo patrón que Compromisos Abiertos arriba
+// (sin sección nueva en el catálogo de permisos granulares).
+app.get('/api/projects/:id/finanzas/fondo-garantia', h(auth.allow('tesoreria')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('finanzas', 'puede_ver')), h(async (req, res) => {
+  res.json(await getFondoGarantiaData(req.project.id));
 }));
 
 // /export reutiliza el mismo permiso 'puede_ver' que /resumen — es la misma
@@ -9094,11 +9118,14 @@ app.get('/api/projects/:id/nominas/:nomId/export', h(auth.allow('residente', 'ca
 // entregado al cliente en documentos previos (decisión explícita).
 const ESTADOS_ESTIMACION = ['borrador', 'enviada', 'aprobada', 'rechazada'];
 // Desglose de pago (Prompt 4, prompts-cotizador-sidebar-permisos-
-// estimaciones.md) — 2% de fondo de garantía e IVA 16%, ambos sobre el
+// estimaciones.md) — fondo de garantía e IVA 16%, ambos sobre el
 // monto BRUTO del periodo (confirmado con Paul: mismo criterio que ya usan
 // Contrato e Facturas en esta app — IVA sobre el subtotal, no sobre un neto
 // ya descontado). Ver cálculo en POST .../calcular.
-const FONDO_GARANTIA_PCT = 0.02;
+// prompt-fondo-garantia-editable.md: el % de fondo de garantía YA NO es fijo
+// — se lee por obra vía porcentajeFondoGarantiaDe() (meta.porcentaje_fondo_
+// garantia, capturado en Contrato), con 2% como fallback si la obra no lo
+// tiene capturado. IVA_ESTIMACION_PCT sigue fijo, fuera de alcance de ese prompt.
 const IVA_ESTIMACION_PCT = 0.16;
 
 // Vista global — solo admin/desarrollador: todas las estimaciones "enviada"
@@ -9283,6 +9310,8 @@ app.post('/api/projects/:id/estimaciones/:estId/calcular', h(auth.allow('residen
     return { concepto_id: c.concepto_id, cantidadPeriodo, importePeriodo, cantidadAcumulada, importeAcumulado, pct };
   }).filter((it) => it.cantidadPeriodo > 0 || it.cantidadAcumulada > 0);
 
+  const fondoGarantiaPct = await porcentajeFondoGarantiaDe(pid);
+
   await db.withTransaction(async (client) => {
     await client.query('DELETE FROM estimacion_conceptos WHERE estimacion_id = $1', [estId]);
     for (const it of items) {
@@ -9295,14 +9324,15 @@ app.post('/api/projects/:id/estimaciones/:estId/calcular', h(auth.allow('residen
     const totalPeriodo = items.reduce((s, it) => s + it.importePeriodo, 0);
     const totalAcumulado = items.reduce((s, it) => s + it.importeAcumulado, 0);
     // Desglose de pago (Prompt 4, prompts-cotizador-sidebar-permisos-
-    // estimaciones.md): 2% Fondo de Garantía e IVA 16% se calculan sobre el
+    // estimaciones.md): Fondo de Garantía (% pactado por obra, fondoGarantiaPct
+    // arriba — prompt-fondo-garantia-editable.md) e IVA 16% se calculan sobre el
     // total del PERIODO (no el acumulado — el acumulado ya se cobró,
     // parcialmente, en estimaciones anteriores) y sobre el monto BRUTO de la
     // estimación (mismo patrón que Contrato: importe_contratado + iva_monto
     // = total_contratado, y Facturas: monto_subtotal + iva = monto_total).
     // amortizacion_anticipo se preserva del valor ya capturado (si lo hay) —
     // recalcular el avance no debe borrar una amortización ya guardada.
-    const fondoGarantiaMonto = totalPeriodo * FONDO_GARANTIA_PCT;
+    const fondoGarantiaMonto = totalPeriodo * (fondoGarantiaPct / 100);
     const ivaMonto = totalPeriodo * IVA_ESTIMACION_PCT;
     const totalAPagar = totalPeriodo - Number(est.amortizacion_anticipo || 0) - fondoGarantiaMonto + ivaMonto;
     await client.query(

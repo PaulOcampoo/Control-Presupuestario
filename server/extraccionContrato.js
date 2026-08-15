@@ -18,7 +18,7 @@ const CAMPOS_CONTRATO = [
   'fecha_documento', 'fecha_inicio', 'fecha_termino', 'tipo_contrato',
   'subtotal_materiales', 'subtotal_mano_obra', 'subtotal_carga_social', 'subtotal_herramienta_equipo',
   'subtotal_costo_directo', 'indirecto_utilidad', 'importe_contratado', 'iva_monto', 'total_contratado',
-  'anticipo_monto', 'fondo_garantia_monto', 'volumen_contratado', 'volumen_unidad', 'personal_ejecuta',
+  'anticipo_monto', 'fondo_garantia_monto', 'porcentaje_fondo_garantia', 'volumen_contratado', 'volumen_unidad', 'personal_ejecuta',
 ];
 
 const SYSTEM_PROMPT = `Eres un asistente que extrae datos estructurados de contratos de construcción/obra en México.
@@ -27,6 +27,7 @@ ${CAMPOS_CONTRATO.join(', ')}.
 Usa null en cualquier clave cuyo dato no aparezca en el documento.
 Si el documento usa términos distintos para conceptos equivalentes, mapea al campo semánticamente más cercano; todos los montos como número, sin "$" ni comas.
 Las fechas deben devolverse en formato ISO (YYYY-MM-DD).
+porcentaje_fondo_garantia es el % (número entre 0 y 100, ej. 5 para "5%", NO un monto en pesos) que el contrato pacte como fondo de garantía o retención sobre cada pago/estimación — distinto de fondo_garantia_monto, que es un monto en pesos si el documento lo expresa así en vez de como porcentaje.
 personal_ejecuta es texto libre describiendo el personal que ejecuta el trabajo tal como aparece en el documento (ej. conteo de Oficiales/Ayudantes, nombres, o cualquier otro formato que use el documento); no inventes una estructura fija, transcribe el dato tal cual.`;
 
 function getClient() {

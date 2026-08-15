@@ -41,10 +41,10 @@ const ROLE_TABS = {
   // simulación de rol no puede simular "soy el usuario 8", solo "soy rol X"
   // (prompt-fix-role-tabs-contabilidad.md) — limitación conocida y
   // aceptada para esos tres, no un bug.
-  admin:          ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'finanzas', 'compromisos', 'fondoGarantia', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', ...MAQUINARIA_TABS_ADMIN, 'cotizador', 'costos', 'matrices', 'avance_clientes', 'composicion_costos', ...CONTABILIDAD_TABS],
-  desarrollador:  ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'finanzas', 'compromisos', 'fondoGarantia', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', ...MAQUINARIA_TABS_ADMIN, 'cotizador', 'costos', 'matrices', 'avance_clientes', 'composicion_costos', ...CONTABILIDAD_TABS],
-  residente:      ['programa', 'avance', 'destajo', 'requisiciones', 'insumos', 'ordenes', 'nominas', 'trabajadores', 'estimaciones', 'matrices'],
-  cabo:           ['destajo', 'insumos', 'avance', 'requisiciones', ...MAQUINARIA_TABS_CABO, 'trabajadores', 'nominas'],
+  admin:          ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'finanzas', 'compromisos', 'fondoGarantia', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', 'ordenesCambio', ...MAQUINARIA_TABS_ADMIN, 'cotizador', 'costos', 'matrices', 'avance_clientes', 'composicion_costos', ...CONTABILIDAD_TABS],
+  desarrollador:  ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'finanzas', 'compromisos', 'fondoGarantia', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', 'ordenesCambio', ...MAQUINARIA_TABS_ADMIN, 'cotizador', 'costos', 'matrices', 'avance_clientes', 'composicion_costos', ...CONTABILIDAD_TABS],
+  residente:      ['programa', 'avance', 'destajo', 'requisiciones', 'insumos', 'ordenes', 'nominas', 'trabajadores', 'estimaciones', 'ordenesCambio', 'matrices'],
+  cabo:           ['destajo', 'insumos', 'avance', 'requisiciones', ...MAQUINARIA_TABS_CABO, 'trabajadores', 'nominas', 'ordenesCambio'],
   compras:        ['programa', 'requisiciones', 'insumos', 'ordenes', 'proveedores', 'cotizador'],
   tesoreria:      ['resumen', 'finanzas', 'compromisos', 'fondoGarantia', 'ordenes', 'contrato', 'impuestos', 'proveedores'],
   administracion: ['resumen', 'programa', 'destajo', 'ordenes', 'proveedores', 'contrato', 'impuestos', 'mapeo'],
@@ -998,6 +998,10 @@ function puedeVerEstimaciones() { return !!state.user && (isAdmin() || ['residen
 function puedeCapturarEstimacion() { return !!state.user && (isAdmin() || ['residente'].includes(effectivePuesto())); }
 function puedeAprobarEstimacion() { return isAdmin(); }
 
+function puedeVerOrdenesCambio() { return !!state.user && (isAdmin() || ['residente', 'cabo'].includes(effectivePuesto())); }
+function puedeCrearOrdenCambio() { return !!state.user && (isAdmin() || ['residente', 'cabo'].includes(effectivePuesto())); }
+function puedeAprobarOrdenCambio() { return isAdmin(); }
+
 function applySession(user, tabs, needsTotpReminder = false, avisoNovedades = null) {
   state.user = user;
   state.allowedTabs = tabs;
@@ -1183,7 +1187,12 @@ const TAB_POR_TIPO_NOTIF = {
 // def.tabs.length === 0 es 100% futura (hoy solo Maquinaria).
 // ---------------------------------------------------------------------------
 const SECTION_DEFS = {
-  obra:          { label: 'Obra',           icon: 'obra',           emoji: '🏗️',  tabs: ['programa', 'avance', 'destajo', 'estimaciones'],     proximamente: [] },
+  // 'ordenesCambio' (prompt-ordenes-cambio.md) vive en Obra, no en
+  // Presupuestos: es un evento de ejecución día a día que captura residente/
+  // cabo (mismos actores que avance/destajo/estimaciones), no una vista
+  // estática de configuración de precios como Matrices/Costos/Composición de
+  // costos (que sí viven en Presupuestos).
+  obra:          { label: 'Obra',           icon: 'obra',           emoji: '🏗️',  tabs: ['programa', 'avance', 'destajo', 'estimaciones', 'ordenesCambio'],     proximamente: [] },
   compras:       { label: 'Compras',        icon: 'compras',        emoji: '🛒',   tabs: ['requisiciones', 'insumos', 'proveedores', 'ordenes', 'cotizador'], proximamente: ['Subcontratos'] },
   tesoreria:     { label: 'Tesorería',      icon: 'tesoreria',      emoji: '💰',   tabs: ['finanzas', 'compromisos', 'fondoGarantia', 'estadoResultados', 'estadoResultadosGlobal', 'impuestos', 'controlFinanciero'], proximamente: [] },
   administracion:{ label: 'Administración', icon: 'administracion', emoji: '📂',  tabs: ['mapeo', 'contrato', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'avance_clientes', 'usuarios', 'cuentas'], proximamente: ['Almacenes'] },
@@ -1204,7 +1213,7 @@ const SECTION_DEFS = {
 const TAB_ICONS = {
   resumen: '📊', contrato: '📄', impuestos: '🧾', insumos: '📦', requisiciones: '🧾',
   proveedores: '🏭', ordenes: '🛒', programa: '🗓️', avance: '📈', destajo: '👷',
-  finanzas: '💰', compromisos: '📌', fondoGarantia: '🔒', mapeo: '🔗', usuarios: '👤', trabajadores: '👷', nominas: '💵', estimaciones: '🧮',
+  finanzas: '💰', compromisos: '📌', fondoGarantia: '🔒', mapeo: '🔗', usuarios: '👤', trabajadores: '👷', nominas: '💵', estimaciones: '🧮', ordenesCambio: '📝',
   maquinaria_catalogo: '🛠️', maquinaria_horas: '⏱️', maquinaria_bitacora: '🔧', maquinaria_estado_unidad: '🚦',
   maquinaria_consumibles: '⛽', maquinaria_reportes_cliente: '📊',
   nominas_global: '💵', trabajadores_global: '👷', cotizador: '🔍',
@@ -1216,7 +1225,7 @@ const TAB_ICONS = {
 const TAB_LABELS = {
   resumen: 'Resumen', contrato: 'Contrato', impuestos: 'Impuestos', insumos: 'Insumos', requisiciones: 'Requisiciones',
   proveedores: 'Proveedores', ordenes: 'Órdenes de Compra', programa: 'Programa', avance: 'Avance', destajo: 'Destajo',
-  finanzas: 'Finanzas', compromisos: 'Compromisos Abiertos', fondoGarantia: 'Fondo de Garantía', mapeo: 'Mapeo', usuarios: 'Usuarios', trabajadores: 'Trabajadores', nominas: 'Nóminas', estimaciones: 'Estimaciones',
+  finanzas: 'Finanzas', compromisos: 'Compromisos Abiertos', fondoGarantia: 'Fondo de Garantía', mapeo: 'Mapeo', usuarios: 'Usuarios', trabajadores: 'Trabajadores', nominas: 'Nóminas', estimaciones: 'Estimaciones', ordenesCambio: 'Órdenes de Cambio',
   maquinaria_catalogo: 'Catálogo de equipos', maquinaria_horas: 'Horas / Pendientes de autorizar',
   maquinaria_bitacora: 'Bitácora de taller', maquinaria_estado_unidad: 'Estado de las unidades',
   maquinaria_consumibles: 'Consumibles', maquinaria_reportes_cliente: 'Reportes por cliente',
@@ -2844,6 +2853,15 @@ const AYUDA_CONTENIDO = {
       'El presupuesto total y los porcentajes de avance financiero se recalculan automáticamente — no hace falta hacer nada más después de confirmar.',
     ],
   },
+  ordenesCambio: {
+    titulo: 'Órdenes de cambio',
+    pasos: [
+      'Úsala cuando el alcance de la obra cambia a medio proyecto — el cliente pide algo extra, o se descubre algo no presupuestado.',
+      'Captura la justificación del cambio y una línea por cada concepto afectado: puede ser un ajuste (nueva cantidad/precio) a un concepto ya existente, o un concepto completamente nuevo.',
+      'Puedes adjuntar un documento de respaldo opcional (correo del cliente, oficio, cotización) en PDF/JPG/PNG.',
+      'La orden queda "pendiente" hasta que un administrador la apruebe o la rechace (el rechazo exige un comentario). Al aprobarse, el presupuesto de la obra se actualiza de inmediato con el nuevo concepto o el ajuste — no hace falta subir un Excel.',
+    ],
+  },
   nominaCaptura: {
     titulo: 'Captura de nómina',
     pasos: [
@@ -4102,6 +4120,7 @@ async function renderView() {
       case 'trabajadores': await renderTrabajadores(view); break;
       case 'nominas': await renderNominas(view); break;
       case 'estimaciones': await renderEstimaciones(view); break;
+      case 'ordenesCambio': await renderOrdenesCambio(view); break;
       case 'matrices': await renderMatrices(view); break;
       default: view.innerHTML = '';
     }
@@ -8065,6 +8084,7 @@ const PERMISOS_SECCION_LABELS = {
   trabajadores_bancarios: 'Trabajadores — Cuentas bancarias',
   cotizador: 'Cotizador de materiales',
   estado_resultados_global: 'Estado de Resultados (Todas las Obras)',
+  ordenes_cambio: 'Órdenes de Cambio',
 };
 // Secciones que NUNCA son por-obra — no existe (ni tiene sentido) una versión
 // "para la obra X" de una vista que ya de por sí es cross-obra/cross-cliente.
@@ -8156,13 +8176,19 @@ const ACCIONES_CON_ENFORCEMENT = {
   estado_resultados_global: [],
   estado_unidad: ['puede_ver', 'puede_crear'],
   maquinaria_consumibles: ['puede_ver', 'puede_crear'],
+  // puede_editar = aprobar/rechazar — real, pero solo alcanzable por
+  // admin/desarrollador (auth.allow() sin argumentos a nivel de ruta, ver
+  // server/app.js) que de todos modos bypasean checkPermiso siempre; queda
+  // como infraestructura preparada, mismo estado que nominas.puede_editar
+  // antes de abrirse a otro rol.
+  ordenes_cambio: ['puede_ver', 'puede_crear', 'puede_editar'],
 };
 // Agrupa las secciones de permisos igual que SECTION_DEFS agrupa las pestañas
 // en la pantalla de inicio (Obra / Compras / Tesorería / Administración) —
 // mismo criterio de negocio, para que la matriz se lea en el mismo orden que
 // el resto de la app en vez de un orden alfabético/insertado sin relación.
 const PERMISOS_GRUPOS = [
-  { label: 'Obra',           secciones: ['presupuestos', 'programa', 'avance', 'destajo', 'estimaciones'] },
+  { label: 'Obra',           secciones: ['presupuestos', 'programa', 'avance', 'destajo', 'estimaciones', 'ordenes_cambio'] },
   { label: 'Compras',        secciones: ['requisiciones', 'insumos', 'proveedores', 'ordenes_compra', 'cotizador'] },
   { label: 'Tesorería',      secciones: ['finanzas', 'estado_resultados', 'estado_resultados_global', 'impuestos'] },
   { label: 'Administración', secciones: ['mapeo', 'contrato', 'nominas', 'usuarios', 'trabajadores', 'trabajadores_docs', 'trabajadores_contrato', 'trabajadores_bancarios', 'trabajadores_global', 'nominas_global', 'costos'] },
@@ -8202,6 +8228,9 @@ const TAB_A_SECCION = {
   // unitario.md) — a diferencia del tab GLOBAL 'costos', 'matrices' es
   // por-obra y sí debe resolverse aquí.
   matrices: 'costos',
+  // prompt-ordenes-cambio.md: sección propia por-obra, mirror de
+  // server/auth.js TAB_A_SECCION.
+  ordenesCambio: 'ordenes_cambio',
 };
 function defaultPermisosParaRolFrontend(puesto) {
   const tabs = ROLE_TABS[puesto] || [];
@@ -8219,11 +8248,13 @@ function defaultPermisosParaRolFrontend(puesto) {
     if (porSeccion.destajo) { porSeccion.destajo.puede_crear = true; porSeccion.destajo.puede_editar = true; }
     if (porSeccion.avance)  porSeccion.avance.puede_crear = true;
     if (porSeccion.requisiciones) porSeccion.requisiciones.puede_crear = true;
+    if (porSeccion.ordenes_cambio) porSeccion.ordenes_cambio.puede_crear = true;
   }
   if (puesto === 'cabo') {
     if (porSeccion.destajo) porSeccion.destajo.puede_editar = true;
     if (porSeccion.avance)  porSeccion.avance.puede_crear = true;
     if (porSeccion.maquinaria) porSeccion.maquinaria.puede_crear = true;
+    if (porSeccion.ordenes_cambio) porSeccion.ordenes_cambio.puede_crear = true;
     // prompt-3-flujo-aprobacion-cabo-operador.md: cabo ya no captura horas,
     // solo autoriza/rechaza (puede_editar, no puede_crear) — mirror del
     // cambio en server/auth.js defaultPermisosParaRol.
@@ -17218,6 +17249,335 @@ async function openCambioEstadoEstimacionModal(estimacionId, nuevoEstado, pedirC
       closeModal();
       if (onDone) await onDone();
     } catch (err) { toast(err.message, 'danger'); btn.disabled = false; }
+  });
+}
+
+// =========================================================================
+// VISTA: Órdenes de Cambio (prompt-ordenes-cambio.md, diagnóstico previo en
+// prompt-diagnostico-ordenes-cambio.md) — solicitud formal de cambio de
+// alcance del contrato, con folio/justificación/aprobación, que al aprobarse
+// aplica el delta real al presupuesto reusando el motor ya existente de
+// server/reintegracionPresupuesto.js (vía server/ordenesCambio.js) — nunca
+// un segundo motor de aplicación paralelo. Ubicada en Obra (junto a avance/
+// destajo/estimaciones — ver razón en SECTION_DEFS.obra más arriba), no en
+// Presupuestos: es un evento de ejecución día a día, no una vista estática
+// de configuración de precios.
+// =========================================================================
+const ORDEN_CAMBIO_ESTADO_LABELS = { pendiente: 'Pendiente', aprobada: 'Aprobada', rechazada: 'Rechazada' };
+const ORDEN_CAMBIO_ESTADO_BADGE = { pendiente: 'yellow', aprobada: 'green', rechazada: 'red' };
+let ordenesCambioRaw = [];
+
+async function renderOrdenesCambio(view) {
+  if (!puedeVerOrdenesCambio()) {
+    view.innerHTML = `<div class="alert-box danger">⚠️ No tienes permiso para ver esta sección.</div>`;
+    return;
+  }
+  view.innerHTML = `
+    <h2 class="section-title">Órdenes de Cambio ${renderHelpBtn('ordenesCambio')}</h2>
+    <p class="muted">Solicitud formal de cambio de alcance — folio, justificación y aprobación explícita antes de tocar el presupuesto.</p>
+    <div class="section-actions mt-12">
+      ${puedeCrearOrdenCambio() ? `<button class="btn btn-primary" id="btnNuevaOrdenCambio">+ Nueva orden de cambio</button>` : ''}
+    </div>
+    <div id="ordenesCambioList"><div class="empty-state">Cargando…</div></div>
+  `;
+  $('#btnNuevaOrdenCambio')?.addEventListener('click', () => openOrdenCambioFormModal(loadOrdenesCambio));
+  await loadOrdenesCambio();
+}
+
+async function loadOrdenesCambio() {
+  const el = $('#ordenesCambioList');
+  if (!el) return;
+  try {
+    ordenesCambioRaw = await api(`/projects/${state.projectId}/ordenes-cambio`);
+    paintOrdenesCambioList();
+  } catch (err) {
+    el.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+  }
+}
+
+function paintOrdenesCambioList() {
+  const el = $('#ordenesCambioList');
+  if (!el) return;
+  if (!ordenesCambioRaw.length) { el.innerHTML = '<div class="empty-state">No hay órdenes de cambio registradas.</div>'; return; }
+  el.innerHTML = ordenesCambioRaw.map((oc) => `
+    <div class="card">
+      <div class="row between nomina-row-6">
+        <div>
+          <strong>OC #${esc(oc.folio)}</strong>
+          <div class="muted fs-08">${esc(oc.descripcion)}</div>
+          <div class="muted fs-08">${fmtDate(oc.fecha_solicitud)} · Solicitó ${esc(oc.solicitado_por_nombre || 'desconocido')} · ${Number(oc.monto_delta) >= 0 ? '+' : ''}${fmtMoney(oc.monto_delta)}</div>
+        </div>
+        <div class="row nomina-row-6-center">
+          <span class="badge ${ORDEN_CAMBIO_ESTADO_BADGE[oc.estado] || 'muted'}">${esc(ORDEN_CAMBIO_ESTADO_LABELS[oc.estado] || oc.estado)}</span>
+        </div>
+      </div>
+      ${oc.estado === 'rechazada' && oc.comentario_rechazo ? `<div class="muted fs-08 nomina-nota">Motivo de rechazo: ${esc(oc.comentario_rechazo)}</div>` : ''}
+      ${oc.estado === 'aprobada' ? `<div class="muted fs-08">Aprobó ${esc(oc.aprobado_por_nombre || '')} · ${fmtDate(oc.aprobado_en)}</div>` : ''}
+      <div class="row end nomina-actions-row">
+        <button class="btn small" data-ver-oc="${oc.id}">Ver detalle</button>
+        ${oc.estado === 'pendiente' && puedeAprobarOrdenCambio() ? `
+          <button class="btn small btn-primary" data-aprobar-oc="${oc.id}">Aprobar</button>
+          <button class="btn small btn-danger" data-rechazar-oc="${oc.id}">Rechazar</button>` : ''}
+      </div>
+    </div>
+  `).join('');
+
+  $$('[data-ver-oc]', el).forEach((btn) => {
+    btn.addEventListener('click', () => openVerOrdenCambioModal(Number(btn.dataset.verOc)));
+  });
+  $$('[data-aprobar-oc]', el).forEach((btn) => {
+    btn.addEventListener('click', () => openAprobarRechazarOrdenCambioModal(Number(btn.dataset.aprobarOc), 'aprobar', loadOrdenesCambio));
+  });
+  $$('[data-rechazar-oc]', el).forEach((btn) => {
+    btn.addEventListener('click', () => openAprobarRechazarOrdenCambioModal(Number(btn.dataset.rechazarOc), 'rechazar', loadOrdenesCambio));
+  });
+}
+
+function ordenCambioLineaResumenHtml(l) {
+  if (l.es_concepto_nuevo) {
+    return `<div class="card-row"><span class="k">${esc(l.codigo ? l.codigo + ' — ' : '')}${esc(l.descripcion)} (nuevo)</span><span class="v">${fmtNum(l.cantidad)} ${esc(l.unidad || '')} × ${fmtMoney(l.precio_unitario)}</span></div>`;
+  }
+  const nombre = l.concepto_nombre_actual ? `${l.concepto_codigo_actual ? esc(l.concepto_codigo_actual) + ' — ' : ''}${esc(l.concepto_nombre_actual)}` : `Concepto #${l.concepto_id}`;
+  return `<div class="card-row"><span class="k">${nombre} (ajuste)</span><span class="v">${fmtNum(l.cantidad)} ${esc(l.unidad || '')} × ${fmtMoney(l.precio_unitario)}</span></div>`;
+}
+
+async function openVerOrdenCambioModal(ocId) {
+  openModal(`<h3>Cargando…</h3><div class="spinner"></div>`);
+  try {
+    const { orden, lineas } = await api(`/projects/${state.projectId}/ordenes-cambio/${ocId}`);
+    openModal(`
+      <h3>Orden de Cambio #${esc(orden.folio)}</h3>
+      <div class="card-row"><span class="k">Estado</span><span class="v"><span class="badge ${ORDEN_CAMBIO_ESTADO_BADGE[orden.estado] || 'muted'}">${esc(ORDEN_CAMBIO_ESTADO_LABELS[orden.estado] || orden.estado)}</span></span></div>
+      <div class="card-row"><span class="k">Solicitó</span><span class="v">${esc(orden.solicitado_por_nombre || '—')} · ${fmtDate(orden.fecha_solicitud)}</span></div>
+      <div class="card-row"><span class="k">Justificación</span><span class="v">${esc(orden.descripcion)}</span></div>
+      <div class="card-row"><span class="k">Monto delta</span><span class="v">${Number(orden.monto_delta) >= 0 ? '+' : ''}${fmtMoney(orden.monto_delta)}</span></div>
+      ${orden.estado === 'aprobada' ? `<div class="card-row"><span class="k">Aprobó</span><span class="v">${esc(orden.aprobado_por_nombre || '—')} · ${fmtDate(orden.aprobado_en)}</span></div>` : ''}
+      ${orden.estado === 'rechazada' ? `<div class="card-row"><span class="k">Motivo de rechazo</span><span class="v">${esc(orden.comentario_rechazo || '')}</span></div>` : ''}
+      ${orden.documento_respaldo_url ? `<div class="row mt-8"><button class="btn small" id="btnDescargarDocOc">Ver documento de respaldo</button></div>` : ''}
+      <h4 class="mt-12">Líneas de concepto</h4>
+      <div class="card">
+        ${lineas.map((l) => ordenCambioLineaResumenHtml(l)).join('')}
+      </div>
+      <div class="modal-actions">
+        <button class="btn" id="btnCerrarVerOc">Cerrar</button>
+      </div>
+    `);
+    $('#btnCerrarVerOc').addEventListener('click', closeModal);
+    $('#btnDescargarDocOc')?.addEventListener('click', async () => {
+      try {
+        await apiDownload(`/projects/${state.projectId}/ordenes-cambio/${ocId}/documento`, orden.documento_respaldo_nombre || 'documento');
+      } catch (err) { toast(err.message, 'danger'); }
+    });
+  } catch (err) {
+    closeModal();
+    toast(err.message, 'danger');
+  }
+}
+
+async function openAprobarRechazarOrdenCambioModal(ocId, accion, onDone) {
+  const esAprobar = accion === 'aprobar';
+  openModal(`
+    <h3>${esAprobar ? 'Aprobar' : 'Rechazar'} orden de cambio</h3>
+    ${esAprobar
+      ? '<p class="muted fs-088">El presupuesto de la obra se actualizará de inmediato con las líneas capturadas. Esta acción no se puede deshacer.</p>'
+      : '<div class="field"><label>Motivo de rechazo *</label><textarea id="ocComentarioRechazo" rows="3"></textarea></div>'}
+    <div class="modal-actions">
+      <button class="btn" id="btnCancelOcAccion">Cancelar</button>
+      <button class="btn ${esAprobar ? 'btn-primary' : 'btn-danger'}" id="btnConfirmOcAccion">${esAprobar ? 'Aprobar' : 'Rechazar'}</button>
+    </div>
+  `);
+  $('#btnCancelOcAccion').addEventListener('click', closeModal);
+  $('#btnConfirmOcAccion').addEventListener('click', async () => {
+    const btn = $('#btnConfirmOcAccion');
+    let comentario_rechazo = null;
+    if (!esAprobar) {
+      comentario_rechazo = $('#ocComentarioRechazo')?.value.trim() || '';
+      if (!comentario_rechazo) { toast('El motivo de rechazo es obligatorio', 'danger'); return; }
+    }
+    btn.disabled = true;
+    try {
+      await api(`/ordenes-cambio/${ocId}/${esAprobar ? 'aprobar' : 'rechazar'}`, {
+        method: 'PUT',
+        body: esAprobar ? {} : { comentario_rechazo },
+      });
+      toast(esAprobar ? 'Orden de cambio aprobada — presupuesto actualizado' : 'Orden de cambio rechazada', 'success');
+      closeModal();
+      invalidate('resumen');
+      invalidate('composicionCostos');
+      if (onDone) await onDone();
+    } catch (err) { toast(err.message, 'danger'); btn.disabled = false; }
+  });
+}
+
+// Formulario de captura — líneas mantenidas en un array local (lineasDraft)
+// re-pintado en cada agregar/quitar/cambiar tipo, no hay patrón previo en la
+// app para "elegir concepto existente vs. crear uno nuevo" así que se diseñó
+// uno simple ad-hoc (toggle por línea + selector de conceptos ya cargado vía
+// GET /projects/:id/conceptos, mismo endpoint que ya usa Actualizar
+// presupuesto/Mapeo).
+async function openOrdenCambioFormModal(onSave) {
+  let conceptos = [];
+  try {
+    conceptos = await api(`/projects/${state.projectId}/conceptos`);
+  } catch (err) {
+    toast(err.message, 'danger');
+    return;
+  }
+  let lineasDraft = [{ es_concepto_nuevo: false, concepto_id: null, codigo: '', descripcion: '', unidad: '', cantidad: '', precio_unitario: '' }];
+  let pendingFile = null;
+
+  function conceptoOptionsHtml(selectedId) {
+    return `<option value="">Selecciona un concepto…</option>` + conceptos.map((c) =>
+      `<option value="${c.id}" ${Number(selectedId) === c.id ? 'selected' : ''}>${esc(c.codigo ? c.codigo + ' — ' : '')}${esc(c.concepto)} (actual: ${fmtNum(c.cantidad)} ${esc(c.unidad || '')} @ ${fmtMoney(c.precio_unitario)})</option>`
+    ).join('');
+  }
+
+  function lineaRowHtml(l, idx) {
+    return `
+      <div class="card oc-linea-row" data-linea-idx="${idx}">
+        <div class="row between">
+          <select class="oc-linea-tipo" data-idx="${idx}">
+            <option value="existente" ${!l.es_concepto_nuevo ? 'selected' : ''}>Ajuste a concepto existente</option>
+            <option value="nuevo" ${l.es_concepto_nuevo ? 'selected' : ''}>Concepto nuevo</option>
+          </select>
+          ${lineasDraft.length > 1 ? `<button type="button" class="icon-btn oc-linea-quitar" data-idx="${idx}" title="Quitar línea" aria-label="Quitar línea">✕</button>` : ''}
+        </div>
+        ${l.es_concepto_nuevo ? `
+          <div class="field"><label>Código (opcional)</label><input class="oc-linea-codigo" data-idx="${idx}" value="${esc(l.codigo)}" /></div>
+          <div class="field"><label>Descripción</label><input class="oc-linea-descripcion" data-idx="${idx}" value="${esc(l.descripcion)}" /></div>
+          <div class="row">
+            <div class="field"><label>Unidad</label><input class="oc-linea-unidad" data-idx="${idx}" value="${esc(l.unidad)}" /></div>
+            <div class="field"><label>Cantidad</label><input type="number" step="any" class="oc-linea-cantidad" data-idx="${idx}" value="${esc(l.cantidad)}" /></div>
+            <div class="field"><label>Precio unitario</label><input type="number" step="any" class="oc-linea-precio" data-idx="${idx}" value="${esc(l.precio_unitario)}" /></div>
+          </div>
+        ` : `
+          <div class="field"><label>Concepto</label>
+            <select class="oc-linea-concepto" data-idx="${idx}">${conceptoOptionsHtml(l.concepto_id)}</select>
+          </div>
+          <div class="row">
+            <div class="field"><label>Nueva cantidad</label><input type="number" step="any" class="oc-linea-cantidad" data-idx="${idx}" value="${esc(l.cantidad)}" /></div>
+            <div class="field"><label>Nuevo precio unitario</label><input type="number" step="any" class="oc-linea-precio" data-idx="${idx}" value="${esc(l.precio_unitario)}" /></div>
+          </div>
+        `}
+      </div>
+    `;
+  }
+
+  function renderLineas() {
+    const cont = $('#ocLineasContainer');
+    if (!cont) return;
+    cont.innerHTML = lineasDraft.map((l, idx) => lineaRowHtml(l, idx)).join('');
+    bindLineaEvents();
+  }
+
+  function bindLineaEvents() {
+    $$('.oc-linea-tipo', $('#ocLineasContainer')).forEach((sel) => {
+      sel.addEventListener('change', (e) => {
+        const idx = Number(e.target.dataset.idx);
+        lineasDraft[idx].es_concepto_nuevo = e.target.value === 'nuevo';
+        renderLineas();
+      });
+    });
+    $$('.oc-linea-quitar', $('#ocLineasContainer')).forEach((btn) => {
+      btn.addEventListener('click', () => {
+        lineasDraft.splice(Number(btn.dataset.idx), 1);
+        renderLineas();
+      });
+    });
+    $$('.oc-linea-concepto', $('#ocLineasContainer')).forEach((sel) => {
+      sel.addEventListener('change', (e) => {
+        const idx = Number(e.target.dataset.idx);
+        const c = conceptos.find((cc) => cc.id === Number(e.target.value));
+        lineasDraft[idx].concepto_id = c ? c.id : null;
+        // Prefil de la cantidad/precio actuales — el usuario los ajusta desde ahí.
+        if (c) { lineasDraft[idx].cantidad = c.cantidad; lineasDraft[idx].precio_unitario = c.precio_unitario; lineasDraft[idx].unidad = c.unidad; }
+        renderLineas();
+      });
+    });
+    $$('.oc-linea-codigo, .oc-linea-descripcion, .oc-linea-unidad, .oc-linea-cantidad, .oc-linea-precio', $('#ocLineasContainer')).forEach((input) => {
+      input.addEventListener('input', (e) => {
+        const idx = Number(e.target.dataset.idx);
+        if (e.target.classList.contains('oc-linea-codigo')) lineasDraft[idx].codigo = e.target.value;
+        else if (e.target.classList.contains('oc-linea-descripcion')) lineasDraft[idx].descripcion = e.target.value;
+        else if (e.target.classList.contains('oc-linea-unidad')) lineasDraft[idx].unidad = e.target.value;
+        else if (e.target.classList.contains('oc-linea-cantidad')) lineasDraft[idx].cantidad = e.target.value;
+        else if (e.target.classList.contains('oc-linea-precio')) lineasDraft[idx].precio_unitario = e.target.value;
+      });
+    });
+  }
+
+  openModal(`
+    <h3>Nueva orden de cambio</h3>
+    <div class="field"><label>Justificación del cambio</label><textarea id="ocDescripcion" rows="3" placeholder="Ej. Cliente solicitó agregar..."></textarea></div>
+    <div class="field"><label>Documento de respaldo (opcional, PDF/JPG/PNG)</label><input type="file" id="ocDocumento" accept=".pdf,.jpg,.jpeg,.png" /></div>
+    <h4 class="mt-12">Líneas de concepto</h4>
+    <div id="ocLineasContainer"></div>
+    <button type="button" class="btn small mt-8" id="btnAgregarLineaOc">+ Agregar línea</button>
+    <div class="modal-actions">
+      <button class="btn" id="btnCancelOcForm">Cancelar</button>
+      <button class="btn btn-primary" id="btnGuardarOcForm">Guardar</button>
+    </div>
+  `);
+  renderLineas();
+
+  $('#btnCancelOcForm').addEventListener('click', closeModal);
+  $('#btnAgregarLineaOc').addEventListener('click', () => {
+    lineasDraft.push({ es_concepto_nuevo: false, concepto_id: null, codigo: '', descripcion: '', unidad: '', cantidad: '', precio_unitario: '' });
+    renderLineas();
+  });
+  $('#ocDocumento').addEventListener('change', (e) => { pendingFile = e.target.files?.[0] || null; });
+
+  $('#btnGuardarOcForm').addEventListener('click', async () => {
+    const btn = $('#btnGuardarOcForm');
+    const descripcion = $('#ocDescripcion').value.trim();
+    if (!descripcion) { toast('La justificación del cambio es requerida', 'danger'); return; }
+    if (!lineasDraft.length) { toast('Agrega al menos una línea de concepto', 'danger'); return; }
+    for (const l of lineasDraft) {
+      if (l.es_concepto_nuevo) {
+        if (!l.descripcion?.trim() || !l.unidad?.trim() || !(Number(l.cantidad) > 0) || !(Number(l.precio_unitario) >= 0)) {
+          toast('Cada concepto nuevo requiere descripción, unidad, cantidad > 0 y precio unitario', 'danger'); return;
+        }
+      } else if (!l.concepto_id || !(Number(l.cantidad) >= 0) || !(Number(l.precio_unitario) >= 0)) {
+        toast('Cada ajuste requiere elegir un concepto y capturar cantidad/precio válidos', 'danger'); return;
+      }
+    }
+
+    btn.disabled = true; btn.textContent = 'Guardando…';
+    try {
+      let documento_respaldo_url = null; let documento_respaldo_nombre = null;
+      if (pendingFile) {
+        btn.textContent = 'Subiendo documento…';
+        const blob = await VercelBlobClient.upload(pendingFile.name, pendingFile, {
+          access: 'private',
+          handleUploadUrl: `/api/projects/${state.projectId}/ordenes-cambio/upload-token`,
+          headers: state.token ? { Authorization: `Bearer ${state.token}` } : {},
+        });
+        documento_respaldo_url = blob.url; documento_respaldo_nombre = pendingFile.name;
+      }
+      btn.textContent = 'Guardando…';
+      await api(`/projects/${state.projectId}/ordenes-cambio`, {
+        method: 'POST',
+        body: {
+          descripcion,
+          lineas: lineasDraft.map((l) => ({
+            es_concepto_nuevo: l.es_concepto_nuevo,
+            concepto_id: l.es_concepto_nuevo ? null : Number(l.concepto_id),
+            codigo: l.codigo?.trim() || null,
+            descripcion: l.es_concepto_nuevo ? l.descripcion.trim() : null,
+            unidad: l.unidad?.trim() || null,
+            cantidad: Number(l.cantidad),
+            precio_unitario: Number(l.precio_unitario),
+          })),
+          documento_respaldo_url, documento_respaldo_nombre,
+        },
+      });
+      toast('Orden de cambio creada — pendiente de aprobación', 'success');
+      closeModal();
+      if (onSave) await onSave();
+    } catch (err) {
+      toast(err.message, 'danger');
+      btn.disabled = false; btn.textContent = 'Guardar';
+    }
   });
 }
 

@@ -61,7 +61,8 @@ const estadoResultados = require('./estadoResultados');
 const contabilidad = require('./contabilidad');
 const { extraerDatosCFDI, extraerDatosCFDIDesdePdf } = require('./cfdiParser');
 const { parseMovimientosBancarios } = require('./movimientosBancariosParser');
-const { emparejarConceptos, calcularCambios } = require('./reintegracionPresupuesto');
+const { emparejarConceptos, calcularCambios, aplicarCambiosConceptos } = require('./reintegracionPresupuesto');
+const ordenesCambio = require('./ordenesCambio');
 
 // CN-007: nombre_archivo/pdf_filename vienen del cliente (upload); una comilla
 // doble en el valor rompe fuera del filename="..." y permite inyectar
@@ -4732,96 +4733,16 @@ app.post('/api/projects/:id/presupuesto/actualizar/confirmar', h(auth.allow()), 
     }
 
     const totalAntes = await presupuestoTotalDe(pid);
-    const { rows: maxOrdenRows } = await db.pool.query(
-      'SELECT COALESCE(MAX(orden), 0) AS max_orden FROM conceptos WHERE project_id = $1', [pid]
-    );
-    const maxOrdenExistente = Number(maxOrdenRows[0].max_orden);
 
     let totalFinal = 0;
-    const aplicados = [];
+    let aplicados = [];
 
+    // Motor de aplicación compartido con Órdenes de Cambio (prompt-ordenes-
+    // cambio.md) — ver reintegracionPresupuesto.aplicarCambiosConceptos.
+    // Comportamiento sin cambios: mismo SQL, mismo orden de operaciones que
+    // antes vivía inline aquí.
     await db.withTransaction(async (client) => {
-      for (const m of emparejados) {
-        const { existente, nuevo } = m;
-        const { ambiguo } = calcularCambios(m);
-        let cantidadFinal = Number(nuevo.cantidad);
-        let precioFinal = Number(nuevo.precio_unitario);
-        if (ambiguo) {
-          const eleccion = resoluciones[existente.id];
-          if (eleccion === 'precio') cantidadFinal = Number(existente.cantidad);
-          else if (eleccion === 'cantidad') precioFinal = Number(existente.precio_unitario);
-          // 'ambos' deja cantidadFinal/precioFinal tal cual vienen del Excel.
-        }
-        const importe = cantidadFinal * precioFinal;
-        aplicados.push({
-          concepto_id: existente.id,
-          codigo: existente.codigo,
-          precio_anterior: existente.precio_unitario,
-          precio_nuevo: precioFinal,
-          cantidad_anterior: existente.cantidad,
-          cantidad_nueva: cantidadFinal,
-        });
-        await client.query(
-          `UPDATE conceptos SET codigo=$1, concepto=$2, unidad=$3, cantidad=$4, precio_unitario=$5, importe=$6, grupo=$7, activo=1
-           WHERE id=$8`,
-          [nuevo.codigo || null, nuevo.concepto, nuevo.unidad, cantidadFinal, precioFinal, importe, nuevo.grupo, existente.id]
-        );
-      }
-
-      for (const nuevo of nuevos) {
-        const importe = Number(nuevo.cantidad) * Number(nuevo.precio_unitario);
-        // orden se desplaza más allá del máximo ya existente en el proyecto
-        // (en vez de usar el orden crudo del Excel, que siempre arranca en
-        // 1 y se solaparía con conceptos activos actuales) — los conceptos
-        // nuevos se agregan al final, preservando su orden relativo entre sí.
-        await client.query(
-          `INSERT INTO conceptos (project_id, codigo, concepto, unidad, cantidad, precio_unitario, importe, grupo, es_total, orden, activo)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,0,$9,1)`,
-          [pid, nuevo.codigo || null, nuevo.concepto, nuevo.unidad, nuevo.cantidad, nuevo.precio_unitario, importe, nuevo.grupo, maxOrdenExistente + nuevo.orden]
-        );
-      }
-
-      for (const existente of historicos) {
-        await client.query('UPDATE conceptos SET activo = 0 WHERE id = $1', [existente.id]);
-      }
-
-      // Recalcula meta.total_sin_iva contra el conjunto activo resultante
-      // (no solo la suma del Excel) — cierra el gap del diseño §5.
-      const { rows: totalRows } = await client.query(
-        'SELECT COALESCE(SUM(importe), 0) AS total FROM conceptos WHERE project_id = $1 AND es_total = 0 AND activo = 1',
-        [pid]
-      );
-      totalFinal = Number(totalRows[0].total);
-      await client.query(
-        `INSERT INTO meta (project_id, clave, valor) VALUES ($1, 'total_sin_iva', $2)
-         ON CONFLICT (project_id, clave) DO UPDATE SET valor = EXCLUDED.valor`,
-        [pid, String(totalFinal)]
-      );
-
-      // Recalcula avance_financiero_real de toda semana con avance
-      // capturado, contra los precios/volúmenes ya actualizados arriba y el
-      // total nuevo — cierra el otro gap del diseño §5/§6.3 (cachés de
-      // semanas ya cerradas quedarían desactualizadas si no se hace esto).
-      const { rows: semanasConAvance } = await client.query(
-        `SELECT DISTINCT ac.semana FROM avance_conceptos ac
-         JOIN conceptos c ON c.id = ac.concepto_id
-         WHERE c.project_id = $1`,
-        [pid]
-      );
-      for (const { semana } of semanasConAvance) {
-        const { rows: acumRows } = await client.query(
-          `SELECT COALESCE(SUM(ac.cantidad_ejecutada * c.precio_unitario), 0) AS monto
-           FROM avance_conceptos ac JOIN conceptos c ON c.id = ac.concepto_id
-           WHERE c.project_id = $1 AND ac.semana <= $2`,
-          [pid, semana]
-        );
-        const montoEjecutado = Number(acumRows[0].monto);
-        const financiero = totalFinal > 0 ? Number(((montoEjecutado / totalFinal) * 100).toFixed(2)) : 0;
-        await client.query(
-          'UPDATE avances_semanales SET avance_financiero_real = $1 WHERE project_id = $2 AND semana = $3',
-          [financiero, pid, semana]
-        );
-      }
+      ({ totalFinal, aplicados } = await aplicarCambiosConceptos(client, pid, { emparejados, nuevos, historicos, resoluciones }));
 
       const detalle = JSON.stringify({
         nuevos: nuevos.length,
@@ -4851,6 +4772,205 @@ app.post('/api/projects/:id/presupuesto/actualizar/confirmar', h(auth.allow()), 
     fs.rm(tmpPath, () => {});
     del(archivo_url).catch(() => {});
   }
+}));
+
+// ---------------------------------------------------------------------------
+// Órdenes de Cambio (prompt-ordenes-cambio.md, diagnóstico previo en
+// prompt-diagnostico-ordenes-cambio.md) — solicitud formal de cambio de
+// alcance con folio/justificación/aprobación. Captura: residente/cabo.
+// Aprobación/rechazo: admin/desarrollador exclusivamente (auth.allow() sin
+// argumentos), mismo criterio que la actualización de presupuesto por Excel
+// arriba — aplicar un cambio real al presupuesto es igual de sensible sin
+// importar el origen. Al aprobarse reusa el motor de reintegracionPresupuesto
+// (server/ordenesCambio.js) — nunca reimplementa el emparejamiento/aplicación.
+// ---------------------------------------------------------------------------
+app.post('/api/projects/:id/ordenes-cambio', h(auth.allow('residente', 'cabo')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('ordenes_cambio', 'puede_crear')), h(async (req, res) => {
+  const pid = req.project.id;
+  const { descripcion, lineas, documento_respaldo_url, documento_respaldo_nombre } = req.body || {};
+  if (!descripcion || !descripcion.toString().trim()) {
+    return res.status(400).json({ error: 'La descripción/justificación del cambio es requerida' });
+  }
+  if (!Array.isArray(lineas) || lineas.length === 0) {
+    return res.status(400).json({ error: 'Agrega al menos una línea de concepto (ajuste a uno existente o concepto nuevo)' });
+  }
+  for (const l of lineas) {
+    if (l.es_concepto_nuevo) {
+      if (!l.descripcion || !l.descripcion.toString().trim() || !l.unidad || !Number.isFinite(Number(l.cantidad)) || Number(l.cantidad) <= 0 || !Number.isFinite(Number(l.precio_unitario)) || Number(l.precio_unitario) < 0) {
+        return res.status(400).json({ error: 'Cada concepto nuevo requiere descripción, unidad, cantidad > 0 y precio unitario válido' });
+      }
+    } else {
+      if (!Number.isFinite(Number(l.concepto_id)) || !Number.isFinite(Number(l.cantidad)) || Number(l.cantidad) < 0 || !Number.isFinite(Number(l.precio_unitario)) || Number(l.precio_unitario) < 0) {
+        return res.status(400).json({ error: 'Cada ajuste a concepto existente requiere concepto_id, cantidad y precio unitario válidos' });
+      }
+    }
+  }
+
+  const { rows: existentesActivos } = await db.pool.query(
+    `SELECT id, codigo, concepto, unidad, cantidad, precio_unitario, importe, grupo, es_total, orden, activo
+     FROM conceptos WHERE project_id = $1 AND es_total = 0 AND activo = 1`,
+    [pid]
+  );
+
+  let montoDelta;
+  try {
+    montoDelta = ordenesCambio.calcularMontoDelta(existentesActivos, lineas);
+  } catch (err) {
+    return res.status(err.status || 400).json({ error: err.message });
+  }
+
+  const orden = await db.withTransaction(async (client) => {
+    const { rows: folioRows } = await client.query(
+      `INSERT INTO folio_counters (project_id, tipo, ultimo_folio) VALUES ($1, 'orden_cambio', 1)
+       ON CONFLICT (project_id, tipo) DO UPDATE SET ultimo_folio = folio_counters.ultimo_folio + 1
+       RETURNING ultimo_folio`,
+      [pid]
+    );
+    const folio = String(folioRows[0].ultimo_folio);
+    const { rows: ocRows } = await client.query(
+      `INSERT INTO ordenes_cambio (project_id, folio, descripcion, solicitado_por, monto_delta, documento_respaldo_url, documento_respaldo_nombre)
+       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
+      [pid, folio, descripcion.toString().trim(), req.user.id, montoDelta, documento_respaldo_url || null, documento_respaldo_nombre || null]
+    );
+    const oc = ocRows[0];
+    for (const l of lineas) {
+      await client.query(
+        `INSERT INTO orden_cambio_conceptos (orden_cambio_id, concepto_id, es_concepto_nuevo, codigo, descripcion, unidad, cantidad, precio_unitario)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+        [
+          oc.id,
+          l.es_concepto_nuevo ? null : Number(l.concepto_id),
+          !!l.es_concepto_nuevo,
+          l.codigo || null,
+          l.es_concepto_nuevo ? l.descripcion.toString().trim() : null,
+          l.unidad || null,
+          Number(l.cantidad),
+          Number(l.precio_unitario),
+        ]
+      );
+    }
+    return oc;
+  });
+
+  res.status(201).json(orden);
+}));
+
+app.get('/api/projects/:id/ordenes-cambio', h(auth.allow('residente', 'cabo')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('ordenes_cambio', 'puede_ver')), h(async (req, res) => {
+  const { estado } = req.query;
+  const params = [req.project.id];
+  let where = 'oc.project_id = $1';
+  if (estado) { params.push(estado); where += ` AND oc.estado = $${params.length}`; }
+  const { rows } = await db.pool.query(`
+    SELECT oc.*, u.nombre AS solicitado_por_nombre, a.nombre AS aprobado_por_nombre
+    FROM ordenes_cambio oc
+    LEFT JOIN usuarios u ON u.id = oc.solicitado_por
+    LEFT JOIN usuarios a ON a.id = oc.aprobado_por
+    WHERE ${where}
+    ORDER BY oc.id DESC
+  `, params);
+  res.json(rows);
+}));
+
+app.get('/api/projects/:id/ordenes-cambio/:ocId', h(auth.allow('residente', 'cabo')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('ordenes_cambio', 'puede_ver')), h(async (req, res) => {
+  const ocId = Number(req.params.ocId);
+  const { rows: ocRows } = await db.pool.query(`
+    SELECT oc.*, u.nombre AS solicitado_por_nombre, a.nombre AS aprobado_por_nombre
+    FROM ordenes_cambio oc
+    LEFT JOIN usuarios u ON u.id = oc.solicitado_por
+    LEFT JOIN usuarios a ON a.id = oc.aprobado_por
+    WHERE oc.id = $1 AND oc.project_id = $2
+  `, [ocId, req.project.id]);
+  if (!ocRows[0]) return res.status(404).json({ error: 'Orden de cambio no encontrada' });
+  const { rows: lineas } = await db.pool.query(`
+    SELECT occ.*, c.codigo AS concepto_codigo_actual, c.concepto AS concepto_nombre_actual
+    FROM orden_cambio_conceptos occ
+    LEFT JOIN conceptos c ON c.id = occ.concepto_id
+    WHERE occ.orden_cambio_id = $1 ORDER BY occ.id
+  `, [ocId]);
+  res.json({ orden: ocRows[0], lineas });
+}));
+
+// Sin :id de obra en la ruta (la orden de cambio ya trae su project_id) —
+// mismo patrón que GET /api/conceptos/:id/insumos más abajo. auth.allow()
+// sin argumentos ya restringe a admin/desarrollador (ambos con acceso
+// global, sin necesidad de IDOR check manual vía usuario_proyectos).
+// checkPermiso('ordenes_cambio','puede_editar') queda como infraestructura
+// preparada para el día que se abra esta acción a otro rol — admin/
+// desarrollador la bypasean siempre.
+app.put('/api/ordenes-cambio/:ocId/aprobar', h(auth.allow()), h(auth.checkPermiso('ordenes_cambio', 'puede_editar')), h(async (req, res) => {
+  const ocId = Number(req.params.ocId);
+  const { rows: ocRows } = await db.pool.query('SELECT project_id FROM ordenes_cambio WHERE id = $1', [ocId]);
+  if (!ocRows[0]) return res.status(404).json({ error: 'Orden de cambio no encontrada' });
+  const pid = ocRows[0].project_id;
+  try {
+    const resultado = await db.withTransaction(async (client) => {
+      const r = await ordenesCambio.aprobarOrdenCambio(client, pid, ocId, req.user.id);
+      const detalle = JSON.stringify({
+        orden_cambio_id: ocId, folio: r.orden.folio, monto_delta: r.orden.monto_delta,
+        nuevos: r.nuevos, emparejados: r.emparejados, total_despues: r.totalFinal,
+      });
+      await client.query(
+        `INSERT INTO audit_log (actor_id, actor_usuario, accion, target_id, project_id, ip, detalle)
+         VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+        [req.user.id, req.user.usuario, 'orden_cambio_aprobada', ocId, pid, auth.getIp(req), detalle]
+      );
+      return r;
+    });
+    const { rows: updOc } = await db.pool.query('SELECT * FROM ordenes_cambio WHERE id = $1', [ocId]);
+    res.json({ ok: true, orden: updOc[0], total_presupuesto_nuevo: resultado.totalFinal });
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message, conflictos: err.conflictos });
+  }
+}));
+
+app.put('/api/ordenes-cambio/:ocId/rechazar', h(auth.allow()), h(auth.checkPermiso('ordenes_cambio', 'puede_editar')), h(async (req, res) => {
+  const ocId = Number(req.params.ocId);
+  const { comentario_rechazo } = req.body || {};
+  if (!comentario_rechazo || !comentario_rechazo.toString().trim()) {
+    return res.status(400).json({ error: 'El comentario de rechazo es requerido' });
+  }
+  const { rows: existRows } = await db.pool.query('SELECT estado FROM ordenes_cambio WHERE id = $1', [ocId]);
+  if (!existRows[0]) return res.status(404).json({ error: 'Orden de cambio no encontrada' });
+  if (existRows[0].estado !== 'pendiente') {
+    return res.status(409).json({ error: `No se puede rechazar: la orden de cambio ya está en estado '${existRows[0].estado}'` });
+  }
+  const { rows } = await db.pool.query(
+    `UPDATE ordenes_cambio SET estado = 'rechazada', comentario_rechazo = $1 WHERE id = $2 RETURNING *`,
+    [comentario_rechazo.toString().trim(), ocId]
+  );
+  res.json(rows[0]);
+}));
+
+app.post('/api/projects/:id/ordenes-cambio/upload-token', h(auth.allow('residente', 'cabo')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('ordenes_cambio', 'puede_crear')), h(async (req, res) => {
+  try {
+    const jsonResponse = await handleUpload({
+      body: req.body,
+      request: req,
+      onBeforeGenerateToken: async (pathname) => {
+        const ext = (pathname.split('.').pop() || '').toLowerCase();
+        if (!['pdf', 'jpg', 'jpeg', 'png'].includes(ext)) throw new Error('Solo se admiten archivos PDF, JPG o PNG');
+        return { access: 'private', addRandomSuffix: true, maximumSizeInBytes: 20 * 1024 * 1024 };
+      },
+    });
+    res.json(jsonResponse);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+}));
+
+app.get('/api/projects/:id/ordenes-cambio/:ocId/documento', h(auth.allow('residente', 'cabo')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('ordenes_cambio', 'puede_ver')), h(async (req, res) => {
+  const ocId = Number(req.params.ocId);
+  const { rows } = await db.pool.query(
+    'SELECT documento_respaldo_url, documento_respaldo_nombre FROM ordenes_cambio WHERE id = $1 AND project_id = $2',
+    [ocId, req.project.id]
+  );
+  if (!rows[0] || !rows[0].documento_respaldo_url) return res.status(404).json({ error: 'Esta orden de cambio no tiene documento de respaldo' });
+  const blobResult = await get(rows[0].documento_respaldo_url, { access: 'private' });
+  if (!blobResult) return res.status(404).json({ error: 'Archivo no encontrado en almacenamiento' });
+  const ext = (rows[0].documento_respaldo_nombre || '').split('.').pop()?.toLowerCase() || 'bin';
+  const mimeMap = { pdf: 'application/pdf', jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png' };
+  res.setHeader('Content-Type', mimeMap[ext] || 'application/octet-stream');
+  res.setHeader('Content-Disposition', safeContentDisposition('inline', rows[0].documento_respaldo_nombre || 'documento'));
+  await pipeline(Readable.fromWeb(blobResult.stream), res);
 }));
 
 // ---------------------------------------------------------------------------

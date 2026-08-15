@@ -787,6 +787,60 @@ const SCHEMA = `
   );
   CREATE INDEX IF NOT EXISTS idx_contratos_project ON contratos(project_id);
 
+  -- Órdenes de Cambio (prompt-ordenes-cambio.md, diagnóstico previo en
+  -- prompt-diagnostico-ordenes-cambio.md) — solicitud formal de cambio de
+  -- alcance con folio/justificación/aprobación, que al aprobarse aplica el
+  -- delta real al presupuesto reusando el motor ya existente de
+  -- server/reintegracionPresupuesto.js (aplicarCambiosConceptos), nunca un
+  -- segundo motor paralelo. folio es TEXT (no INTEGER) para mantener el
+  -- mismo patrón ya usado por folio_counters (consecutivo por project_id +
+  -- tipo='orden_cambio', sin columna de tipo nueva — folio_counters.tipo ya
+  -- es TEXT libre). monto_delta se calcula SIEMPRE server-side a partir de
+  -- orden_cambio_conceptos (nunca se confía en un monto capturado por el
+  -- cliente para un dato financiero — mismo criterio que fondo_garantia_
+  -- monto/estimaciones en otras partes de la app).
+  CREATE TABLE IF NOT EXISTS ordenes_cambio (
+    id SERIAL PRIMARY KEY,
+    project_id INTEGER NOT NULL REFERENCES proyectos(id) ON DELETE CASCADE,
+    folio TEXT NOT NULL,
+    fecha_solicitud TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    descripcion TEXT NOT NULL,
+    solicitado_por INTEGER REFERENCES usuarios(id),
+    monto_delta DOUBLE PRECISION NOT NULL DEFAULT 0,
+    estado TEXT NOT NULL DEFAULT 'pendiente' CHECK (estado IN ('pendiente','aprobada','rechazada')),
+    aprobado_por INTEGER REFERENCES usuarios(id),
+    aprobado_en TIMESTAMPTZ,
+    comentario_rechazo TEXT,
+    documento_respaldo_url TEXT,
+    documento_respaldo_nombre TEXT,
+    creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (project_id, folio)
+  );
+  CREATE INDEX IF NOT EXISTS idx_ordenes_cambio_project ON ordenes_cambio(project_id);
+
+  -- Detalle línea por línea de cada orden de cambio: o bien un ajuste a un
+  -- concepto YA existente (concepto_id + es_concepto_nuevo=false, cantidad/
+  -- precio_unitario son los valores NUEVOS deseados) o un concepto
+  -- completamente nuevo (concepto_id NULL + es_concepto_nuevo=true).
+  -- 'unidad' NO estaba en el schema original del prompt — se agrega aquí
+  -- porque un concepto nuevo sin unidad queda invisible para Avance/
+  -- Estimaciones (ambos filtran TRIM(COALESCE(unidad,'')) <> ''), lo que
+  -- rompería en silencio el caso "concepto nuevo" de esta misma feature;
+  -- toda otra tabla con forma de concepto en la app (conceptos, parser de
+  -- Excel) siempre trae unidad. Único campo añadido sobre el schema dado.
+  CREATE TABLE IF NOT EXISTS orden_cambio_conceptos (
+    id SERIAL PRIMARY KEY,
+    orden_cambio_id INTEGER NOT NULL REFERENCES ordenes_cambio(id) ON DELETE CASCADE,
+    concepto_id INTEGER REFERENCES conceptos(id),
+    es_concepto_nuevo BOOLEAN NOT NULL DEFAULT false,
+    codigo TEXT,
+    descripcion TEXT,
+    unidad TEXT,
+    cantidad DOUBLE PRECISION,
+    precio_unitario DOUBLE PRECISION
+  );
+  CREATE INDEX IF NOT EXISTS idx_orden_cambio_conceptos_oc ON orden_cambio_conceptos(orden_cambio_id);
+
   -- Portal de sugerencias — cualquier usuario autenticado puede enviar; solo
   -- admin puede revisar y gestionar. prompt_generado almacena el prompt
   -- técnico formateado por IA (claude-sonnet-4-6) bajo demanda desde el
@@ -984,7 +1038,8 @@ const SCHEMA = `
       'nominas','sugerencias','programa','estimaciones','maquinaria',
       'trabajadores_global','nominas_global','trabajadores','estado_resultados','maquinaria_captura','maquinaria_combustible',
       'costos','trabajadores_docs','trabajadores_contrato','trabajadores_bancarios',
-      'cotizador','estado_resultados_global','estado_unidad','maquinaria_consumibles'
+      'cotizador','estado_resultados_global','estado_unidad','maquinaria_consumibles',
+      'ordenes_cambio'
     )),
     puede_ver BOOLEAN NOT NULL DEFAULT false,
     puede_crear BOOLEAN NOT NULL DEFAULT false,
@@ -1019,6 +1074,9 @@ const SCHEMA = `
   -- bitácora de mantenimiento); darle a operador puede_crear ahí también le
   -- habría abierto la puerta a mantenimientos_maquinaria (Forbidden Action
   -- explícita de este prompt: no ampliar quién escribe esa tabla).
+  -- 'ordenes_cambio' agregado en prompt-ordenes-cambio.md — sección propia
+  -- con enforcement real (checkPermiso en server/app.js), mismo criterio que
+  -- 'estimaciones'/'nominas'.
   ALTER TABLE permisos_usuario DROP CONSTRAINT IF EXISTS permisos_usuario_seccion_check;
   ALTER TABLE permisos_usuario ADD CONSTRAINT permisos_usuario_seccion_check CHECK (seccion IN (
     'presupuestos','requisiciones','proveedores','ordenes_compra','avance',
@@ -1026,7 +1084,8 @@ const SCHEMA = `
     'nominas','sugerencias','programa','estimaciones','maquinaria',
     'trabajadores_global','nominas_global','trabajadores','estado_resultados','maquinaria_captura','maquinaria_combustible',
     'costos','trabajadores_docs','trabajadores_contrato','trabajadores_bancarios',
-    'cotizador','estado_resultados_global','estado_unidad','maquinaria_consumibles'
+    'cotizador','estado_resultados_global','estado_unidad','maquinaria_consumibles',
+    'ordenes_cambio'
   ));
 
   -- Contador de folios por obra + tipo de documento. INSERT...ON CONFLICT DO

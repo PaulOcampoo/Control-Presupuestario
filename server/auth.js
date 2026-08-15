@@ -53,8 +53,8 @@ const PERMISSIONS = {
   // whitelist — mismo candado ahora, vía tabsParaUsuario() +
   // requireEstadoResultadosAccess (0 usuarios reales con puesto 'tesoreria'
   // en Producción, confirmado antes de este cambio).
-  admin:          { label: 'Administrador', tabs: ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'finanzas', 'compromisos', 'fondoGarantia', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', ...MAQUINARIA_TABS_ADMIN, 'cotizador', 'costos', 'matrices', 'avance_clientes', 'composicion_costos'] },
-  desarrollador:  { label: 'Desarrollador', tabs: ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'finanzas', 'compromisos', 'fondoGarantia', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', ...MAQUINARIA_TABS_ADMIN, 'cotizador', 'costos', 'matrices', 'avance_clientes', 'composicion_costos'] },
+  admin:          { label: 'Administrador', tabs: ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'finanzas', 'compromisos', 'fondoGarantia', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', 'ordenesCambio', ...MAQUINARIA_TABS_ADMIN, 'cotizador', 'costos', 'matrices', 'avance_clientes', 'composicion_costos'] },
+  desarrollador:  { label: 'Desarrollador', tabs: ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'finanzas', 'compromisos', 'fondoGarantia', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', 'ordenesCambio', ...MAQUINARIA_TABS_ADMIN, 'cotizador', 'costos', 'matrices', 'avance_clientes', 'composicion_costos'] },
   // 'trabajadores' agregado aquí (prompts-cotizador-sidebar-permisos-
   // estimaciones.md, Prompt 3) para que el residente reciba la pestaña al
   // hacer login — el acceso REAL a los datos de cada obra lo sigue
@@ -75,7 +75,7 @@ const PERMISSIONS = {
   // otorga el permiso por sí solo, checkPermiso('costos', ...) sigue siendo
   // el gate real vía permisos_usuario (sin fila = 403, default-deny de
   // 'costos', ver SECCIONES_PERMISOS más abajo).
-  residente:      { label: 'Residente',     tabs: ['programa', 'avance', 'destajo', 'requisiciones', 'insumos', 'ordenes', 'nominas', 'trabajadores', 'estimaciones', ...MAQUINARIA_TABS_RESIDENTE, 'matrices'] },
+  residente:      { label: 'Residente',     tabs: ['programa', 'avance', 'destajo', 'requisiciones', 'insumos', 'ordenes', 'nominas', 'trabajadores', 'estimaciones', 'ordenesCambio', ...MAQUINARIA_TABS_RESIDENTE, 'matrices'] },
   // 'trabajadores' agregado aquí (prompt-c-checkpermiso-trabajadores.md,
   // fix de visibilidad en nav): mismo gap ya documentado para 'costos' más
   // abajo — el permiso puede_ver otorgado vía la matriz a UN cabo específico
@@ -92,7 +92,7 @@ const PERMISSIONS = {
   // checkPermiso('nominas', ...) vía permisos_usuario — agregar el tab no
   // otorga el permiso por sí solo, solo lo hace posible cuando un admin lo
   // conceda explícitamente en la matriz.
-  cabo:           { label: 'Cabo',          tabs: ['destajo', 'insumos', 'avance', 'requisiciones', ...MAQUINARIA_TABS_CABO, 'trabajadores', 'nominas'] },
+  cabo:           { label: 'Cabo',          tabs: ['destajo', 'insumos', 'avance', 'requisiciones', ...MAQUINARIA_TABS_CABO, 'trabajadores', 'nominas', 'ordenesCambio'] },
   compras:        { label: 'Compras',       tabs: ['programa', 'requisiciones', 'insumos', 'ordenes', 'proveedores', 'cotizador'] },
   tesoreria:      { label: 'Tesorería',     tabs: ['resumen', 'finanzas', 'compromisos', 'fondoGarantia', 'ordenes', 'contrato', 'impuestos', 'proveedores'] },
   administracion: { label: 'Administración',tabs: ['resumen', 'programa', 'destajo', 'ordenes', 'proveedores', 'contrato', 'impuestos', 'mapeo'] },
@@ -227,6 +227,10 @@ const SECCIONES_PERMISOS = [
   // operador puede_crear ahí le habría abierto esa tabla también (Forbidden
   // Action explícita del prompt).
   'maquinaria_consumibles',
+  // prompt-ordenes-cambio.md: solicitud formal de cambio de alcance con
+  // aprobación — sección propia con enforcement real (checkPermiso en
+  // server/app.js), mismo criterio que 'estimaciones'/'nominas'.
+  'ordenes_cambio',
 ];
 const ACCIONES_PERMISOS = ['puede_ver', 'puede_crear', 'puede_editar', 'puede_editar_precios', 'puede_eliminar'];
 
@@ -283,6 +287,9 @@ const TAB_A_SECCION = {
   // contenido servía 200 vía navegación directa, pero SECCION_A_TAB
   // descartaba 'costos' por no tener tab reverso, dejando el tab invisible).
   matrices: 'costos',
+  // prompt-ordenes-cambio.md: sección propia por-obra, resuelve igual que
+  // 'estimaciones'/'trabajadores' arriba.
+  ordenesCambio: 'ordenes_cambio',
 };
 
 // Set de permisos default al dar de alta un usuario: puede_ver=true en las
@@ -341,6 +348,12 @@ function defaultPermisosParaRol(puesto) {
     // Forbidden Action explícita de este prompt: no debe requerir que Paul
     // reconfigure nada para residente.
     if (porSeccion.trabajadores) { porSeccion.trabajadores.puede_crear = true; porSeccion.trabajadores.puede_editar = true; porSeccion.trabajadores.puede_eliminar = true; }
+    // prompt-ordenes-cambio.md: capacidad nueva, no una preservada — se le
+    // da puede_crear=true por default (residente/cabo) para que sea usable
+    // de inmediato sin que Paul tenga que reconfigurar nada, mismo criterio
+    // que avance/destajo. Aprobar/rechazar sigue siendo admin/desarrollador
+    // exclusivo (auth.allow() a nivel de ruta, sin excepción vía permisos).
+    if (porSeccion.ordenes_cambio) { porSeccion.ordenes_cambio.puede_crear = true; }
   }
   if (puesto === 'cabo') {
     if (porSeccion.destajo) { porSeccion.destajo.puede_editar = true; }
@@ -400,6 +413,8 @@ function defaultPermisosParaRol(puesto) {
       seccion: 'maquinaria_consumibles', puede_ver: true, puede_crear: false,
       puede_editar: false, puede_editar_precios: false, puede_eliminar: false,
     });
+    // Mismo criterio que residente arriba (prompt-ordenes-cambio.md).
+    if (porSeccion.ordenes_cambio) { porSeccion.ordenes_cambio.puede_crear = true; }
   }
   if (puesto === 'compras') {
     // compras podía crear/editar/eliminar requisiciones de cualquier obra por

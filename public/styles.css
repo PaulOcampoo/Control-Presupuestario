@@ -404,6 +404,17 @@ button, a, select, label,
   border-bottom: 1px solid var(--border-color);
   position: sticky; top: 0; z-index: 20;
 }
+/* prompt-tabs-pill-integrados.md: cuando la barra de tabs está activa justo
+   debajo (#tabs no vacío — JS la deja con innerHTML='' en 'inicio' y las
+   *_gallery, ver renderTabsBar() en app.js), el borde inferior del topbar se
+   vuelve transparente en vez de quitarse: mismo alto de caja (border-width
+   sigue en 1px), solo deja de pintarse, así --topbar-h (el cálculo de altura
+   fija usado por el sticky offset de .tabs/.sticky-filters en móvil, más
+   abajo) no se desincroniza. Con esto header y tabs comparten el mismo fondo
+   (var(--bg-surface) en ambos, ya coincidía) sin línea divisoria — una sola
+   pieza de navegación continua. En vistas sin tabs (inicio, *_gallery) el
+   borde real se sigue pintando, separando el topbar del contenido de abajo. */
+.topbar:has(+ #tabs:not(:empty)) { border-bottom-color: transparent; }
 .topbar-title { display: flex; flex-direction: column; justify-content: center; line-height: 1.2; flex: 1; min-width: 0; }
 .topbar-title span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* prompt-trabajando-en-acento.md: nombre de la obra activa en el indicador
@@ -577,10 +588,20 @@ button, a, select, label,
   position: sticky; top: var(--topbar-h, calc(61px + var(--safe-top))); z-index: 19;
   -webkit-overflow-scrolling: touch;
 }
+/* prompt-tabs-pill-integrados.md: pills ~16% más altas (38px→44px) que antes,
+   alineadas al alto/font-size real de .btn (var(--fs-base), botón estándar
+   de la app) en vez de var(--fs-sm) — se sentían chicas comparadas con el
+   resto de controles interactivos. overflow-x:auto en .tabs de arriba ya
+   cubre el scroll horizontal en móvil con muchos tabs; el tamaño mayor no lo
+   afecta, cada pill sigue siendo flex:0 0 auto (ancho intrínseco, nunca se
+   encoge). .tab es una clase usada en un solo contexto real (la barra bajo
+   el topbar de sección, #tabs — ver renderTabsBar() en app.js, único sitio
+   del proyecto que arma botones .tab), así que este cambio no se filtra a
+   ningún otro componente. */
 .tab {
-  flex: 0 0 auto; display: inline-flex; align-items: center; gap: 6px;
-  height: 38px; padding: 0 16px; border-radius: var(--radius-pill); border: 1px solid var(--border-color);
-  background: var(--bg-surface-2); color: var(--text-secondary); font-size: var(--fs-sm); cursor: pointer; white-space: nowrap;
+  flex: 0 0 auto; display: inline-flex; align-items: center; gap: 8px;
+  height: 44px; padding: 0 20px; border-radius: var(--radius-pill); border: 1px solid var(--border-color);
+  background: var(--bg-surface-2); color: var(--text-secondary); font-size: var(--fs-base); cursor: pointer; white-space: nowrap;
   transition: background 0.15s, border-color 0.15s, color 0.15s;
 }
 .tab-icon { font-size: 0.95em; line-height: 1; }
@@ -590,7 +611,7 @@ button, a, select, label,
 }
 .tab-back {
   background: var(--bg-surface-2); border-style: solid;
-  border-radius: var(--radius-control); width: 40px; height: 38px; padding: 0;
+  border-radius: var(--radius-control); width: 44px; height: 44px; padding: 0;
   font-size: var(--fs-md); flex-shrink: 0;
   /* El .tab padre tiene inline-flex+align-items:center pero no justify-content */
   display: flex; align-items: center; justify-content: center;
@@ -2149,11 +2170,12 @@ html[data-palette="dorada"]:not([data-theme="light"]) .welcome-card {
      40px content (btnMenu + topbar-title, ambos height:40px) + 10px pad-bottom
      + 1px border. Se define aquí con env() directo para evitar race conditions
      del ResizeObserver y el bug de env() dentro de custom properties en iOS ≤14.
-     Tabs: 10px pad-top + 38px (.tab height fijo) + 10px pad-bottom + 1px border.
+     Tabs: 10px pad-top + 44px (.tab height fijo, prompt-tabs-pill-integrados.md)
+     + 10px pad-bottom + 1px border.
      Estas variables solo aplican en móvil; en desktop los fallbacks del CSS bastan. */
   :root {
     --topbar-h: calc(61px + env(safe-area-inset-top, 0px));
-    --tabs-h: 59px;
+    --tabs-h: 65px;
   }
 
   /* .main-area como scroll container, acotado encima de la bottom nav.

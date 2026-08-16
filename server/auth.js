@@ -53,8 +53,8 @@ const PERMISSIONS = {
   // whitelist — mismo candado ahora, vía tabsParaUsuario() +
   // requireEstadoResultadosAccess (0 usuarios reales con puesto 'tesoreria'
   // en Producción, confirmado antes de este cambio).
-  admin:          { label: 'Administrador', tabs: ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'finanzas', 'compromisos', 'fondoGarantia', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', 'ordenesCambio', ...MAQUINARIA_TABS_ADMIN, 'cotizador', 'costos', 'matrices', 'avance_clientes', 'composicion_costos'] },
-  desarrollador:  { label: 'Desarrollador', tabs: ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'finanzas', 'compromisos', 'fondoGarantia', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', 'ordenesCambio', ...MAQUINARIA_TABS_ADMIN, 'cotizador', 'costos', 'matrices', 'avance_clientes', 'composicion_costos'] },
+  admin:          { label: 'Administrador', tabs: ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'cumplimiento', 'finanzas', 'compromisos', 'fondoGarantia', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', 'ordenesCambio', ...MAQUINARIA_TABS_ADMIN, 'cotizador', 'costos', 'matrices', 'avance_clientes', 'composicion_costos'] },
+  desarrollador:  { label: 'Desarrollador', tabs: ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'cumplimiento', 'finanzas', 'compromisos', 'fondoGarantia', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', 'ordenesCambio', ...MAQUINARIA_TABS_ADMIN, 'cotizador', 'costos', 'matrices', 'avance_clientes', 'composicion_costos'] },
   // 'trabajadores' agregado aquí (prompts-cotizador-sidebar-permisos-
   // estimaciones.md, Prompt 3) para que el residente reciba la pestaña al
   // hacer login — el acceso REAL a los datos de cada obra lo sigue
@@ -93,9 +93,9 @@ const PERMISSIONS = {
   // otorga el permiso por sí solo, solo lo hace posible cuando un admin lo
   // conceda explícitamente en la matriz.
   cabo:           { label: 'Cabo',          tabs: ['destajo', 'insumos', 'avance', 'requisiciones', ...MAQUINARIA_TABS_CABO, 'trabajadores', 'nominas', 'ordenesCambio'] },
-  compras:        { label: 'Compras',       tabs: ['programa', 'requisiciones', 'insumos', 'ordenes', 'proveedores', 'cotizador'] },
-  tesoreria:      { label: 'Tesorería',     tabs: ['resumen', 'finanzas', 'compromisos', 'fondoGarantia', 'ordenes', 'contrato', 'impuestos', 'proveedores'] },
-  administracion: { label: 'Administración',tabs: ['resumen', 'programa', 'destajo', 'ordenes', 'proveedores', 'contrato', 'impuestos', 'mapeo'] },
+  compras:        { label: 'Compras',       tabs: ['programa', 'requisiciones', 'insumos', 'ordenes', 'proveedores', 'cumplimiento', 'cotizador'] },
+  tesoreria:      { label: 'Tesorería',     tabs: ['resumen', 'finanzas', 'compromisos', 'fondoGarantia', 'ordenes', 'contrato', 'impuestos', 'proveedores', 'cumplimiento'] },
+  administracion: { label: 'Administración',tabs: ['resumen', 'programa', 'destajo', 'ordenes', 'proveedores', 'cumplimiento', 'contrato', 'impuestos', 'mapeo'] },
   logistica:      { label: 'Logística',     tabs: ['programa', 'avance', 'requisiciones', 'insumos', 'ordenes'] },
   // Rol nuevo (prompt-modulo-maquinaria) — diseño de primer borrador, pendiente
   // de revisión: jefe_maquinaria captura combustible/mantenimiento, cabo
@@ -290,6 +290,15 @@ const TAB_A_SECCION = {
   // prompt-ordenes-cambio.md: sección propia por-obra, resuelve igual que
   // 'estimaciones'/'trabajadores' arriba.
   ordenesCambio: 'ordenes_cambio',
+  // 'cumplimiento' (prompt-cumplimiento-subcontratistas.md) reusa la MISMA
+  // sección 'proveedores' — mismo criterio y misma justificación que
+  // 'compromisos'/'fondoGarantia' arriba (reusa el permiso ya existente, no
+  // crea sección nueva en SECCIONES_PERMISOS ni en el CHECK constraint de
+  // permisos_usuario). Necesario para que defaultPermisosParaRol() y
+  // GET /api/projects/:id/nav-tabs no dejen el tab invisible para roles
+  // no-admin con puede_ver=true en 'proveedores' — mismo gap ya documentado
+  // arriba para 'matrices'/'costos'.
+  cumplimiento: 'proveedores',
 };
 
 // Set de permisos default al dar de alta un usuario: puede_ver=true en las

@@ -345,6 +345,41 @@ const SCHEMA = `
     creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW()
   );
 
+  -- Cumplimiento de proveedores/subcontratistas (prompt-cumplimiento-
+  -- subcontratistas.md, diagnóstico previo en prompt-diagnostico-cumplimiento-
+  -- subcontratistas.md): documentación legal con vencimiento por documento
+  -- (constancia fiscal, opinión SAT, póliza RC, IMSS, licencia de gremio,
+  -- identificación). Nunca se sobrescribe una fila al re-subir — siempre
+  -- INSERT nuevo, se conserva el historial completo (valor de auditoría). El
+  -- "vigente" de un proveedor×tipo se deriva por query (fecha_vencimiento más
+  -- reciente), no por una columna de estado — ver server/cumplimiento.js.
+  CREATE TABLE IF NOT EXISTS proveedor_documentos (
+    id SERIAL PRIMARY KEY,
+    proveedor_id INTEGER NOT NULL REFERENCES proveedores(id),
+    tipo TEXT NOT NULL CHECK (tipo IN (
+      'constancia_situacion_fiscal','opinion_cumplimiento_sat',
+      'poliza_rc','registro_imss','licencia_gremio','identificacion_representante'
+    )),
+    fecha_vencimiento DATE,
+    blob_url TEXT,
+    nombre_archivo TEXT,
+    subido_por INTEGER REFERENCES usuarios(id),
+    subido_en TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
+  CREATE INDEX IF NOT EXISTS idx_proveedor_documentos_proveedor ON proveedor_documentos(proveedor_id);
+  CREATE INDEX IF NOT EXISTS idx_proveedor_documentos_vencimiento ON proveedor_documentos(fecha_vencimiento);
+
+  -- Dedup de alertas de cumplimiento — mismo criterio que alertas_contrato_
+  -- enviadas (UNIQUE por umbral), pero a nivel documento en vez de a nivel
+  -- obra, porque la granularidad real es documento×proveedor, no obra.
+  CREATE TABLE IF NOT EXISTS alertas_documentos_enviadas (
+    id SERIAL PRIMARY KEY,
+    proveedor_documento_id INTEGER NOT NULL REFERENCES proveedor_documentos(id),
+    umbral TEXT NOT NULL,
+    enviado_en TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(proveedor_documento_id, umbral)
+  );
+
   CREATE TABLE IF NOT EXISTS ordenes_compra (
     id SERIAL PRIMARY KEY,
     project_id INTEGER NOT NULL REFERENCES proyectos(id) ON DELETE CASCADE,

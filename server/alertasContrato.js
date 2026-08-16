@@ -15,12 +15,17 @@ function calcularDiasRestantes(finObraIso) {
 }
 
 // 'vencido' solo se dispara si aún no se había registrado antes para esa
-// obra (yaNotificoVencido) — así se envía una sola vez, no cada día que
-// corre el cron después de la fecha de término.
-function determinarUmbral(diasRestantes, yaNotificoVencido) {
-  if (diasRestantes === 30) return '30_dias';
-  if (diasRestantes === 15) return '15_dias';
-  if (diasRestantes === 7) return '7_dias';
+// obra/documento (yaNotificoVencido) — así se envía una sola vez, no cada día
+// que corre el cron después de la fecha de término.
+//
+// `umbrales` es configurable (prompt-cumplimiento-subcontratistas.md): el
+// default [30,15,7] es el mismo de siempre para contrato de obra (llamado
+// sin tercer argumento, cero cambio de comportamiento), pero un tipo de
+// documento con vigencia total corta (ej. Opinión de Cumplimiento SAT, ~30
+// días) puede necesitar umbrales propios más cortos — decisión confirmada
+// con Paul, no un valor inventado a ciegas.
+function determinarUmbral(diasRestantes, yaNotificoVencido, umbrales = [30, 15, 7]) {
+  if (umbrales.includes(diasRestantes)) return `${diasRestantes}_dias`;
   if (diasRestantes <= 0) return yaNotificoVencido ? null : 'vencido';
   return null;
 }

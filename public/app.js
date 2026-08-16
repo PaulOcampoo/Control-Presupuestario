@@ -41,13 +41,13 @@ const ROLE_TABS = {
   // simulación de rol no puede simular "soy el usuario 8", solo "soy rol X"
   // (prompt-fix-role-tabs-contabilidad.md) — limitación conocida y
   // aceptada para esos tres, no un bug.
-  admin:          ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'finanzas', 'compromisos', 'fondoGarantia', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', 'ordenesCambio', ...MAQUINARIA_TABS_ADMIN, 'cotizador', 'costos', 'matrices', 'avance_clientes', 'composicion_costos', ...CONTABILIDAD_TABS],
-  desarrollador:  ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'finanzas', 'compromisos', 'fondoGarantia', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', 'ordenesCambio', ...MAQUINARIA_TABS_ADMIN, 'cotizador', 'costos', 'matrices', 'avance_clientes', 'composicion_costos', ...CONTABILIDAD_TABS],
+  admin:          ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'cumplimiento', 'finanzas', 'compromisos', 'fondoGarantia', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', 'ordenesCambio', ...MAQUINARIA_TABS_ADMIN, 'cotizador', 'costos', 'matrices', 'avance_clientes', 'composicion_costos', ...CONTABILIDAD_TABS],
+  desarrollador:  ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'cumplimiento', 'finanzas', 'compromisos', 'fondoGarantia', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', 'ordenesCambio', ...MAQUINARIA_TABS_ADMIN, 'cotizador', 'costos', 'matrices', 'avance_clientes', 'composicion_costos', ...CONTABILIDAD_TABS],
   residente:      ['programa', 'avance', 'destajo', 'requisiciones', 'insumos', 'ordenes', 'nominas', 'trabajadores', 'estimaciones', 'ordenesCambio', 'matrices'],
   cabo:           ['destajo', 'insumos', 'avance', 'requisiciones', ...MAQUINARIA_TABS_CABO, 'trabajadores', 'nominas', 'ordenesCambio'],
-  compras:        ['programa', 'requisiciones', 'insumos', 'ordenes', 'proveedores', 'cotizador'],
-  tesoreria:      ['resumen', 'finanzas', 'compromisos', 'fondoGarantia', 'ordenes', 'contrato', 'impuestos', 'proveedores'],
-  administracion: ['resumen', 'programa', 'destajo', 'ordenes', 'proveedores', 'contrato', 'impuestos', 'mapeo'],
+  compras:        ['programa', 'requisiciones', 'insumos', 'ordenes', 'proveedores', 'cumplimiento', 'cotizador'],
+  tesoreria:      ['resumen', 'finanzas', 'compromisos', 'fondoGarantia', 'ordenes', 'contrato', 'impuestos', 'proveedores', 'cumplimiento'],
+  administracion: ['resumen', 'programa', 'destajo', 'ordenes', 'proveedores', 'cumplimiento', 'contrato', 'impuestos', 'mapeo'],
   logistica:      ['programa', 'avance', 'requisiciones', 'insumos', 'ordenes'],
   jefe_maquinaria: MAQUINARIA_TABS_JEFE,
   operador: MAQUINARIA_TABS_OPERADOR,
@@ -60,7 +60,7 @@ const ROLE_TABS = {
 // caen aquí (hoy: operador, jefe_maquinaria). Debe reflejar el mismo
 // conjunto que el bloque de "vistas globales" en renderView() (~línea 3670)
 // — si se agrega una vista global nueva ahí, agregarla aquí también.
-const VISTAS_SIN_PROYECTO = ['usuarios', 'proveedores', ...MAQUINARIA_TABS_ADMIN, 'maquinaria_gallery', 'nominas_global', 'trabajadores_global', 'cotizador', 'estadoResultadosGlobal', 'costos', 'avance_clientes', 'composicion_costos'];
+const VISTAS_SIN_PROYECTO = ['usuarios', 'proveedores', 'cumplimiento', ...MAQUINARIA_TABS_ADMIN, 'maquinaria_gallery', 'nominas_global', 'trabajadores_global', 'cotizador', 'estadoResultadosGlobal', 'costos', 'avance_clientes', 'composicion_costos'];
 
 const state = {
   projects: [],
@@ -1193,7 +1193,7 @@ const SECTION_DEFS = {
   // estática de configuración de precios como Matrices/Costos/Composición de
   // costos (que sí viven en Presupuestos).
   obra:          { label: 'Obra',           icon: 'obra',           emoji: '🏗️',  tabs: ['programa', 'avance', 'destajo', 'estimaciones', 'ordenesCambio'],     proximamente: [] },
-  compras:       { label: 'Compras',        icon: 'compras',        emoji: '🛒',   tabs: ['requisiciones', 'insumos', 'proveedores', 'ordenes', 'cotizador'], proximamente: ['Subcontratos'] },
+  compras:       { label: 'Compras',        icon: 'compras',        emoji: '🛒',   tabs: ['requisiciones', 'insumos', 'proveedores', 'cumplimiento', 'ordenes', 'cotizador'], proximamente: ['Subcontratos'] },
   tesoreria:     { label: 'Tesorería',      icon: 'tesoreria',      emoji: '💰',   tabs: ['finanzas', 'compromisos', 'fondoGarantia', 'estadoResultados', 'estadoResultadosGlobal', 'impuestos', 'controlFinanciero'], proximamente: [] },
   administracion:{ label: 'Administración', icon: 'administracion', emoji: '📂',  tabs: ['mapeo', 'contrato', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'avance_clientes', 'usuarios', 'cuentas'], proximamente: ['Almacenes'] },
   maquinaria:    { label: 'Maquinaria',     icon: 'maquinaria',     emoji: '🚜',   tabs: MAQUINARIA_TABS_ADMIN,                                 proximamente: [] },
@@ -1212,7 +1212,7 @@ const SECTION_DEFS = {
 
 const TAB_ICONS = {
   resumen: '📊', contrato: '📄', impuestos: '🧾', insumos: '📦', requisiciones: '🧾',
-  proveedores: '🏭', ordenes: '🛒', programa: '🗓️', avance: '📈', destajo: '👷',
+  proveedores: '🏭', cumplimiento: '✅', ordenes: '🛒', programa: '🗓️', avance: '📈', destajo: '👷',
   finanzas: '💰', compromisos: '📌', fondoGarantia: '🔒', mapeo: '🔗', usuarios: '👤', trabajadores: '👷', nominas: '💵', estimaciones: '🧮', ordenesCambio: '📝',
   maquinaria_catalogo: '🛠️', maquinaria_horas: '⏱️', maquinaria_bitacora: '🔧', maquinaria_estado_unidad: '🚦',
   maquinaria_consumibles: '⛽', maquinaria_reportes_cliente: '📊',
@@ -1224,7 +1224,7 @@ const TAB_ICONS = {
 };
 const TAB_LABELS = {
   resumen: 'Resumen', contrato: 'Contrato', impuestos: 'Impuestos', insumos: 'Insumos', requisiciones: 'Requisiciones',
-  proveedores: 'Proveedores', ordenes: 'Órdenes de Compra', programa: 'Programa', avance: 'Avance', destajo: 'Destajo',
+  proveedores: 'Proveedores', cumplimiento: 'Cumplimiento', ordenes: 'Órdenes de Compra', programa: 'Programa', avance: 'Avance', destajo: 'Destajo',
   finanzas: 'Finanzas', compromisos: 'Compromisos Abiertos', fondoGarantia: 'Fondo de Garantía', mapeo: 'Mapeo', usuarios: 'Usuarios', trabajadores: 'Trabajadores', nominas: 'Nóminas', estimaciones: 'Estimaciones', ordenesCambio: 'Órdenes de Cambio',
   maquinaria_catalogo: 'Catálogo de equipos', maquinaria_horas: 'Horas / Pendientes de autorizar',
   maquinaria_bitacora: 'Bitácora de taller', maquinaria_estado_unidad: 'Estado de las unidades',
@@ -2065,6 +2065,20 @@ function openMobileAjustes() {
 }
 
 async function navigateFromNotif(notif) {
+  // Cumplimiento de proveedores (prompt-cumplimiento-subcontratistas.md):
+  // proveedores es un catálogo global sin obra asociada, así que esta
+  // notificación siempre trae project_id NULL — no encaja en el flujo
+  // genérico de abajo (que sí espera una obra), se salta directo a la vista
+  // global en vez de no hacer nada.
+  if (notif.tipo === 'documento_proveedor_por_vencer') {
+    if (!state.allowedTabs.includes('cumplimiento')) return;
+    closeNotifDropdown();
+    closeDrawer();
+    closeModal();
+    showApp();
+    switchToView('cumplimiento');
+    return;
+  }
   const tab = TAB_POR_TIPO_NOTIF[notif.tipo];
   if (!tab || !notif.project_id || !state.allowedTabs.includes(tab)) return;
   const proj = state.projects.find((p) => p.id === notif.project_id);
@@ -2972,6 +2986,16 @@ const AYUDA_CONTENIDO = {
       'Solo cuentan las OC en estado confirmada, recibida parcial o recibida completa — una OC en borrador o enviada (aún no aceptada por el proveedor) no representa un compromiso real todavía.',
       'Cuando una OC mezcla insumos de más de una categoría (ej. materiales y mano de obra en la misma orden), el monto pagado/pendiente de cada categoría se PRORRATEA según el peso de esa categoría en el total de la orden — los pagos se registran contra la OC completa, no por renglón, así que es una estimación razonable, no un dato exacto. Esas filas se marcan con "≈".',
       'El total de esta vista (sin filtros) coincide centavo a centavo con "Compras — comprometido (con IVA, real)" de la tarjeta de Finanzas — es el mismo cálculo, solo que aquí desglosado.',
+    ],
+  },
+  cumplimiento: {
+    titulo: 'Cumplimiento',
+    pasos: [
+      'Muestra, para cada proveedor activo, el estatus de su documentación legal: Constancia de situación fiscal, Opinión de cumplimiento SAT, Póliza de responsabilidad civil, Registro patronal IMSS, Licencia de gremio (si aplica) e Identificación del representante.',
+      'El "vigente" de cada documento es siempre el de fecha de vencimiento más reciente — al renovar un documento, sube el nuevo sin borrar el anterior: el historial completo se conserva para auditoría.',
+      'Colores: verde = vigente, amarillo = por vencer, rojo = vencido, gris = nunca se ha capturado. La Opinión de Cumplimiento SAT usa un aviso más corto (15/7/3 días) que el resto (30/15/7) porque su vigencia total es de apenas ~30 días.',
+      'Puedes capturar solo la fecha de vencimiento sin subir archivo — el documento físico se puede agregar después.',
+      'Los admins reciben una notificación automática cuando un documento está por vencer o ya venció, igual que con el vencimiento de contrato de obra.',
     ],
   },
 };
@@ -4033,7 +4057,7 @@ function destroyCharts() {
 async function renderView() {
   destroyCharts();
   const view = $('#view');
-  if (state.view === 'usuarios' || state.view === 'proveedores' || MAQUINARIA_TABS_ADMIN.includes(state.view) || state.view === 'nominas_global' || state.view === 'trabajadores_global' || state.view === 'cotizador' || state.view === 'estadoResultadosGlobal' || state.view === 'costos' || state.view === 'avance_clientes' || state.view === 'composicion_costos' || state.view === 'cuentas' || state.view === 'controlFinanciero' || SECTION_DEFS.contabilidad.tabs.includes(state.view)) {
+  if (state.view === 'usuarios' || state.view === 'proveedores' || state.view === 'cumplimiento' || MAQUINARIA_TABS_ADMIN.includes(state.view) || state.view === 'nominas_global' || state.view === 'trabajadores_global' || state.view === 'cotizador' || state.view === 'estadoResultadosGlobal' || state.view === 'costos' || state.view === 'avance_clientes' || state.view === 'composicion_costos' || state.view === 'cuentas' || state.view === 'controlFinanciero' || SECTION_DEFS.contabilidad.tabs.includes(state.view)) {
     try {
       if (state.view === 'usuarios') { await renderUsuarios(view, state.usuariosSubView); state.usuariosSubView = null; }
       else if (state.view === 'cuentas') await renderControlCuentas(view);
@@ -4045,6 +4069,7 @@ async function renderView() {
       else if (state.view === 'contabilidadDepreciacion') await renderContabilidadDepreciacion(view);
       else if (state.view === 'contabilidadExport') await renderContabilidadExport(view);
       else if (state.view === 'proveedores') await renderProveedores(view);
+      else if (state.view === 'cumplimiento') await renderCumplimiento(view);
       else if (state.view === 'nominas_global') await renderNominasGlobal(view);
       else if (state.view === 'trabajadores_global') await renderTrabajadoresGlobal(view);
       else if (state.view === 'cotizador') await renderCotizador(view);
@@ -8204,7 +8229,7 @@ const TAB_A_SECCION = {
   resumen: 'presupuestos', programa: 'programa', contrato: 'contrato',
   impuestos: 'impuestos', insumos: 'insumos', requisiciones: 'requisiciones',
   ordenes: 'ordenes_compra', avance: 'avance', destajo: 'destajo',
-  usuarios: 'usuarios', proveedores: 'proveedores', finanzas: 'finanzas',
+  usuarios: 'usuarios', proveedores: 'proveedores', cumplimiento: 'proveedores', finanzas: 'finanzas',
   // 'compromisos' (prompt-compromisos-abiertos.md) reusa la sección
   // 'finanzas' — mismo permiso, no una whitelist/sección nueva (mirror
   // exacto de la misma decisión en server/auth.js TAB_A_SECCION).
@@ -9168,6 +9193,195 @@ function openProveedorModal(proveedor) {
       toast(err.message, 'danger');
       btn.disabled = false;
     }
+  });
+}
+
+// =========================================================================
+// VISTA: Cumplimiento de proveedores/subcontratistas (prompt-cumplimiento-
+// subcontratistas.md) — documentación legal con vencimiento por documento,
+// vista consolidada + historial con conservación completa (nunca se
+// sobrescribe al renovar). Vista global (no por obra), reusa el permiso
+// 'proveedores' — mismo criterio que Proveedores.
+// =========================================================================
+const CUMPLIMIENTO_ESTATUS_INFO = {
+  vigente: { label: 'Vigente', clase: 'green' },
+  por_vencer: { label: 'Por vencer', clase: 'yellow' },
+  vencido: { label: 'Vencido', clase: 'red' },
+  no_capturado: { label: 'Sin capturar', clase: 'muted' },
+};
+
+async function renderCumplimiento(view) {
+  const data = await api('/cumplimiento');
+  const { tipos, proveedores } = data;
+  const puedeCrear = isAdmin() || state.user?.puesto === 'compras';
+
+  view.innerHTML = `
+    <h2 class="section-title">Cumplimiento ${renderHelpBtn('cumplimiento')}</h2>
+    <p class="muted">Documentación legal de proveedores/subcontratistas — vigencias y alertas de vencimiento.</p>
+    <div id="cumplimientoTablaWrap"></div>
+  `;
+  paintCumplimientoTabla(tipos, proveedores, puedeCrear);
+}
+
+function paintCumplimientoTabla(tipos, proveedores, puedeCrear) {
+  const wrap = $('#cumplimientoTablaWrap');
+  if (!wrap) return;
+  if (!proveedores.length) {
+    wrap.innerHTML = '<div class="empty-state">No hay proveedores activos.</div>';
+    return;
+  }
+  wrap.innerHTML = `
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>Proveedor</th>
+            ${tipos.map((t) => `<th>${esc(t.label)}</th>`).join('')}
+          </tr>
+        </thead>
+        <tbody>
+          ${proveedores.map((p) => `
+            <tr>
+              <td><button class="link-btn" data-open-cumpl="${p.proveedor_id}">${esc(p.proveedor_nombre)}</button></td>
+              ${tipos.map((t) => {
+                const d = p.documentos[t.tipo];
+                const info = CUMPLIMIENTO_ESTATUS_INFO[d.estatus] || CUMPLIMIENTO_ESTATUS_INFO.no_capturado;
+                return `<td><span class="badge ${info.clase}">${info.label}</span></td>`;
+              }).join('')}
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+  $$('[data-open-cumpl]', wrap).forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const p = proveedores.find((x) => x.proveedor_id === Number(btn.dataset.openCumpl));
+      if (p) openProveedorDocumentosModal(p.proveedor_id, p.proveedor_nombre, tipos, puedeCrear);
+    });
+  });
+}
+
+// Mismo criterio que server/cumplimiento.js elegirVigente()/estatusDeDocumento()
+// — duplicado deliberadamente en el cliente porque el modal ya tiene la lista
+// completa de documentos en memoria (evita un round-trip extra) y es solo
+// para pintar, no para decidir nada con efecto real (la fuente de verdad para
+// alertas/estatus sigue siendo el backend).
+function cumplimientoDiasRestantes(fechaIso) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(fechaIso || '');
+  if (!m) return null;
+  const fin = Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  const ahora = new Date();
+  const hoy = Date.UTC(ahora.getUTCFullYear(), ahora.getUTCMonth(), ahora.getUTCDate());
+  return Math.round((fin - hoy) / 86400000);
+}
+
+function openProveedorDocumentosModal(proveedorId, nombreProveedor, tipos, puedeCrear) {
+  openModal(`
+    <div class="modal-header-row">
+      <h3 class="modal-title">Documentos — ${esc(nombreProveedor)}</h3>
+      <button class="icon-btn modal-close-btn" id="btnCerrarCumplDocs">✕</button>
+    </div>
+    <div id="cumplDocsListEl"><div class="empty-state">Cargando…</div></div>
+    ${puedeCrear ? `
+    <div class="modal-section-divider">
+      <p class="muted modal-section-label">Registrar documento</p>
+      <div class="trab-form-grid">
+        <div class="field field-full">
+          <label>Tipo de documento *</label>
+          <select id="cumplTipo">
+            ${tipos.map((t) => `<option value="${esc(t.tipo)}">${esc(t.label)}</option>`).join('')}
+          </select>
+        </div>
+        <div class="field"><label>Fecha de vencimiento</label><input id="cumplFechaVenc" type="date" /></div>
+        <div class="field"><label>Archivo (opcional)</label><input id="cumplFile" type="file" accept="image/*,.pdf" /></div>
+      </div>
+      <button class="btn btn-primary mt-8" id="btnGuardarCumplDoc">Guardar documento</button>
+    </div>` : ''}
+    <div class="modal-actions"><button class="btn" id="btnCerrarCumplDocs2">Cerrar</button></div>
+  `);
+  $('#btnCerrarCumplDocs').addEventListener('click', closeModal);
+  $('#btnCerrarCumplDocs2').addEventListener('click', closeModal);
+
+  const tipoLabel = (tipo) => tipos.find((t) => t.tipo === tipo)?.label || tipo;
+
+  async function loadDocs() {
+    const docs = await api(`/proveedores/${proveedorId}/documentos`);
+    const el = $('#cumplDocsListEl');
+    if (!el) return;
+    if (!docs.length) { el.innerHTML = '<div class="empty-state">Sin documentos cargados.</div>'; return; }
+
+    // Vigente por tipo = fecha_vencimiento más reciente (o subido_en más
+    // reciente si no vence) — mismo criterio que el backend.
+    const vigentePorTipo = new Map();
+    for (const d of docs) {
+      const actual = vigentePorTipo.get(d.tipo);
+      if (!actual) { vigentePorTipo.set(d.tipo, d); continue; }
+      if (d.fecha_vencimiento && (!actual.fecha_vencimiento || d.fecha_vencimiento > actual.fecha_vencimiento)) vigentePorTipo.set(d.tipo, d);
+      else if (!actual.fecha_vencimiento && !d.fecha_vencimiento && d.subido_en > actual.subido_en) vigentePorTipo.set(d.tipo, d);
+    }
+
+    el.innerHTML = docs.map((d) => {
+      const esVigente = vigentePorTipo.get(d.tipo)?.id === d.id;
+      let badge = '';
+      if (esVigente) {
+        if (!d.fecha_vencimiento) badge = '<span class="badge green">Vigente</span>';
+        else {
+          const dias = cumplimientoDiasRestantes(d.fecha_vencimiento);
+          if (dias !== null && dias < 0) badge = '<span class="badge red">Vencido</span>';
+          else if (dias !== null && dias <= 30) badge = '<span class="badge yellow">Por vencer</span>';
+          else badge = '<span class="badge green">Vigente</span>';
+        }
+      } else {
+        badge = '<span class="badge muted">Histórico</span>';
+      }
+      return `
+      <div class="row between row-list-item-bc">
+        <div>
+          <span class="fs-085">${esc(tipoLabel(d.tipo))}</span> ${badge}
+          <div class="muted fs-075">${d.fecha_vencimiento ? `Vence: ${fmtDateShort(d.fecha_vencimiento)}` : 'Sin fecha de vencimiento'} · Subido ${fmtDateShort(d.subido_en)}</div>
+        </div>
+        ${d.blob_url ? `<button class="btn small" data-dl-cumpl="${d.id}" data-dl-nombre="${esc(d.nombre_archivo || 'documento')}">Descargar</button>` : '<span class="muted fs-075">Sin archivo</span>'}
+      </div>
+    `;
+    }).join('');
+
+    $$('[data-dl-cumpl]', el).forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        try {
+          await apiDownload(`/proveedores/documentos/${btn.dataset.dlCumpl}/descarga`, btn.dataset.dlNombre);
+        } catch (err) { toast(err.message, 'danger'); }
+      });
+    });
+  }
+  loadDocs();
+
+  $('#btnGuardarCumplDoc')?.addEventListener('click', async () => {
+    const tipo = $('#cumplTipo').value;
+    const fecha_vencimiento = $('#cumplFechaVenc').value || null;
+    const file = $('#cumplFile')?.files?.[0];
+    const btn = $('#btnGuardarCumplDoc');
+    btn.disabled = true; btn.textContent = 'Guardando…';
+    try {
+      let blob_url = null; let nombre_archivo = null;
+      if (file) {
+        btn.textContent = 'Subiendo archivo…';
+        const blob = await VercelBlobClient.upload(file.name, file, {
+          access: 'private',
+          handleUploadUrl: '/api/proveedores/documentos/upload-token',
+          headers: state.token ? { Authorization: `Bearer ${state.token}` } : {},
+        });
+        blob_url = blob.url; nombre_archivo = file.name;
+      }
+      await api(`/proveedores/${proveedorId}/documentos`, {
+        method: 'POST',
+        body: { tipo, fecha_vencimiento, blob_url, nombre_archivo },
+      });
+      toast('Documento guardado', 'success');
+      $('#cumplFechaVenc').value = ''; if ($('#cumplFile')) $('#cumplFile').value = '';
+      await loadDocs();
+    } catch (err) { toast(err.message, 'danger'); }
+    btn.disabled = false; btn.textContent = 'Guardar documento';
   });
 }
 

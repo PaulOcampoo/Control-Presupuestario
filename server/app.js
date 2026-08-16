@@ -48,6 +48,7 @@ const { crearNotificacion, notificarAdmins, CATEGORIAS_NOTIFICACION, TODOS_LOS_T
 const { buildEstimacionPdf } = require('./estimacionesPdf');
 const { buildNominaReporteSemanalPdf } = require('./nominaReporteSemanalPdf');
 const { calcularDiasRestantes, determinarUmbral, construirMensaje } = require('./alertasContrato');
+const cumplimiento = require('./cumplimiento');
 const maquinaria = require('./maquinaria');
 const cotizador = require('./cotizador');
 const {
@@ -514,7 +515,64 @@ app.get('/api/cron/alertas-vencimiento', requireCronSecret, h(async (req, res) =
     alertasEnviadas.push({ project_id: p.id, umbral });
   }
 
-  res.json({ revisadas: proyectos.length, alertas_enviadas: alertasEnviadas, omitidas });
+  // Documentos de proveedores (prompt-cumplimiento-subcontratistas.md) —
+  // misma corrida diaria, no un 4° cron (extiende el existente a propósito).
+  // Aditivo: el loop de proyectos de arriba queda intacto, sin tocar su
+  // comportamiento — solo se agrega este bloque después y campos nuevos en
+  // la respuesta (nunca se quitan/renombran los que ya había).
+  const { rows: docsConFecha } = await db.pool.query(`
+    SELECT pd.id, pd.proveedor_id, pd.tipo, pd.fecha_vencimiento, pd.subido_en, p.nombre AS proveedor_nombre
+    FROM proveedor_documentos pd
+    JOIN proveedores p ON p.id = pd.proveedor_id
+    WHERE p.activo = 1 AND pd.fecha_vencimiento IS NOT NULL
+  `);
+  const porProveedorTipo = new Map();
+  for (const doc of docsConFecha) {
+    const key = `${doc.proveedor_id}::${doc.tipo}`;
+    if (!porProveedorTipo.has(key)) porProveedorTipo.set(key, []);
+    porProveedorTipo.get(key).push(doc);
+  }
+
+  const alertasDocumentosEnviadas = [];
+  for (const filas of porProveedorTipo.values()) {
+    const vigente = cumplimiento.elegirVigente(filas);
+    if (!vigente || !vigente.fecha_vencimiento) continue;
+    const info = cumplimiento.getTipoInfo(vigente.tipo);
+    const umbrales = info ? info.umbrales : undefined;
+
+    const diasRestantes = calcularDiasRestantes(vigente.fecha_vencimiento);
+    if (diasRestantes === null) continue;
+
+    const { rows: vencidoRows } = await db.pool.query(
+      "SELECT 1 FROM alertas_documentos_enviadas WHERE proveedor_documento_id = $1 AND umbral = 'vencido'", [vigente.id]
+    );
+    const umbral = umbrales ? determinarUmbral(diasRestantes, vencidoRows.length > 0, umbrales) : determinarUmbral(diasRestantes, vencidoRows.length > 0);
+    if (!umbral) continue;
+
+    const { rows: insertados } = await db.pool.query(
+      `INSERT INTO alertas_documentos_enviadas (proveedor_documento_id, umbral) VALUES ($1, $2)
+       ON CONFLICT (proveedor_documento_id, umbral) DO NOTHING RETURNING id`,
+      [vigente.id, umbral]
+    );
+    if (!insertados.length) continue;
+
+    const mensaje = cumplimiento.construirMensajeDocumento(umbral, vigente.proveedor_nombre, info ? info.label : vigente.tipo, vigente.fecha_vencimiento);
+    // Proveedores es un catálogo global sin obra asociada — project_id NULL
+    // (la columna ya lo permite). navigateFromNotif() en el frontend ya
+    // maneja notif.project_id ausente sin crashear (early return), y se le
+    // agregó un caso explícito para saltar a Cumplimiento en vez de a una obra.
+    await notificarAdmins(null, 'documento_proveedor_por_vencer', insertados[0].id, mensaje);
+
+    alertasDocumentosEnviadas.push({ proveedor_documento_id: vigente.id, proveedor_id: vigente.proveedor_id, tipo: vigente.tipo, umbral });
+  }
+
+  res.json({
+    revisadas: proyectos.length,
+    alertas_enviadas: alertasEnviadas,
+    omitidas,
+    documentos_revisados: porProveedorTipo.size,
+    alertas_documentos_enviadas: alertasDocumentosEnviadas,
+  });
 }));
 
 // Emite un nuevo access token usando el refresh token (cookie httpOnly).
@@ -1305,6 +1363,114 @@ app.put('/api/proveedores/:id/estado', h(auth.allow('compras')), h(auth.checkPer
   );
   if (!rows[0]) return res.status(404).json({ error: 'Proveedor no encontrado' });
   res.json(rows[0]);
+}));
+
+// ---------------------------------------------------------------------------
+// Cumplimiento de proveedores/subcontratistas (prompt-cumplimiento-
+// subcontratistas.md) — reusa la sección de permisos 'proveedores' (mismo
+// criterio que 'compromisos'/'fondoGarantia' reusan 'finanzas'), sin sección
+// granular propia. Documento de respaldo: mismo patrón de Blob privado +
+// proxy autenticado que Contrato/trabajador_documentos, con blob_url
+// NULLABLE a propósito (capturar solo fecha, sin archivo, es válido).
+// ---------------------------------------------------------------------------
+app.post('/api/proveedores/documentos/upload-token', h(auth.allow('compras')), h(auth.checkPermiso('proveedores', 'puede_crear')), h(async (req, res) => {
+  try {
+    const jsonResponse = await handleUpload({
+      body: req.body,
+      request: req,
+      onBeforeGenerateToken: async (pathname) => {
+        const ext = (pathname.split('.').pop() || '').toLowerCase();
+        const allowed = ['jpg', 'jpeg', 'png', 'pdf', 'heic', 'webp'];
+        if (!allowed.includes(ext)) throw new Error('Solo se admiten imágenes (JPG/PNG/HEIC/WEBP) o PDF');
+        return {
+          access: 'private',
+          addRandomSuffix: true,
+          maximumSizeInBytes: 15 * 1024 * 1024,
+        };
+      },
+    });
+    res.json(jsonResponse);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+}));
+
+app.post('/api/proveedores/:id/documentos', h(auth.allow('compras')), h(auth.checkPermiso('proveedores', 'puede_crear')), h(async (req, res) => {
+  const proveedorId = Number(req.params.id);
+  const { tipo, fecha_vencimiento, blob_url, nombre_archivo } = req.body || {};
+  if (!cumplimiento.getTipoInfo(tipo)) return res.status(400).json({ error: 'Tipo de documento inválido' });
+  const { rows: provRows } = await db.pool.query('SELECT id FROM proveedores WHERE id = $1', [proveedorId]);
+  if (!provRows[0]) return res.status(404).json({ error: 'Proveedor no encontrado' });
+  // Nunca se sobrescribe: siempre INSERT nuevo (Forbidden Action explícita
+  // del prompt) — así se conserva el historial completo de renovaciones.
+  const { rows } = await db.pool.query(
+    `INSERT INTO proveedor_documentos (proveedor_id, tipo, fecha_vencimiento, blob_url, nombre_archivo, subido_por)
+     VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
+    [proveedorId, tipo, fecha_vencimiento || null, blob_url || null, nombre_archivo?.trim() || null, req.user.id]
+  );
+  res.status(201).json(rows[0]);
+}));
+
+app.get('/api/proveedores/:id/documentos', h(auth.allow('residente', 'cabo', 'compras', 'tesoreria', 'administracion')), h(auth.checkPermiso('proveedores', 'puede_ver')), h(async (req, res) => {
+  const proveedorId = Number(req.params.id);
+  const { rows } = await db.pool.query(
+    `SELECT id, tipo, fecha_vencimiento, blob_url, nombre_archivo, subido_en
+     FROM proveedor_documentos WHERE proveedor_id = $1 ORDER BY subido_en DESC`,
+    [proveedorId]
+  );
+  res.json(rows);
+}));
+
+// Proxy autenticado — nunca se expone la URL de Blob directa (mismo patrón
+// que /contrato/pdf y trabajador_documentos/:docId/download).
+app.get('/api/proveedores/documentos/:docId/descarga', h(auth.allow('residente', 'cabo', 'compras', 'tesoreria', 'administracion')), h(auth.checkPermiso('proveedores', 'puede_ver')), h(async (req, res) => {
+  const docId = Number(req.params.docId);
+  const { rows } = await db.pool.query('SELECT blob_url, nombre_archivo FROM proveedor_documentos WHERE id = $1', [docId]);
+  if (!rows[0] || !rows[0].blob_url) return res.status(404).json({ error: 'Documento no encontrado' });
+  const blobResult = await get(rows[0].blob_url, { access: 'private' });
+  if (!blobResult) return res.status(404).json({ error: 'Archivo no encontrado en almacenamiento' });
+  const nombreArchivo = rows[0].nombre_archivo || 'documento';
+  const ext = (nombreArchivo.split('.').pop() || 'bin').toLowerCase();
+  const mimeMap = { pdf: 'application/pdf', jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', heic: 'image/heic', webp: 'image/webp' };
+  res.setHeader('Content-Type', mimeMap[ext] || 'application/octet-stream');
+  res.setHeader('Content-Disposition', safeContentDisposition('inline', nombreArchivo));
+  await pipeline(Readable.fromWeb(blobResult.stream), res);
+}));
+
+// Vista consolidada: por cada proveedor activo, el documento vigente de cada
+// tipo con estatus derivado. Dataset pequeño (catálogo de proveedores) — se
+// resuelve en JS en vez de una query con window functions.
+app.get('/api/cumplimiento', h(auth.allow('residente', 'cabo', 'compras', 'tesoreria', 'administracion')), h(auth.checkPermiso('proveedores', 'puede_ver')), h(async (req, res) => {
+  const { rows: proveedores } = await db.pool.query('SELECT id, nombre FROM proveedores WHERE activo = 1 ORDER BY nombre');
+  const { rows: docs } = await db.pool.query(
+    `SELECT id, proveedor_id, tipo, fecha_vencimiento, nombre_archivo, subido_en
+     FROM proveedor_documentos ORDER BY subido_en DESC`
+  );
+  const porProveedor = new Map();
+  for (const d of docs) {
+    if (!porProveedor.has(d.proveedor_id)) porProveedor.set(d.proveedor_id, []);
+    porProveedor.get(d.proveedor_id).push(d);
+  }
+
+  const tipos = Object.entries(cumplimiento.TIPOS_DOCUMENTO).map(([tipo, info]) => ({ tipo, label: info.label, vence: info.vence }));
+
+  const resultado = proveedores.map((p) => {
+    const docsProveedor = porProveedor.get(p.id) || [];
+    const documentos = {};
+    for (const tipo of Object.keys(cumplimiento.TIPOS_DOCUMENTO)) {
+      const filas = docsProveedor.filter((d) => d.tipo === tipo);
+      const vigente = cumplimiento.elegirVigente(filas);
+      documentos[tipo] = {
+        estatus: cumplimiento.estatusDeDocumento(vigente, tipo),
+        documento_id: vigente ? vigente.id : null,
+        fecha_vencimiento: vigente ? vigente.fecha_vencimiento : null,
+        nombre_archivo: vigente ? vigente.nombre_archivo : null,
+      };
+    }
+    return { proveedor_id: p.id, proveedor_nombre: p.nombre, documentos };
+  });
+
+  res.json({ tipos, proveedores: resultado });
 }));
 
 // ---------------------------------------------------------------------------

@@ -155,4 +155,112 @@ function calcularCambios(m) {
   return { cambiaPrecio, cambiaCantidad, ambiguo };
 }
 
-module.exports = { emparejarConceptos, normalizarDescripcion, calcularCambios };
+// Motor de aplicación (prompt-ordenes-cambio.md): extraído tal cual del
+// bloque que antes vivía inline en el handler de POST /presupuesto/
+// actualizar/confirmar (server/app.js) — mismo SQL, mismo orden de
+// operaciones, sin cambiar comportamiento del flujo Excel existente. Se
+// extrae para que Órdenes de Cambio pueda reusar el mismo motor de
+// aplicación al presupuesto en vez de reimplementarlo (Forbidden Action
+// explícita de ese prompt). `client` debe venir de una transacción abierta
+// por el caller (db.withTransaction) — esta función no abre/cierra
+// transacción propia, ambos callers (Excel y Orden de Cambio) necesitan que
+// la actualización de `ordenes_cambio`/el audit_log específico de cada uno
+// viva en la MISMA transacción que la escritura a `conceptos`.
+//
+// resoluciones: { [concepto_id]: 'precio'|'cantidad'|'ambos' } — cómo
+// resolver un emparejado donde precio Y cantidad cambian a la vez
+// (calcularCambios().ambiguo). El caller Excel exige que el usuario elija
+// explícitamente antes de llamar esta función (ver validación previa en
+// server/app.js); el caller Orden de Cambio pasa 'ambos' siempre, porque ahí
+// la línea capturada YA es la resolución explícita (justificación + cantidad
+// + precio nuevos van juntos en la misma captura).
+//
+// Devuelve { totalFinal, aplicados } — aplicados es el detalle por concepto
+// emparejado (para que cada caller arme su propio audit_log.detalle con el
+// formato que ya usaba).
+async function aplicarCambiosConceptos(client, pid, { emparejados, nuevos, historicos, resoluciones = {} }) {
+  const { rows: maxOrdenRows } = await client.query(
+    'SELECT COALESCE(MAX(orden), 0) AS max_orden FROM conceptos WHERE project_id = $1', [pid]
+  );
+  const maxOrdenExistente = Number(maxOrdenRows[0].max_orden);
+
+  const aplicados = [];
+  for (const m of emparejados) {
+    const { existente, nuevo } = m;
+    const { ambiguo } = calcularCambios(m);
+    let cantidadFinal = Number(nuevo.cantidad);
+    let precioFinal = Number(nuevo.precio_unitario);
+    if (ambiguo) {
+      const eleccion = resoluciones[existente.id];
+      if (eleccion === 'precio') cantidadFinal = Number(existente.cantidad);
+      else if (eleccion === 'cantidad') precioFinal = Number(existente.precio_unitario);
+      // 'ambos' deja cantidadFinal/precioFinal tal cual vienen del origen.
+    }
+    const importe = cantidadFinal * precioFinal;
+    aplicados.push({
+      concepto_id: existente.id,
+      codigo: existente.codigo,
+      precio_anterior: existente.precio_unitario,
+      precio_nuevo: precioFinal,
+      cantidad_anterior: existente.cantidad,
+      cantidad_nueva: cantidadFinal,
+    });
+    await client.query(
+      `UPDATE conceptos SET codigo=$1, concepto=$2, unidad=$3, cantidad=$4, precio_unitario=$5, importe=$6, grupo=$7, activo=1
+       WHERE id=$8`,
+      [nuevo.codigo || null, nuevo.concepto, nuevo.unidad, cantidadFinal, precioFinal, importe, nuevo.grupo, existente.id]
+    );
+  }
+
+  for (const nuevo of nuevos) {
+    const importe = Number(nuevo.cantidad) * Number(nuevo.precio_unitario);
+    await client.query(
+      `INSERT INTO conceptos (project_id, codigo, concepto, unidad, cantidad, precio_unitario, importe, grupo, es_total, orden, activo)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,0,$9,1)`,
+      [pid, nuevo.codigo || null, nuevo.concepto, nuevo.unidad, nuevo.cantidad, nuevo.precio_unitario, importe, nuevo.grupo, maxOrdenExistente + nuevo.orden]
+    );
+  }
+
+  for (const existente of historicos) {
+    await client.query('UPDATE conceptos SET activo = 0 WHERE id = $1', [existente.id]);
+  }
+
+  // Recalcula meta.total_sin_iva contra el conjunto activo resultante.
+  const { rows: totalRows } = await client.query(
+    'SELECT COALESCE(SUM(importe), 0) AS total FROM conceptos WHERE project_id = $1 AND es_total = 0 AND activo = 1',
+    [pid]
+  );
+  const totalFinal = Number(totalRows[0].total);
+  await client.query(
+    `INSERT INTO meta (project_id, clave, valor) VALUES ($1, 'total_sin_iva', $2)
+     ON CONFLICT (project_id, clave) DO UPDATE SET valor = EXCLUDED.valor`,
+    [pid, String(totalFinal)]
+  );
+
+  // Recalcula avance_financiero_real de toda semana con avance capturado,
+  // contra los precios/volúmenes ya actualizados arriba y el total nuevo.
+  const { rows: semanasConAvance } = await client.query(
+    `SELECT DISTINCT ac.semana FROM avance_conceptos ac
+     JOIN conceptos c ON c.id = ac.concepto_id
+     WHERE c.project_id = $1`,
+    [pid]
+  );
+  for (const { semana } of semanasConAvance) {
+    const { rows: acumRows } = await client.query(
+      `SELECT COALESCE(SUM(ac.cantidad_ejecutada * c.precio_unitario), 0) AS monto
+       FROM avance_conceptos ac JOIN conceptos c ON c.id = ac.concepto_id
+       WHERE c.project_id = $1 AND ac.semana <= $2`,
+      [pid, semana]
+    );
+    const montoEjecutado = Number(acumRows[0].monto);
+    const financiero = totalFinal > 0 ? Number(((montoEjecutado / totalFinal) * 100).toFixed(2)) : 0;
+    await client.query(
+      'UPDATE avances_semanales SET avance_financiero_real = $1 WHERE project_id = $2 AND semana = $3',
+      [financiero, pid, semana]
+    );
+  }
+
+  return { totalFinal, aplicados };
+}
+
+module.exports = { emparejarConceptos, normalizarDescripcion, calcularCambios, aplicarCambiosConceptos };

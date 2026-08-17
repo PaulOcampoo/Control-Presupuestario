@@ -180,11 +180,16 @@ async function getFinanzasResumenData(pid) {
 // centavo a centavo con `compras_comprometido_con_iva` de
 // getFinanzasResumenData sin necesidad de compartir código.
 // ---------------------------------------------------------------------------
-async function getCompromisosAbiertosData(pid) {
-  const ESTATUS_COMPROMETIBLE = "('confirmada', 'recibida_parcial', 'recibida_completa')";
+const ESTATUS_COMPROMETIBLE = "('confirmada', 'recibida_parcial', 'recibida_completa')";
 
+// Query + parseo compartido entre getCompromisosAbiertosData (una obra) y
+// getCompromisosAbiertosAgregado (Dashboard Ejecutivo, multi-obra) — así el
+// modo agregado no duplica la query ni el join contra
+// orden_compra_items/requisicion_items/insumos, solo agrupa distinto el
+// resultado (ver cada función abajo).
+async function fetchOrdenesComprometiblesPorObra(pids) {
   const { rows: itemRows } = await db.pool.query(`
-    SELECT oc.id AS oc_id, oc.folio, oc.fecha, oc.estado,
+    SELECT oc.id AS oc_id, oc.project_id, oc.folio, oc.fecha, oc.estado,
            pv.id AS proveedor_id, pv.nombre AS proveedor_nombre,
            i.categoria, COALESCE(SUM(oci.importe), 0) AS importe_categoria
     FROM ordenes_compra oc
@@ -192,25 +197,25 @@ async function getCompromisosAbiertosData(pid) {
     JOIN orden_compra_items oci ON oci.orden_compra_id = oc.id
     JOIN requisicion_items ri ON ri.id = oci.requisicion_item_id
     JOIN insumos i ON i.id = ri.insumo_id
-    WHERE oc.project_id = $1 AND oc.estado IN ${ESTATUS_COMPROMETIBLE}
-    GROUP BY oc.id, oc.folio, oc.fecha, oc.estado, pv.id, pv.nombre, i.categoria
+    WHERE oc.project_id = ANY($1) AND oc.estado IN ${ESTATUS_COMPROMETIBLE}
+    GROUP BY oc.id, oc.project_id, oc.folio, oc.fecha, oc.estado, pv.id, pv.nombre, i.categoria
     ORDER BY oc.fecha DESC, oc.id DESC
-  `, [pid]);
+  `, [pids]);
 
   const { rows: pagoRows } = await db.pool.query(`
     SELECT oc.id AS oc_id, COALESCE(SUM(p.monto), 0) AS pagado
     FROM ordenes_compra oc
     LEFT JOIN pagos p ON p.orden_compra_id = oc.id
-    WHERE oc.project_id = $1 AND oc.estado IN ${ESTATUS_COMPROMETIBLE}
+    WHERE oc.project_id = ANY($1) AND oc.estado IN ${ESTATUS_COMPROMETIBLE}
     GROUP BY oc.id
-  `, [pid]);
+  `, [pids]);
   const pagadoPorOc = new Map(pagoRows.map((r) => [r.oc_id, Number(r.pagado)]));
 
   const ocMap = new Map();
   for (const row of itemRows) {
     if (!ocMap.has(row.oc_id)) {
       ocMap.set(row.oc_id, {
-        oc_id: row.oc_id, folio: row.folio, fecha: row.fecha, estado: row.estado,
+        oc_id: row.oc_id, project_id: row.project_id, folio: row.folio, fecha: row.fecha, estado: row.estado,
         proveedor_id: row.proveedor_id, proveedor_nombre: row.proveedor_nombre,
         categorias: [], importe_total: 0,
       });
@@ -220,6 +225,12 @@ async function getCompromisosAbiertosData(pid) {
     oc.categorias.push({ categoria: row.categoria || 'Sin categoría', importe });
     oc.importe_total += importe;
   }
+
+  return { ocMap, pagadoPorOc };
+}
+
+async function getCompromisosAbiertosData(pid) {
+  const { ocMap, pagadoPorOc } = await fetchOrdenesComprometiblesPorObra([pid]);
 
   const filas = [];
   let totalRaw = 0, pagadoRaw = 0, pendienteRaw = 0;
@@ -255,6 +266,56 @@ async function getCompromisosAbiertosData(pid) {
       monto_total: Number(totalRaw.toFixed(2)),
       monto_pagado: Number(pagadoRaw.toFixed(2)),
       monto_pendiente: Number(pendienteRaw.toFixed(2)),
+    },
+  };
+}
+
+// Modo agregado (Dashboard Ejecutivo, prompt-dashboard-ejecutivo.md): mismo
+// query base de fetchOrdenesComprometiblesPorObra, agrupado por obra en vez
+// de por categoría — el dashboard solo necesita el total comprometido/
+// pagado/pendiente por obra, no el desglose por categoría de la vista
+// por-obra. Sumar pagado/pendiente a nivel OC (en vez de por categoría) da
+// el mismo resultado centavo a centavo que getCompromisosAbiertosData sin
+// repetir el prorrateo por categoría (ver comentario de
+// fetchOrdenesComprometiblesPorObra más arriba: la suma de Math.max(0,
+// cat.importe - cat.pagado) por categoría de una OC es matemáticamente
+// idéntica a Math.max(0, importe_total_oc - pagado_oc)).
+async function getCompromisosAbiertosAgregado(pids) {
+  if (!pids.length) return { porObra: [], total: { monto_total: 0, monto_pagado: 0, monto_pendiente: 0 } };
+  const { ocMap, pagadoPorOc } = await fetchOrdenesComprometiblesPorObra(pids);
+
+  const porObraMap = new Map();
+  for (const oc of ocMap.values()) {
+    const pagadoOc = pagadoPorOc.get(oc.oc_id) || 0;
+    const pendienteOc = Math.max(0, oc.importe_total - pagadoOc);
+    if (!porObraMap.has(oc.project_id)) {
+      porObraMap.set(oc.project_id, { project_id: oc.project_id, monto_total: 0, monto_pagado: 0, monto_pendiente: 0 });
+    }
+    const acc = porObraMap.get(oc.project_id);
+    acc.monto_total += oc.importe_total;
+    acc.monto_pagado += pagadoOc;
+    acc.monto_pendiente += pendienteOc;
+  }
+
+  const porObra = [...porObraMap.values()].map((o) => ({
+    project_id: o.project_id,
+    monto_total: Number(o.monto_total.toFixed(2)),
+    monto_pagado: Number(o.monto_pagado.toFixed(2)),
+    monto_pendiente: Number(o.monto_pendiente.toFixed(2)),
+  }));
+
+  const totalRaw = porObra.reduce((acc, o) => ({
+    monto_total: acc.monto_total + o.monto_total,
+    monto_pagado: acc.monto_pagado + o.monto_pagado,
+    monto_pendiente: acc.monto_pendiente + o.monto_pendiente,
+  }), { monto_total: 0, monto_pagado: 0, monto_pendiente: 0 });
+
+  return {
+    porObra,
+    total: {
+      monto_total: Number(totalRaw.monto_total.toFixed(2)),
+      monto_pagado: Number(totalRaw.monto_pagado.toFixed(2)),
+      monto_pendiente: Number(totalRaw.monto_pendiente.toFixed(2)),
     },
   };
 }
@@ -311,8 +372,50 @@ async function getFondoGarantiaData(pid) {
   };
 }
 
+// Modo agregado (Dashboard Ejecutivo, prompt-dashboard-ejecutivo.md): mismo
+// criterio de porcentajeFondoGarantiaDe/getFondoGarantiaData (estimaciones
+// aprobadas, default/min/max compartidos vía las constantes de arriba), pero
+// en 2 queries por lote (WHERE project_id = ANY($1)) en vez de N roundtrips
+// por obra — no llama a porcentajeFondoGarantiaDe/getFondoGarantiaData por
+// pid uno a uno a propósito, para no reintroducir el patrón N+1 que el
+// resto de agregadores de esta app evita (ver resumen-global,
+// avance-por-cliente/completo).
+async function getFondoGarantiaAgregado(pids) {
+  if (!pids.length) return { porObra: [], acumulado_total: 0 };
+
+  const { rows: metaRows } = await db.pool.query(
+    "SELECT project_id, valor FROM meta WHERE project_id = ANY($1) AND clave = 'porcentaje_fondo_garantia'",
+    [pids]
+  );
+  const pctPorObra = new Map();
+  for (const r of metaRows) {
+    const raw = Number(r.valor);
+    const valido = Number.isFinite(raw) && raw >= FONDO_GARANTIA_PCT_MIN && raw <= FONDO_GARANTIA_PCT_MAX;
+    pctPorObra.set(r.project_id, valido ? raw : FONDO_GARANTIA_PCT_DEFAULT);
+  }
+
+  const { rows: acumRows } = await db.pool.query(`
+    SELECT project_id, COALESCE(SUM(fondo_garantia_monto), 0) AS acumulado
+    FROM estimaciones
+    WHERE project_id = ANY($1) AND estado = 'aprobada' AND activo = true
+    GROUP BY project_id
+  `, [pids]);
+  const acumuladoPorObra = new Map(acumRows.map((r) => [r.project_id, Number(r.acumulado)]));
+
+  const porObra = pids.map((pid) => ({
+    project_id: pid,
+    porcentaje_pactado: pctPorObra.get(pid) ?? FONDO_GARANTIA_PCT_DEFAULT,
+    acumulado: Number((acumuladoPorObra.get(pid) || 0).toFixed(2)),
+  }));
+
+  const acumuladoTotal = porObra.reduce((s, o) => s + o.acumulado, 0);
+
+  return { porObra, acumulado_total: Number(acumuladoTotal.toFixed(2)) };
+}
+
 module.exports = {
   metaToObject, presupuestoTotalDe, getFinanzasResumenData, getCompromisosAbiertosData,
-  porcentajeFondoGarantiaDe, getFondoGarantiaData,
+  getCompromisosAbiertosAgregado,
+  porcentajeFondoGarantiaDe, getFondoGarantiaData, getFondoGarantiaAgregado,
   FONDO_GARANTIA_PCT_DEFAULT, FONDO_GARANTIA_PCT_MIN, FONDO_GARANTIA_PCT_MAX,
 };

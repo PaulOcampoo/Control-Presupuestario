@@ -41,9 +41,9 @@ const ROLE_TABS = {
   // simulación de rol no puede simular "soy el usuario 8", solo "soy rol X"
   // (prompt-fix-role-tabs-contabilidad.md) — limitación conocida y
   // aceptada para esos tres, no un bug.
-  admin:          ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'cumplimiento', 'finanzas', 'compromisos', 'fondoGarantia', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', 'ordenesCambio', ...MAQUINARIA_TABS_ADMIN, 'cotizador', 'costos', 'matrices', 'avance_clientes', 'composicion_costos', 'dashboardEjecutivo', ...CONTABILIDAD_TABS],
-  desarrollador:  ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'cumplimiento', 'finanzas', 'compromisos', 'fondoGarantia', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', 'ordenesCambio', ...MAQUINARIA_TABS_ADMIN, 'cotizador', 'costos', 'matrices', 'avance_clientes', 'composicion_costos', 'dashboardEjecutivo', ...CONTABILIDAD_TABS],
-  residente:      ['programa', 'avance', 'destajo', 'requisiciones', 'insumos', 'ordenes', 'nominas', 'trabajadores', 'estimaciones', 'ordenesCambio', 'matrices'],
+  admin:          ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'cumplimiento', 'finanzas', 'compromisos', 'fondoGarantia', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', 'ordenesCambio', 'lotes', ...MAQUINARIA_TABS_ADMIN, 'cotizador', 'costos', 'matrices', 'avance_clientes', 'composicion_costos', 'dashboardEjecutivo', ...CONTABILIDAD_TABS],
+  desarrollador:  ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'cumplimiento', 'finanzas', 'compromisos', 'fondoGarantia', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', 'ordenesCambio', 'lotes', ...MAQUINARIA_TABS_ADMIN, 'cotizador', 'costos', 'matrices', 'avance_clientes', 'composicion_costos', 'dashboardEjecutivo', ...CONTABILIDAD_TABS],
+  residente:      ['programa', 'avance', 'destajo', 'requisiciones', 'insumos', 'ordenes', 'nominas', 'trabajadores', 'estimaciones', 'ordenesCambio', 'lotes', 'matrices'],
   cabo:           ['destajo', 'insumos', 'avance', 'requisiciones', ...MAQUINARIA_TABS_CABO, 'trabajadores', 'nominas', 'ordenesCambio'],
   compras:        ['programa', 'requisiciones', 'insumos', 'ordenes', 'proveedores', 'cumplimiento', 'cotizador'],
   tesoreria:      ['resumen', 'finanzas', 'compromisos', 'fondoGarantia', 'ordenes', 'contrato', 'impuestos', 'proveedores', 'cumplimiento', 'dashboardEjecutivo'],
@@ -1002,6 +1002,12 @@ function puedeVerOrdenesCambio() { return !!state.user && (isAdmin() || ['reside
 function puedeCrearOrdenCambio() { return !!state.user && (isAdmin() || ['residente', 'cabo'].includes(effectivePuesto())); }
 function puedeAprobarOrdenCambio() { return isAdmin(); }
 
+// prompt-lotes-fase1.md: a propósito SOLO residente (no cabo, a diferencia
+// de Órdenes de Cambio arriba) — Starting State explícito del prompt. Una
+// sola función de gate: ver/crear/editar comparten el mismo alcance de rol
+// en esta fase inicial (sin un rol "solo consulta" todavía).
+function puedeVerLotes() { return !!state.user && (isAdmin() || effectivePuesto() === 'residente'); }
+
 function applySession(user, tabs, needsTotpReminder = false, avisoNovedades = null) {
   state.user = user;
   state.allowedTabs = tabs;
@@ -1192,7 +1198,7 @@ const SECTION_DEFS = {
   // cabo (mismos actores que avance/destajo/estimaciones), no una vista
   // estática de configuración de precios como Matrices/Costos/Composición de
   // costos (que sí viven en Presupuestos).
-  obra:          { label: 'Obra',           icon: 'obra',           emoji: '🏗️',  tabs: ['programa', 'avance', 'destajo', 'estimaciones', 'ordenesCambio'],     proximamente: [] },
+  obra:          { label: 'Obra',           icon: 'obra',           emoji: '🏗️',  tabs: ['programa', 'avance', 'destajo', 'estimaciones', 'ordenesCambio', 'lotes'],     proximamente: [] },
   compras:       { label: 'Compras',        icon: 'compras',        emoji: '🛒',   tabs: ['requisiciones', 'insumos', 'proveedores', 'cumplimiento', 'ordenes', 'cotizador'], proximamente: ['Subcontratos'] },
   tesoreria:     { label: 'Tesorería',      icon: 'tesoreria',      emoji: '💰',   tabs: ['finanzas', 'compromisos', 'fondoGarantia', 'estadoResultados', 'estadoResultadosGlobal', 'impuestos', 'controlFinanciero'], proximamente: [] },
   administracion:{ label: 'Administración', icon: 'administracion', emoji: '📂',  tabs: ['mapeo', 'contrato', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'avance_clientes', 'usuarios', 'cuentas'], proximamente: ['Almacenes'] },
@@ -1213,7 +1219,7 @@ const SECTION_DEFS = {
 const TAB_ICONS = {
   resumen: '📊', contrato: '📄', impuestos: '🧾', insumos: '📦', requisiciones: '🧾',
   proveedores: '🏭', cumplimiento: '✅', ordenes: '🛒', programa: '🗓️', avance: '📈', destajo: '👷',
-  finanzas: '💰', compromisos: '📌', fondoGarantia: '🔒', mapeo: '🔗', usuarios: '👤', trabajadores: '👷', nominas: '💵', estimaciones: '🧮', ordenesCambio: '📝',
+  finanzas: '💰', compromisos: '📌', fondoGarantia: '🔒', mapeo: '🔗', usuarios: '👤', trabajadores: '👷', nominas: '💵', estimaciones: '🧮', ordenesCambio: '📝', lotes: '🏘️',
   maquinaria_catalogo: '🛠️', maquinaria_horas: '⏱️', maquinaria_bitacora: '🔧', maquinaria_estado_unidad: '🚦',
   maquinaria_consumibles: '⛽', maquinaria_reportes_cliente: '📊',
   nominas_global: '💵', trabajadores_global: '👷', cotizador: '🔍',
@@ -1225,7 +1231,7 @@ const TAB_ICONS = {
 const TAB_LABELS = {
   resumen: 'Resumen', contrato: 'Contrato', impuestos: 'Impuestos', insumos: 'Insumos', requisiciones: 'Requisiciones',
   proveedores: 'Proveedores', cumplimiento: 'Cumplimiento', ordenes: 'Órdenes de Compra', programa: 'Programa', avance: 'Avance', destajo: 'Destajo',
-  finanzas: 'Finanzas', compromisos: 'Compromisos Abiertos', fondoGarantia: 'Fondo de Garantía', mapeo: 'Mapeo', usuarios: 'Usuarios', trabajadores: 'Trabajadores', nominas: 'Nóminas', estimaciones: 'Estimaciones', ordenesCambio: 'Órdenes de Cambio',
+  finanzas: 'Finanzas', compromisos: 'Compromisos Abiertos', fondoGarantia: 'Fondo de Garantía', mapeo: 'Mapeo', usuarios: 'Usuarios', trabajadores: 'Trabajadores', nominas: 'Nóminas', estimaciones: 'Estimaciones', ordenesCambio: 'Órdenes de Cambio', lotes: 'Lotes',
   maquinaria_catalogo: 'Catálogo de equipos', maquinaria_horas: 'Horas / Pendientes de autorizar',
   maquinaria_bitacora: 'Bitácora de taller', maquinaria_estado_unidad: 'Estado de las unidades',
   maquinaria_consumibles: 'Consumibles', maquinaria_reportes_cliente: 'Reportes por cliente',
@@ -2877,6 +2883,17 @@ const AYUDA_CONTENIDO = {
       'La orden queda "pendiente" hasta que un administrador la apruebe o la rechace (el rechazo exige un comentario). Al aprobarse, el presupuesto de la obra se actualiza de inmediato con el nuevo concepto o el ajuste — no hace falta subir un Excel.',
     ],
   },
+  lotes: {
+    titulo: 'Lotes',
+    pasos: [
+      'Trackea el estatus de construcción de cada lote/casa individual de un fraccionamiento — sin_iniciar, en proceso, terminado o entregado. No tiene relación con el % de avance físico/financiero de la obra completa (Avance/Resumen): son dos trackings independientes.',
+      'Puedes dar de alta un lote a mano, o importar un Excel con varios lotes a la vez (columnas: manzana, numero_lote, modelo_vivienda, superficie_m2 — solo numero_lote es obligatorio).',
+      'La importación siempre te muestra un preview (nuevos vs. ya existentes) antes de guardar nada — nada se persiste hasta que confirmas explícitamente.',
+      'Si reimportas un Excel con un lote que ya existe (misma manzana + número de lote), se actualizan sus datos descriptivos (modelo, superficie) pero el estatus que ya capturaste manualmente NUNCA se pierde ni se sobreescribe.',
+      'Al marcar un lote como "entregado" se captura automáticamente la fecha de entrega real (puedes ajustarla a mano si fue en otra fecha).',
+      '"modelo_vivienda" es texto libre por ahora — un catálogo formal de modelos de casa es una fase futura del roadmap.',
+    ],
+  },
   nominaCaptura: {
     titulo: 'Captura de nómina',
     pasos: [
@@ -4159,6 +4176,7 @@ async function renderView() {
       case 'nominas': await renderNominas(view); break;
       case 'estimaciones': await renderEstimaciones(view); break;
       case 'ordenesCambio': await renderOrdenesCambio(view); break;
+      case 'lotes': await renderLotes(view); break;
       case 'matrices': await renderMatrices(view); break;
       default: view.innerHTML = '';
     }
@@ -8123,6 +8141,7 @@ const PERMISOS_SECCION_LABELS = {
   cotizador: 'Cotizador de materiales',
   estado_resultados_global: 'Estado de Resultados (Todas las Obras)',
   ordenes_cambio: 'Órdenes de Cambio',
+  lotes: 'Lotes',
 };
 // Secciones que NUNCA son por-obra — no existe (ni tiene sentido) una versión
 // "para la obra X" de una vista que ya de por sí es cross-obra/cross-cliente.
@@ -8220,13 +8239,14 @@ const ACCIONES_CON_ENFORCEMENT = {
   // como infraestructura preparada, mismo estado que nominas.puede_editar
   // antes de abrirse a otro rol.
   ordenes_cambio: ['puede_ver', 'puede_crear', 'puede_editar'],
+  lotes: ['puede_ver', 'puede_crear', 'puede_editar'],
 };
 // Agrupa las secciones de permisos igual que SECTION_DEFS agrupa las pestañas
 // en la pantalla de inicio (Obra / Compras / Tesorería / Administración) —
 // mismo criterio de negocio, para que la matriz se lea en el mismo orden que
 // el resto de la app en vez de un orden alfabético/insertado sin relación.
 const PERMISOS_GRUPOS = [
-  { label: 'Obra',           secciones: ['presupuestos', 'programa', 'avance', 'destajo', 'estimaciones', 'ordenes_cambio'] },
+  { label: 'Obra',           secciones: ['presupuestos', 'programa', 'avance', 'destajo', 'estimaciones', 'ordenes_cambio', 'lotes'] },
   { label: 'Compras',        secciones: ['requisiciones', 'insumos', 'proveedores', 'ordenes_compra', 'cotizador'] },
   { label: 'Tesorería',      secciones: ['finanzas', 'estado_resultados', 'estado_resultados_global', 'impuestos'] },
   { label: 'Administración', secciones: ['mapeo', 'contrato', 'nominas', 'usuarios', 'trabajadores', 'trabajadores_docs', 'trabajadores_contrato', 'trabajadores_bancarios', 'trabajadores_global', 'nominas_global', 'costos'] },
@@ -8269,6 +8289,9 @@ const TAB_A_SECCION = {
   // prompt-ordenes-cambio.md: sección propia por-obra, mirror de
   // server/auth.js TAB_A_SECCION.
   ordenesCambio: 'ordenes_cambio',
+  // prompt-lotes-fase1.md: sección propia por-obra, mirror de
+  // server/auth.js TAB_A_SECCION.
+  lotes: 'lotes',
 };
 function defaultPermisosParaRolFrontend(puesto) {
   const tabs = ROLE_TABS[puesto] || [];
@@ -8287,6 +8310,7 @@ function defaultPermisosParaRolFrontend(puesto) {
     if (porSeccion.avance)  porSeccion.avance.puede_crear = true;
     if (porSeccion.requisiciones) porSeccion.requisiciones.puede_crear = true;
     if (porSeccion.ordenes_cambio) porSeccion.ordenes_cambio.puede_crear = true;
+    if (porSeccion.lotes) { porSeccion.lotes.puede_crear = true; porSeccion.lotes.puede_editar = true; }
   }
   if (puesto === 'cabo') {
     if (porSeccion.destajo) porSeccion.destajo.puede_editar = true;
@@ -17944,6 +17968,258 @@ async function openOrdenCambioFormModal(onSave) {
     } catch (err) {
       toast(err.message, 'danger');
       btn.disabled = false; btn.textContent = 'Guardar';
+    }
+  });
+}
+
+// =========================================================================
+// VISTA: Lotes/Unidades (prompt-lotes-fase1.md, diagnóstico previo en
+// prompt-diagnostico-lotes-fase1.md) — Fase 1 (cimiento) del roadmap
+// "Desarrollador de Vivienda": estatus de construcción por lote/casa
+// individual dentro de una obra. Ubicada en Obra (junto a Avance/Programa/
+// Estimaciones/Órdenes de Cambio), independiente del avance físico/
+// financiero existente. Flujo de importación: mismo patrón visual
+// preview→confirmar que Movimientos Bancarios (openImportarMovimientosModal
+// arriba) — sube directo a Blob desde el navegador, el preview no persiste
+// nada, confirmar es un paso explícito aparte.
+// =========================================================================
+const LOTE_ESTATUS_LIST = ['sin_iniciar', 'en_proceso', 'terminado', 'entregado'];
+const LOTE_ESTATUS_LABELS = { sin_iniciar: 'Sin iniciar', en_proceso: 'En proceso', terminado: 'Terminado', entregado: 'Entregado' };
+const LOTE_ESTATUS_BADGE = { sin_iniciar: 'muted', en_proceso: 'yellow', terminado: 'purple', entregado: 'green' };
+let lotesRaw = [];
+let lotesFiltro = { estatus: '', manzana: '' };
+
+async function renderLotes(view) {
+  if (!puedeVerLotes()) {
+    view.innerHTML = `<div class="alert-box danger">⚠️ No tienes permiso para ver esta sección.</div>`;
+    return;
+  }
+  lotesFiltro = { estatus: '', manzana: '' };
+  view.innerHTML = `
+    <h2 class="section-title">Lotes ${renderHelpBtn('lotes')}</h2>
+    <p class="muted">Estatus de construcción por lote/casa — independiente del avance físico/financiero de la obra completa.</p>
+    <div class="section-actions mt-12 row">
+      <button class="btn btn-primary" id="btnNuevoLote">+ Nuevo lote</button>
+      <button class="btn" id="btnImportarLotes">⭱ Importar Excel</button>
+    </div>
+    <div class="row mt-12">
+      <div class="field"><label>Estatus</label>
+        <select id="lotesFiltroEstatus">
+          <option value="">Todos</option>
+          ${LOTE_ESTATUS_LIST.map((e) => `<option value="${e}">${esc(LOTE_ESTATUS_LABELS[e])}</option>`).join('')}
+        </select>
+      </div>
+      <div class="field"><label>Manzana</label><input id="lotesFiltroManzana" placeholder="Ej. 3" /></div>
+    </div>
+    <div id="lotesList"><div class="empty-state">Cargando…</div></div>
+  `;
+  $('#btnNuevoLote').addEventListener('click', () => openLoteFormModal(null, loadLotes));
+  $('#btnImportarLotes').addEventListener('click', () => openImportarLotesModal(loadLotes));
+  $('#lotesFiltroEstatus').addEventListener('change', (e) => { lotesFiltro.estatus = e.target.value; loadLotes(); });
+  $('#lotesFiltroManzana').addEventListener('input', debounce(() => {
+    lotesFiltro.manzana = $('#lotesFiltroManzana').value.trim();
+    loadLotes();
+  }, 300));
+  await loadLotes();
+}
+
+async function loadLotes() {
+  const el = $('#lotesList');
+  if (!el) return;
+  try {
+    const qs = new URLSearchParams();
+    if (lotesFiltro.estatus) qs.set('estatus', lotesFiltro.estatus);
+    if (lotesFiltro.manzana) qs.set('manzana', lotesFiltro.manzana);
+    const query = qs.toString() ? `?${qs.toString()}` : '';
+    lotesRaw = await api(`/projects/${state.projectId}/lotes${query}`);
+    paintLotesList();
+  } catch (err) {
+    el.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+  }
+}
+
+function paintLotesList() {
+  const el = $('#lotesList');
+  if (!el) return;
+  if (!lotesRaw.length) { el.innerHTML = '<div class="empty-state">No hay lotes registrados con este filtro.</div>'; return; }
+  el.innerHTML = `
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>Manzana</th><th>Lote</th><th>Modelo</th><th class="num">Superficie (m²)</th><th>Estatus</th><th>Entrega estimada</th><th>Entrega real</th><th></th></tr></thead>
+        <tbody>
+          ${lotesRaw.map((l) => `
+            <tr>
+              <td>${esc(l.manzana || '—')}</td>
+              <td>${esc(l.numero_lote)}</td>
+              <td>${esc(l.modelo_vivienda || '—')}</td>
+              <td class="num">${l.superficie_m2 != null ? fmtNum(l.superficie_m2) : '—'}</td>
+              <td><span class="badge ${LOTE_ESTATUS_BADGE[l.estatus] || 'muted'}">${esc(LOTE_ESTATUS_LABELS[l.estatus] || l.estatus)}</span></td>
+              <td>${l.fecha_entrega_estimada ? fmtDate(l.fecha_entrega_estimada) : '—'}</td>
+              <td>${l.fecha_entrega_real ? fmtDate(l.fecha_entrega_real) : '—'}</td>
+              <td><button class="btn small" data-editar-lote="${l.id}">Editar</button></td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+  $$('[data-editar-lote]', el).forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const lote = lotesRaw.find((l) => l.id === Number(btn.dataset.editarLote));
+      if (lote) openLoteFormModal(lote, loadLotes);
+    });
+  });
+}
+
+function openLoteFormModal(lote, onSave) {
+  const esEdicion = !!lote;
+  openModal(`
+    <h3>${esEdicion ? 'Editar lote' : 'Nuevo lote'}</h3>
+    <div class="row">
+      <div class="field"><label>Manzana</label><input id="loteManzana" value="${esc(lote?.manzana || '')}" /></div>
+      <div class="field"><label>Número de lote *</label><input id="loteNumero" value="${esc(lote?.numero_lote || '')}" /></div>
+    </div>
+    <div class="field"><label>Modelo de vivienda</label><input id="loteModelo" value="${esc(lote?.modelo_vivienda || '')}" /></div>
+    <div class="field"><label>Superficie (m²)</label><input id="loteSuperficie" type="number" step="any" value="${lote?.superficie_m2 != null ? lote.superficie_m2 : ''}" /></div>
+    <div class="field"><label>Estatus</label>
+      <select id="loteEstatus">
+        ${LOTE_ESTATUS_LIST.map((e) => `<option value="${e}" ${(lote?.estatus || 'sin_iniciar') === e ? 'selected' : ''}>${esc(LOTE_ESTATUS_LABELS[e])}</option>`).join('')}
+      </select>
+    </div>
+    <div class="row">
+      <div class="field"><label>Entrega estimada</label><input id="loteFechaEstimada" type="date" value="${lote?.fecha_entrega_estimada ? String(lote.fecha_entrega_estimada).slice(0, 10) : ''}" /></div>
+      <div class="field"><label>Entrega real</label><input id="loteFechaReal" type="date" value="${lote?.fecha_entrega_real ? String(lote.fecha_entrega_real).slice(0, 10) : ''}" />
+        <span class="muted fs-07">Si marcas "Entregado" sin capturar esta fecha, se llena sola con hoy.</span>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" id="btnCancelLoteForm">Cancelar</button>
+      <button class="btn btn-primary" id="btnSaveLoteForm">Guardar</button>
+    </div>
+  `);
+  $('#btnCancelLoteForm').addEventListener('click', closeModal);
+  $('#btnSaveLoteForm').addEventListener('click', async () => {
+    const btn = $('#btnSaveLoteForm');
+    const numero_lote = $('#loteNumero').value.trim();
+    if (!numero_lote) { toast('El número de lote es requerido', 'danger'); return; }
+    const body = {
+      manzana: $('#loteManzana').value.trim(),
+      numero_lote,
+      modelo_vivienda: $('#loteModelo').value.trim() || null,
+      superficie_m2: $('#loteSuperficie').value ? Number($('#loteSuperficie').value) : null,
+      estatus: $('#loteEstatus').value,
+      fecha_entrega_estimada: $('#loteFechaEstimada').value || null,
+      fecha_entrega_real: $('#loteFechaReal').value || null,
+    };
+    btn.disabled = true; btn.textContent = 'Guardando…';
+    try {
+      if (esEdicion) {
+        await api(`/projects/${state.projectId}/lotes/${lote.id}`, { method: 'PUT', body });
+      } else {
+        await api(`/projects/${state.projectId}/lotes`, { method: 'POST', body });
+      }
+      toast(esEdicion ? 'Lote actualizado' : 'Lote creado', 'success');
+      closeModal();
+      if (onSave) await onSave();
+    } catch (err) {
+      toast(err.message, 'danger');
+      btn.disabled = false; btn.textContent = 'Guardar';
+    }
+  });
+}
+
+// Importación de lotes — mismo patrón preview→confirm que Movimientos
+// Bancarios (openImportarMovimientosModal arriba): sube directo a Blob desde
+// el navegador → preview parsea y muestra el diff SIN guardar nada →
+// confirmar explícito re-parsea el mismo archivo y aplica (ON CONFLICT DO
+// UPDATE de campos descriptivos, preservando siempre el estatus ya
+// capturado — ver server/lotes.js confirmarImportacionLotes).
+function openImportarLotesModal(onImportado) {
+  openModal(`
+    <h3>Importar lotes desde Excel</h3>
+    <p class="muted fs-08">Columnas esperadas: manzana, numero_lote, modelo_vivienda, superficie_m2 — solo "numero_lote" es obligatorio. Si reimportas un lote que ya existe (misma manzana + número), se actualizan sus datos descriptivos pero el estatus capturado no se toca.</p>
+    <input type="file" id="loteImportFile" accept=".xlsx" />
+    <div class="modal-actions">
+      <button class="btn" id="btnCancelLoteImport">Cerrar</button>
+    </div>
+  `);
+  $('#btnCancelLoteImport').addEventListener('click', closeModal);
+  $('#loteImportFile').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    if (!/\.xlsx$/i.test(file.name)) { toast('Solo se admiten archivos .xlsx', 'danger'); return; }
+    openModal(`<h3>Subiendo y analizando…</h3><div class="spinner"></div>`);
+    try {
+      const blob = await VercelBlobClient.upload(file.name, file, {
+        access: 'private',
+        handleUploadUrl: `/api/projects/${state.projectId}/lotes/importar/upload-token`,
+        headers: state.token ? { Authorization: `Bearer ${state.token}` } : {},
+      });
+      const preview = await api(`/projects/${state.projectId}/lotes/importar/preview`, {
+        method: 'POST',
+        body: { archivo_url: blob.url },
+      });
+      pintarPreviewImportacionLotes(preview, blob.url, onImportado);
+    } catch (err) {
+      closeModal();
+      toast(err.message, 'danger');
+    }
+  });
+}
+
+function pintarPreviewImportacionLotes(preview, archivoUrl, onImportado) {
+  const filaHtml = (l, esNuevo) => `
+    <tr class="${esNuevo ? '' : 'muted'}">
+      <td>${esc(l.manzana || '—')}</td>
+      <td>${esc(l.numero_lote)}</td>
+      <td>${esc(l.modelo_vivienda || '—')}</td>
+      <td class="num">${l.superficie_m2 != null ? fmtNum(l.superficie_m2) : '—'}</td>
+      <td class="fs-08">${esNuevo ? '<span class="badge green">Nuevo</span>' : '<span class="badge muted">Ya existe — se actualiza</span>'}</td>
+    </tr>
+  `;
+  openModal(`
+    <h3>Preview de importación</h3>
+    <p class="muted">Nada se ha guardado todavía. Revisa antes de confirmar.</p>
+    <div class="card">
+      <div class="row between"><span>Lotes nuevos</span><strong>${preview.nuevos.length}</strong></div>
+      <div class="row between"><span>Ya existentes (se actualizan datos, no el estatus)</span><strong>${preview.existentes.length}</strong></div>
+      ${preview.filas_invalidas.length ? `<div class="row between"><span>Filas inválidas (ignoradas)</span><strong>${preview.filas_invalidas.length}</strong></div>` : ''}
+    </div>
+    ${preview.filas_invalidas.length ? `
+      <details class="mt-8">
+        <summary>Ver filas inválidas (${preview.filas_invalidas.length})</summary>
+        <ul class="fs-08">${preview.filas_invalidas.map((f) => `<li>Fila ${f.fila}: ${esc(f.motivo)}</li>`).join('')}</ul>
+      </details>
+    ` : ''}
+    <div class="table-scroll mt-12">
+      <table>
+        <thead><tr><th>Manzana</th><th>Lote</th><th>Modelo</th><th class="num">Superficie</th><th>Estatus importación</th></tr></thead>
+        <tbody>
+          ${preview.nuevos.map((l) => filaHtml(l, true)).join('')}
+          ${preview.existentes.map((l) => filaHtml(l, false)).join('')}
+        </tbody>
+      </table>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" id="btnCancelLoteConfirm">Cancelar</button>
+      <button class="btn btn-primary" id="btnLoteConfirm" ${preview.nuevos.length || preview.existentes.length ? '' : 'disabled'}>Confirmar importación</button>
+    </div>
+  `);
+  $('#btnCancelLoteConfirm').addEventListener('click', closeModal);
+  $('#btnLoteConfirm')?.addEventListener('click', async () => {
+    const btn = $('#btnLoteConfirm');
+    btn.disabled = true; btn.textContent = 'Importando…';
+    try {
+      const result = await api(`/projects/${state.projectId}/lotes/importar/confirmar`, {
+        method: 'POST',
+        body: { archivo_url: archivoUrl, confirmado: true },
+      });
+      closeModal();
+      toast(`${result.nuevos} lote(s) nuevo(s), ${result.actualizados} actualizado(s)`, 'success');
+      onImportado();
+    } catch (err) {
+      toast(err.message, 'danger');
+      btn.disabled = false; btn.textContent = 'Confirmar importación';
     }
   });
 }

@@ -65,6 +65,7 @@ const { extraerDatosCFDI, extraerDatosCFDIDesdePdf } = require('./cfdiParser');
 const { parseMovimientosBancarios } = require('./movimientosBancariosParser');
 const { emparejarConceptos, calcularCambios, aplicarCambiosConceptos } = require('./reintegracionPresupuesto');
 const ordenesCambio = require('./ordenesCambio');
+const lotes = require('./lotes');
 
 // CN-007: nombre_archivo/pdf_filename vienen del cliente (upload); una comilla
 // doble en el valor rompe fuera del filename="..." y permite inyectar
@@ -5251,6 +5252,107 @@ app.get('/api/projects/:id/ordenes-cambio/:ocId/documento', h(auth.allow('reside
   res.setHeader('Content-Type', mimeMap[ext] || 'application/octet-stream');
   res.setHeader('Content-Disposition', safeContentDisposition('inline', rows[0].documento_respaldo_nombre || 'documento'));
   await pipeline(Readable.fromWeb(blobResult.stream), res);
+}));
+
+// ---------------------------------------------------------------------------
+// Lotes/Unidades (prompt-lotes-fase1.md, diagnóstico previo en
+// prompt-diagnostico-lotes-fase1.md) — estatus de construcción por lote/casa
+// individual dentro de una obra. Fase 1 (cimiento) del roadmap "Desarrollador
+// de Vivienda": sin relación con avances_semanales/avance_financiero_real
+// (Forbidden Action explícita), sin catálogo formal de modelos todavía.
+// Import Excel: mismo patrón preview→confirmar que /api/contabilidad/
+// movimientos (descargarBlobXlsxATmp + exceljs + diff antes de persistir),
+// pero con criterio de reimportación DISTINTO — confirmado explícitamente
+// (no era obvio, Stop Condition del prompt): reimportar un lote ya existente
+// SÍ actualiza modelo_vivienda/superficie_m2 (corrige datos mal capturados),
+// pero NUNCA toca estatus/fecha_entrega_* (solo se editan manualmente vía
+// PUT) — ver server/lotes.js confirmarImportacionLotes.
+// Acceso: residente (captura/edición) + admin/desarrollador — a propósito
+// NO incluye 'cabo' esta fase (Starting State explícito del prompt).
+// ---------------------------------------------------------------------------
+app.get('/api/projects/:id/lotes', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('lotes', 'puede_ver')), h(async (req, res) => {
+  const { estatus, manzana } = req.query;
+  res.json(await lotes.listLotes(req.project.id, { estatus, manzana }));
+}));
+
+app.post('/api/projects/:id/lotes', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('lotes', 'puede_crear')), h(async (req, res) => {
+  try {
+    const nuevo = await lotes.createLote(req.project.id, req.body || {});
+    res.status(201).json(nuevo);
+  } catch (err) {
+    if (err.code === '23505') return res.status(409).json({ error: 'Ya existe un lote con esa manzana y número de lote en esta obra' });
+    res.status(err.status || 400).json({ error: err.message });
+  }
+}));
+
+app.put('/api/projects/:id/lotes/:loteId', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('lotes', 'puede_editar')), h(async (req, res) => {
+  try {
+    const actualizado = await lotes.updateLote(Number(req.params.loteId), req.project.id, req.body || {});
+    res.json(actualizado);
+  } catch (err) {
+    if (err.code === '23505') return res.status(409).json({ error: 'Ya existe un lote con esa manzana y número de lote en esta obra' });
+    res.status(err.status || 400).json({ error: err.message });
+  }
+}));
+
+app.post('/api/projects/:id/lotes/importar/upload-token', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('lotes', 'puede_crear')), h(async (req, res) => {
+  try {
+    const jsonResponse = await handleUpload({
+      body: req.body,
+      request: req,
+      onBeforeGenerateToken: async (pathname) => {
+        if (!/\.xlsx$/i.test(pathname)) throw new Error('Solo se admiten archivos .xlsx');
+        return {
+          access: 'private',
+          allowedContentTypes: ['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'],
+          addRandomSuffix: true,
+          maximumSizeInBytes: 15 * 1024 * 1024,
+        };
+      },
+    });
+    res.json(jsonResponse);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+}));
+
+app.post('/api/projects/:id/lotes/importar/preview', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('lotes', 'puede_crear')), h(async (req, res) => {
+  const { archivo_url } = req.body || {};
+  if (!archivo_url) return res.status(400).json({ error: 'Sube un archivo .xlsx de lotes' });
+  const tmpPath = path.join(os.tmpdir(), `lotes-${Date.now()}-${Math.round(Math.random() * 1e9)}.xlsx`);
+  try {
+    await descargarBlobXlsxATmp(archivo_url, tmpPath);
+    const { lotes: lotesParsed, filasInvalidas } = await lotes.parseLotesExcel(tmpPath);
+    if (!lotesParsed.length) {
+      return res.status(400).json({ error: 'No se reconoció ningún lote válido en el archivo.' });
+    }
+    const { nuevos, existentes } = await lotes.diffLotesImportacion(req.project.id, lotesParsed);
+    res.json({ nuevos, existentes, filas_invalidas: filasInvalidas });
+  } catch (err) {
+    res.status(err.status || 400).json({ error: err.message });
+  } finally {
+    fs.rm(tmpPath, () => {});
+  }
+}));
+
+app.post('/api/projects/:id/lotes/importar/confirmar', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('lotes', 'puede_crear')), h(async (req, res) => {
+  const { archivo_url, confirmado } = req.body || {};
+  if (!archivo_url) return res.status(400).json({ error: 'Sube un archivo .xlsx de lotes' });
+  if (confirmado !== true) return res.status(400).json({ error: 'Falta confirmar explícitamente la importación' });
+  const tmpPath = path.join(os.tmpdir(), `lotes-${Date.now()}-${Math.round(Math.random() * 1e9)}.xlsx`);
+  try {
+    await descargarBlobXlsxATmp(archivo_url, tmpPath);
+    const { lotes: lotesParsed } = await lotes.parseLotesExcel(tmpPath);
+    if (!lotesParsed.length) {
+      return res.status(400).json({ error: 'No se reconoció ningún lote válido en el archivo.' });
+    }
+    const resultado = await lotes.confirmarImportacionLotes(req.project.id, lotesParsed, req.user.id);
+    res.json(resultado);
+  } catch (err) {
+    res.status(err.status || 400).json({ error: err.message });
+  } finally {
+    fs.rm(tmpPath, () => {});
+  }
 }));
 
 // ---------------------------------------------------------------------------

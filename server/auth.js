@@ -53,8 +53,8 @@ const PERMISSIONS = {
   // whitelist — mismo candado ahora, vía tabsParaUsuario() +
   // requireEstadoResultadosAccess (0 usuarios reales con puesto 'tesoreria'
   // en Producción, confirmado antes de este cambio).
-  admin:          { label: 'Administrador', tabs: ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'cumplimiento', 'finanzas', 'compromisos', 'fondoGarantia', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', 'ordenesCambio', ...MAQUINARIA_TABS_ADMIN, 'cotizador', 'costos', 'matrices', 'avance_clientes', 'composicion_costos', 'dashboardEjecutivo'] },
-  desarrollador:  { label: 'Desarrollador', tabs: ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'cumplimiento', 'finanzas', 'compromisos', 'fondoGarantia', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', 'ordenesCambio', ...MAQUINARIA_TABS_ADMIN, 'cotizador', 'costos', 'matrices', 'avance_clientes', 'composicion_costos', 'dashboardEjecutivo'] },
+  admin:          { label: 'Administrador', tabs: ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'cumplimiento', 'finanzas', 'compromisos', 'fondoGarantia', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', 'ordenesCambio', 'lotes', ...MAQUINARIA_TABS_ADMIN, 'cotizador', 'costos', 'matrices', 'avance_clientes', 'composicion_costos', 'dashboardEjecutivo'] },
+  desarrollador:  { label: 'Desarrollador', tabs: ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'cumplimiento', 'finanzas', 'compromisos', 'fondoGarantia', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', 'ordenesCambio', 'lotes', ...MAQUINARIA_TABS_ADMIN, 'cotizador', 'costos', 'matrices', 'avance_clientes', 'composicion_costos', 'dashboardEjecutivo'] },
   // 'trabajadores' agregado aquí (prompts-cotizador-sidebar-permisos-
   // estimaciones.md, Prompt 3) para que el residente reciba la pestaña al
   // hacer login — el acceso REAL a los datos de cada obra lo sigue
@@ -75,7 +75,7 @@ const PERMISSIONS = {
   // otorga el permiso por sí solo, checkPermiso('costos', ...) sigue siendo
   // el gate real vía permisos_usuario (sin fila = 403, default-deny de
   // 'costos', ver SECCIONES_PERMISOS más abajo).
-  residente:      { label: 'Residente',     tabs: ['programa', 'avance', 'destajo', 'requisiciones', 'insumos', 'ordenes', 'nominas', 'trabajadores', 'estimaciones', 'ordenesCambio', ...MAQUINARIA_TABS_RESIDENTE, 'matrices'] },
+  residente:      { label: 'Residente',     tabs: ['programa', 'avance', 'destajo', 'requisiciones', 'insumos', 'ordenes', 'nominas', 'trabajadores', 'estimaciones', 'ordenesCambio', 'lotes', ...MAQUINARIA_TABS_RESIDENTE, 'matrices'] },
   // 'trabajadores' agregado aquí (prompt-c-checkpermiso-trabajadores.md,
   // fix de visibilidad en nav): mismo gap ya documentado para 'costos' más
   // abajo — el permiso puede_ver otorgado vía la matriz a UN cabo específico
@@ -231,6 +231,10 @@ const SECCIONES_PERMISOS = [
   // aprobación — sección propia con enforcement real (checkPermiso en
   // server/app.js), mismo criterio que 'estimaciones'/'nominas'.
   'ordenes_cambio',
+  // prompt-lotes-fase1.md: estatus de construcción de lotes/unidades
+  // individuales dentro de una obra — sección propia con enforcement real,
+  // mismo criterio que 'ordenes_cambio' arriba.
+  'lotes',
 ];
 const ACCIONES_PERMISOS = ['puede_ver', 'puede_crear', 'puede_editar', 'puede_editar_precios', 'puede_eliminar'];
 
@@ -290,6 +294,9 @@ const TAB_A_SECCION = {
   // prompt-ordenes-cambio.md: sección propia por-obra, resuelve igual que
   // 'estimaciones'/'trabajadores' arriba.
   ordenesCambio: 'ordenes_cambio',
+  // prompt-lotes-fase1.md: sección propia por-obra, mismo criterio que
+  // 'ordenesCambio' arriba.
+  lotes: 'lotes',
   // 'cumplimiento' (prompt-cumplimiento-subcontratistas.md) reusa la MISMA
   // sección 'proveedores' — mismo criterio y misma justificación que
   // 'compromisos'/'fondoGarantia' arriba (reusa el permiso ya existente, no
@@ -363,6 +370,14 @@ function defaultPermisosParaRol(puesto) {
     // que avance/destajo. Aprobar/rechazar sigue siendo admin/desarrollador
     // exclusivo (auth.allow() a nivel de ruta, sin excepción vía permisos).
     if (porSeccion.ordenes_cambio) { porSeccion.ordenes_cambio.puede_crear = true; }
+    // prompt-lotes-fase1.md: capacidad nueva — residente es quien captura
+    // avance/programa/estimaciones de la obra día a día, rol natural para
+    // reportar estatus de construcción por lote también. puede_editar=true
+    // (no solo puede_crear) porque la acción principal de este módulo es
+    // EDITAR el estatus de un lote ya existente, no solo dar de alta lotes
+    // nuevos. A propósito SOLO para residente, no cabo (Starting State del
+    // prompt: acceso acotado a residente + admin/desarrollador esta fase).
+    if (porSeccion.lotes) { porSeccion.lotes.puede_crear = true; porSeccion.lotes.puede_editar = true; }
   }
   if (puesto === 'cabo') {
     if (porSeccion.destajo) { porSeccion.destajo.puede_editar = true; }

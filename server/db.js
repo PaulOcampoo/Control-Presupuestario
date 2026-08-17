@@ -876,6 +876,42 @@ const SCHEMA = `
   );
   CREATE INDEX IF NOT EXISTS idx_orden_cambio_conceptos_oc ON orden_cambio_conceptos(orden_cambio_id);
 
+  -- Lotes/Unidades (prompt-lotes-fase1.md, diagnóstico previo en
+  -- prompt-diagnostico-lotes-fase1.md) — Fase 1 (cimiento) del roadmap
+  -- "Desarrollador de Vivienda": trackea el estatus de construcción de cada
+  -- lote/casa individual de un fraccionamiento. Independiente de
+  -- avances_semanales/avance_financiero_real a propósito (Forbidden Action
+  -- explícita del prompt) — estatus 100% manual en esta fase, sin prorrateo
+  -- desde el avance físico/financiero de la obra completa.
+  -- 'manzana' NOT NULL DEFAULT '' (no nullable, a diferencia del borrador del
+  -- diagnóstico) — un desarrollo sin manzanas usa '' consistentemente; con
+  -- NULL, el UNIQUE de abajo no detecta duplicados entre sí (Postgres trata
+  -- cada NULL como distinto en una constraint UNIQUE), lo que habría dejado
+  -- reimportar el mismo lote sin manzana una y otra vez como fila nueva.
+  -- 'numero_lote' es TEXT, no INTEGER: identificadores reales como "12-A" o
+  -- "12 BIS" son comunes y los define el desarrollador externo, no Roforb —
+  -- Forbidden Action explícita: NUNCA usar folio_counters aquí.
+  -- 'modelo_vivienda' es texto libre a propósito (Forbidden Action explícita
+  -- — catálogo formal de modelos es una fase futura, no esta).
+  -- 'estatus' con CHECK: vocabulario chico y estable (4 valores), mismo
+  -- criterio que ordenes_cambio.estado/equipos_maquinaria.estado arriba.
+  CREATE TABLE IF NOT EXISTS lotes (
+    id SERIAL PRIMARY KEY,
+    project_id INTEGER NOT NULL REFERENCES proyectos(id) ON DELETE CASCADE,
+    manzana TEXT NOT NULL DEFAULT '',
+    numero_lote TEXT NOT NULL,
+    modelo_vivienda TEXT,
+    superficie_m2 DOUBLE PRECISION,
+    estatus TEXT NOT NULL DEFAULT 'sin_iniciar'
+      CHECK (estatus IN ('sin_iniciar','en_proceso','terminado','entregado')),
+    fecha_entrega_estimada DATE,
+    fecha_entrega_real DATE,
+    creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    actualizado_en TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (project_id, manzana, numero_lote)
+  );
+  CREATE INDEX IF NOT EXISTS idx_lotes_project ON lotes(project_id);
+
   -- Portal de sugerencias — cualquier usuario autenticado puede enviar; solo
   -- admin puede revisar y gestionar. prompt_generado almacena el prompt
   -- técnico formateado por IA (claude-sonnet-4-6) bajo demanda desde el
@@ -1074,7 +1110,7 @@ const SCHEMA = `
       'trabajadores_global','nominas_global','trabajadores','estado_resultados','maquinaria_captura','maquinaria_combustible',
       'costos','trabajadores_docs','trabajadores_contrato','trabajadores_bancarios',
       'cotizador','estado_resultados_global','estado_unidad','maquinaria_consumibles',
-      'ordenes_cambio'
+      'ordenes_cambio','lotes'
     )),
     puede_ver BOOLEAN NOT NULL DEFAULT false,
     puede_crear BOOLEAN NOT NULL DEFAULT false,
@@ -1112,6 +1148,9 @@ const SCHEMA = `
   -- 'ordenes_cambio' agregado en prompt-ordenes-cambio.md — sección propia
   -- con enforcement real (checkPermiso en server/app.js), mismo criterio que
   -- 'estimaciones'/'nominas'.
+  -- 'lotes' agregado en prompt-lotes-fase1.md — sección propia con
+  -- enforcement real (checkPermiso en server/app.js), mismo criterio que
+  -- 'ordenes_cambio' arriba.
   ALTER TABLE permisos_usuario DROP CONSTRAINT IF EXISTS permisos_usuario_seccion_check;
   ALTER TABLE permisos_usuario ADD CONSTRAINT permisos_usuario_seccion_check CHECK (seccion IN (
     'presupuestos','requisiciones','proveedores','ordenes_compra','avance',
@@ -1120,7 +1159,7 @@ const SCHEMA = `
     'trabajadores_global','nominas_global','trabajadores','estado_resultados','maquinaria_captura','maquinaria_combustible',
     'costos','trabajadores_docs','trabajadores_contrato','trabajadores_bancarios',
     'cotizador','estado_resultados_global','estado_unidad','maquinaria_consumibles',
-    'ordenes_cambio'
+    'ordenes_cambio','lotes'
   ));
 
   -- Contador de folios por obra + tipo de documento. INSERT...ON CONFLICT DO

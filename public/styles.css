@@ -1736,6 +1736,20 @@ html[data-palette="dorada"]:not([data-theme="light"]) .welcome-card {
   .bienvenida-client-grid { grid-template-columns: 1fr; }
 }
 
+/* ── Dashboard Ejecutivo (prompt-dashboard-ejecutivo.md) — tarjetas reusan
+   .bienvenida-proj-card/.wpc-* tal cual; solo se agrega el badge de alerta
+   superpuesto y la fila de mini-KPIs financieros por obra. ────────────── */
+.dashboard-ejec-card { position: relative; }
+.dashboard-ejec-badge {
+  position: absolute; top: var(--space-8); right: var(--space-8);
+}
+.dashboard-ejec-card-finanzas {
+  display: flex; justify-content: space-between; gap: var(--space-8);
+  margin-top: var(--space-8); padding-top: var(--space-8);
+  border-top: 1px solid var(--border-color);
+  font-size: var(--fs-xs); color: var(--text-secondary);
+}
+
 /* ── Gráfica global (admin/desarrollador) ─────────────────────────────────── */
 /* El margen/borde superior vive en .dashboards-row (no en .global-chart-
    section) para que se vea una sola línea divisoria arriba de AMBAS

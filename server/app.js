@@ -53,7 +53,8 @@ const maquinaria = require('./maquinaria');
 const cotizador = require('./cotizador');
 const {
   metaToObject, presupuestoTotalDe, getFinanzasResumenData, getCompromisosAbiertosData,
-  porcentajeFondoGarantiaDe, getFondoGarantiaData,
+  getCompromisosAbiertosAgregado,
+  porcentajeFondoGarantiaDe, getFondoGarantiaData, getFondoGarantiaAgregado,
   FONDO_GARANTIA_PCT_MIN, FONDO_GARANTIA_PCT_MAX,
 } = require('./finanzas');
 const { calcularJornal, calcularDestajo, totalConIvaEsValido, numeroALetra, calcularSplitCuentas } = require('./calculos');
@@ -1440,7 +1441,10 @@ app.get('/api/proveedores/documentos/:docId/descarga', h(auth.allow('residente',
 // Vista consolidada: por cada proveedor activo, el documento vigente de cada
 // tipo con estatus derivado. Dataset pequeño (catálogo de proveedores) — se
 // resuelve en JS en vez de una query con window functions.
-app.get('/api/cumplimiento', h(auth.allow('residente', 'cabo', 'compras', 'tesoreria', 'administracion')), h(auth.checkPermiso('proveedores', 'puede_ver')), h(async (req, res) => {
+// Extraído a función propia (prompt-dashboard-ejecutivo.md) para que el
+// Dashboard Ejecutivo pueda incluir este mismo bloque sin duplicar la query
+// — comportamiento de /api/cumplimiento sin cambios.
+async function getCumplimientoResumenData() {
   const { rows: proveedores } = await db.pool.query('SELECT id, nombre FROM proveedores WHERE activo = 1 ORDER BY nombre');
   const { rows: docs } = await db.pool.query(
     `SELECT id, proveedor_id, tipo, fecha_vencimiento, nombre_archivo, subido_en
@@ -1470,7 +1474,11 @@ app.get('/api/cumplimiento', h(auth.allow('residente', 'cabo', 'compras', 'tesor
     return { proveedor_id: p.id, proveedor_nombre: p.nombre, documentos };
   });
 
-  res.json({ tipos, proveedores: resultado });
+  return { tipos, proveedores: resultado };
+}
+
+app.get('/api/cumplimiento', h(auth.allow('residente', 'cabo', 'compras', 'tesoreria', 'administracion')), h(auth.checkPermiso('proveedores', 'puede_ver')), h(async (req, res) => {
+  res.json(await getCumplimientoResumenData());
 }));
 
 // ---------------------------------------------------------------------------
@@ -2321,6 +2329,112 @@ app.get('/api/avance-por-cliente/completo', h(auth.allow()), h(async (req, res) 
     .sort((a, b) => b.avance_ponderado_pct - a.avance_ponderado_pct);
 
   res.json(resultado);
+}));
+
+// ---------------------------------------------------------------------------
+// Dashboard Ejecutivo (prompt-dashboard-ejecutivo.md): agregador multi-obra
+// que consolida, en una sola pantalla, lo que hoy solo existe disperso
+// por-obra o solo a nivel global — avance físico/financiero por obra (mismo
+// query base que /api/resumen-global, pero SIN colapsar a un solo agregado),
+// compromisos abiertos y fondo de garantía por obra (getCompromisosAbiertos-
+// Agregado/getFondoGarantiaAgregado en finanzas.js), alertas de contrato
+// próximas a vencer (mismo cálculo que ya usa el cron de
+// /api/cron/alertas-vencimiento, aquí solo LECTURA en memoria, sin
+// persistir/notificar nada) y cumplimiento de proveedores (bloque aparte,
+// sin relación a obra — mismo query que /api/cumplimiento).
+//
+// Acceso: admin/desarrollador (bypass de auth.allow, ven todas las obras) +
+// tesorería (único rol no-admin que hoy ya ve Compromisos Abiertos/Fondo de
+// Garantía por-obra), filtrado a sus obras vía usuario_proyectos — mismo
+// patrón IDOR que getProgramaSuministrosData (admin sin filtro, resto con
+// JOIN usuario_proyectos), decisión confirmada explícitamente (no se abrió
+// a otros roles que hoy no tienen acceso a datos financieros).
+// ---------------------------------------------------------------------------
+function alertaContratoDeObra(finObra) {
+  if (!finObra) return null;
+  const diasRestantes = calcularDiasRestantes(finObra);
+  if (diasRestantes === null) return null;
+  if (diasRestantes < 0) return { umbral: 'vencido', dias_restantes: diasRestantes, fin_obra: finObra };
+  if (diasRestantes > 30) return null;
+  const umbral = diasRestantes <= 7 ? '7' : diasRestantes <= 15 ? '15' : '30';
+  return { umbral, dias_restantes: diasRestantes, fin_obra: finObra };
+}
+
+app.get('/api/dashboard-ejecutivo', h(auth.allow('tesoreria')), h(async (req, res) => {
+  const esAdmin = req.user.puesto === 'admin' || req.user.puesto === 'desarrollador';
+
+  const params = [];
+  let join = '';
+  if (!esAdmin) {
+    params.push(req.user.id);
+    join = `JOIN usuario_proyectos up ON up.project_id = p.id AND up.usuario_id = $${params.length}`;
+  }
+
+  const { rows: obrasRaw } = await db.pool.query(`
+    SELECT
+      p.id AS project_id, p.nombre AS obra_nombre, c.id AS cliente_id, c.nombre AS cliente_nombre,
+      COALESCE(
+        (SELECT valor::DOUBLE PRECISION FROM meta
+         WHERE project_id = p.id AND clave = 'total_sin_iva' LIMIT 1),
+        (SELECT importe FROM conceptos
+         WHERE project_id = p.id AND es_total = 1 AND grupo IS NULL ORDER BY orden DESC LIMIT 1),
+        0
+      ) AS presupuesto_total,
+      COALESCE(
+        (SELECT avance_financiero_real FROM avances_semanales
+         WHERE project_id = p.id AND avance_financiero_real IS NOT NULL
+         ORDER BY semana DESC LIMIT 1),
+        0
+      ) AS avance_ejecutado_pct,
+      (SELECT valor FROM meta WHERE project_id = p.id AND clave = 'fin_obra') AS fin_obra
+    FROM proyectos p
+    JOIN clientes c ON c.id = p.cliente_id
+    ${join}
+    ORDER BY c.nombre, p.nombre
+  `, params);
+
+  const pids = obrasRaw.map((o) => o.project_id);
+
+  const [compromisos, fondoGarantia, cumplimientoData] = await Promise.all([
+    getCompromisosAbiertosAgregado(pids),
+    getFondoGarantiaAgregado(pids),
+    getCumplimientoResumenData(),
+  ]);
+  const compromisosPorObra = new Map(compromisos.porObra.map((o) => [o.project_id, o]));
+  const fondoGarantiaPorObra = new Map(fondoGarantia.porObra.map((o) => [o.project_id, o]));
+
+  let totalContratos = 0, importeEjecutado = 0;
+  const obras = obrasRaw.map((o) => {
+    const presupuesto = Number(o.presupuesto_total);
+    const avancePct = Number(o.avance_ejecutado_pct);
+    totalContratos += presupuesto;
+    importeEjecutado += presupuesto * avancePct / 100;
+    return {
+      project_id: o.project_id,
+      obra_nombre: o.obra_nombre,
+      cliente_id: o.cliente_id,
+      cliente_nombre: o.cliente_nombre,
+      presupuesto_total: Number(presupuesto.toFixed(2)),
+      avance_ejecutado_pct: avancePct,
+      compromisos: compromisosPorObra.get(o.project_id) || { monto_total: 0, monto_pagado: 0, monto_pendiente: 0 },
+      fondo_garantia: fondoGarantiaPorObra.get(o.project_id) || { porcentaje_pactado: null, acumulado: 0 },
+      alerta_contrato: alertaContratoDeObra(o.fin_obra),
+    };
+  });
+
+  res.json({
+    kpis: {
+      num_proyectos: obras.length,
+      total_contratos: Number(totalContratos.toFixed(2)),
+      importe_ejecutado: Number(importeEjecutado.toFixed(2)),
+      importe_por_ejecutar: Number((totalContratos - importeEjecutado).toFixed(2)),
+      avance_ponderado_pct: totalContratos > 0 ? Number(((importeEjecutado / totalContratos) * 100).toFixed(1)) : 0,
+    },
+    obras,
+    compromisos_total: compromisos.total,
+    fondo_garantia_total: { acumulado: fondoGarantia.acumulado_total },
+    cumplimiento: cumplimientoData,
+  });
 }));
 
 // ---------------------------------------------------------------------------

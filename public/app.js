@@ -41,12 +41,12 @@ const ROLE_TABS = {
   // simulación de rol no puede simular "soy el usuario 8", solo "soy rol X"
   // (prompt-fix-role-tabs-contabilidad.md) — limitación conocida y
   // aceptada para esos tres, no un bug.
-  admin:          ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'cumplimiento', 'finanzas', 'compromisos', 'fondoGarantia', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', 'ordenesCambio', ...MAQUINARIA_TABS_ADMIN, 'cotizador', 'costos', 'matrices', 'avance_clientes', 'composicion_costos', ...CONTABILIDAD_TABS],
-  desarrollador:  ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'cumplimiento', 'finanzas', 'compromisos', 'fondoGarantia', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', 'ordenesCambio', ...MAQUINARIA_TABS_ADMIN, 'cotizador', 'costos', 'matrices', 'avance_clientes', 'composicion_costos', ...CONTABILIDAD_TABS],
+  admin:          ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'cumplimiento', 'finanzas', 'compromisos', 'fondoGarantia', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', 'ordenesCambio', ...MAQUINARIA_TABS_ADMIN, 'cotizador', 'costos', 'matrices', 'avance_clientes', 'composicion_costos', 'dashboardEjecutivo', ...CONTABILIDAD_TABS],
+  desarrollador:  ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'cumplimiento', 'finanzas', 'compromisos', 'fondoGarantia', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', 'ordenesCambio', ...MAQUINARIA_TABS_ADMIN, 'cotizador', 'costos', 'matrices', 'avance_clientes', 'composicion_costos', 'dashboardEjecutivo', ...CONTABILIDAD_TABS],
   residente:      ['programa', 'avance', 'destajo', 'requisiciones', 'insumos', 'ordenes', 'nominas', 'trabajadores', 'estimaciones', 'ordenesCambio', 'matrices'],
   cabo:           ['destajo', 'insumos', 'avance', 'requisiciones', ...MAQUINARIA_TABS_CABO, 'trabajadores', 'nominas', 'ordenesCambio'],
   compras:        ['programa', 'requisiciones', 'insumos', 'ordenes', 'proveedores', 'cumplimiento', 'cotizador'],
-  tesoreria:      ['resumen', 'finanzas', 'compromisos', 'fondoGarantia', 'ordenes', 'contrato', 'impuestos', 'proveedores', 'cumplimiento'],
+  tesoreria:      ['resumen', 'finanzas', 'compromisos', 'fondoGarantia', 'ordenes', 'contrato', 'impuestos', 'proveedores', 'cumplimiento', 'dashboardEjecutivo'],
   administracion: ['resumen', 'programa', 'destajo', 'ordenes', 'proveedores', 'cumplimiento', 'contrato', 'impuestos', 'mapeo'],
   logistica:      ['programa', 'avance', 'requisiciones', 'insumos', 'ordenes'],
   jefe_maquinaria: MAQUINARIA_TABS_JEFE,
@@ -60,7 +60,7 @@ const ROLE_TABS = {
 // caen aquí (hoy: operador, jefe_maquinaria). Debe reflejar el mismo
 // conjunto que el bloque de "vistas globales" en renderView() (~línea 3670)
 // — si se agrega una vista global nueva ahí, agregarla aquí también.
-const VISTAS_SIN_PROYECTO = ['usuarios', 'proveedores', 'cumplimiento', ...MAQUINARIA_TABS_ADMIN, 'maquinaria_gallery', 'nominas_global', 'trabajadores_global', 'cotizador', 'estadoResultadosGlobal', 'costos', 'avance_clientes', 'composicion_costos'];
+const VISTAS_SIN_PROYECTO = ['usuarios', 'proveedores', 'cumplimiento', ...MAQUINARIA_TABS_ADMIN, 'maquinaria_gallery', 'nominas_global', 'trabajadores_global', 'cotizador', 'estadoResultadosGlobal', 'costos', 'avance_clientes', 'composicion_costos', 'dashboardEjecutivo'];
 
 const state = {
   projects: [],
@@ -1218,7 +1218,7 @@ const TAB_ICONS = {
   maquinaria_consumibles: '⛽', maquinaria_reportes_cliente: '📊',
   nominas_global: '💵', trabajadores_global: '👷', cotizador: '🔍',
   estadoResultados: '📈', estadoResultadosGlobal: '📈', costos: '💲', avance_clientes: '📈', composicion_costos: '🧮',
-  cuentas: '🏦', matrices: '🧱', controlFinanciero: '💹',
+  cuentas: '🏦', matrices: '🧱', controlFinanciero: '💹', dashboardEjecutivo: '📊',
   contabilidadCuentas: '📒', contabilidadPolizas: '🧾', contabilidadCfdi: '📑',
   contabilidadConciliacion: '🏦', contabilidadDepreciacion: '📉', contabilidadExport: '📤',
 };
@@ -1232,7 +1232,7 @@ const TAB_LABELS = {
   nominas_global: 'Nómina (todas las obras)', trabajadores_global: 'Trabajadores (todas las obras)',
   cotizador: 'Cotizador', estadoResultados: 'Estado de Resultados', estadoResultadosGlobal: 'Estado de Resultados (todas las obras)',
   costos: 'Costos', avance_clientes: 'Avance por cliente', composicion_costos: 'Composición de costos',
-  cuentas: 'Cuentas', matrices: 'Matrices de precio unitario', controlFinanciero: 'Control Financiero',
+  cuentas: 'Cuentas', matrices: 'Matrices de precio unitario', controlFinanciero: 'Control Financiero', dashboardEjecutivo: 'Dashboard Ejecutivo',
   contabilidadCuentas: 'Catálogo de Cuentas', contabilidadPolizas: 'Pólizas', contabilidadCfdi: 'CFDI',
   contabilidadConciliacion: 'Conciliación Bancaria', contabilidadDepreciacion: 'Depreciación de Maquinaria',
   contabilidadExport: 'Exportar / Reporte Mensual',
@@ -1438,6 +1438,7 @@ function updateGalleryDrawerGlobalLinks() {
   const puedeVer = (tab) => !!state.user && state.allowedTabs.includes(tab);
   const links = [
     ['btnGalleryGoUsuarios', puedeVer('usuarios')],
+    ['btnGalleryGoDashboardEjecutivo', puedeVer('dashboardEjecutivo')],
     ['btnGalleryGoTrabajadoresGlobal', puedeVer('trabajadores_global')],
     ['btnGalleryGoNominasGlobal', puedeVer('nominas_global')],
     // "Permisos" es la subvista "Permisos de Acceso" dentro de Usuarios
@@ -2998,6 +2999,16 @@ const AYUDA_CONTENIDO = {
       'Los admins reciben una notificación automática cuando un documento está por vencer o ya venció, igual que con el vencimiento de contrato de obra.',
     ],
   },
+  dashboardEjecutivo: {
+    titulo: 'Dashboard Ejecutivo',
+    pasos: [
+      'Vista consolidada multi-obra: avance físico/financiero, compromisos abiertos, fondo de garantía, alertas de contrato próximo a vencer y cumplimiento de proveedores — todo en una sola pantalla, sin tener que entrar obra por obra.',
+      'Solo ves las obras a las que tienes acceso: administradores/desarrolladores ven todas, tesorería solo las obras que tiene asignadas.',
+      'Los números por obra (comprometido no pagado, fondo de garantía acumulado) son exactamente los mismos que verías entrando a esa obra en Finanzas — Compromisos Abiertos/Fondo de Garantía — aquí solo se muestran consolidados.',
+      'El badge de "por vencer"/"vencido" sobre una tarjeta usa el mismo criterio (30/15/7 días) que la notificación automática de vencimiento de contrato.',
+      'El bloque de Cumplimiento de Proveedores es global — no está ligado a ninguna obra en particular, es el mismo dato que la vista de Cumplimiento completa.',
+    ],
+  },
 };
 
 // Botón "?" reutilizable — colócalo junto al título/acción de cualquier
@@ -3761,6 +3772,7 @@ $('#chkHighContrastGallery').addEventListener('change', (e) => setHighContrast(e
 $('#btnMiCuentaGalleryDrawer').addEventListener('click', () => { closeGalleryDrawer(); openMiCuentaModal(false); });
 $('#btnLogoutGalleryDrawer').addEventListener('click', () => { closeGalleryDrawer(); logout(); });
 $('#btnGalleryGoUsuarios').addEventListener('click', () => goToGlobalAdminView('usuarios'));
+$('#btnGalleryGoDashboardEjecutivo').addEventListener('click', () => goToGlobalAdminView('dashboardEjecutivo'));
 $('#btnGalleryGoTrabajadoresGlobal').addEventListener('click', () => goToGlobalAdminView('trabajadores_global'));
 $('#btnGalleryGoNominasGlobal').addEventListener('click', () => goToGlobalAdminView('nominas_global'));
 $('#btnGalleryGoPermisos').addEventListener('click', () => { state.usuariosSubView = 'permisos'; goToGlobalAdminView('usuarios'); });
@@ -4057,9 +4069,10 @@ function destroyCharts() {
 async function renderView() {
   destroyCharts();
   const view = $('#view');
-  if (state.view === 'usuarios' || state.view === 'proveedores' || state.view === 'cumplimiento' || MAQUINARIA_TABS_ADMIN.includes(state.view) || state.view === 'nominas_global' || state.view === 'trabajadores_global' || state.view === 'cotizador' || state.view === 'estadoResultadosGlobal' || state.view === 'costos' || state.view === 'avance_clientes' || state.view === 'composicion_costos' || state.view === 'cuentas' || state.view === 'controlFinanciero' || SECTION_DEFS.contabilidad.tabs.includes(state.view)) {
+  if (state.view === 'usuarios' || state.view === 'proveedores' || state.view === 'cumplimiento' || MAQUINARIA_TABS_ADMIN.includes(state.view) || state.view === 'nominas_global' || state.view === 'trabajadores_global' || state.view === 'cotizador' || state.view === 'estadoResultadosGlobal' || state.view === 'costos' || state.view === 'avance_clientes' || state.view === 'composicion_costos' || state.view === 'cuentas' || state.view === 'controlFinanciero' || state.view === 'dashboardEjecutivo' || SECTION_DEFS.contabilidad.tabs.includes(state.view)) {
     try {
       if (state.view === 'usuarios') { await renderUsuarios(view, state.usuariosSubView); state.usuariosSubView = null; }
+      else if (state.view === 'dashboardEjecutivo') await renderDashboardEjecutivo(view);
       else if (state.view === 'cuentas') await renderControlCuentas(view);
       else if (state.view === 'controlFinanciero') await renderControlFinanciero(view);
       else if (state.view === 'contabilidadCuentas') await renderContabilidadCuentas(view);
@@ -9260,6 +9273,146 @@ function paintCumplimientoTabla(tipos, proveedores, puedeCrear) {
       if (p) openProveedorDocumentosModal(p.proveedor_id, p.proveedor_nombre, tipos, puedeCrear);
     });
   });
+}
+
+// =========================================================================
+// VISTA: Dashboard Ejecutivo (prompt-dashboard-ejecutivo.md) — vista global
+// (no por obra), accesible desde el drawer de la galería junto a Usuarios.
+// Consolida GET /api/dashboard-ejecutivo: avance por obra (reusa .wpc-*/
+// .bienvenida-proj-card, mismo patrón que "Mayor avance"), KPIs globales
+// (reusa .global-chart-section, mismo patrón que renderGlobalChart), badge
+// de alerta de contrato (mismo criterio visual — .badge red/yellow — que la
+// vista de Contrato por-obra) y un resumen de Cumplimiento de Proveedores
+// (mismo estatus/colores que CUMPLIMIENTO_ESTATUS_INFO arriba).
+// =========================================================================
+async function renderDashboardEjecutivo(view) {
+  view.innerHTML = `
+    <h2 class="section-title">Dashboard Ejecutivo ${renderHelpBtn('dashboardEjecutivo')}</h2>
+    <p class="muted">Vista consolidada de todas tus obras: avance, compromisos abiertos, fondo de garantía, alertas de contrato y cumplimiento de proveedores.</p>
+    <div id="dashEjecKpis"><div class="spinner"></div></div>
+    <div id="dashEjecObras" class="mt-12"></div>
+    <div id="dashEjecCumplimiento" class="mt-12"></div>
+  `;
+
+  const data = await api('/dashboard-ejecutivo');
+  const kpis = data.kpis;
+
+  $('#dashEjecKpis').innerHTML = `
+    <div class="global-chart-section">
+      <div class="bienvenida-summary-title">Resumen global — ${kpis.num_proyectos} obra${kpis.num_proyectos === 1 ? '' : 's'}</div>
+      <div class="global-chart-wrap">
+        <div class="global-chart-canvas-wrap">
+          <canvas id="dashEjecPieChart" width="140" height="140"></canvas>
+          <div class="global-chart-pct">${kpis.avance_ponderado_pct.toFixed(1)}%</div>
+        </div>
+        <div class="global-chart-kpis">
+          <div class="global-kpi"><span class="global-kpi-label">Total contratos</span><span class="global-kpi-value">${fmtMoney(kpis.total_contratos)}</span></div>
+          <div class="global-kpi"><span class="global-kpi-label">Ejecutado</span><span class="global-kpi-value text-verde">${fmtMoney(kpis.importe_ejecutado)}</span></div>
+          <div class="global-kpi"><span class="global-kpi-label">Por ejecutar</span><span class="global-kpi-value text-secondary-color">${fmtMoney(kpis.importe_por_ejecutar)}</span></div>
+          <div class="global-kpi"><span class="global-kpi-label">Avance ponderado</span><span class="global-kpi-value accent">${kpis.avance_ponderado_pct.toFixed(1)}%</span></div>
+          <div class="global-kpi"><span class="global-kpi-label">Comprometido no pagado</span><span class="global-kpi-value">${fmtMoney(data.compromisos_total.monto_pendiente)}</span></div>
+          <div class="global-kpi"><span class="global-kpi-label">Fondo de garantía acumulado</span><span class="global-kpi-value">${fmtMoney(data.fondo_garantia_total.acumulado)}</span></div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  if (kpis.num_proyectos > 0) {
+    const ctx = $('#dashEjecPieChart').getContext('2d');
+    const cc = chartColors();
+    state.charts.dashEjecPie = new Chart(ctx, {
+      type: 'doughnut',
+      data: {
+        labels: ['Ejecutado', 'Por ejecutar'],
+        datasets: [{
+          data: [kpis.importe_ejecutado, kpis.importe_por_ejecutar],
+          backgroundColor: ['#22c55e', cc.grid],
+          borderColor: cc.primary,
+          borderWidth: 3,
+        }],
+      },
+      options: {
+        responsive: false,
+        cutout: '62%',
+        animation: animationForChart('dashEjecPie'),
+        plugins: {
+          legend: { display: false },
+          tooltip: { callbacks: { label: (c) => `${c.label}: ${fmtMoney(c.raw)}` } },
+        },
+      },
+    });
+    state.charts.dashEjecPie._cpBorderSurface = 'primary';
+    state.charts.dashEjecPie._cpGridBgIndexes = [1];
+  }
+
+  const obrasWrap = $('#dashEjecObras');
+  if (!data.obras.length) {
+    obrasWrap.innerHTML = '<div class="empty-state">No hay obras registradas todavía.</div>';
+  } else {
+    obrasWrap.innerHTML = `
+      <div class="bienvenida-summary-title">Obras</div>
+      <div class="bienvenida-client-grid">
+        ${data.obras.map((o) => {
+          const pct = Math.min(100, Math.max(0, Number(o.avance_ejecutado_pct) || 0));
+          const alerta = o.alerta_contrato;
+          let badgeHtml = '';
+          if (alerta) {
+            const vencido = alerta.umbral === 'vencido';
+            const texto = vencido ? '⚠️ Vencido' : `⏳ ${alerta.dias_restantes}d`;
+            const title = vencido
+              ? `Contrato vencido hace ${Math.abs(alerta.dias_restantes)} día(s)`
+              : `Contrato vence en ${alerta.dias_restantes} día(s)`;
+            badgeHtml = `<span class="badge ${vencido ? 'red' : 'yellow'} dashboard-ejec-badge" title="${esc(title)}">${texto}</span>`;
+          }
+          return `
+          <div class="welcome-project-card bienvenida-proj-card dashboard-ejec-card" data-pid="${o.project_id}" data-cid="${o.cliente_id != null ? o.cliente_id : ''}">
+            ${badgeHtml}
+            ${o.cliente_nombre ? `<div class="wpc-client">${esc(o.cliente_nombre)}</div>` : ''}
+            <div class="wpc-nombre">${esc(o.obra_nombre)}</div>
+            <div class="wpc-progress-bar"><div class="wpc-progress-fill" data-pct="${pct}"></div></div>
+            <div class="wpc-stats">
+              <span class="wpc-pct">${pct.toFixed(1)}% ejecutado</span>
+              <span class="wpc-total">${fmtMoney(o.presupuesto_total)}</span>
+            </div>
+            <div class="dashboard-ejec-card-finanzas">
+              <span title="Comprometido no pagado">📌 ${fmtMoney(o.compromisos.monto_pendiente)}</span>
+              <span title="Fondo de garantía acumulado">🔒 ${fmtMoney(o.fondo_garantia.acumulado)}</span>
+            </div>
+          </div>`;
+        }).join('')}
+      </div>
+    `;
+    $$('.wpc-progress-fill', obrasWrap).forEach((fill) => { fill.style.width = fill.dataset.pct + '%'; });
+    $$('.dashboard-ejec-card', obrasWrap).forEach((card) => {
+      card.addEventListener('click', () => {
+        const pid = Number(card.dataset.pid);
+        const cid = card.dataset.cid ? Number(card.dataset.cid) : null;
+        state.clienteId = cid;
+        showApp();
+        selectProject(pid);
+      });
+    });
+  }
+
+  const cumplWrap = $('#dashEjecCumplimiento');
+  const counts = { vigente: 0, por_vencer: 0, vencido: 0, no_capturado: 0 };
+  for (const p of data.cumplimiento.proveedores) {
+    for (const tipo of Object.keys(p.documentos)) {
+      const estatus = p.documentos[tipo].estatus;
+      if (counts[estatus] != null) counts[estatus]++;
+    }
+  }
+  cumplWrap.innerHTML = `
+    <div class="bienvenida-summary-title">Cumplimiento de proveedores</div>
+    <div class="card">
+      <div class="card-row"><span class="k">Vigente</span><span class="v"><span class="badge green">${counts.vigente}</span></span></div>
+      <div class="card-row"><span class="k">Por vencer</span><span class="v"><span class="badge yellow">${counts.por_vencer}</span></span></div>
+      <div class="card-row"><span class="k">Vencido</span><span class="v"><span class="badge red">${counts.vencido}</span></span></div>
+      <div class="card-row"><span class="k">Sin capturar</span><span class="v"><span class="badge muted">${counts.no_capturado}</span></span></div>
+      <div class="card-row"><button class="btn full" id="btnDashEjecVerCumplimiento">Ver detalle completo</button></div>
+    </div>
+  `;
+  $('#btnDashEjecVerCumplimiento')?.addEventListener('click', () => goToGlobalAdminView('cumplimiento'));
 }
 
 // Mismo criterio que server/cumplimiento.js elegirVigente()/estatusDeDocumento()

@@ -548,11 +548,19 @@ function defaultPermisosParaRol(puesto) {
     // Rol de acceso único a Presupuestos — a diferencia de residente (para
     // quien 'costos' es una capacidad secundaria y queda solo puede_ver=true
     // por default), este rol no tiene ningún otro propósito: se le da
-    // puede_crear/puede_editar=true desde el alta para que sea usable de
-    // inmediato. puede_editar_precios y puede_eliminar quedan en false por
-    // default, igual que para todos los roles (se conceden manualmente desde
-    // la matriz si Paul los necesita).
-    if (porSeccion.costos) { porSeccion.costos.puede_crear = true; porSeccion.costos.puede_editar = true; }
+    // puede_crear/puede_editar/puede_editar_precios/puede_eliminar=true desde
+    // el alta para que sea usable de inmediato. Corrección de
+    // prompt-diagnostico-costos-opciones-faltantes.md: el pedido original de
+    // Paul ("puede ver y editar TODA esa sección") incluye ajustar % de
+    // matrices, aplicar precio al concepto y eliminar matrices — dejar esos
+    // dos flags en false rompía 5 acciones dentro de Matrices con un 403
+    // silencioso, porque el frontend no oculta esos botones por permiso.
+    if (porSeccion.costos) {
+      porSeccion.costos.puede_crear = true;
+      porSeccion.costos.puede_editar = true;
+      porSeccion.costos.puede_editar_precios = true;
+      porSeccion.costos.puede_eliminar = true;
+    }
   }
   return filas;
 }

@@ -75,25 +75,50 @@ async function asignarOperadorEquipo(id, operador_id) {
   return rows[0];
 }
 
-async function createEquipo({ nombre, tipo, identificador, estado, obra_id }) {
+async function createEquipo({ nombre, tipo, identificador, estado, obra_id, categoria_uso }) {
   const { rows } = await db.pool.query(
-    `INSERT INTO equipos_maquinaria (nombre, tipo, identificador, estado, obra_id)
-     VALUES ($1, $2, $3, COALESCE($4, 'activo'), $5) RETURNING *`,
-    [nombre, tipo || 'retroexcavadora', identificador || null, estado, obra_id || null]
+    `INSERT INTO equipos_maquinaria (nombre, tipo, identificador, estado, obra_id, categoria_uso)
+     VALUES ($1, $2, $3, COALESCE($4, 'activo'), $5, COALESCE($6, 'pesada')) RETURNING *`,
+    [nombre, tipo || 'retroexcavadora', identificador || null, estado, obra_id || null, categoria_uso || null]
   );
   return rows[0];
 }
 
-async function updateEquipo(id, { nombre, tipo, identificador, estado, obra_id }) {
+async function updateEquipo(id, { nombre, tipo, identificador, estado, obra_id, categoria_uso }) {
   const { rows } = await db.pool.query(
     `UPDATE equipos_maquinaria SET
        nombre = COALESCE($1, nombre),
        tipo = COALESCE($2, tipo),
        identificador = COALESCE($3, identificador),
        estado = COALESCE($4, estado),
-       obra_id = $5
-     WHERE id = $6 AND activo = true RETURNING *`,
-    [nombre || null, tipo || null, identificador || null, estado || null, obra_id ?? null, id]
+       obra_id = $5,
+       categoria_uso = COALESCE($6, categoria_uso)
+     WHERE id = $7 AND activo = true RETURNING *`,
+    [nombre || null, tipo || null, identificador || null, estado || null, obra_id ?? null, categoria_uso || null, id]
+  );
+  return rows[0];
+}
+
+// Registro abierto de responsable diario (prompt-responsable-diario-equipo-
+// menor.md) — solo para equipos categoria_uso='menor'; sin candado de
+// ownership (a diferencia de reportes_horas_maquinaria), cualquiera con
+// acceso al módulo puede registrar para cualquier equipo.
+async function listResponsablesDiarios(equipoId) {
+  const { rows } = await db.pool.query(`
+    SELECT rd.*, u.nombre AS registrado_por_nombre
+    FROM equipo_responsable_diario rd
+    LEFT JOIN usuarios u ON u.id = rd.registrado_por
+    WHERE rd.equipo_id = $1
+    ORDER BY rd.fecha DESC, rd.id DESC
+  `, [equipoId]);
+  return rows;
+}
+
+async function createResponsableDiario({ equipo_id, fecha, nombre_responsable, registrado_por }) {
+  const { rows } = await db.pool.query(
+    `INSERT INTO equipo_responsable_diario (equipo_id, fecha, nombre_responsable, registrado_por)
+     VALUES ($1, COALESCE($2, CURRENT_DATE), $3, $4) RETURNING *`,
+    [equipo_id, fecha || null, nombre_responsable, registrado_por]
   );
   return rows[0];
 }
@@ -529,6 +554,7 @@ async function listConsumibles({ equipoId = null, operadorId = null, fechaDesde 
 module.exports = {
   listEquipos, getEquipoById, createEquipo, updateEquipo, softDeleteEquipo,
   asignarClienteEquipo, asignarOperadorEquipo,
+  listResponsablesDiarios, createResponsableDiario,
   listCombustible, createCombustible, softDeleteCombustible,
   listMantenimientos, createMantenimiento, softDeleteMantenimiento,
   listHoras, createHoras, softDeleteHoras, updateEstadoHoras,

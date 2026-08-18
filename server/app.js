@@ -1514,21 +1514,49 @@ app.get('/api/maquinaria/equipos/:id', h(auth.checkPermiso('maquinaria', 'puede_
 }));
 
 app.post('/api/maquinaria/equipos', h(auth.checkPermiso('maquinaria', 'puede_crear')), h(async (req, res) => {
-  const { nombre, tipo, identificador, estado, obra_id } = req.body || {};
+  const { nombre, tipo, identificador, estado, obra_id, categoria_uso } = req.body || {};
   if (!nombre?.trim()) return res.status(400).json({ error: 'El nombre del equipo es requerido' });
+  if (categoria_uso && !['pesada', 'menor'].includes(categoria_uso)) {
+    return res.status(400).json({ error: 'categoria_uso inválida' });
+  }
   const equipo = await maquinaria.createEquipo({
-    nombre: nombre.trim(), tipo: tipo?.trim(), identificador: identificador?.trim(), estado, obra_id,
+    nombre: nombre.trim(), tipo: tipo?.trim(), identificador: identificador?.trim(), estado, obra_id, categoria_uso,
   });
   res.status(201).json(equipo);
 }));
 
 app.put('/api/maquinaria/equipos/:id', h(auth.checkPermiso('maquinaria', 'puede_editar')), h(async (req, res) => {
-  const { nombre, tipo, identificador, estado, obra_id } = req.body || {};
+  const { nombre, tipo, identificador, estado, obra_id, categoria_uso } = req.body || {};
+  if (categoria_uso && !['pesada', 'menor'].includes(categoria_uso)) {
+    return res.status(400).json({ error: 'categoria_uso inválida' });
+  }
   const equipo = await maquinaria.updateEquipo(Number(req.params.id), {
-    nombre: nombre?.trim(), tipo: tipo?.trim(), identificador: identificador?.trim(), estado, obra_id,
+    nombre: nombre?.trim(), tipo: tipo?.trim(), identificador: identificador?.trim(), estado, obra_id, categoria_uso,
   });
   if (!equipo) return res.status(404).json({ error: 'Equipo no encontrado' });
   res.json(equipo);
+}));
+
+// Registro abierto de responsable diario (prompt-responsable-diario-equipo-
+// menor.md) — mismo checkPermiso('maquinaria', ...) que el resto del
+// catálogo, deliberadamente SIN el candado de ownership que sí tienen los 4
+// endpoints de reportes_horas_maquinaria/estado_unidad/consumibles (líneas
+// 1510/1787/1806/1901): cualquiera con acceso al módulo puede registrar para
+// cualquier equipo tipo "menor", porque no hay asignación formal que validar.
+app.get('/api/maquinaria/equipos/:id/responsables', h(auth.checkPermiso('maquinaria', 'puede_ver')), h(async (req, res) => {
+  res.json(await maquinaria.listResponsablesDiarios(Number(req.params.id)));
+}));
+
+app.post('/api/maquinaria/equipos/:id/responsables', h(auth.checkPermiso('maquinaria', 'puede_crear')), h(async (req, res) => {
+  const { fecha, nombre_responsable } = req.body || {};
+  if (!nombre_responsable?.trim()) return res.status(400).json({ error: 'El nombre del responsable es requerido' });
+  const equipoId = Number(req.params.id);
+  const equipo = await maquinaria.getEquipoById(equipoId);
+  if (!equipo) return res.status(404).json({ error: 'Equipo no encontrado' });
+  const registro = await maquinaria.createResponsableDiario({
+    equipo_id: equipoId, fecha: fecha || null, nombre_responsable: nombre_responsable.trim(), registrado_por: req.user.id,
+  });
+  res.status(201).json(registro);
 }));
 
 app.delete('/api/maquinaria/equipos/:id', h(auth.checkPermiso('maquinaria', 'puede_eliminar')), h(async (req, res) => {

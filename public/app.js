@@ -10320,7 +10320,37 @@ function paintEquiposMaqList(equipos, proyectos, { puedeEditar, puedeEliminar, p
     list.innerHTML = '<div class="empty-state">No hay equipos registrados todavía.</div>';
     return;
   }
-  const ESTADO_BADGE = { activo: 'green', mantenimiento: 'yellow', baja: 'red' };
+  const ESTADO_BADGE = { activo: 'green', mantenimiento: 'yellow', en_taller: 'purple', baja: 'red' };
+  const ESTADO_LABEL = { activo: 'activo', mantenimiento: 'mantenimiento', en_taller: 'en taller', baja: 'baja' };
+  // prompt-responsable-diario-equipo-menor.md: equipo tipo 'menor' reemplaza
+  // el selector formal de "Operador asignado" por un registro abierto por
+  // fecha (equipo_responsable_diario) — equipo tipo 'pesada' NO cambia nada,
+  // mismo selector de siempre. Misma condición puedeAsignarOperador (permiso
+  // + rol) que ya gateaba el selector, para no introducir un flag nuevo.
+  const operadorOResponsableHtml = (e) => e.categoria_uso === 'menor' ? `
+      <div class="field mt-8">
+        <label>Responsable de hoy</label>
+        ${puedeAsignarOperador ? `
+        <div class="row">
+          <input type="text" style="flex:1" data-responsable-input="${e.id}" placeholder="Nombre de quien tiene el equipo hoy" maxlength="120" />
+          <button class="btn small btn-primary" data-registrar-responsable="${e.id}">Registrar</button>
+        </div>
+        ` : ''}
+      </div>
+      <button class="collapse-toggle mt-8" data-toggle-responsables-maq="${e.id}">
+        <span>🧑‍🔧 Historial de responsables</span>
+        <span class="chev">▾</span>
+      </button>
+      <div class="collapse-body" id="responsablesMaq-${e.id}"></div>
+  ` : (puedeAsignarOperador ? `
+      <div class="field mt-8">
+        <label>Operador asignado</label>
+        <select data-asignar-operador-maq="${e.id}">
+          <option value="">Sin asignar</option>
+          ${operadoresMaq.map((o) => `<option value="${o.id}" ${e.operador_asignado_id === o.id ? 'selected' : ''}>${esc(o.nombre)}</option>`).join('')}
+        </select>
+      </div>
+  ` : (e.operador_asignado_nombre ? `<div class="muted fs-08">👷 ${esc(e.operador_asignado_nombre)}</div>` : ''));
   list.innerHTML = equipos.map((e) => `
     <div class="card" data-equipo-card="${e.id}">
       <div class="row between">
@@ -10330,17 +10360,9 @@ function paintEquiposMaqList(equipos, proyectos, { puedeEditar, puedeEliminar, p
           ${e.obra_nombre ? `<div class="muted fs-08">🏗️ ${esc(e.obra_nombre)}</div>` : '<div class="muted fs-08">Sin obra asignada</div>'}
           ${e.cliente_asignado_nombre ? `<div class="muted fs-08">🏢 ${esc(e.cliente_asignado_nombre)}</div>` : ''}
         </div>
-        <span class="badge ${ESTADO_BADGE[e.estado] || 'muted'}">${esc(e.estado)}</span>
+        <span class="badge ${ESTADO_BADGE[e.estado] || 'muted'}">${esc(ESTADO_LABEL[e.estado] || e.estado)}</span>
       </div>
-      ${puedeAsignarOperador ? `
-      <div class="field mt-8">
-        <label>Operador asignado</label>
-        <select data-asignar-operador-maq="${e.id}">
-          <option value="">Sin asignar</option>
-          ${operadoresMaq.map((o) => `<option value="${o.id}" ${e.operador_asignado_id === o.id ? 'selected' : ''}>${esc(o.nombre)}</option>`).join('')}
-        </select>
-      </div>
-      ` : (e.operador_asignado_nombre ? `<div class="muted fs-08">👷 ${esc(e.operador_asignado_nombre)}</div>` : '')}
+      ${operadorOResponsableHtml(e)}
       ${(puedeEditar || puedeEliminar) ? `
       <div class="row end mt8-gap8">
         ${puedeEditar ? `<button class="btn small" data-edit-equipo-maq="${e.id}">Editar</button>` : ''}
@@ -10388,6 +10410,68 @@ function paintEquiposMaqList(equipos, proyectos, { puedeEditar, puedeEliminar, p
       }
     });
   });
+  $$('[data-toggle-responsables-maq]', list).forEach((btn) => {
+    btn.addEventListener('click', () => toggleResponsablesMaq(btn));
+  });
+  $$('[data-registrar-responsable]', list).forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const equipoId = Number(btn.dataset.registrarResponsable);
+      const input = $(`[data-responsable-input="${equipoId}"]`, list);
+      const nombre = input.value.trim();
+      if (!nombre) { toast('Escribe el nombre del responsable', 'danger'); return; }
+      btn.disabled = true;
+      try {
+        await api(`/maquinaria/equipos/${equipoId}/responsables`, { method: 'POST', body: { nombre_responsable: nombre } });
+        toast('Responsable registrado', 'success');
+        input.value = '';
+        const body = document.getElementById(`responsablesMaq-${equipoId}`);
+        if (body) { delete body.dataset.loaded; if (body.classList.contains('open')) await cargarResponsablesMaq(equipoId, body); }
+      } catch (err) {
+        toast(err.message, 'danger');
+      } finally {
+        btn.disabled = false;
+      }
+    });
+  });
+}
+
+async function cargarResponsablesMaq(equipoId, body) {
+  body.dataset.loaded = '1';
+  body.innerHTML = '<div class="spinner"></div>';
+  try {
+    const registros = await api(`/maquinaria/equipos/${equipoId}/responsables`);
+    if (!registros.length) {
+      body.innerHTML = '<p class="muted fs-08 py10-px4">Sin registros todavía.</p>';
+      return;
+    }
+    body.innerHTML = `
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Fecha</th><th>Responsable</th><th>Registró</th></tr></thead>
+          <tbody>
+            ${registros.map((r) => `
+              <tr>
+                <td>${fmtDate(r.fecha)}</td>
+                <td>${esc(r.nombre_responsable)}</td>
+                <td class="muted fs-08">${esc(r.registrado_por_nombre || '—')}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+    `;
+  } catch (err) {
+    body.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+  }
+}
+
+async function toggleResponsablesMaq(btn) {
+  const equipoId = Number(btn.dataset.toggleResponsablesMaq);
+  const body = document.getElementById(`responsablesMaq-${equipoId}`);
+  const isOpen = btn.classList.toggle('open');
+  body.classList.toggle('open', isOpen);
+  if (!isOpen || body.dataset.loaded) return;
+  await cargarResponsablesMaq(equipoId, body);
 }
 
 async function toggleHistorialMaq(btn) {
@@ -10447,7 +10531,13 @@ function openEquipoMaqModal(equipo, proyectos) {
     <div class="field"><label>Identificador / serie</label><input id="eqIdentificador" value="${isEdit ? esc(equipo.identificador || '') : ''}" /></div>
     <div class="field"><label>Estado</label>
       <select id="eqEstado">
-        ${['activo', 'mantenimiento', 'baja'].map((s) => `<option value="${s}" ${isEdit && equipo.estado === s ? 'selected' : ''}>${esc(s)}</option>`).join('')}
+        ${[['activo', 'activo'], ['mantenimiento', 'mantenimiento'], ['en_taller', 'en taller'], ['baja', 'baja']].map(([v, label]) => `<option value="${v}" ${isEdit && equipo.estado === v ? 'selected' : ''}>${esc(label)}</option>`).join('')}
+      </select>
+    </div>
+    <div class="field"><label>Categoría de uso</label>
+      <select id="eqCategoriaUso">
+        <option value="pesada" ${!isEdit || equipo.categoria_uso === 'pesada' ? 'selected' : ''}>Pesada (operador asignado fijo)</option>
+        <option value="menor" ${isEdit && equipo.categoria_uso === 'menor' ? 'selected' : ''}>Menor / herramienta / camioneta (responsable diario)</option>
       </select>
     </div>
     <div class="field"><label>Obra asignada</label>
@@ -10471,6 +10561,7 @@ function openEquipoMaqModal(equipo, proyectos) {
     const body = {
       nombre, tipo: $('#eqTipo').value, identificador: $('#eqIdentificador').value.trim() || null,
       estado: $('#eqEstado').value, obra_id: $('#eqObra').value ? Number($('#eqObra').value) : null,
+      categoria_uso: $('#eqCategoriaUso').value,
     };
     try {
       if (isEdit) await api(`/maquinaria/equipos/${equipo.id}`, { method: 'PUT', body });

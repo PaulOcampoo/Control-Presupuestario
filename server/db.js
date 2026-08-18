@@ -1238,7 +1238,7 @@ const SCHEMA = `
     nombre TEXT NOT NULL,
     tipo TEXT NOT NULL DEFAULT 'retroexcavadora',
     identificador TEXT,
-    estado TEXT NOT NULL DEFAULT 'activo' CHECK (estado IN ('activo', 'mantenimiento', 'baja')),
+    estado TEXT NOT NULL DEFAULT 'activo' CHECK (estado IN ('activo', 'mantenimiento', 'baja', 'en_taller')),
     obra_id INTEGER REFERENCES proyectos(id) ON DELETE SET NULL,
     activo BOOLEAN NOT NULL DEFAULT true,
     creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -1276,6 +1276,45 @@ const SCHEMA = `
   -- filas existentes son 'retroexcavadora'); DEFAULT 'maquina' las backfillea
   -- sin intervención manual.
   ALTER TABLE equipos_maquinaria ADD COLUMN IF NOT EXISTS categoria TEXT NOT NULL DEFAULT 'maquina' CHECK (categoria IN ('maquina', 'camioneta'));
+
+  -- 'en_taller' como valor nuevo de estado (prompt-responsable-diario-equipo-
+  -- menor.md) — el CHECK ya quedó actualizado arriba para instalaciones
+  -- nuevas, pero CREATE TABLE IF NOT EXISTS no vuelve a correr sobre una
+  -- tabla que ya existe (Preview/producción), así que hace falta reemplazar
+  -- el constraint explícitamente. Nombre autogenerado por Postgres para un
+  -- CHECK inline sin CONSTRAINT explícito: <tabla>_<columna>_check.
+  ALTER TABLE equipos_maquinaria DROP CONSTRAINT IF EXISTS equipos_maquinaria_estado_check;
+  ALTER TABLE equipos_maquinaria ADD CONSTRAINT equipos_maquinaria_estado_check CHECK (estado IN ('activo', 'mantenimiento', 'baja', 'en_taller'));
+
+  -- Clasificación pesada/menor (prompt-responsable-diario-equipo-menor.md):
+  -- distinta de 'tipo' (texto libre, catálogo de modelo/equipo específico) y
+  -- de 'categoria' (máquina/camioneta, variante de checklist estado_unidad).
+  -- 'categoria_uso' determina si la ficha del equipo usa el selector formal
+  -- de "Operador asignado" (pesada, comportamiento sin cambios) o el registro
+  -- abierto de equipo_responsable_diario (menor). DEFAULT 'pesada' para no
+  -- reclasificar retroactivamente equipos ya capturados (algunos ya tienen
+  -- operador_asignado_id / reportes_horas_maquinaria históricos que no deben
+  -- verse afectados) — reclasificación a 'menor' es siempre manual.
+  ALTER TABLE equipos_maquinaria ADD COLUMN IF NOT EXISTS categoria_uso TEXT NOT NULL DEFAULT 'pesada' CHECK (categoria_uso IN ('pesada', 'menor'));
+
+  -- Registro abierto de "quién tuvo el equipo hoy" para equipo tipo 'menor'
+  -- (prompt-responsable-diario-equipo-menor.md) — deliberadamente separado de
+  -- reportes_horas_maquinaria (horas trabajadas con implicación de nómina/
+  -- costos, candadeado a operador_asignado_id === req.user.id en 4 endpoints,
+  -- ver server/app.js) y de trabajadores (catálogo por obra, no cubre equipo
+  -- sin obra ni personas sin registro de obra). nombre_responsable es texto
+  -- libre a propósito (decisión confirmada con Paul: "dejar abierto"), no FK
+  -- a trabajadores/usuarios — cubre también compartir equipo entre personas
+  -- de distintas obras o terceros.
+  CREATE TABLE IF NOT EXISTS equipo_responsable_diario (
+    id SERIAL PRIMARY KEY,
+    equipo_id INTEGER NOT NULL REFERENCES equipos_maquinaria(id),
+    fecha DATE NOT NULL DEFAULT CURRENT_DATE,
+    nombre_responsable TEXT NOT NULL,
+    registrado_por INTEGER REFERENCES usuarios(id),
+    registrado_en TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
+  CREATE INDEX IF NOT EXISTS idx_equipo_responsable_equipo_fecha ON equipo_responsable_diario(equipo_id, fecha);
 
   CREATE TABLE IF NOT EXISTS combustible_maquinaria (
     id SERIAL PRIMARY KEY,

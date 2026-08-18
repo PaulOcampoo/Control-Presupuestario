@@ -108,6 +108,15 @@ const PERMISSIONS = {
   // jefe_maquinaria (combustible/mantenimiento, PR #49) y de cabo (también
   // captura horas hoy, sin cambios en este prompt — eso es el Prompt 3).
   operador: { label: 'Operador', tabs: MAQUINARIA_TABS_OPERADOR },
+  // Rol nuevo (prompt-nuevo-rol-costos.md) — acceso EXCLUSIVO a Presupuestos
+  // (Matrices de PU, Costos, Composición de Costos, las 3 subsecciones de
+  // PR #127/#133). 'matrices' mapea a la sección granular 'costos' (ver
+  // TAB_A_SECCION más abajo); el tab 'costos' (catálogo global) y
+  // 'composicion_costos' NO tienen checkPermiso real por sección propia
+  // (ver auth.allow('costos') agregado en los endpoints de
+  // server/app.js — composicion-costos/porcentajes-referencia eran
+  // admin/desarrollador-only, sin excepción por permisos_usuario).
+  costos: { label: 'Costos', tabs: ['matrices', 'costos', 'composicion_costos'] },
 };
 const PUESTOS = Object.keys(PERMISSIONS);
 
@@ -534,6 +543,16 @@ function defaultPermisosParaRol(puesto) {
       seccion: 'maquinaria_consumibles', puede_ver: true, puede_crear: true,
       puede_editar: false, puede_editar_precios: false, puede_eliminar: false,
     });
+  }
+  if (puesto === 'costos') {
+    // Rol de acceso único a Presupuestos — a diferencia de residente (para
+    // quien 'costos' es una capacidad secundaria y queda solo puede_ver=true
+    // por default), este rol no tiene ningún otro propósito: se le da
+    // puede_crear/puede_editar=true desde el alta para que sea usable de
+    // inmediato. puede_editar_precios y puede_eliminar quedan en false por
+    // default, igual que para todos los roles (se conceden manualmente desde
+    // la matriz si Paul los necesita).
+    if (porSeccion.costos) { porSeccion.costos.puede_crear = true; porSeccion.costos.puede_editar = true; }
   }
   return filas;
 }

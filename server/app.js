@@ -2032,7 +2032,7 @@ app.get('/api/cron/cotizador-refresh', requireCronSecret, h(async (req, res) => 
 // ningún rename). NO se agrega a los demás endpoints con este mismo
 // allow() literal (ordenes, programa, conceptos, etc.) — ambos roles solo
 // tienen el tab 'maquinaria' (vista global, no por-obra).
-app.get('/api/clientes', h(auth.allow('residente', 'cabo', 'compras', 'tesoreria', 'administracion', 'logistica', 'jefe_maquinaria', 'operador')), h(async (req, res) => {
+app.get('/api/clientes', h(auth.allow('residente', 'cabo', 'compras', 'tesoreria', 'administracion', 'logistica', 'jefe_maquinaria', 'operador', 'costos')), h(async (req, res) => {
   if (req.user.puesto === 'admin') {
     const { rows } = await db.pool.query(`
       SELECT c.id, c.nombre, COUNT(p.id)::int AS num_proyectos
@@ -2519,12 +2519,12 @@ function ponderarSerie(obras, campo) {
   return sumaPresupuestoConDato > 0 ? Number((sumaPonderada / sumaPresupuestoConDato).toFixed(1)) : null;
 }
 
-app.get('/api/porcentajes-referencia', h(auth.allow()), h(async (req, res) => {
+app.get('/api/porcentajes-referencia', h(auth.allow('costos')), h(async (req, res) => {
   const { rows } = await db.pool.query('SELECT categoria, porcentaje FROM porcentajes_referencia_costo ORDER BY id');
   res.json(rows);
 }));
 
-app.put('/api/porcentajes-referencia', h(auth.allow()), h(async (req, res) => {
+app.put('/api/porcentajes-referencia', h(auth.allow('costos')), h(async (req, res) => {
   const body = req.body || {};
   await db.withTransaction(async (client) => {
     for (const c of COMPOSICION_CATS) {
@@ -2544,7 +2544,7 @@ app.put('/api/porcentajes-referencia', h(auth.allow()), h(async (req, res) => {
   });
 }));
 
-app.get('/api/projects/:id/composicion-costos', h(auth.allow()), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+app.get('/api/projects/:id/composicion-costos', h(auth.allow('costos')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
   const pid = req.project.id;
   const [{ rows: insumoRows }, { rows: metaRows }, { rows: refRows }] = await Promise.all([
     db.pool.query(
@@ -2563,7 +2563,7 @@ app.get('/api/projects/:id/composicion-costos', h(auth.allow()), h(requireProjec
   res.json({ categorias: calcularComposicionObra(meta, insumosPorCategoria, referencia) });
 }));
 
-app.get('/api/composicion-costos/completo', h(auth.allow()), h(async (req, res) => {
+app.get('/api/composicion-costos/completo', h(auth.allow('costos')), h(async (req, res) => {
   const [{ rows: proyectoRows }, { rows: insumoRows }, { rows: metaRows }, { rows: totalRows }, { rows: refRows }] = await Promise.all([
     db.pool.query(`SELECT p.id AS project_id, p.cliente_id, c.nombre AS cliente_nombre FROM proyectos p JOIN clientes c ON c.id = p.cliente_id`),
     db.pool.query(
@@ -3054,14 +3054,14 @@ function validarRenglones(renglones, insumoIdsValidos, basicoIdsValidos = new Se
 // renglón más (tipo='basico_ref') desde otro análisis. Reusa el permiso
 // 'costos' del resto de Matrices — mismo dato, misma sensibilidad.
 // ---------------------------------------------------------------------------
-app.get('/api/projects/:id/basicos', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('costos', 'puede_ver')), h(async (req, res) => {
+app.get('/api/projects/:id/basicos', h(auth.allow('residente', 'costos')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('costos', 'puede_ver')), h(async (req, res) => {
   const { rows } = await db.pool.query(
     'SELECT id, codigo, descripcion, unidad FROM matrices_precio_unitario WHERE project_id = $1 AND es_basico = true ORDER BY codigo', [req.project.id]
   );
   res.json({ basicos: rows });
 }));
 
-app.get('/api/projects/:id/basicos/:basicoId', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('costos', 'puede_ver')), h(async (req, res) => {
+app.get('/api/projects/:id/basicos/:basicoId', h(auth.allow('residente', 'costos')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('costos', 'puede_ver')), h(async (req, res) => {
   const pid = req.project.id;
   const basicoId = Number(req.params.basicoId);
   const { rows } = await db.pool.query('SELECT id FROM matrices_precio_unitario WHERE id = $1 AND project_id = $2 AND es_basico = true', [basicoId, pid]);
@@ -3080,7 +3080,7 @@ app.get('/api/projects/:id/basicos/:basicoId', h(auth.allow('residente')), h(req
   res.json({ basico, usado_en: usos });
 }));
 
-app.post('/api/projects/:id/basicos', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('costos', 'puede_crear')), h(async (req, res) => {
+app.post('/api/projects/:id/basicos', h(auth.allow('residente', 'costos')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('costos', 'puede_crear')), h(async (req, res) => {
   const pid = req.project.id;
   const { codigo, descripcion, unidad, renglones } = req.body || {};
   if (!codigo?.trim() || !descripcion?.trim()) return res.status(400).json({ error: 'Código y descripción son requeridos' });
@@ -3112,7 +3112,7 @@ app.post('/api/projects/:id/basicos', h(auth.allow('residente')), h(requireProje
   res.status(201).json({ basico: await resolverBasico(basicoId) });
 }));
 
-app.put('/api/projects/:id/basicos/:basicoId', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('costos', 'puede_editar')), h(async (req, res) => {
+app.put('/api/projects/:id/basicos/:basicoId', h(auth.allow('residente', 'costos')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('costos', 'puede_editar')), h(async (req, res) => {
   const pid = req.project.id;
   const basicoId = Number(req.params.basicoId);
   const { codigo, descripcion, unidad, renglones } = req.body || {};
@@ -3143,7 +3143,7 @@ app.put('/api/projects/:id/basicos/:basicoId', h(auth.allow('residente')), h(req
   res.json({ basico: await resolverBasico(basicoId) });
 }));
 
-app.get('/api/projects/:id/matrices', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('costos', 'puede_ver')), h(async (req, res) => {
+app.get('/api/projects/:id/matrices', h(auth.allow('residente', 'costos')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('costos', 'puede_ver')), h(async (req, res) => {
   const pid = req.project.id;
   const { rows: conceptoRows } = await db.pool.query(
     'SELECT id, codigo, concepto, unidad, precio_unitario FROM conceptos WHERE project_id = $1 AND es_total = 0 AND activo = 1 ORDER BY orden', [pid]
@@ -3213,7 +3213,7 @@ async function getClienteNombreDeProyecto(projectId) {
   return rows[0]?.nombre || null;
 }
 
-app.get('/api/projects/:id/matrices/export', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('costos', 'puede_ver')), h(async (req, res) => {
+app.get('/api/projects/:id/matrices/export', h(auth.allow('residente', 'costos')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('costos', 'puede_ver')), h(async (req, res) => {
   const pid = req.project.id;
   const { rows: conceptoRows } = await db.pool.query(
     "SELECT id, codigo, concepto, unidad, cantidad, importe, precio_unitario FROM conceptos WHERE project_id = $1 AND es_total = 0 AND activo = 1 ORDER BY orden", [pid]
@@ -3234,7 +3234,7 @@ app.get('/api/projects/:id/matrices/export', h(auth.allow('residente')), h(requi
 // % de indirecto/utilidad por defecto de la obra — solo para prellenar
 // matrices NUEVAS (porcentajes_referencia_costo de PR #48 es un set global
 // único, no por obra; se muestra aquí solo como referencia informativa).
-app.get('/api/projects/:id/matrices/porcentajes-obra', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('costos', 'puede_ver')), h(async (req, res) => {
+app.get('/api/projects/:id/matrices/porcentajes-obra', h(auth.allow('residente', 'costos')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('costos', 'puede_ver')), h(async (req, res) => {
   const pid = req.project.id;
   const [{ rows }, { rows: refRows }] = await Promise.all([
     db.pool.query('SELECT pct_indirecto, pct_utilidad, pct_financiamiento FROM porcentajes_matriz_obra WHERE project_id = $1', [pid]),
@@ -3248,7 +3248,7 @@ app.get('/api/projects/:id/matrices/porcentajes-obra', h(auth.allow('residente')
   });
 }));
 
-app.put('/api/projects/:id/matrices/porcentajes-obra', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('costos', 'puede_editar_precios')), h(async (req, res) => {
+app.put('/api/projects/:id/matrices/porcentajes-obra', h(auth.allow('residente', 'costos')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('costos', 'puede_editar_precios')), h(async (req, res) => {
   const pid = req.project.id;
   const { pct_indirecto, pct_utilidad, pct_financiamiento } = req.body || {};
   if (!(Number(pct_indirecto) >= 0) || !(Number(pct_utilidad) >= 0) || !(Number(pct_financiamiento) >= 0)) {
@@ -3262,7 +3262,7 @@ app.put('/api/projects/:id/matrices/porcentajes-obra', h(auth.allow('residente')
   res.json({ pct_indirecto: Number(pct_indirecto), pct_utilidad: Number(pct_utilidad), pct_financiamiento: Number(pct_financiamiento) });
 }));
 
-app.put('/api/projects/:id/matrices/porcentajes/lote', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('costos', 'puede_editar_precios')), h(async (req, res) => {
+app.put('/api/projects/:id/matrices/porcentajes/lote', h(auth.allow('residente', 'costos')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('costos', 'puede_editar_precios')), h(async (req, res) => {
   const pid = req.project.id;
   const { concepto_ids, pct_indirecto, pct_utilidad, pct_financiamiento } = req.body || {};
   if (!Array.isArray(concepto_ids) || !concepto_ids.length) return res.status(400).json({ error: 'concepto_ids es requerido' });
@@ -3278,7 +3278,7 @@ app.put('/api/projects/:id/matrices/porcentajes/lote', h(auth.allow('residente')
   res.json({ actualizadas: rows.map((r) => r.concepto_id) });
 }));
 
-app.get('/api/projects/:id/matrices/:conceptoId', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('costos', 'puede_ver')), h(async (req, res) => {
+app.get('/api/projects/:id/matrices/:conceptoId', h(auth.allow('residente', 'costos')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('costos', 'puede_ver')), h(async (req, res) => {
   const pid = req.project.id;
   const conceptoId = Number(req.params.conceptoId);
   const { rows: conceptoRows } = await db.pool.query(
@@ -3291,7 +3291,7 @@ app.get('/api/projects/:id/matrices/:conceptoId', h(auth.allow('residente')), h(
 
 // Exporta un solo análisis (prompt-20-matrices-formato-neodata.md, CP6) —
 // mismo generador que la exportación de toda la obra, con un único bloque.
-app.get('/api/projects/:id/matrices/:conceptoId/export', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('costos', 'puede_ver')), h(async (req, res) => {
+app.get('/api/projects/:id/matrices/:conceptoId/export', h(auth.allow('residente', 'costos')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('costos', 'puede_ver')), h(async (req, res) => {
   const pid = req.project.id;
   const conceptoId = Number(req.params.conceptoId);
   const { rows: conceptoRows } = await db.pool.query(
@@ -3307,7 +3307,7 @@ app.get('/api/projects/:id/matrices/:conceptoId/export', h(auth.allow('residente
   });
 }));
 
-app.post('/api/projects/:id/matrices', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('costos', 'puede_crear')), h(async (req, res) => {
+app.post('/api/projects/:id/matrices', h(auth.allow('residente', 'costos')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('costos', 'puede_crear')), h(async (req, res) => {
   const pid = req.project.id;
   const { concepto_id, renglones, partida, analisis_no, cuadrilla_nombre, rendimiento } = req.body || {};
   const conceptoId = Number(concepto_id);
@@ -3354,7 +3354,7 @@ app.post('/api/projects/:id/matrices', h(auth.allow('residente')), h(requireProj
   res.status(201).json({ matriz: await getMatrizConRenglones(conceptoId) });
 }));
 
-app.put('/api/projects/:id/matrices/:conceptoId/renglones', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('costos', 'puede_editar')), h(async (req, res) => {
+app.put('/api/projects/:id/matrices/:conceptoId/renglones', h(auth.allow('residente', 'costos')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('costos', 'puede_editar')), h(async (req, res) => {
   const pid = req.project.id;
   const conceptoId = Number(req.params.conceptoId);
   const { renglones, partida, analisis_no, cuadrilla_nombre, rendimiento } = req.body || {};
@@ -3391,7 +3391,7 @@ app.put('/api/projects/:id/matrices/:conceptoId/renglones', h(auth.allow('reside
   res.json({ matriz: await getMatrizConRenglones(conceptoId) });
 }));
 
-app.put('/api/projects/:id/matrices/:conceptoId/porcentajes', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('costos', 'puede_editar_precios')), h(async (req, res) => {
+app.put('/api/projects/:id/matrices/:conceptoId/porcentajes', h(auth.allow('residente', 'costos')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('costos', 'puede_editar_precios')), h(async (req, res) => {
   const pid = req.project.id;
   const conceptoId = Number(req.params.conceptoId);
   const { pct_indirecto, pct_utilidad, pct_financiamiento } = req.body || {};
@@ -3413,7 +3413,7 @@ app.put('/api/projects/:id/matrices/:conceptoId/porcentajes', h(auth.allow('resi
 // del cliente) y bloquea si la matriz está incompleta (categoría "No
 // disponible") — aplicar un precio construido con datos faltantes sería
 // fabricar el faltante como si fuera $0.
-app.post('/api/projects/:id/matrices/:conceptoId/aplicar', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('costos', 'puede_editar_precios')), h(async (req, res) => {
+app.post('/api/projects/:id/matrices/:conceptoId/aplicar', h(auth.allow('residente', 'costos')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('costos', 'puede_editar_precios')), h(async (req, res) => {
   const pid = req.project.id;
   const conceptoId = Number(req.params.conceptoId);
   const matriz = await getMatrizConRenglones(conceptoId);
@@ -3440,7 +3440,7 @@ app.post('/api/projects/:id/matrices/:conceptoId/aplicar', h(auth.allow('residen
   res.json({ concepto_id: conceptoId, precio_anterior: precioAnterior, precio_nuevo: precioNuevo });
 }));
 
-app.delete('/api/projects/:id/matrices/:conceptoId', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('costos', 'puede_eliminar')), h(async (req, res) => {
+app.delete('/api/projects/:id/matrices/:conceptoId', h(auth.allow('residente', 'costos')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('costos', 'puede_eliminar')), h(async (req, res) => {
   const pid = req.project.id;
   const conceptoId = Number(req.params.conceptoId);
   const { rowCount } = await db.pool.query(`
@@ -4245,7 +4245,7 @@ app.get('/api/contabilidad/export', h(auth.requireContabilidadAccess), h(async (
 // ---------------------------------------------------------------------------
 // Bienvenida — resumen ligero por proyecto para la pantalla de bienvenida
 // ---------------------------------------------------------------------------
-app.get('/api/bienvenida', h(auth.allow('residente', 'cabo', 'compras', 'tesoreria', 'administracion', 'logistica', 'jefe_maquinaria', 'operador')), h(async (req, res) => {
+app.get('/api/bienvenida', h(auth.allow('residente', 'cabo', 'compras', 'tesoreria', 'administracion', 'logistica', 'jefe_maquinaria', 'operador', 'costos')), h(async (req, res) => {
   const isAdminUser = req.user.puesto === 'admin';
   const { rows: projects } = isAdminUser
     ? await db.pool.query(`
@@ -4402,7 +4402,7 @@ app.put('/api/favoritos/orden', h(async (req, res) => {
 // ---------------------------------------------------------------------------
 // Proyectos
 // ---------------------------------------------------------------------------
-app.get('/api/projects', h(auth.allow('residente', 'cabo', 'compras', 'tesoreria', 'administracion', 'logistica', 'jefe_maquinaria', 'operador')), h(async (req, res) => {
+app.get('/api/projects', h(auth.allow('residente', 'cabo', 'compras', 'tesoreria', 'administracion', 'logistica', 'jefe_maquinaria', 'operador', 'costos')), h(async (req, res) => {
   const projects = req.user.puesto === 'admin'
     ? await db.listProjects()
     : (await db.pool.query(`

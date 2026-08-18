@@ -8,7 +8,7 @@ const TOKEN_KEY = 'cp_token';
 const PUESTO_LABELS = {
   admin: 'Administrador', desarrollador: 'Desarrollador', residente: 'Residente', cabo: 'Cabo',
   compras: 'Compras', tesoreria: 'Tesorería', administracion: 'Administración', logistica: 'Logística',
-  jefe_maquinaria: 'Jefe de Maquinaria', operador: 'Operador',
+  jefe_maquinaria: 'Jefe de Maquinaria', operador: 'Operador', costos: 'Costos',
 };
 
 // Mirror de PERMISSIONS en server/auth.js — para calcular allowedTabs en vista simulada.
@@ -51,6 +51,10 @@ const ROLE_TABS = {
   logistica:      ['programa', 'avance', 'requisiciones', 'insumos', 'ordenes'],
   jefe_maquinaria: MAQUINARIA_TABS_JEFE,
   operador: MAQUINARIA_TABS_OPERADOR,
+  // Rol nuevo (prompt-nuevo-rol-costos.md) — mirror de PERMISSIONS.costos en
+  // server/auth.js, acceso exclusivo a Presupuestos (las 3 subsecciones de
+  // la galería 'presupuestos', ver GALERIAS_SECCIONES más abajo).
+  costos: ['matrices', 'costos', 'composicion_costos'],
 };
 
 // Vistas que no requieren ninguna obra/proyecto seleccionado — lista

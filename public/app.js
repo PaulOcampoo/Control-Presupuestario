@@ -92,6 +92,14 @@ const state = {
   avisoNovedades: null, // { total_sin_ver, mas_reciente } cuando hay novedades publicadas sin ver, o null
   novedadesSubView: null, // 'administrar' cuando se entra a Novedades desde un acceso directo admin; se consume una vez en renderView()
   usuariosSubView: null, // 'permisos' cuando se entra desde el acceso directo del drawer de galería; se consume una vez en renderView()
+  // prompt-directo-galeria-seccion-por-rol.md: vista por-obra que el usuario
+  // intentó abrir sin tener projectId todavía (ej. tile "Matrices" clickeado
+  // desde una galería de sección a la que se aterrizó directo tras login,
+  // sin pasar por selección de obra) — switchToView() la guarda aquí antes
+  // de mandar a goToClientGallery(), y selectProject() la consume una sola
+  // vez como targetView de vuelta. null en el resto de los casos (flujo
+  // normal, sin efecto).
+  pendingTargetView: null,
 };
 
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -1041,25 +1049,38 @@ function applySession(user, tabs, needsTotpReminder = false, avisoNovedades = nu
 }
 
 // Vista inicial tras login (prompt-5-fix-navegacion-operador-jefe-maquinaria.md,
-// extendido en prompt-39-maquinaria-galeria-subsecciones.md): roles 100%
-// globales (hoy operador, jefe_maquinaria — TODOS sus tabs viven en
-// VISTAS_SIN_PROYECTO) deben aterrizar directo en su módulo real, sin pasar
-// por la galería de clientes (bootApp() ya asume este state.view, ver
-// VISTAS_SIN_PROYECTO). Antes bastaba "tabs.length<=1" porque esos roles
-// tenían un único tab ('maquinaria'); ahora un rol global puede tener varias
-// subpestañas de una sola sección con galería (Maquinaria) — se aterriza en
-// esa galería, igual que goToSection() haría a mano si el usuario clickeara.
+// extendido en prompt-39-maquinaria-galeria-subsecciones.md, y de nuevo en
+// prompt-directo-galeria-seccion-por-rol.md): roles 100% globales (hoy
+// operador, jefe_maquinaria — TODOS sus tabs viven en VISTAS_SIN_PROYECTO)
+// deben aterrizar directo en su módulo real, sin pasar por la galería de
+// clientes (bootApp() ya asume este state.view, ver VISTAS_SIN_PROYECTO).
+// Antes bastaba "tabs.length<=1" porque esos roles tenían un único tab
+// ('maquinaria'); ahora un rol global puede tener varias subpestañas de una
+// sola sección con galería (Maquinaria) — se aterriza en esa galería, igual
+// que goToSection() haría a mano si el usuario clickeara.
+//
+// Generalización (prompt-directo-galeria-seccion-por-rol.md): el guard ya
+// NO exige que todos los tabs sean sin-proyecto — exige solo que todos
+// pertenezcan a UNA sola sección de SECTION_DEFS con galería (ej. costos:
+// matrices/costos/composicion_costos, todos en 'presupuestos', aunque
+// matrices sea por-obra). Es seguro relajarlo así porque switchToView() ya
+// sabe mandar al selector de obra en el momento del click si el usuario
+// entra a un tile por-obra sin projectId todavía (ver pendingTargetView) —
+// antes esa red de seguridad no existía, por eso el guard original exigía
+// "todo sin proyecto" para nunca aterrizar en una galería con tiles rotos.
+// Calculado sobre SECTION_DEFS/VIEW_TO_SECTION, sin ningún "if (rol === )".
 function vistaInicialParaTabs(tabs) {
   if (tabs.length === 0) return 'inicio';
   if (tabs.length === 1) return tabs[0];
-  const todosSinProyecto = tabs.every((t) => VISTAS_SIN_PROYECTO.includes(t));
-  if (!todosSinProyecto) return 'inicio';
   const secciones = new Set(tabs.map((t) => VIEW_TO_SECTION[t]).filter(Boolean));
   if (secciones.size === 1) {
     const [sectionId] = secciones;
-    if (SECTIONS_WITH_GALLERY.has(sectionId)) return `${sectionId}_gallery`;
+    if (SECTIONS_WITH_GALLERY.has(sectionId) && tabs.every((t) => VIEW_TO_SECTION[t] === sectionId)) {
+      return `${sectionId}_gallery`;
+    }
   }
-  return tabs[0];
+  const todosSinProyecto = tabs.every((t) => VISTAS_SIN_PROYECTO.includes(t));
+  return todosSinProyecto ? tabs[0] : 'inicio';
 }
 
 // ---------------------------------------------------------------------------
@@ -1323,7 +1344,27 @@ window.addEventListener('popstate', (ev) => {
 // Navegación central: toda la app debe pasar por aquí para cambiar de vista
 // (en vez de simular clicks sobre una barra de tabs estática) — así la
 // sección activa y la barra de sub-navegación quedan siempre consistentes.
+// prompt-directo-galeria-seccion-por-rol.md: punto único donde se resuelve
+// "esta vista es por-obra pero todavía no hay obra seleccionada" — antes
+// solo podía pasar si el usuario navegaba manualmente sin projectId (caso
+// raro), pero desde que vistaInicialParaTabs() puede aterrizar directo en la
+// galería de una sección con tiles mixtos (ej. Presupuestos: Costos/
+// Composición globales + Matrices por-obra), un tile por-obra clickeado ahí
+// sin obra elegida es el caso común para roles como costos. En vez de
+// renderizar el empty-state sin salida real para no-admin, se guarda la
+// vista pedida en pendingTargetView y se manda al selector de
+// cliente/obra — selectProject() la retoma como targetView al elegir.
+// Deliberadamente centralizado aquí (no en renderSeccionGaleria() ni en
+// cada llamador) porque switchToView() es el único paso común de TODAS las
+// formas de navegar a una vista (galería de sección, sidebar, tabs bar,
+// drawer) — resolverlo una vez aquí cubre todos los callejones sin salida
+// de este mismo patrón, no solo el de la galería de Presupuestos.
 function switchToView(viewId) {
+  if (!state.projectId && viewId !== 'inicio' && !viewId.endsWith('_gallery') && !VISTAS_SIN_PROYECTO.includes(viewId)) {
+    state.pendingTargetView = viewId;
+    goToClientGallery();
+    return;
+  }
   state.view = viewId;
   state.section = VIEW_TO_SECTION[viewId] || null;
   const ms = document.querySelector('.main-scroll') || document.querySelector('.main-area');
@@ -2279,6 +2320,24 @@ async function bootApp() {
     const todosLosTabsSinProyecto = state.allowedTabs.length > 0
       && state.allowedTabs.every((t) => VISTAS_SIN_PROYECTO.includes(t));
     if (sinProyectosAccesibles && todosLosTabsSinProyecto) {
+      state.clienteId = null;
+      state.projectId = null;
+      showApp();
+      $('#projectName').textContent = '';
+      switchToView(state.view);
+      return;
+    }
+
+    // prompt-directo-galeria-seccion-por-rol.md: rama nueva, separada a
+    // propósito de la de arriba — esta SÍ aterriza directo aunque el usuario
+    // tenga obras accesibles (a diferencia de operador/jefe_maquinaria arriba,
+    // donde "cero proyectos" es la señal de seguridad para saltar la galería).
+    // Aplica cuando vistaInicialParaTabs() ya resolvió una galería de sección
+    // completa (costos → Presupuestos: Costos/Composición globales + Matrices
+    // por-obra) — es seguro incluso con tiles por-obra mezclados porque
+    // switchToView() ya sabe mandar al selector de obra en el click si hace
+    // falta (ver pendingTargetView), así que no hay callejón sin salida.
+    if (state.view.endsWith('_gallery')) {
       state.clienteId = null;
       state.projectId = null;
       showApp();
@@ -3306,6 +3365,12 @@ async function actualizarNavPorObra(id) {
 }
 
 async function selectProject(id, targetView) {
+  // prompt-directo-galeria-seccion-por-rol.md: si el usuario llegó aquí
+  // porque switchToView() lo mandó a elegir obra para un tile por-obra que
+  // clickeó sin projectId (ver pendingTargetView), retoma esa vista en vez
+  // de la resuelta por default más abajo — se consume una sola vez.
+  if (!targetView && state.pendingTargetView) { targetView = state.pendingTargetView; }
+  state.pendingTargetView = null;
   const vieneDeSinProyecto = !state.projectId; // true cuando se entra desde el resumen de cliente
   state.projectId = id;
   syncErrorTags();

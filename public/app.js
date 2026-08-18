@@ -1004,6 +1004,12 @@ function puedeRegistrarPago() { return !!state.user && (isAdmin() || ['tesoreria
 function puedeVerImportesAvance() { return !!state.user && effectivePuesto() !== 'cabo'; }
 function puedeEditarAvance() { return !!state.user && (isAdmin() || ['residente', 'cabo'].includes(effectivePuesto())); }
 function puedeGestionarUsuarios() { return !!state.user && ['admin', 'desarrollador', 'administracion'].includes(effectivePuesto()); }
+// prompt-costos-mapeo-y-mover-tiles.md: gate dedicado para la vista Mapeo —
+// a propósito NO se amplía puedeGestionarUsuarios() para incluir 'costos',
+// porque esa función también gatea renderUsuarios() (gestión real de
+// cuentas) y el botón de Historial de Requisiciones, ninguno de los dos
+// parte del pedido. costos solo debe ganar acceso a Mapeo.
+function puedeVerMapeo() { return puedeGestionarUsuarios() || effectivePuesto() === 'costos'; }
 function puedeGestionarTrabajadores() { return isAdmin(); }
 function puedeAprobarNomina() { return isAdmin(); }
 function puedeVerEstimaciones() { return !!state.user && (isAdmin() || ['residente'].includes(effectivePuesto())); }
@@ -1218,20 +1224,28 @@ const TAB_POR_TIPO_NOTIF = {
 // def.tabs.length === 0 es 100% futura (hoy solo Maquinaria).
 // ---------------------------------------------------------------------------
 const SECTION_DEFS = {
-  // 'ordenesCambio' (prompt-ordenes-cambio.md) vive en Obra, no en
-  // Presupuestos: es un evento de ejecución día a día que captura residente/
-  // cabo (mismos actores que avance/destajo/estimaciones), no una vista
-  // estática de configuración de precios como Matrices/Costos/Composición de
-  // costos (que sí viven en Presupuestos).
-  obra:          { label: 'Obra',           icon: 'obra',           emoji: '🏗️',  tabs: ['programa', 'avance', 'destajo', 'estimaciones', 'ordenesCambio', 'lotes'],     proximamente: [] },
+  // 'ordenesCambio' (prompt-ordenes-cambio.md) vivía aquí, movido a
+  // Presupuestos (prompt-costos-mapeo-y-mover-tiles.md) — ver ese tab más
+  // abajo, en SECTION_DEFS.presupuestos, junto al resto de la justificación.
+  obra:          { label: 'Obra',           icon: 'obra',           emoji: '🏗️',  tabs: ['programa', 'avance', 'destajo', 'estimaciones', 'lotes'],     proximamente: [] },
   compras:       { label: 'Compras',        icon: 'compras',        emoji: '🛒',   tabs: ['requisiciones', 'insumos', 'proveedores', 'cumplimiento', 'ordenes', 'cotizador'], proximamente: ['Subcontratos'] },
   tesoreria:     { label: 'Tesorería',      icon: 'tesoreria',      emoji: '💰',   tabs: ['finanzas', 'compromisos', 'fondoGarantia', 'estadoResultados', 'estadoResultadosGlobal', 'impuestos', 'controlFinanciero'], proximamente: [] },
-  administracion:{ label: 'Administración', icon: 'administracion', emoji: '📂',  tabs: ['mapeo', 'contrato', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'avance_clientes', 'usuarios', 'cuentas'], proximamente: ['Almacenes'] },
+  // 'mapeo' vivía aquí, movido a Presupuestos (prompt-costos-mapeo-y-mover-
+  // tiles.md) — administracion conserva el resto de sus tabs sin cambios.
+  administracion:{ label: 'Administración', icon: 'administracion', emoji: '📂',  tabs: ['contrato', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'avance_clientes', 'usuarios', 'cuentas'], proximamente: ['Almacenes'] },
   maquinaria:    { label: 'Maquinaria',     icon: 'maquinaria',     emoji: '🚜',   tabs: MAQUINARIA_TABS_ADMIN,                                 proximamente: [] },
   // prompt-secciones-presupuestos-contabilidad.md: Matrices de PU/Costos/
   // Composición de costos reubicadas aquí (antes en obra/administracion) —
   // pura reubicación de navegación, misma lógica/endpoints de siempre.
-  presupuestos:  { label: 'Presupuestos',   icon: 'presupuestos',   emoji: '📑',   tabs: ['matrices', 'costos', 'composicion_costos'], proximamente: [] },
+  // prompt-costos-mapeo-y-mover-tiles.md: 'mapeo' (antes en administracion) y
+  // 'ordenesCambio' (antes en obra) se suman aquí — mismo patrón de puro
+  // movimiento de string entre arrays, sin tocar TAB_A_SECCION ni ningún
+  // endpoint. Efecto: costos (matrices/costos/composicion_costos/mapeo) le
+  // agrega Mapeo pero le queda TODO en esta sola sección, conservando el
+  // aterrizaje directo de PR #152. cabo (tenía ordenesCambio, sin ningún
+  // otro tab de Presupuestos) pierde ese aterrizaje directo a su contexto
+  // habitual — impacto aceptado y confirmado con Paul, ver Starting State.
+  presupuestos:  { label: 'Presupuestos',   icon: 'presupuestos',   emoji: '📑',   tabs: ['matrices', 'costos', 'composicion_costos', 'mapeo', 'ordenesCambio'], proximamente: [] },
   // prompt-contabilidad-fase1/2/3/4 + prompt-contabilidad-galeria-tiles.md:
   // 5 subsecciones reales (antes: un solo tab 'contabilidad' con subnav
   // interno propio, mismo patrón que 'controlFinanciero' — reemplazado por
@@ -5302,7 +5316,7 @@ function ivaBreakdown(items, incluyeIva) {
 let mapeoSelectedConceptoId = null;
 
 async function renderMapeo(view) {
-  if (!puedeGestionarUsuarios()) {
+  if (!puedeVerMapeo()) {
     view.innerHTML = `<div class="alert-box danger">⚠️ No tienes permiso para ver esta sección.</div>`;
     return;
   }
@@ -8260,7 +8274,11 @@ const PERMISOS_ACCIONES = [
 // Actualizar este mapa cada vez que se le agregue checkPermiso REAL Y
 // ALCANZABLE (no solo cableado) a una acción nueva.
 const ACCIONES_CON_ENFORCEMENT = {
-  presupuestos: ['puede_ver'],
+  // 'puede_editar' agregado (prompt-costos-mapeo-y-mover-tiles.md): antes
+  // era caso (b) de arriba (cableado pero inerte, solo admin/desarrollador
+  // llegaban al endpoint de confirmar actualización) — ahora 'costos'
+  // también llega, así que el enforcement es real y alcanzable de verdad.
+  presupuestos: ['puede_ver', 'puede_editar'],
   requisiciones: ['puede_ver', 'puede_crear', 'puede_editar', 'puede_eliminar'],
   proveedores: ['puede_ver', 'puede_crear', 'puede_editar', 'puede_eliminar'],
   ordenes_compra: ['puede_ver', 'puede_crear', 'puede_editar', 'puede_eliminar'],

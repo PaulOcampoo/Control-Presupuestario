@@ -4479,7 +4479,13 @@ app.get('/api/projects', h(auth.allow('residente', 'cabo', 'compras', 'tesoreria
 // .xlsx sin pasar por esta función serverless (que tiene un límite de body
 // no configurable en Vercel), y solo nos manda la URL resultante a
 // POST /api/projects. Ver Prompts_mod1.md Tarea 1 (Error 413).
-app.post('/api/projects/upload-token', h(auth.allow()), h(async (req, res) => {
+// prompt-costos-mapeo-y-mover-tiles.md: 'costos' agregado — el flujo de
+// "Actualizar presupuesto" (Mapeo) reusa este mismo endpoint genérico de
+// token de subida a Blob. Seguro: solo emite el token de subida, no crea
+// nada por sí solo — POST /api/projects (creación de proyecto nuevo, más
+// abajo) sigue siendo admin/desarrollador-only sin cambios, y confirmar la
+// actualización sigue gateado aparte por checkPermiso('presupuestos', ...).
+app.post('/api/projects/upload-token', h(auth.allow('costos')), h(async (req, res) => {
   try {
     const jsonResponse = await handleUpload({
       body: req.body,
@@ -4924,7 +4930,12 @@ app.post('/api/projects/:id/impuestos/:periodoId/cargar', h(auth.allow()), h(req
 // ---------------------------------------------------------------------------
 // Conceptos
 // ---------------------------------------------------------------------------
-app.get('/api/projects/:id/conceptos', h(auth.allow('residente', 'cabo', 'compras', 'tesoreria', 'administracion', 'logistica')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('presupuestos', 'puede_ver')), h(async (req, res) => {
+// prompt-costos-mapeo-y-mover-tiles.md: 'costos' agregado — GET /conceptos es
+// la primera llamada que hace renderMapeo() (public/app.js) para poblar el
+// selector de conceptos a mapear; sin este rol en la lista, la vista de
+// Mapeo fallaría con 403 antes de llegar siquiera a los endpoints de
+// insumos, pese a tener ya el permiso granular 'presupuestos' correcto.
+app.get('/api/projects/:id/conceptos', h(auth.allow('residente', 'cabo', 'compras', 'tesoreria', 'administracion', 'logistica', 'costos')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('presupuestos', 'puede_ver')), h(async (req, res) => {
   const { rows } = await db.pool.query('SELECT * FROM conceptos WHERE project_id = $1 AND activo = 1 ORDER BY orden', [req.project.id]);
   res.json(rows);
 }));
@@ -4941,7 +4952,7 @@ app.get('/api/projects/:id/conceptos', h(auth.allow('residente', 'cabo', 'compra
 // confirmar (es una reconciliación de datos existentes, no un alta nueva
 // tipo 'puede_crear').
 // ---------------------------------------------------------------------------
-app.post('/api/projects/:id/presupuesto/actualizar/preview', h(auth.allow()), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('presupuestos', 'puede_ver')), h(async (req, res) => {
+app.post('/api/projects/:id/presupuesto/actualizar/preview', h(auth.allow('costos')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('presupuestos', 'puede_ver')), h(async (req, res) => {
   const { archivo_url } = req.body || {};
   if (!archivo_url) return res.status(400).json({ error: 'Sube un archivo .xlsx de presupuesto' });
   const pid = req.project.id;
@@ -4993,7 +5004,7 @@ app.post('/api/projects/:id/presupuesto/actualizar/preview', h(auth.allow()), h(
   }
 }));
 
-app.post('/api/projects/:id/presupuesto/actualizar/confirmar', h(auth.allow()), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('presupuestos', 'puede_editar')), h(async (req, res) => {
+app.post('/api/projects/:id/presupuesto/actualizar/confirmar', h(auth.allow('costos')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('presupuestos', 'puede_editar')), h(async (req, res) => {
   const { archivo_url, confirmado, resoluciones_precio_cantidad } = req.body || {};
   if (!archivo_url) return res.status(400).json({ error: 'Sube un archivo .xlsx de presupuesto' });
   if (confirmado !== true) return res.status(400).json({ error: 'Falta confirmar explícitamente la actualización' });
@@ -5395,7 +5406,7 @@ app.post('/api/projects/:id/lotes/importar/confirmar', h(auth.allow('residente')
 // sigue intacto, sin tocar, y sigue ejecutándose siempre dentro del handler
 // — checkPermiso es un gate de rol adicional, independiente, nunca lo
 // reemplaza ni lo puede saltar (prompt-checkpermiso-mapeo.md).
-app.get('/api/conceptos/:id/insumos', h(auth.allow()), h(auth.checkPermiso('mapeo', 'puede_ver')), h(async (req, res) => {
+app.get('/api/conceptos/:id/insumos', h(auth.allow('costos')), h(auth.checkPermiso('mapeo', 'puede_ver')), h(async (req, res) => {
   const conceptoId = Number(req.params.id);
   const { rows: conceptoRows } = await db.pool.query('SELECT id, project_id FROM conceptos WHERE id = $1', [conceptoId]);
   if (!conceptoRows[0]) return res.status(404).json({ error: 'Concepto no encontrado' });
@@ -5413,7 +5424,7 @@ app.get('/api/conceptos/:id/insumos', h(auth.allow()), h(auth.checkPermiso('mape
   res.json(rows);
 }));
 
-app.post('/api/conceptos/:id/insumos', h(auth.allow()), h(auth.checkPermiso('mapeo', 'puede_crear')), h(async (req, res) => {
+app.post('/api/conceptos/:id/insumos', h(auth.allow('costos')), h(auth.checkPermiso('mapeo', 'puede_crear')), h(async (req, res) => {
   const conceptoId = Number(req.params.id);
   const insumoId = Number((req.body || {}).insumo_id);
   if (!insumoId) return res.status(400).json({ error: 'insumo_id es requerido' });
@@ -5447,7 +5458,7 @@ app.post('/api/conceptos/:id/insumos', h(auth.allow()), h(auth.checkPermiso('map
   res.status(201).json({ ok: true });
 }));
 
-app.delete('/api/conceptos/:id/insumos/:insumo_id', h(auth.allow()), h(auth.checkPermiso('mapeo', 'puede_eliminar')), h(async (req, res) => {
+app.delete('/api/conceptos/:id/insumos/:insumo_id', h(auth.allow('costos')), h(auth.checkPermiso('mapeo', 'puede_eliminar')), h(async (req, res) => {
   const conceptoId = Number(req.params.id);
   const insumoId = Number(req.params.insumo_id);
   const { rows: conceptoRows } = await db.pool.query('SELECT id, project_id FROM conceptos WHERE id = $1', [conceptoId]);
@@ -5467,7 +5478,7 @@ app.delete('/api/conceptos/:id/insumos/:insumo_id', h(auth.allow()), h(auth.chec
 
 // Resumen de progreso de mapeo por proyecto (no pedido explícitamente, pero
 // necesario para el contador "X/95 conceptos mapeados" de la pantalla admin).
-app.get('/api/projects/:id/concepto-insumos/resumen', h(auth.allow()), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('mapeo', 'puede_ver')), h(async (req, res) => {
+app.get('/api/projects/:id/concepto-insumos/resumen', h(auth.allow('costos')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('mapeo', 'puede_ver')), h(async (req, res) => {
   const pid = req.project.id;
   const { rows: totalRows } = await db.pool.query(
     "SELECT COUNT(*) AS n FROM conceptos WHERE project_id = $1 AND es_total = 0", [pid]
@@ -5532,7 +5543,9 @@ async function getInsumosData(pid, { categoria, q, incluirManoObra } = {}) {
   });
 }
 
-app.get('/api/projects/:id/insumos', h(auth.allow('residente', 'cabo', 'compras', 'logistica')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('insumos', 'puede_ver')), h(async (req, res) => {
+// prompt-costos-mapeo-y-mover-tiles.md: 'costos' agregado — el buscador de
+// insumos dentro de Mapeo ("Vincular un insumo") llama este mismo endpoint.
+app.get('/api/projects/:id/insumos', h(auth.allow('residente', 'cabo', 'compras', 'logistica', 'costos')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('insumos', 'puede_ver')), h(async (req, res) => {
   let data = await getInsumosData(req.project.id, req.query);
   if (req.user.puesto === 'cabo') {
     data = data.map(({ precio_presupuesto, ...rest }) => ({ ...rest, precio_presupuesto: null }));

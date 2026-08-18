@@ -116,7 +116,15 @@ const PERMISSIONS = {
   // (ver auth.allow('costos') agregado en los endpoints de
   // server/app.js — composicion-costos/porcentajes-referencia eran
   // admin/desarrollador-only, sin excepción por permisos_usuario).
-  costos: { label: 'Costos', tabs: ['matrices', 'costos', 'composicion_costos'] },
+  // prompt-costos-mapeo-y-mover-tiles.md: 'mapeo' agregado — primera vez que
+  // este rol gana acceso a un tab fuera del set original de PR #149. 'mapeo'
+  // mapea a la sección granular 'mapeo' (ver TAB_A_SECCION), y la propia
+  // vista de Mapeo también incluye el botón "Actualizar presupuesto", que
+  // internamente gatea contra la sección 'presupuestos' — DISTINTA de
+  // 'mapeo' pese a vivir en la misma pantalla (ver bloque costos más abajo,
+  // que la agrega explícita porque 'resumen' —el tab real que TAB_A_SECCION
+  // mapea a 'presupuestos'— no está ni debe estar en este arreglo).
+  costos: { label: 'Costos', tabs: ['matrices', 'costos', 'composicion_costos', 'mapeo'] },
 };
 const PUESTOS = Object.keys(PERMISSIONS);
 
@@ -561,6 +569,37 @@ function defaultPermisosParaRol(puesto) {
       porSeccion.costos.puede_editar_precios = true;
       porSeccion.costos.puede_eliminar = true;
     }
+    // prompt-costos-mapeo-y-mover-tiles.md: acceso a Mapeo (concepto↔insumo)
+    // y a "Actualizar presupuesto" — dos secciones granulares DISTINTAS pese
+    // a vivir en la misma vista (ver TAB_A_SECCION.mapeo vs. los endpoints de
+    // /presupuesto/actualizar/*, que checkPermiso('presupuestos', ...) en vez
+    // de 'mapeo'). 'mapeo' ya tiene fila con puede_ver=true por el loop base
+    // (viene de PERMISSIONS.costos.tabs); solo hace falta subir puede_crear
+    // para poder capturar vínculos concepto↔insumo. puede_eliminar queda en
+    // false por default (conservador, sin pedido explícito de borrar
+    // mapeos). 'presupuestos' no tiene fila automática (ningún tab de costos
+    // mapea a ella vía TAB_A_SECCION — 'resumen' es el único que lo hace, y
+    // deliberadamente no está en PERMISSIONS.costos.tabs), así que se agrega
+    // explícita: puede_ver para el preview (solo lectura) y puede_editar
+    // para confirmar la actualización (reconciliación de datos existentes,
+    // no un alta nueva tipo puede_crear — mismo criterio que el comentario
+    // original de esos endpoints en server/app.js).
+    if (porSeccion.mapeo) { porSeccion.mapeo.puede_crear = true; }
+    filas.push({
+      seccion: 'presupuestos', puede_ver: true, puede_crear: false,
+      puede_editar: true, puede_editar_precios: false, puede_eliminar: false,
+    });
+    // El buscador "Vincular un insumo" dentro de Mapeo llama GET
+    // /api/projects/:id/insumos, gateado por checkPermiso('insumos',
+    // 'puede_ver') — sin esta fila, el buscador siempre devolvía 403 aunque
+    // el resto de Mapeo ya funcionara. Sin fila automática por el mismo
+    // motivo que 'presupuestos' arriba ('insumos' no está en
+    // PERMISSIONS.costos.tabs, a propósito — costos no tiene su propio tab
+    // de Insumos, solo necesita leerlo desde dentro de Mapeo).
+    filas.push({
+      seccion: 'insumos', puede_ver: true, puede_crear: false,
+      puede_editar: false, puede_editar_precios: false, puede_eliminar: false,
+    });
   }
   return filas;
 }

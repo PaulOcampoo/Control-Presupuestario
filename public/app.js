@@ -5991,7 +5991,34 @@ async function openRequisicionDetail(reqId) {
         <button class="btn" id="btnCloseDetail">Cerrar</button>
       </div>
     `);
-    $('#reqItemsDetail').innerHTML = r.items.map((it) => `
+    // Botón "Corregir" por renglón (prompt-editar-requisicion-con-oc.md):
+    // solo admin/desarrollador, y solo fuera de "borrador" — ese estado ya
+    // tiene su propio flujo de edición completa arriba (#btnEditReq). Nunca
+    // toca la OC ni el pago ya generados (ver PUT .../items/:itemId).
+    const puedeCorregirPostOc = isAdmin() && r.estado !== 'borrador';
+    // Último ajuste por item (quién/cuándo/justificación) — reusa el mismo
+    // historial de auditoría de requisiciones (admin/desarrollador-only,
+    // igual que el botón "Corregir" de arriba), sin endpoint nuevo.
+    // target_usuario embebe "item #<id>: ... | justificación: ..." (ver
+    // logRequisicionAudit en el backend) — se parsea aquí solo para mostrar,
+    // el dato de verdad vive completo en audit_log.
+    let ultimoAjustePorItem = new Map();
+    if (puedeCorregirPostOc) {
+      try {
+        const historial = await api(`/projects/${state.projectId}/requisiciones-historial`);
+        historial
+          .filter((h) => h.target_id === r.id && h.accion === 'requisicion_item_editar_post_oc')
+          .forEach((h) => {
+            const m = /^item #(\d+):/.exec(h.target_usuario || '');
+            if (!m) return;
+            const itemId = Number(m[1]);
+            if (!ultimoAjustePorItem.has(itemId)) ultimoAjustePorItem.set(itemId, h); // ya viene ORDER BY creado_en DESC
+          });
+      } catch (err) { /* silencioso — el detalle igual funciona sin esta info */ }
+    }
+    $('#reqItemsDetail').innerHTML = r.items.map((it) => {
+      const ajuste = ultimoAjustePorItem.get(it.id);
+      return `
       <div class="req-item-row">
         <div class="row between">
           <div class="item-title">${esc(it.insumo_concepto)}</div>
@@ -6003,11 +6030,20 @@ async function openRequisicionDetail(reqId) {
         ${it.alerta_cantidad ? `<div class="alert-box danger">⚠️ Cantidad acumulada sobrepasa lo presupuestado</div>` : ''}
         ${it.alerta_precio ? `<div class="alert-box warn">⚠️ Precio solicitado sobrepasa el precio presupuestado</div>` : ''}
         ${it.observaciones ? `<div class="muted">${esc(it.observaciones)}</div>` : ''}
-      </div>`).join('');
+        ${ajuste ? `<div class="muted fs-078">✎ Corregido por ${esc(ajuste.actor_nombre)} el ${fmtDate(ajuste.creado_en)}</div>` : ''}
+        ${puedeCorregirPostOc ? `<div class="row end mt-6"><button class="btn small" data-corregir-item="${it.id}">Corregir</button></div>` : ''}
+      </div>`;
+    }).join('');
 
     $('#btnCloseDetail').addEventListener('click', closeModal);
     $('#btnEditReq')?.addEventListener('click', () => openEditRequisicionModal(r));
     $('#btnGenerarOC')?.addEventListener('click', () => openGenerarOrdenModal(r));
+    $$('[data-corregir-item]', $('#reqItemsDetail')).forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const it = r.items.find((x) => x.id === Number(btn.dataset.corregirItem));
+        if (it) openEditItemPostOcModal(reqId, it, () => openRequisicionDetail(reqId));
+      });
+    });
     $('#estadoSelect').addEventListener('change', async (e) => {
       try {
         await api(`/projects/${state.projectId}/requisiciones/${reqId}/estado`, { method: 'PUT', body: { estado: e.target.value } });
@@ -6032,6 +6068,91 @@ async function openRequisicionDetail(reqId) {
     closeModal();
     toast(err.message, 'danger');
   }
+}
+
+// Corrección de UN renglón de una requisición ya fuera de "borrador"
+// (prompt-editar-requisicion-con-oc.md) — caso real: item ligado al insumo
+// equivocado del catálogo (unidad incorrecta) después de ya tener OC
+// generada. Deliberadamente separado de openEditRequisicionModal (edición
+// completa, solo borrador): este modal edita un solo item vía UPDATE
+// selectivo (PUT .../items/:itemId), nunca toca la OC ni el pago ya
+// confirmados — confirmado en diagnóstico previo que ambos son
+// independientes desde que se crea la OC.
+function openEditItemPostOcModal(reqId, item, onSaved) {
+  let insumoSeleccionado = {
+    id: item.insumo_id, codigo: item.insumo_codigo, concepto: item.insumo_concepto, unidad: item.unidad,
+  };
+  openModal(`
+    <h3>Corregir renglón de requisición</h3>
+    <div class="alert-box warn">Esta corrección solo actualiza el registro de la requisición — NO afecta la Orden de Compra ni el pago ya realizado, que quedan exactamente igual.</div>
+    <div class="field">
+      <label>Insumo</label>
+      <div class="muted" id="editItemInsumoActual">${esc(item.insumo_concepto)} (${esc(item.insumo_codigo)} · ${esc(item.unidad || '')})</div>
+      <label class="mt-8">Cambiar a otro insumo del catálogo (opcional — deja vacío para conservar el actual)</label>
+      <input id="editItemInsumoSearch" placeholder="Buscar por código o nombre…" autocomplete="off" />
+      <div id="editItemInsumoResults" class="project-list gap-6"></div>
+    </div>
+    <div class="field"><label>Cantidad solicitada</label><input id="editItemCantidad" type="number" min="0" step="any" value="${item.cantidad_solicitada}" /></div>
+    <div class="field"><label>Precio unitario</label><input id="editItemPrecio" type="number" min="0" step="any" value="${item.precio_solicitado ?? 0}" /></div>
+    <div class="field"><label>Justificación del cambio (obligatoria)</label><textarea id="editItemJustificacion" rows="3" placeholder="Ej. Se ligó al insumo en PZA por error; el material real se compró y pagó en presentación M2."></textarea></div>
+    <div class="modal-actions">
+      <button class="btn" id="btnCancelEditItem">Cancelar</button>
+      <button class="btn btn-primary" id="btnSaveEditItem">Guardar corrección</button>
+    </div>
+  `);
+
+  let searchTimer;
+  $('#editItemInsumoSearch').addEventListener('input', (e) => {
+    clearTimeout(searchTimer);
+    const q = e.target.value.trim();
+    const results = $('#editItemInsumoResults');
+    if (!q) { results.innerHTML = ''; return; }
+    searchTimer = setTimeout(async () => {
+      try {
+        const found = await api(`/projects/${state.projectId}/insumos${queryString({ q })}`);
+        results.innerHTML = found.slice(0, 8).map((i) => `
+          <div class="project-item" data-pick="${i.id}">
+            <span class="pname">${esc(i.concepto)}</span>
+            <span class="pmeta">${esc(i.codigo)} · ${esc(i.unidad || '')}</span>
+          </div>`).join('') || '<p class="muted">Sin resultados.</p>';
+        $$('[data-pick]', results).forEach((row) => row.addEventListener('click', () => {
+          const insumoId = Number(row.dataset.pick);
+          const insumo = found.find((i) => i.id === insumoId);
+          if (!insumo) return;
+          insumoSeleccionado = insumo;
+          $('#editItemInsumoActual').textContent = `${insumo.concepto} (${insumo.codigo} · ${insumo.unidad || ''}) — nuevo`;
+          $('#editItemInsumoSearch').value = '';
+          results.innerHTML = '';
+        }));
+      } catch (err) { /* silent search errors */ }
+    }, 280);
+  });
+
+  $('#btnCancelEditItem').addEventListener('click', closeModal);
+  $('#btnSaveEditItem').addEventListener('click', async () => {
+    const justificacion = $('#editItemJustificacion').value.trim();
+    if (!justificacion) { toast('La justificación del cambio es obligatoria', 'danger'); return; }
+    const cantidad = Number($('#editItemCantidad').value);
+    const precio = Number($('#editItemPrecio').value);
+    if (!Number.isFinite(cantidad) || cantidad < 0 || !Number.isFinite(precio) || precio < 0) {
+      toast('Cantidad y precio deben ser números válidos', 'danger');
+      return;
+    }
+    const ok = await confirmDialog(
+      'Este cambio corrige el registro de la requisición (cantidad/insumo). NO afecta la Orden de Compra ni el pago ya realizado — esos quedan exactamente igual. ¿Continuar?',
+      { titulo: 'Confirmar corrección', textoAceptar: 'Sí, corregir' }
+    );
+    if (!ok) return;
+    try {
+      await api(`/projects/${state.projectId}/requisiciones/${reqId}/items/${item.id}`, {
+        method: 'PUT',
+        body: { insumo_id: insumoSeleccionado.id, cantidad_solicitada: cantidad, precio_solicitado: precio, justificacion },
+      });
+      toast('Renglón corregido', 'success');
+      invalidate('resumen');
+      if (onSaved) await onSaved();
+    } catch (err) { toast(err.message, 'danger'); }
+  });
 }
 
 // Edición de una requisición en estado "borrador": permite corregir cantidades/precios,

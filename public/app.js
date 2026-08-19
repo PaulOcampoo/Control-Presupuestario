@@ -54,7 +54,7 @@ const ROLE_TABS = {
   // Rol nuevo (prompt-nuevo-rol-costos.md) — mirror de PERMISSIONS.costos en
   // server/auth.js, acceso exclusivo a Presupuestos (las 3 subsecciones de
   // la galería 'presupuestos', ver GALERIAS_SECCIONES más abajo).
-  costos: ['matrices', 'costos', 'composicion_costos'],
+  costos: ['matrices', 'costos', 'composicion_costos', 'fondoGarantia'],
 };
 
 // Vistas que no requieren ninguna obra/proyecto seleccionado — lista

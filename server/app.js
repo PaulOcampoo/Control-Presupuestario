@@ -6979,7 +6979,11 @@ app.get('/api/projects/:id/finanzas/compromisos-abiertos', h(auth.allow('tesorer
 // estimación — mismo permiso que el resto de Tesorería/Finanzas
 // ('finanzas'/'puede_ver'), mismo patrón que Compromisos Abiertos arriba
 // (sin sección nueva en el catálogo de permisos granulares).
-app.get('/api/projects/:id/finanzas/fondo-garantia', h(auth.allow('tesoreria')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('finanzas', 'puede_ver')), h(async (req, res) => {
+// 'costos' agregado (prompt-costos-editar-fondo-garantia.md) — sin este rol
+// aquí, checkPermiso('finanzas','puede_ver') nunca se evaluaba porque
+// auth.allow() ya cortaba con 403 antes de llegar ahí, mismo patrón que el
+// PUT de abajo.
+app.get('/api/projects/:id/finanzas/fondo-garantia', h(auth.allow('tesoreria', 'costos')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('finanzas', 'puede_ver')), h(async (req, res) => {
   res.json(await getFondoGarantiaData(req.project.id));
 }));
 
@@ -6992,7 +6996,11 @@ app.get('/api/projects/:id/finanzas/fondo-garantia', h(auth.allow('tesoreria')),
 // solo enforced 'puede_ver'. verificarAccesoObra seguirá restringiendo
 // tesorería a solo las obras que tenga asignadas en usuario_proyectos, igual
 // que cualquier otro endpoint por-obra.
-app.put('/api/projects/:id/fondo-garantia', h(auth.allow('tesoreria')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('finanzas', 'puede_editar')), h(async (req, res) => {
+// 'costos' agregado (prompt-costos-editar-fondo-garantia.md) — Paul ya le
+// había dado puede_editar=true en 'finanzas' desde la matriz, pero este
+// auth.allow() hardcodeado a 'tesoreria' lo ignoraba y devolvía 403 sin
+// importar la fila de permisos_usuario.
+app.put('/api/projects/:id/fondo-garantia', h(auth.allow('tesoreria', 'costos')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('finanzas', 'puede_editar')), h(async (req, res) => {
   const pct = await upsertPorcentajeFondoGarantia(db.pool, req.project.id, (req.body || {}).porcentaje);
   res.json({ porcentaje_pactado: pct, obras: [{ id: req.project.id, nombre: req.project.nombre }] });
 }));
@@ -7007,7 +7015,11 @@ app.put('/api/projects/:id/fondo-garantia', h(auth.allow('tesoreria')), h(requir
 // obras del cliente" nunca debe tocar una obra que el usuario ni siquiera
 // puede ver. Transacción única: si una obra falla la validación de rango,
 // ninguna se actualiza (mismo criterio "todo o nada" que contrato-confirm).
-app.put('/api/clientes/:id/fondo-garantia', h(auth.allow('tesoreria')), h(async (req, res) => {
+// 'costos' agregado (prompt-costos-editar-fondo-garantia.md) — mismo fix que
+// el PUT por-obra de arriba; isAdminUser más abajo sigue evaluando solo
+// admin/desarrollador, así que costos cae en la rama de query filtrada por
+// usuario_proyectos, igual que tesorería.
+app.put('/api/clientes/:id/fondo-garantia', h(auth.allow('tesoreria', 'costos')), h(async (req, res) => {
   const clienteId = Number(req.params.id);
   if (!Number.isFinite(clienteId)) return res.status(400).json({ error: 'ID de cliente inválido' });
   const { rows: clienteRows } = await db.pool.query('SELECT id, nombre FROM clientes WHERE id = $1', [clienteId]);

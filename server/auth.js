@@ -128,7 +128,14 @@ const PERMISSIONS = {
   // 'mapeo' pese a vivir en la misma pantalla (ver bloque costos más abajo,
   // que la agrega explícita porque 'resumen' —el tab real que TAB_A_SECCION
   // mapea a 'presupuestos'— no está ni debe estar en este arreglo).
-  costos: { label: 'Costos', tabs: ['matrices', 'costos', 'composicion_costos', 'mapeo'] },
+  // prompt-costos-editar-fondo-garantia.md: 'fondoGarantia' agregado — Paul ya
+  // le había dado puede_editar=true a costos en la sección granular 'finanzas'
+  // desde la matriz, pero sin este tab ni el auth.allow('costos') en los 2
+  // endpoints PUT + el GET de vista (server/app.js) el permiso quedaba sin
+  // efecto: mismo patrón recurrente de gate hardcodeado por auth.allow()
+  // ignorando la matriz granular, ya visto con Matrices/Mapeo/Composición de
+  // Costos para este mismo rol.
+  costos: { label: 'Costos', tabs: ['matrices', 'costos', 'composicion_costos', 'mapeo', 'fondoGarantia'] },
 };
 const PUESTOS = Object.keys(PERMISSIONS);
 

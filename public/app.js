@@ -2373,6 +2373,39 @@ async function bootApp() {
       return;
     }
 
+    // prompt-URGENTE-fix-regresion-costos-entrada.md: regresión real en
+    // producción (PR #161) — costos dejó de aterrizar en '..._gallery'
+    // arriba porque sus tabs ahora abarcan 3 secciones distintas (costos +
+    // tesoreria vía fondoGarantia + obra vía programa) más 'resumen' (sin
+    // sección), así que vistaInicialParaTabs() ya no puede resolver una
+    // única sección para TODOS sus tabs — cae a 'inicio', que esta función
+    // nunca renderiza directo (solo se usa el valor de state.view en las 2
+    // ramas de arriba); el resultado real es que muestra la galería de
+    // clientes ("elige un presupuesto") en cada login, y la sección "Costos"
+    // solo queda alcanzable desde el drawer.
+    // Se evaluó una regla genérica (aterrizar directo si el subconjunto de
+    // tabs SIN proyecto del rol mapea a una sola sección con galería) pero
+    // se descartó: 'compras' tiene el mismo patrón por coincidencia
+    // (proveedores/cumplimiento/cotizador — sus 3 tabs sin proyecto — mapean
+    // los 3 a la sección 'compras'), así que esa regla también habría
+    // cambiado su aterrizaje sin que nadie lo pidiera (Forbidden Actions de
+    // este prompt: no tocar el comportamiento de entrada de otro rol).
+    // Excepción explícita y acotada solo a costos en su lugar: sus tabs
+    // GLOBALES reales (costos catálogo + composicion_costos) viven
+    // exclusivamente en la sección "Costos" — aterrizar ahí directo no deja
+    // ningún callejón sin salida (matrices/mapeo, también en esa galería,
+    // ya piden obra al hacer click vía pendingTargetView, igual que antes de
+    // este prompt; programa/resumen/fondoGarantia siguen accesibles desde el
+    // drawer/sidebar, pidiendo obra normalmente cuando aplica).
+    if (effectivePuesto() === 'costos') {
+      state.clienteId = null;
+      state.projectId = null;
+      showApp();
+      $('#projectName').textContent = '';
+      switchToView('costos_gallery');
+      return;
+    }
+
     showClientGallery();
     renderGalleryGreeting();
     renderFavoritosSection();

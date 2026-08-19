@@ -4269,8 +4269,20 @@ async function renderView() {
   }
   if (!state.projectId) {
     const puedeVerAgregado = isAdmin() || state.user?.puesto === 'residente';
+    // prompt-URGENTE-fix-costos-navegacion-cliente-obra.md: costos toca el
+    // tile de un cliente (selectCliente(), sin tocar bootApp() — causa real
+    // confirmada, distinta a la hipótesis del prompt) y cae aquí igual que
+    // cualquier rol sin puedeVerAgregado — antes veía el mismo empty-state
+    // genérico de "no hay presupuesto", sin forma de elegir una obra.
+    // NO se agregó 'costos' a puedeVerAgregado: renderResumenCliente()
+    // muestra KPIs de avance ejecutado/por ejecutar por cliente Y por obra —
+    // justo lo que prompt-seccion-costos-implementacion.md ocultó a
+    // propósito para este rol en Resumen de obra (Target State punto 5).
+    // Picker dedicado y minimal en su lugar, sin ningún dato de avance.
     if (typeof state.clienteId === 'number' && puedeVerAgregado) {
       await renderResumenCliente(view);
+    } else if (state.clienteId != null && effectivePuesto() === 'costos') {
+      renderObrasClientePicker(view);
     } else {
       view.innerHTML = `
         <div class="empty-state">
@@ -4645,6 +4657,43 @@ function openQuickFinObraModal(meta) {
       toast(err.message, 'danger');
       btn.disabled = false; btn.textContent = 'Guardar';
     }
+  });
+}
+
+// =========================================================================
+// VISTA: Selector de obra de un cliente para costos (prompt-URGENTE-fix-
+// costos-navegacion-cliente-obra.md) — solo nombre + lugar, sin datos de
+// dinero ni fechas: GET /api/projects (de donde sale visibleProjects(),
+// ya en memoria desde bootApp()) restringe inicio_obra/fin_obra/total_sin_
+// iva/total_con_iva a admin/desarrollador (prompt-p9-restringir-importes-
+// projects.md, sin relación con este prompt) — para costos esos campos
+// simplemente no llegan del backend, mostrarlos habría sido "$undefined"
+// o un badge de vencimiento roto. No se usa /clientes/:id/resumen-agregado
+// tampoco: ese sí trae dinero, pero además trae los KPIs de avance que
+// prompt-seccion-costos-implementacion.md ocultó a propósito para este rol.
+// =========================================================================
+function renderObrasClientePicker(view) {
+  const projects = visibleProjects();
+  if (!projects.length) {
+    view.innerHTML = `<div class="empty-state"><div class="big">📂</div>Este cliente no tiene presupuestos cargados todavía.</div>`;
+    return;
+  }
+  view.innerHTML = `
+    <h2 class="section-title">Elige una obra</h2>
+    <div id="obrasClientePickerList">
+      ${projects.map((p) => `
+        <div class="card proyecto-resumen-card" data-pid="${p.id}">
+          <div class="card-row"><span class="k">${esc(p.nombre)}</span></div>
+          ${p.lugar ? `<div class="card-row"><span class="v muted">${esc(p.lugar)}</span></div>` : ''}
+        </div>`).join('')}
+    </div>
+  `;
+  // targetView='costos_gallery' explícito: esta función solo se llama para
+  // costos (ver el guard en renderView()), así que sin esto selectProject()
+  // mandaría a 'inicio' (default para cualquier rol con >1 tab) en vez de
+  // aterrizar directo en la galería de Costos para la obra elegida.
+  $$('.proyecto-resumen-card', view).forEach((card) => {
+    card.addEventListener('click', () => selectProject(Number(card.dataset.pid), 'costos_gallery'));
   });
 }
 

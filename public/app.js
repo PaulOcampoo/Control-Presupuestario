@@ -17787,6 +17787,13 @@ async function pintarVerEstimacion(estimacionId) {
     // Amortización solo editable mientras el desglose de pago no está fijo
     // (mismo candado que "Calcular" en el backend — ver PUT .../amortizacion).
     const puedeEditarAmortizacion = ['borrador', 'rechazada'].includes(data.estado) && puedeCapturarEstimacion();
+    // prompt-fix-etiqueta-fondo-garantia.md: el % mostrado se deriva del
+    // propio monto ya persistido de ESTA estimación (fondo_garantia_monto /
+    // total_periodo), no se vuelve a consultar meta.porcentaje_fondo_garantia
+    // de la obra — ese % es editable ahora (prompt-fondo-garantia-editable-
+    // panel.md) y puede haber cambiado desde que se calculó esta estimación,
+    // así que re-consultarlo desincronizaría el texto del monto ya congelado.
+    const fondoGarantiaPct = data.total_periodo ? (data.fondo_garantia_monto / data.total_periodo) * 100 : 0;
     el.innerHTML = `
       <div class="muted nomina-detalle-fecha">Folio #${data.folio}${data.nombre ? ' · ' + esc(data.nombre) : ''} · ${esc(data.periodo_inicio)} al ${esc(data.periodo_fin)}</div>
       <div class="nomina-table-wrap">
@@ -17837,7 +17844,7 @@ async function pintarVerEstimacion(estimacionId) {
               </td>
             </tr>
             <tr>
-              <td class="nomina-td">2% Fondo de garantía</td>
+              <td class="nomina-td">${fmtPct(fondoGarantiaPct)} Fondo de garantía</td>
               <td class="nomina-td-right">-${money(data.fondo_garantia_monto)}</td>
             </tr>
             <tr>

@@ -479,6 +479,13 @@ function defaultPermisosParaRol(puesto) {
     // propio handler a admin/tesorería) sin restricción adicional — este
     // default preserva esa capacidad (prompt-checkpermiso-ordenes-compra.md).
     if (porSeccion.ordenes_compra) { porSeccion.ordenes_compra.puede_editar = true; }
+    // prompt-fondo-garantia-editable-panel.md: capacidad nueva — antes editar
+    // el % de Fondo de Garantía era admin/desarrollador-only (vía Contrato),
+    // tesorería solo podía ver el panel. Decisión confirmada explícitamente
+    // con Paul: tesorería edita, no solo ve. puede_editar=true por default
+    // para que sea usable de inmediato sin que Paul tenga que reconfigurar
+    // nada, mismo criterio que ordenes_cambio/lotes arriba.
+    if (porSeccion.finanzas) { porSeccion.finanzas.puede_editar = true; }
   }
   if (puesto === 'logistica') {
     // logistica no crea/edita el contenido de una requisición, pero sí podía

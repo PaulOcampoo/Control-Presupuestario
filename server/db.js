@@ -1852,6 +1852,19 @@ const SCHEMA = `
       WHERE pu.usuario_id = u.id AND pu.proyecto_id IS NULL AND pu.seccion = 'maquinaria_consumibles'
     );
 
+  -- prompt-fondo-garantia-editable-panel.md: defaultPermisosParaRol
+  -- (server/auth.js) ya da puede_editar=true en 'finanzas' a tesorería para
+  -- altas NUEVAS, pero solo se evalúa al crear un usuario — mismo criterio
+  -- ya usado arriba para maquinaria_captura/cabo. Backfill UPDATE (no
+  -- INSERT: 'finanzas' ya existía como sección para tesorería desde antes,
+  -- con puede_ver=true) para que tesorería ya existente no se quede solo
+  -- viendo mientras un tesorería dado de alta después de este cambio sí
+  -- puede editar. Idempotente: sin filas que coincidan (puede_editar ya en
+  -- true) en corridas subsecuentes, es un no-op.
+  UPDATE permisos_usuario SET puede_editar = true
+  WHERE seccion = 'finanzas'
+    AND usuario_id IN (SELECT id FROM usuarios WHERE puesto = 'tesoreria');
+
   -- Control de Cuentas (control personal de saldo bancario de Paul/Fer,
   -- prompt-control-cuentas.md) — DELIBERADAMENTE fuera del sistema de
   -- permisos_usuario/checkPermiso: acceso gateado por una whitelist de

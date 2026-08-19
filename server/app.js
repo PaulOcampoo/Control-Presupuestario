@@ -5418,7 +5418,14 @@ app.post('/api/projects/:id/lotes/importar/confirmar', h(auth.allow('residente')
 // sigue intacto, sin tocar, y sigue ejecutándose siempre dentro del handler
 // — checkPermiso es un gate de rol adicional, independiente, nunca lo
 // reemplaza ni lo puede saltar (prompt-checkpermiso-mapeo.md).
-app.get('/api/conceptos/:id/insumos', h(auth.allow('costos')), h(auth.checkPermiso('mapeo', 'puede_ver')), h(async (req, res) => {
+// 'administracion' agregado (prompt-seccion-costos-implementacion.md, fix de
+// bug preexistente confirmado en prompt-diagnostico-seccion-costos-nueva.md):
+// administracion tiene el tab 'mapeo' y pasa el gate del frontend
+// (puedeVerMapeo(), public/app.js) desde que se le dio el tab en
+// prompt-costos-mapeo-y-mover-tiles.md, pero nunca se agregó aquí — 403 real
+// en los 4 endpoints pese a ver la pantalla, sin relación con la
+// reorganización de secciones de este prompt.
+app.get('/api/conceptos/:id/insumos', h(auth.allow('costos', 'administracion')), h(auth.checkPermiso('mapeo', 'puede_ver')), h(async (req, res) => {
   const conceptoId = Number(req.params.id);
   const { rows: conceptoRows } = await db.pool.query('SELECT id, project_id FROM conceptos WHERE id = $1', [conceptoId]);
   if (!conceptoRows[0]) return res.status(404).json({ error: 'Concepto no encontrado' });
@@ -5436,7 +5443,7 @@ app.get('/api/conceptos/:id/insumos', h(auth.allow('costos')), h(auth.checkPermi
   res.json(rows);
 }));
 
-app.post('/api/conceptos/:id/insumos', h(auth.allow('costos')), h(auth.checkPermiso('mapeo', 'puede_crear')), h(async (req, res) => {
+app.post('/api/conceptos/:id/insumos', h(auth.allow('costos', 'administracion')), h(auth.checkPermiso('mapeo', 'puede_crear')), h(async (req, res) => {
   const conceptoId = Number(req.params.id);
   const insumoId = Number((req.body || {}).insumo_id);
   if (!insumoId) return res.status(400).json({ error: 'insumo_id es requerido' });
@@ -5470,7 +5477,7 @@ app.post('/api/conceptos/:id/insumos', h(auth.allow('costos')), h(auth.checkPerm
   res.status(201).json({ ok: true });
 }));
 
-app.delete('/api/conceptos/:id/insumos/:insumo_id', h(auth.allow('costos')), h(auth.checkPermiso('mapeo', 'puede_eliminar')), h(async (req, res) => {
+app.delete('/api/conceptos/:id/insumos/:insumo_id', h(auth.allow('costos', 'administracion')), h(auth.checkPermiso('mapeo', 'puede_eliminar')), h(async (req, res) => {
   const conceptoId = Number(req.params.id);
   const insumoId = Number(req.params.insumo_id);
   const { rows: conceptoRows } = await db.pool.query('SELECT id, project_id FROM conceptos WHERE id = $1', [conceptoId]);
@@ -5490,7 +5497,7 @@ app.delete('/api/conceptos/:id/insumos/:insumo_id', h(auth.allow('costos')), h(a
 
 // Resumen de progreso de mapeo por proyecto (no pedido explícitamente, pero
 // necesario para el contador "X/95 conceptos mapeados" de la pantalla admin).
-app.get('/api/projects/:id/concepto-insumos/resumen', h(auth.allow('costos')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('mapeo', 'puede_ver')), h(async (req, res) => {
+app.get('/api/projects/:id/concepto-insumos/resumen', h(auth.allow('costos', 'administracion')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('mapeo', 'puede_ver')), h(async (req, res) => {
   const pid = req.project.id;
   const { rows: totalRows } = await db.pool.query(
     "SELECT COUNT(*) AS n FROM conceptos WHERE project_id = $1 AND es_total = 0", [pid]
@@ -7172,7 +7179,11 @@ app.get('/api/estado-resultados/consolidado', h(auth.requireEstadoResultadosAcce
 // ---------------------------------------------------------------------------
 // Programa de ejecución
 // ---------------------------------------------------------------------------
-app.get('/api/projects/:id/programa', h(auth.allow('residente', 'cabo', 'compras', 'tesoreria', 'administracion', 'logistica')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+// 'costos' agregado al GET (prompt-seccion-costos-implementacion.md): no
+// estaba en la lista — costos ganó acceso a Programa como parte de la nueva
+// sección "Costos" (Target State punto 4), así que necesita también poder
+// VER, no solo editar (paso 2 más abajo, PUT).
+app.get('/api/projects/:id/programa', h(auth.allow('residente', 'cabo', 'compras', 'tesoreria', 'administracion', 'logistica', 'costos')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
   const { rows } = await db.pool.query(`
     SELECT pe.id, pe.codigo, pe.concepto, pe.grupo, pe.fecha_inicio, pe.fecha_fin,
            pe.duracion_dias, pe.importe, pe.peso_pct, pe.orden,
@@ -7196,7 +7207,17 @@ app.get('/api/projects/:id/programa', h(auth.allow('residente', 'cabo', 'compras
   res.json(rows);
 }));
 
-app.put('/api/projects/:id/programa/:itemId', h(auth.allow()), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+// 'residente'/'costos' agregados (prompt-seccion-costos-implementacion.md,
+// fix de bug preexistente confirmado en prompt-diagnostico-seccion-costos-
+// nueva.md): auth.allow() sin argumentos dejaba pasar solo admin/desarrollador,
+// pero el frontend (renderPrograma, public/app.js) pinta el botón "✏️ Editar
+// fechas" para cualquiera que vea Programa sin condicionarlo — residente veía
+// el botón y recibía 403 real al guardar, sin relación con este cambio. El
+// GET de arriba ya incluía a los roles operativos correctos, este PUT se
+// quedó atrás. Solo se agregan los 2 roles confirmados con Paul — el resto
+// (cabo/compras/tesoreria/administracion/logistica, que sí ven Programa vía
+// el GET) se queda sin editar, a propósito.
+app.put('/api/projects/:id/programa/:itemId', h(auth.allow('residente', 'costos')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
   const pid = req.project.id;
   const itemId = Number(req.params.itemId);
   const { rows: existRows } = await db.pool.query(
@@ -7590,7 +7611,11 @@ app.put('/api/projects/:id/avances/:semana/conceptos', h(auth.allow('residente',
 // ---------------------------------------------------------------------------
 // Resumen / dashboard
 // ---------------------------------------------------------------------------
-app.get('/api/projects/:id/resumen', h(auth.allow('tesoreria', 'administracion')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+// 'costos' agregado (prompt-seccion-costos-implementacion.md): ganó el tab
+// 'resumen' completo (Target State punto 4) — sin este rol aquí, el
+// endpoint que alimenta renderInicio()/dashboardHtml daría 403 y el tab
+// quedaría inútil pese a estar en PERMISSIONS.costos.tabs.
+app.get('/api/projects/:id/resumen', h(auth.allow('tesoreria', 'administracion', 'costos')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
   const pid = req.project.id;
   const [{ rows: metaRows }, { rows: contratoRows }] = await Promise.all([
     db.pool.query('SELECT clave, valor FROM meta WHERE project_id = $1', [pid]),

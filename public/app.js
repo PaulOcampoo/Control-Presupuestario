@@ -52,9 +52,11 @@ const ROLE_TABS = {
   jefe_maquinaria: MAQUINARIA_TABS_JEFE,
   operador: MAQUINARIA_TABS_OPERADOR,
   // Rol nuevo (prompt-nuevo-rol-costos.md) — mirror de PERMISSIONS.costos en
-  // server/auth.js, acceso exclusivo a Presupuestos (las 3 subsecciones de
-  // la galería 'presupuestos', ver GALERIAS_SECCIONES más abajo).
-  costos: ['matrices', 'costos', 'composicion_costos'],
+  // server/auth.js. prompt-seccion-costos-implementacion.md: sincronizado con
+  // el real (que ya incluía 'mapeo' desde prompt-costos-mapeo-y-mover-
+  // tiles.md, nunca reflejado aquí — gap preexistente corregido de paso) +
+  // 'programa'/'resumen' nuevos.
+  costos: ['matrices', 'costos', 'composicion_costos', 'mapeo', 'programa', 'resumen'],
 };
 
 // Vistas que no requieren ninguna obra/proyecto seleccionado — lista
@@ -1224,28 +1226,38 @@ const TAB_POR_TIPO_NOTIF = {
 // def.tabs.length === 0 es 100% futura (hoy solo Maquinaria).
 // ---------------------------------------------------------------------------
 const SECTION_DEFS = {
-  // 'ordenesCambio' (prompt-ordenes-cambio.md) vivía aquí, movido a
-  // Presupuestos (prompt-costos-mapeo-y-mover-tiles.md) — ver ese tab más
-  // abajo, en SECTION_DEFS.presupuestos, junto al resto de la justificación.
-  obra:          { label: 'Obra',           icon: 'obra',           emoji: '🏗️',  tabs: ['programa', 'avance', 'destajo', 'estimaciones', 'lotes'],     proximamente: [] },
+  // 'ordenesCambio' (prompt-ordenes-cambio.md) vivió un tiempo en Presupuestos
+  // (prompt-costos-mapeo-y-mover-tiles.md), pero esa sección se disolvió
+  // (prompt-seccion-costos-implementacion.md, ver 'costos' más abajo) —
+  // ordenesCambio regresa aquí, de donde salió.
+  obra:          { label: 'Obra',           icon: 'obra',           emoji: '🏗️',  tabs: ['programa', 'avance', 'destajo', 'estimaciones', 'ordenesCambio', 'lotes'], proximamente: [] },
   compras:       { label: 'Compras',        icon: 'compras',        emoji: '🛒',   tabs: ['requisiciones', 'insumos', 'proveedores', 'cumplimiento', 'ordenes', 'cotizador'], proximamente: ['Subcontratos'] },
   tesoreria:     { label: 'Tesorería',      icon: 'tesoreria',      emoji: '💰',   tabs: ['finanzas', 'compromisos', 'fondoGarantia', 'estadoResultados', 'estadoResultadosGlobal', 'impuestos', 'controlFinanciero'], proximamente: [] },
-  // 'mapeo' vivía aquí, movido a Presupuestos (prompt-costos-mapeo-y-mover-
-  // tiles.md) — administracion conserva el resto de sus tabs sin cambios.
+  // 'mapeo' vivió un tiempo aquí, luego en Presupuestos, ahora en la nueva
+  // sección 'costos' (prompt-seccion-costos-implementacion.md) —
+  // administracion conserva el resto de sus tabs sin cambios.
   administracion:{ label: 'Administración', icon: 'administracion', emoji: '📂',  tabs: ['contrato', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'avance_clientes', 'usuarios', 'cuentas'], proximamente: ['Almacenes'] },
   maquinaria:    { label: 'Maquinaria',     icon: 'maquinaria',     emoji: '🚜',   tabs: MAQUINARIA_TABS_ADMIN,                                 proximamente: [] },
-  // prompt-secciones-presupuestos-contabilidad.md: Matrices de PU/Costos/
-  // Composición de costos reubicadas aquí (antes en obra/administracion) —
-  // pura reubicación de navegación, misma lógica/endpoints de siempre.
-  // prompt-costos-mapeo-y-mover-tiles.md: 'mapeo' (antes en administracion) y
-  // 'ordenesCambio' (antes en obra) se suman aquí — mismo patrón de puro
-  // movimiento de string entre arrays, sin tocar TAB_A_SECCION ni ningún
-  // endpoint. Efecto: costos (matrices/costos/composicion_costos/mapeo) le
-  // agrega Mapeo pero le queda TODO en esta sola sección, conservando el
-  // aterrizaje directo de PR #152. cabo (tenía ordenesCambio, sin ningún
-  // otro tab de Presupuestos) pierde ese aterrizaje directo a su contexto
-  // habitual — impacto aceptado y confirmado con Paul, ver Starting State.
-  presupuestos:  { label: 'Presupuestos',   icon: 'presupuestos',   emoji: '📑',   tabs: ['matrices', 'costos', 'composicion_costos', 'mapeo', 'ordenesCambio'], proximamente: [] },
+  // prompt-seccion-costos-implementacion.md: sección "Costos" nueva,
+  // reemplaza a "Presupuestos" (disuelta — su único tab restante,
+  // ordenesCambio, regresó a Obra arriba). admin/desarrollador/residente
+  // conservan acceso a Matrices/Composición de Costos sin cambios, solo
+  // agrupadas aquí en vez de en "Presupuestos".
+  // 'programa' DELIBERADAMENTE no está en esta lista, pese a que costos gana
+  // acceso a Programa (PERMISSIONS.costos.tabs en server/auth.js) — decisión
+  // consultada con Paul durante la implementación: VIEW_TO_SECTION es un mapa
+  // GLOBAL tab→sección (public/app.js, no por rol), así que 'programa' solo
+  // puede vivir en una sección para TODOS los roles a la vez. Meterlo aquí
+  // habría hecho que residente/cabo/compras/tesorería/administracion/
+  // logística vieran el breadcrumb/resaltado del sidebar decir "Costos" en
+  // vez de "Obra" al entrar a Programa desde el tile de Obra — 6 roles
+  // afectados. Se prefirió dejar 'programa' únicamente en SECTION_DEFS.obra
+  // (arriba, sin cambios) — efecto aceptado: costos NO logra el aterrizaje
+  // directo de PR #152 a una única galería (tiene tabs en 2 secciones:
+  // "Costos" con 4 tiles, y "Obra" con el tile de Programa) — cae en
+  // 'inicio' como cualquier rol multi-sección, mismo comportamiento que
+  // residente hoy. Ver vistaInicialParaTabs() — sin cambios, no hizo falta.
+  costos:        { label: 'Costos',         icon: 'costos',         emoji: '📑',   tabs: ['matrices', 'costos', 'composicion_costos', 'mapeo'], proximamente: [] },
   // prompt-contabilidad-fase1/2/3/4 + prompt-contabilidad-galeria-tiles.md:
   // 5 subsecciones reales (antes: un solo tab 'contabilidad' con subnav
   // interno propio, mismo patrón que 'controlFinanciero' — reemplazado por
@@ -1298,7 +1310,7 @@ Object.entries(SECTION_DEFS).forEach(([sectionId, def]) => {
 // en prompt-39-maquinaria-galeria-subsecciones.md (antes tenía tabs:
 // ['maquinaria'], una sola pestaña que el guard de goToSection()
 // (tabsPermitidos.length > 1) saltaba directo sin mostrar galería).
-const SECTIONS_WITH_GALLERY = new Set(['obra', 'compras', 'tesoreria', 'administracion', 'maquinaria', 'presupuestos', 'contabilidad']);
+const SECTIONS_WITH_GALLERY = new Set(['obra', 'compras', 'tesoreria', 'administracion', 'maquinaria', 'costos', 'contabilidad']);
 SECTIONS_WITH_GALLERY.forEach((sectionId) => { VIEW_TO_SECTION[`${sectionId}_gallery`] = sectionId; });
 
 // Historial de navegación (botón atrás del navegador / gesto equivalente en
@@ -4404,6 +4416,13 @@ async function renderInicio(view) {
   let resumen = null;
   let m = {};
 
+  // prompt-seccion-costos-implementacion.md: costos gana el tab 'resumen'
+  // completo, pero el bloque de avance físico-financiero (los 3 KPIs de
+  // avance + la dona) no es su función — se oculta específicamente para
+  // este rol, sin afectar a nadie más. "Presupuesto total", "Datos de la
+  // obra" y los KPIs de Requisiciones SÍ se quedan (son justo lo que costos
+  // necesita para validar que el presupuesto cargó bien).
+  const mostrarAvanceFinanciero = effectivePuesto() !== 'costos';
   if (puedeVerResumen) {
     resumen = await cached('resumen', () => api(`/projects/${state.projectId}/resumen`));
     m = resumen.meta || {};
@@ -4415,13 +4434,15 @@ async function renderInicio(view) {
       <h2 class="section-title">Resumen del presupuesto</h2>
       <div class="kpi-grid">
         <div class="kpi accent"><div class="label">Presupuesto total (sin IVA)</div><div class="value">${fmtMoney(resumen.presupuesto_total)}</div></div>
+        ${mostrarAvanceFinanciero ? `
         <div class="kpi"><div class="label">Avance programado</div><div class="value">${fmtPct(prog)}</div></div>
         <div class="kpi green"><div class="label">Avance ejecutado</div><div class="value">${fmtPct(ejec)}</div></div>
-        <div class="kpi ${desvKind}"><div class="label">Desviación vs. programa</div><div class="value">${desviacion >= 0 ? '+' : ''}${fmtNum(desviacion, 1)} pp</div></div>
+        <div class="kpi ${desvKind}"><div class="label">Desviación vs. programa</div><div class="value">${desviacion >= 0 ? '+' : ''}${fmtNum(desviacion, 1)} pp</div></div>` : ''}
       </div>
 
+      ${mostrarAvanceFinanciero ? `
       <h3 class="section-title">Avance físico-financiero: presupuestado vs ejecutado vs por ejecutar</h3>
-      <div class="card"><div class="chart-wrap"><canvas id="chartResumenDona"></canvas></div></div>
+      <div class="card"><div class="chart-wrap"><canvas id="chartResumenDona"></canvas></div></div>` : ''}
 
       <h3 class="section-title">Datos de la obra</h3>
       ${(() => {
@@ -4480,7 +4501,7 @@ async function renderInicio(view) {
     ${puedeVerResumen ? dashboardHtml : ''}
   `;
 
-  if (puedeVerResumen) {
+  if (puedeVerResumen && mostrarAvanceFinanciero) {
     const ctx = $('#chartResumenDona').getContext('2d');
     const cc = chartColors();
     state.charts.resumenDona = new Chart(ctx, {
@@ -4514,6 +4535,11 @@ async function renderInicio(view) {
     });
     state.charts.resumenDona._cpBorderSurface = 'surface';
     state.charts.resumenDona._cpGridBgIndexes = [2]; // 'Resto por ejecutar' (índice 2 en backgroundColor)
+  }
+  // Botones de "Datos de la obra": SIEMPRE que puedeVerResumen, sin depender
+  // de mostrarAvanceFinanciero — ese bloque se oculta para costos, pero
+  // "Datos de la obra" (donde viven estos 2 botones) se queda visible.
+  if (puedeVerResumen) {
     $('#btnEditFechasObra').addEventListener('click', () => openEditFechasObraModal(m));
     $('#btnActualizarFinObra')?.addEventListener('click', () => openQuickFinObraModal(m));
   }

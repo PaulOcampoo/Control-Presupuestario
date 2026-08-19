@@ -5809,7 +5809,13 @@ function requisicionAjena(row, user) {
 // GET /api/projects/:id/requisiciones-historial). compras/logistica/admin no
 // están restringidos por dueño y no se registran aquí.
 async function logRequisicionAudit(req, accion, requisicion, detalleExtra) {
-  if (!['residente', 'cabo'].includes(req.user.puesto)) return;
+  // prompt-editar-requisicion-con-oc.md: 'requisicion_item_editar_post_oc'
+  // es la EXCEPCIÓN deliberada a la regla de arriba — ese endpoint nuevo es
+  // admin/desarrollador-only (nunca residente/cabo), y es exactamente el
+  // tipo de acción que este log SÍ debe capturar (corrección de un registro
+  // ya cerrado del flujo normal, con justificación obligatoria) — omitirla
+  // dejaría sin forma de cumplir el checkpoint de auditoría del prompt.
+  if (accion !== 'requisicion_item_editar_post_oc' && !['residente', 'cabo'].includes(req.user.puesto)) return;
   const ip = auth.getIp(req);
   const label = requisicion.folio || `Requisición #${requisicion.id}`;
   await db.pool.query(
@@ -6063,6 +6069,87 @@ app.put('/api/projects/:id/requisiciones/:reqId', h(auth.allow('residente', 'cab
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
+}));
+
+// Edición selectiva de UN item de una requisición fuera de "borrador"
+// (prompt-editar-requisicion-con-oc.md) — caso real: una requisición quedó
+// ligada al insumo equivocado del catálogo (unidad incorrecta) después de
+// ya tener OC generada, y el PUT de edición completa de arriba es
+// borrador-only. orden_compra_items es un snapshot 100% independiente
+// desde el momento en que se crea la OC (confirmado en diagnóstico previo:
+// ningún cálculo derivado -- OC, pagos, Compromisos Abiertos, Erogado
+// Real -- lee de requisicion_items), así que corregir aquí nunca puede
+// tocarlos. Deliberadamente NO reusa el mecanismo de borrar-y-recrear del
+// PUT de arriba -- ese SÍ rompería contra la FK de orden_compra_items
+// (sin ON DELETE CASCADE) si hubiera OC generada; este hace UPDATE
+// selectivo de una sola fila, nunca DELETE.
+// admin/desarrollador-only (allow() sin roles extra): es corrección de un
+// registro ya cerrado en el flujo normal, no una operación de captura.
+// Bloqueado solo en 'borrador' (ese estado ya tiene su propio endpoint de
+// edición completa arriba) -- el resto de estados (enviada/autorizada/
+// rechazada/cancelada) no tienen ninguna razón adicional para bloquear esta
+// corrección: solo 'autorizada' puede tener OC generada, y ya confirmamos
+// que este endpoint nunca la toca.
+app.put('/api/projects/:id/requisiciones/:reqId/items/:itemId', h(auth.allow()), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('requisiciones', 'puede_editar')), h(async (req, res) => {
+  const pid = req.project.id;
+  const reqId = Number(req.params.reqId);
+  const itemId = Number(req.params.itemId);
+  const { insumo_id, cantidad_solicitada, precio_solicitado, justificacion } = req.body || {};
+
+  if (!justificacion || !justificacion.toString().trim()) {
+    return res.status(400).json({ error: 'La justificación del cambio es obligatoria' });
+  }
+
+  const { rows: reqRows } = await db.pool.query(
+    'SELECT * FROM requisiciones WHERE id = $1 AND project_id = $2',
+    [reqId, pid]
+  );
+  if (!reqRows[0]) return res.status(404).json({ error: 'Requisición no encontrada' });
+  if (reqRows[0].estado === 'borrador') {
+    return res.status(400).json({ error: 'Esta requisición está en borrador — usa la edición normal, no esta corrección' });
+  }
+
+  const { rows: itemRows } = await db.pool.query(
+    `SELECT ri.*, i.codigo, i.concepto, i.unidad
+     FROM requisicion_items ri JOIN insumos i ON i.id = ri.insumo_id
+     WHERE ri.id = $1 AND ri.requisicion_id = $2`,
+    [itemId, reqId]
+  );
+  if (!itemRows[0]) return res.status(404).json({ error: 'El item no pertenece a esta requisición' });
+  const antes = itemRows[0];
+
+  const nuevoInsumoId = insumo_id != null ? Number(insumo_id) : antes.insumo_id;
+  const nuevaCantidad = cantidad_solicitada != null ? Number(cantidad_solicitada) : Number(antes.cantidad_solicitada);
+  const nuevoPrecio = precio_solicitado != null ? Number(precio_solicitado) : Number(antes.precio_solicitado);
+  if (!Number.isFinite(nuevaCantidad) || nuevaCantidad < 0) {
+    return res.status(400).json({ error: 'Cantidad inválida' });
+  }
+  if (!Number.isFinite(nuevoPrecio) || nuevoPrecio < 0) {
+    return res.status(400).json({ error: 'Precio inválido' });
+  }
+  const { rows: insumoRows } = await db.pool.query(
+    'SELECT id, codigo, concepto, unidad FROM insumos WHERE id = $1 AND project_id = $2',
+    [nuevoInsumoId, pid]
+  );
+  if (!insumoRows[0]) return res.status(400).json({ error: 'El insumo indicado no existe en esta obra' });
+
+  const nuevoImporte = Number((nuevaCantidad * nuevoPrecio).toFixed(2));
+
+  const { rows: updatedRows } = await db.pool.query(
+    `UPDATE requisicion_items SET insumo_id = $1, cantidad_solicitada = $2, precio_solicitado = $3, importe = $4
+     WHERE id = $5 RETURNING *`,
+    [nuevoInsumoId, nuevaCantidad, nuevoPrecio, nuevoImporte, itemId]
+  );
+
+  const detalle = `item #${itemId}: ${antes.codigo} "${antes.concepto}" (${antes.unidad}) cant=${antes.cantidad_solicitada} precio=${antes.precio_solicitado} importe=${antes.importe} -> ${insumoRows[0].codigo} "${insumoRows[0].concepto}" (${insumoRows[0].unidad}) cant=${nuevaCantidad} precio=${nuevoPrecio} importe=${nuevoImporte} | justificación: ${justificacion.toString().trim()}`;
+  await logRequisicionAudit(req, 'requisicion_item_editar_post_oc', reqRows[0], detalle);
+
+  res.json({
+    ...updatedRows[0],
+    insumo_codigo: insumoRows[0].codigo,
+    insumo_concepto: insumoRows[0].concepto,
+    unidad: insumoRows[0].unidad,
+  });
 }));
 
 // 'autorizada'/'rechazada' quedan reservadas a admin — residente/cabo pueden

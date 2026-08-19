@@ -41,7 +41,11 @@ const MAQUINARIA_TABS_ADMIN = ['maquinaria_catalogo', 'maquinaria_horas', 'maqui
 const MAQUINARIA_TABS_CABO = ['maquinaria_catalogo', 'maquinaria_horas', 'maquinaria_estado_unidad', 'maquinaria_consumibles', 'maquinaria_reportes_cliente'];
 const MAQUINARIA_TABS_JEFE = ['maquinaria_catalogo', 'maquinaria_bitacora', 'maquinaria_estado_unidad', 'maquinaria_consumibles', 'maquinaria_reportes_cliente'];
 const MAQUINARIA_TABS_OPERADOR = ['maquinaria_horas', 'maquinaria_estado_unidad', 'maquinaria_consumibles'];
-const MAQUINARIA_TABS_RESIDENTE = ['maquinaria_catalogo', 'maquinaria_reportes_cliente'];
+// 'maquinaria_horas' agregado (prompt-fix-cabo-y-extender-residente-
+// maquinaria.md): residente gana autorización de reportes de horas de
+// operador, mismo criterio que cabo — ver defaultPermisosParaRol más abajo
+// y ROLES_AUTORIZAN_HORAS_MAQ en public/app.js.
+const MAQUINARIA_TABS_RESIDENTE = ['maquinaria_catalogo', 'maquinaria_horas', 'maquinaria_reportes_cliente'];
 
 // Puestos y qué pestañas puede ver cada uno. 'admin' tiene acceso total
 // (se resuelve aparte en allow(), no necesita listarse en cada pestaña).
@@ -395,6 +399,18 @@ function defaultPermisosParaRol(puesto) {
     // nuevos. A propósito SOLO para residente, no cabo (Starting State del
     // prompt: acceso acotado a residente + admin/desarrollador esta fase).
     if (porSeccion.lotes) { porSeccion.lotes.puede_crear = true; porSeccion.lotes.puede_editar = true; }
+    // prompt-fix-cabo-y-extender-residente-maquinaria.md: residente gana
+    // autorización de reportes de horas de operador en Maquinaria (mismo
+    // criterio y misma fila que cabo abajo) — capacidad nueva, no una
+    // preservada, se le da por default para que sea usable de inmediato sin
+    // que Paul tenga que reconfigurar nada. 'maquinaria_captura' no está en
+    // `secciones` (viene de las tabs vía TAB_A_SECCION, y 'maquinaria_horas'
+    // mapea a la sección 'maquinaria', no a 'maquinaria_captura' — mismo
+    // motivo por el que cabo abajo usa push() en vez de porSeccion.x).
+    filas.push({
+      seccion: 'maquinaria_captura', puede_ver: true, puede_crear: false,
+      puede_editar: true, puede_editar_precios: false, puede_eliminar: false,
+    });
   }
   if (puesto === 'cabo') {
     if (porSeccion.destajo) { porSeccion.destajo.puede_editar = true; }

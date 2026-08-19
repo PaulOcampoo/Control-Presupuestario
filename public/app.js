@@ -9921,7 +9921,9 @@ const TIPOS_CONSUMIBLE_LABELS = {
 // EFECTIVO (real o simulado), sin tocar el permiso crudo del backend ni el
 // resto de módulos de la app (que conservan el comportamiento de
 // simulación de siempre) — un cambio deliberadamente angosto a este flujo.
-const ROLES_AUTORIZAN_HORAS_MAQ = ['cabo', 'admin', 'desarrollador'];
+// 'residente' agregado (prompt-fix-cabo-y-extender-residente-maquinaria.md):
+// mismo criterio que cabo, autoriza/rechaza reportes de horas de operador.
+const ROLES_AUTORIZAN_HORAS_MAQ = ['cabo', 'residente', 'admin', 'desarrollador'];
 const ROLES_CAPTURAN_HORAS_MAQ = ['operador', 'admin', 'desarrollador'];
 // prompt-4-bitacora-taller-jefe-maquinaria.md — mismo criterio que las 2
 // constantes de arriba: la bitácora de taller (mantenimiento + refacciones +

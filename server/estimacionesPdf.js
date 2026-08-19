@@ -23,6 +23,17 @@ const PAGE_BOTTOM = 560; // pdfkit landscape letter margin 40 -> usable hasta ~5
 
 const money = (n) => `$${Number(n || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })}`;
 const num = (n) => Number(n || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 });
+const pct = (n) => `${Number(n || 0).toLocaleString('es-MX', { maximumFractionDigits: 1 })}%`;
+
+// prompt-fix-etiqueta-fondo-garantia.md: el % mostrado se deriva del propio
+// fondo_garantia_monto ya persistido de ESTA estimación (÷ total_periodo),
+// no se vuelve a consultar meta.porcentaje_fondo_garantia de la obra — ese %
+// es editable ahora (prompt-fondo-garantia-editable-panel.md) y puede haber
+// cambiado desde que se calculó esta estimación, así que re-consultarlo
+// desincronizaría el texto del monto ya congelado en esta fila.
+function fondoGarantiaPctDe(estimacion) {
+  return estimacion.total_periodo ? (estimacion.fondo_garantia_monto / estimacion.total_periodo) * 100 : 0;
+}
 
 function drawTableHeader(doc, y) {
   doc.font('Helvetica-Bold').fontSize(8);
@@ -127,7 +138,7 @@ function buildEstimacionPdf({ project, clienteNombre, estimacion, items, residen
     doc.text('Amortización de anticipo:', boxX + 8, dy, { width: 150 });
     doc.text(`-${money(estimacion.amortizacion_anticipo)}`, boxX + 8, dy, { width: desgloseBoxWidth - 16, align: 'right' });
     dy += 16;
-    doc.text('2% Fondo de garantía:', boxX + 8, dy, { width: 150 });
+    doc.text(`${pct(fondoGarantiaPctDe(estimacion))} Fondo de garantía:`, boxX + 8, dy, { width: 150 });
     doc.text(`-${money(estimacion.fondo_garantia_monto)}`, boxX + 8, dy, { width: desgloseBoxWidth - 16, align: 'right' });
     dy += 16;
     doc.text('Más IVA 16%:', boxX + 8, dy, { width: 150 });

@@ -345,6 +345,29 @@ async function porcentajeFondoGarantiaDe(pid) {
   return raw;
 }
 
+// Extraído de POST /api/projects/contrato-confirm (prompt-fondo-garantia-
+// editable-panel.md) para reusarse también desde los endpoints PUT
+// .../fondo-garantia (obra única y todas-las-obras-del-cliente) sin duplicar
+// la validación de rango ni el upsert. Recibe un `client` de transacción
+// (pool o el client de db.withTransaction) para poder usarse dentro de un
+// loop transaccional sobre varias obras. NO recalcula ni toca
+// estimaciones.fondo_garantia_monto de estimaciones ya aprobadas — ese monto
+// vive congelado como columna propia, ver getFondoGarantiaData.
+async function upsertPorcentajeFondoGarantia(client, projectId, pct) {
+  const n = Number(pct);
+  if (!Number.isFinite(n) || n < FONDO_GARANTIA_PCT_MIN || n > FONDO_GARANTIA_PCT_MAX) {
+    const err = new Error(`El % de fondo de garantía debe ser un número entre ${FONDO_GARANTIA_PCT_MIN} y ${FONDO_GARANTIA_PCT_MAX}`);
+    err.status = 400;
+    throw err;
+  }
+  await client.query(
+    `INSERT INTO meta (project_id, clave, valor) VALUES ($1, 'porcentaje_fondo_garantia', $2)
+     ON CONFLICT (project_id, clave) DO UPDATE SET valor = EXCLUDED.valor`,
+    [projectId, String(n)]
+  );
+  return n;
+}
+
 // Acumulado = SUM sobre estimaciones ya aprobadas únicamente — una estimación
 // en borrador/enviada todavía puede cambiar de monto (o rechazarse), no es
 // fondo de garantía "retenido" de verdad hasta que se aprueba.
@@ -417,5 +440,6 @@ module.exports = {
   metaToObject, presupuestoTotalDe, getFinanzasResumenData, getCompromisosAbiertosData,
   getCompromisosAbiertosAgregado,
   porcentajeFondoGarantiaDe, getFondoGarantiaData, getFondoGarantiaAgregado,
+  upsertPorcentajeFondoGarantia,
   FONDO_GARANTIA_PCT_DEFAULT, FONDO_GARANTIA_PCT_MIN, FONDO_GARANTIA_PCT_MAX,
 };

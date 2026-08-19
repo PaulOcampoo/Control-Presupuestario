@@ -55,6 +55,7 @@ const {
   metaToObject, presupuestoTotalDe, getFinanzasResumenData, getCompromisosAbiertosData,
   getCompromisosAbiertosAgregado,
   porcentajeFondoGarantiaDe, getFondoGarantiaData, getFondoGarantiaAgregado,
+  upsertPorcentajeFondoGarantia,
   FONDO_GARANTIA_PCT_MIN, FONDO_GARANTIA_PCT_MAX,
 } = require('./finanzas');
 const { calcularJornal, calcularDestajo, totalConIvaEsValido, numeroALetra, calcularSplitCuentas } = require('./calculos');
@@ -4825,6 +4826,17 @@ app.post('/api/projects/contrato-confirm', h(auth.allow()), h(auth.checkPermiso(
     for (const campo of CAMPOS_CONTRATO) {
       const valor = body[campo];
       if (valor === undefined || valor === null || valor === '') continue;
+      // porcentaje_fondo_garantia: excluido del upsert genérico de abajo —
+      // usa upsertPorcentajeFondoGarantia (prompt-fondo-garantia-editable-
+      // panel.md), la misma función reusada por PUT .../fondo-garantia, para
+      // no duplicar la lógica de validación+upsert en dos lugares. La
+      // validación de rango ya corrió arriba antes de crear/tocar el
+      // proyecto; esta segunda pasada por la misma validación dentro de la
+      // función es redundante pero inofensiva (mismo resultado).
+      if (campo === 'porcentaje_fondo_garantia') {
+        await upsertPorcentajeFondoGarantia(client, projectId, valor);
+        continue;
+      }
       const clave = campo === 'fecha_inicio' ? 'inicio_obra' : campo === 'fecha_termino' ? 'fin_obra' : campo;
       await client.query(upsertMeta, [projectId, clave, String(valor)]);
     }
@@ -6882,6 +6894,55 @@ app.get('/api/projects/:id/finanzas/compromisos-abiertos', h(auth.allow('tesorer
 // (sin sección nueva en el catálogo de permisos granulares).
 app.get('/api/projects/:id/finanzas/fondo-garantia', h(auth.allow('tesoreria')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('finanzas', 'puede_ver')), h(async (req, res) => {
   res.json(await getFondoGarantiaData(req.project.id));
+}));
+
+// Edición del % de Fondo de Garantía directamente desde el panel de
+// Tesorería (prompt-fondo-garantia-editable-panel.md) — antes solo
+// editable desde Contrato (admin/desarrollador-only). auth.allow('tesoreria')
+// ya deja pasar admin/desarrollador/tesoreria (ver auth.allow), y
+// checkPermiso('finanzas', 'puede_editar') es el enforcement real nuevo
+// (agregado a ACCIONES_CON_ENFORCEMENT en public/app.js) — antes 'finanzas'
+// solo enforced 'puede_ver'. verificarAccesoObra seguirá restringiendo
+// tesorería a solo las obras que tenga asignadas en usuario_proyectos, igual
+// que cualquier otro endpoint por-obra.
+app.put('/api/projects/:id/fondo-garantia', h(auth.allow('tesoreria')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('finanzas', 'puede_editar')), h(async (req, res) => {
+  const pct = await upsertPorcentajeFondoGarantia(db.pool, req.project.id, (req.body || {}).porcentaje);
+  res.json({ porcentaje_pactado: pct, obras: [{ id: req.project.id, nombre: req.project.nombre }] });
+}));
+
+// Mismo cambio de % pero aplicado a TODAS las obras del cliente de una vez
+// (prompt-fondo-garantia-editable-panel.md) — alcance ampliado a pedido
+// explícito, no algo que el usuario pueda alcanzar "sin querer": el frontend
+// exige elegir este alcance a propósito en el modal de confirmación. Para
+// admin/desarrollador son todas las obras del cliente; para tesorería, solo
+// las obras del cliente a las que además tiene acceso vía usuario_proyectos
+// (mismo criterio que /api/clientes/:id/resumen-agregado) — "todas las
+// obras del cliente" nunca debe tocar una obra que el usuario ni siquiera
+// puede ver. Transacción única: si una obra falla la validación de rango,
+// ninguna se actualiza (mismo criterio "todo o nada" que contrato-confirm).
+app.put('/api/clientes/:id/fondo-garantia', h(auth.allow('tesoreria')), h(async (req, res) => {
+  const clienteId = Number(req.params.id);
+  if (!Number.isFinite(clienteId)) return res.status(400).json({ error: 'ID de cliente inválido' });
+  const { rows: clienteRows } = await db.pool.query('SELECT id, nombre FROM clientes WHERE id = $1', [clienteId]);
+  if (!clienteRows[0]) return res.status(404).json({ error: 'Cliente no encontrado' });
+
+  const isAdminUser = req.user.puesto === 'admin' || req.user.puesto === 'desarrollador';
+  const proyQuery = isAdminUser
+    ? `SELECT id, nombre FROM proyectos WHERE cliente_id = $1 ORDER BY id`
+    : `SELECT p.id, p.nombre FROM proyectos p
+       JOIN usuario_proyectos up ON up.project_id = p.id AND up.usuario_id = $2
+       WHERE p.cliente_id = $1 ORDER BY p.id`;
+  const { rows: obras } = await db.pool.query(proyQuery, isAdminUser ? [clienteId] : [clienteId, req.user.id]);
+  if (!obras.length) return res.status(400).json({ error: 'No hay obras de este cliente a las que tengas acceso' });
+
+  const pctInput = (req.body || {}).porcentaje;
+  let pct;
+  await db.withTransaction(async (client) => {
+    for (const obra of obras) {
+      pct = await upsertPorcentajeFondoGarantia(client, obra.id, pctInput);
+    }
+  });
+  res.json({ porcentaje_pactado: pct, obras });
 }));
 
 // /export reutiliza el mismo permiso 'puede_ver' que /resumen — es la misma

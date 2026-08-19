@@ -8284,7 +8284,12 @@ const ACCIONES_CON_ENFORCEMENT = {
   ordenes_compra: ['puede_ver', 'puede_crear', 'puede_editar', 'puede_eliminar'],
   avance: ['puede_ver', 'puede_crear'],
   destajo: ['puede_ver', 'puede_crear', 'puede_editar', 'puede_eliminar', 'puede_editar_precios'],
-  finanzas: ['puede_ver'],
+  // 'puede_editar' agregado (prompt-fondo-garantia-editable-panel.md): antes
+  // era caso (b) igual que presupuestos antes del PR #153 — cableado pero
+  // inerte (solo admin/desarrollador llegaban al endpoint de Contrato que
+  // tocaba porcentaje_fondo_garantia). Ahora tesorería también llega vía
+  // PUT .../fondo-garantia, así que el enforcement es real.
+  finanzas: ['puede_ver', 'puede_editar'],
   estado_resultados: [],
   insumos: ['puede_ver'],
   mapeo: ['puede_ver', 'puede_crear', 'puede_eliminar'],
@@ -11532,13 +11537,25 @@ async function renderCompromisosAbiertos(view) {
 // Tesorería.
 // =========================================================================
 async function renderFondoGarantia(view) {
-  const data = await api(`/projects/${state.projectId}/finanzas/fondo-garantia`);
+  const [data, permisos] = await Promise.all([
+    api(`/projects/${state.projectId}/finanzas/fondo-garantia`),
+    cached('permisosMe', () => api(`/permisos/me?obra_id=${state.projectId}`)),
+  ]);
+  // Edición del % (prompt-fondo-garantia-editable-panel.md): antes solo
+  // lectura aquí, editable únicamente desde Contrato (admin/desarrollador).
+  // Ahora también tesorería, gateado por finanzas.puede_editar (nuevo
+  // enforcement real, ver ACCIONES_CON_ENFORCEMENT).
+  const puedeEditar = !!permisos?.finanzas?.puede_editar;
 
   view.innerHTML = `
     <h2 class="section-title">Fondo de Garantía</h2>
     <p class="muted">Retención por fondo de garantía sobre cada estimación ya aprobada de esta obra — % pactado en Contrato (2% por default si no se capturó uno distinto).</p>
     <div class="kpi-grid">
-      <div class="kpi"><div class="label">% pactado</div><div class="value">${fmtPct(data.porcentaje_pactado)}</div></div>
+      <div class="kpi">
+        <div class="label">% pactado</div>
+        <div class="value">${fmtPct(data.porcentaje_pactado)}</div>
+        ${puedeEditar ? `<button class="btn mt-8" id="btnEditarFondoGarantia">Editar %</button>` : ''}
+      </div>
       <div class="kpi green"><div class="label">Acumulado a la fecha</div><div class="value">${fmtMoney(data.acumulado)}</div></div>
     </div>
     ${!data.historico.length ? `<div class="empty-state"><div class="big">🔒</div>Aún no hay estimaciones aprobadas en esta obra.<br>El fondo de garantía retenido aparecerá aquí conforme se aprueben.</div>` : `
@@ -11561,6 +11578,71 @@ async function renderFondoGarantia(view) {
       </table>
     </div>`}
   `;
+
+  if (puedeEditar) {
+    $('#btnEditarFondoGarantia').addEventListener('click', () => openEditFondoGarantiaModal(data.porcentaje_pactado));
+  }
+}
+
+// Modal de edición del % de Fondo de Garantía (prompt-fondo-garantia-
+// editable-panel.md) — alcance "todas las obras del cliente" se calcula
+// 100% client-side a partir de state.projects (ya cargado por bootstrap y
+// ya filtrado por acceso del usuario, /api/projects) para no necesitar un
+// endpoint GET nuevo solo para listar obras en el modal; el backend vuelve
+// a filtrar por acceso de todos modos al aplicar (server/app.js).
+function openEditFondoGarantiaModal(porcentajeActual) {
+  const proyectoActual = state.projects.find((p) => p.id === state.projectId) || {};
+  const clienteId = proyectoActual.cliente_id;
+  const obrasCliente = clienteId != null ? state.projects.filter((p) => p.cliente_id === clienteId) : [];
+  const clienteNombre = (state.clientes.find((c) => c.id === clienteId) || {}).nombre || 'este cliente';
+  const puedeAplicarATodas = obrasCliente.length > 1;
+
+  openModal(`
+    <h3 class="modal-title">Editar % de Fondo de Garantía</h3>
+    <div class="field">
+      <label>Nuevo % (0-15)</label>
+      <input id="fgNuevoPct" type="number" min="0" max="15" step="0.01" value="${esc(porcentajeActual)}" />
+    </div>
+    <div class="field">
+      <label class="fw-400"><input type="radio" name="fgAlcance" id="fgAlcanceObra" checked class="radio-inline" /> Solo esta obra</label>
+      ${puedeAplicarATodas ? `
+      <label class="fw-400"><input type="radio" name="fgAlcance" id="fgAlcanceCliente" class="radio-inline" /> Todas las obras de ${esc(clienteNombre)} (${obrasCliente.length} obras)</label>
+      <ul id="fgListaObras" class="muted fs-076" style="display:none">
+        ${obrasCliente.map((o) => `<li>${esc(o.nombre)}</li>`).join('')}
+      </ul>
+      ` : ''}
+    </div>
+    <p class="muted fs-076">El cambio aplica solo hacia adelante — nunca modifica el fondo de garantía ya retenido de estimaciones aprobadas.</p>
+    <div class="modal-actions">
+      <button class="btn" id="btnCancelFg">Cancelar</button>
+      <button class="btn btn-primary" id="btnSaveFg">Guardar</button>
+    </div>
+  `);
+
+  if (puedeAplicarATodas) {
+    $('#fgAlcanceCliente').addEventListener('change', () => { $('#fgListaObras').style.display = 'block'; });
+    $('#fgAlcanceObra').addEventListener('change', () => { $('#fgListaObras').style.display = 'none'; });
+  }
+
+  $('#btnCancelFg').addEventListener('click', closeModal);
+  $('#btnSaveFg').addEventListener('click', async () => {
+    const btn = $('#btnSaveFg');
+    const pct = Number($('#fgNuevoPct').value);
+    if (!Number.isFinite(pct) || pct < 0 || pct > 15) { toast('Indica un % entre 0 y 15', 'danger'); return; }
+    const alcanceCliente = puedeAplicarATodas && $('#fgAlcanceCliente').checked;
+    btn.disabled = true; btn.textContent = 'Guardando…';
+    try {
+      const resultado = alcanceCliente
+        ? await api(`/clientes/${clienteId}/fondo-garantia`, { method: 'PUT', body: { porcentaje: pct } })
+        : await api(`/projects/${state.projectId}/fondo-garantia`, { method: 'PUT', body: { porcentaje: pct } });
+      closeModal();
+      toast(alcanceCliente ? `% actualizado en ${resultado.obras.length} obras de ${clienteNombre}` : '% de Fondo de Garantía actualizado', 'success');
+      renderView();
+    } catch (err) {
+      toast(err.message, 'danger');
+      btn.disabled = false; btn.textContent = 'Guardar';
+    }
+  });
 }
 
 // =========================================================================

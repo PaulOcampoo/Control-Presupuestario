@@ -27,6 +27,41 @@ function montoSinIva(montoConIva, tasaIva) {
   return Number((montoConIva / (1 + tasaIva)).toFixed(2));
 }
 
+// prompt-fix-saldo-iva-5-lugares.md: Total REAL con IVA de un conjunto de
+// items de Orden de Compra (o cualquier agregado equivalente: por
+// categoría, por obra, etc.), respetando incluye_iva de la OC. Misma
+// fórmula exacta que computeIvaBreakdown() (server/app.js, sin tocar) —
+// vive aquí, no ahí, para que server/finanzas.js también pueda usarla sin
+// crear una dependencia circular con app.js (finanzas.js ya es requerido
+// por app.js). Un solo lugar de verdad: antes de este fix, 5 sitios
+// distintos sumaban `orden_compra_items.importe` crudo asumiendo que ya
+// era el total pagable, lo cual solo es cierto cuando incluye_iva=true —
+// para incluye_iva=false ese importe es SUBTOTAL, y compararlo contra
+// pagos.monto (que siempre incluye IVA, es la transferencia real) producía
+// saldos negativos o pendientes subestimados a $0.00 antes de tiempo.
+// items: [{ importe, iva_tasa }, ...] — mismo shape que ya usa
+// computeIvaBreakdown. Acumula subtotal/iva sin redondear por item y
+// redondea una sola vez al final, igual que computeIvaBreakdown, para dar
+// exactamente el mismo resultado que esa función en el caso incluye_iva=true
+// (que no debe cambiar).
+function totalConIvaDeItems(items, incluyeIva) {
+  let subtotal = 0;
+  let iva = 0;
+  for (const it of items) {
+    const importe = Number(it.importe) || 0;
+    const tasa = Number(it.iva_tasa) / 100;
+    if (incluyeIva) {
+      const sub = importe / (1 + tasa);
+      subtotal += sub;
+      iva += importe - sub;
+    } else {
+      subtotal += importe;
+      iva += importe * tasa;
+    }
+  }
+  return Number((subtotal + iva).toFixed(2));
+}
+
 // Validación defensiva de "Total sin IVA" vs "Total con IVA" en Datos de la
 // Obra (prompt-12-fix-totales-iva-invertidos.md). Ambos valores nacen de
 // filas DISTINTAS del Excel origen (server/parser.js extractMeta —
@@ -123,4 +158,4 @@ function calcularSplitCuentas(montoTotal, splitPct, tieneCuentaAlterna) {
   return { montoCuentaNomina, montoCuentaAlterna };
 }
 
-module.exports = { calcularJornal, calcularDestajo, montoSinIva, totalConIvaEsValido, numeroALetra, calcularSplitCuentas };
+module.exports = { calcularJornal, calcularDestajo, montoSinIva, totalConIvaDeItems, totalConIvaEsValido, numeroALetra, calcularSplitCuentas };

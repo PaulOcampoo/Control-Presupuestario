@@ -126,6 +126,13 @@ const PERMISSIONS = {
   // vista de Mapeo también incluye el botón "Actualizar presupuesto", que
   // internamente gatea contra la sección 'presupuestos' — DISTINTA de
   // 'mapeo' pese a vivir en la misma pantalla.
+  // prompt-costos-editar-fondo-garantia.md: 'fondoGarantia' agregado — Paul ya
+  // le había dado puede_editar=true a costos en la sección granular 'finanzas'
+  // desde la matriz, pero sin este tab ni el auth.allow('costos') en los 2
+  // endpoints PUT + el GET de vista (server/app.js) el permiso quedaba sin
+  // efecto: mismo patrón recurrente de gate hardcodeado por auth.allow()
+  // ignorando la matriz granular, ya visto con Matrices/Mapeo/Composición de
+  // Costos para este mismo rol.
   // prompt-seccion-costos-implementacion.md: 'programa' y 'resumen' agregados
   // — nueva sección de nivel superior "Costos" (matrices/costos/composicion_
   // costos/mapeo/programa, ver SECTION_DEFS en public/app.js) más acceso
@@ -135,7 +142,7 @@ const PERMISSIONS = {
   // antes (ver bloque costos en defaultPermisosParaRol más abajo, que ya no
   // necesita agregar 'presupuestos' a mano: con 'resumen' aquí, el loop base
   // de defaultPermisosParaRol se lo da automáticamente vía TAB_A_SECCION).
-  costos: { label: 'Costos', tabs: ['matrices', 'costos', 'composicion_costos', 'mapeo', 'programa', 'resumen'] },
+  costos: { label: 'Costos', tabs: ['matrices', 'costos', 'composicion_costos', 'mapeo', 'fondoGarantia', 'programa', 'resumen'] },
 };
 const PUESTOS = Object.keys(PERMISSIONS);
 

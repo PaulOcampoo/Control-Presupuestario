@@ -52,11 +52,12 @@ const ROLE_TABS = {
   jefe_maquinaria: MAQUINARIA_TABS_JEFE,
   operador: MAQUINARIA_TABS_OPERADOR,
   // Rol nuevo (prompt-nuevo-rol-costos.md) — mirror de PERMISSIONS.costos en
-  // server/auth.js. prompt-seccion-costos-implementacion.md: sincronizado con
-  // el real (que ya incluía 'mapeo' desde prompt-costos-mapeo-y-mover-
-  // tiles.md, nunca reflejado aquí — gap preexistente corregido de paso) +
-  // 'programa'/'resumen' nuevos.
-  costos: ['matrices', 'costos', 'composicion_costos', 'mapeo', 'programa', 'resumen'],
+  // server/auth.js. prompt-costos-editar-fondo-garantia.md: 'fondoGarantia'.
+  // prompt-seccion-costos-implementacion.md: sincronizado con el real (que ya
+  // incluía 'mapeo' desde prompt-costos-mapeo-y-mover-tiles.md, nunca
+  // reflejado aquí — gap preexistente corregido de paso) + 'programa'/
+  // 'resumen' nuevos.
+  costos: ['matrices', 'costos', 'composicion_costos', 'mapeo', 'fondoGarantia', 'programa', 'resumen'],
 };
 
 // Vistas que no requieren ninguna obra/proyecto seleccionado — lista
@@ -10037,13 +10038,6 @@ const CHECKLIST_ESTADO_UNIDAD = {
 };
 const ESTADO_ITEM_LABELS = { ok: 'OK', atencion: 'Atención', critico: 'Crítico' };
 const LECTURA_LABEL_POR_CATEGORIA = { maquina: 'Horómetro (hrs)', camioneta: 'Kilometraje (km)' };
-// Mismo criterio que ROLES_CAPTURAN_HORAS_MAQ/ROLES_BITACORA_TALLER_MAQ
-// arriba: el permiso crudo del backend no distingue rol simulado del real
-// para admin/desarrollador (bypass siempre true), así que "Vista como"
-// necesita este AND explícito para no mostrar botones que no le
-// corresponden al rol que se está simulando.
-const ROLES_CAPTURAN_ESTADO_UNIDAD_MAQ = ['operador', 'admin', 'desarrollador'];
-const ROLES_SUPERVISAN_ESTADO_UNIDAD_MAQ = ['cabo', 'jefe_maquinaria', 'admin', 'desarrollador'];
 // Programa de consumibles (prompt-10-programa-consumibles.md) — espejo
 // exacto de TIPOS_CONSUMIBLE en server/app.js. 'diesel' se captura por esta
 // misma pantalla pero físicamente vive en combustible_maquinaria (decisión
@@ -10053,30 +10047,34 @@ const TIPOS_CONSUMIBLE_LABELS = {
   aceite_hidraulico: 'Aceite hidráulico', aceite_transmision: 'Aceite de transmisión',
 };
 
-// Bug encontrado en revisión de dispositivo real (prompt-fix-cabo-operador-
-// permisos-simulacion.md): un admin/desarrollador usando "vista simulada"
-// (state.simulatedPuesto) veía los botones Autorizar/Rechazar/+Capturar
-// horas aunque el rol simulado no debiera tenerlos — NO es un bug de
-// permisos (confirmado con Postgres efímero + HTTP real: cuentas operador/
-// cabo genuinas SÍ reciben 403 correctamente en backend), es que estos 2
-// botones nuevos solo leían el permiso crudo del backend (que para admin/
-// desarrollador siempre es bypass=true, ver checkPermiso en server/auth.js),
-// sin considerar que ese bypass es de la identidad REAL, no de la simulada
-// — misma limitación ya documentada arriba en updateSimBanner() para toda
-// la app ("puramente visual... el backend sigue usando el JWT real").
-// Estas 2 listas acotan la visibilidad de MIS botones nuevos al rol
-// EFECTIVO (real o simulado), sin tocar el permiso crudo del backend ni el
-// resto de módulos de la app (que conservan el comportamiento de
-// simulación de siempre) — un cambio deliberadamente angosto a este flujo.
-// 'residente' agregado (prompt-fix-cabo-y-extender-residente-maquinaria.md):
-// mismo criterio que cabo, autoriza/rechaza reportes de horas de operador.
-const ROLES_AUTORIZAN_HORAS_MAQ = ['cabo', 'residente', 'admin', 'desarrollador'];
+// prompt-fix-permisos-maquinaria-completo.md: de las 5 listas ROLES_*_MAQ que
+// vivían aquí, ROLES_AUTORIZAN_HORAS_MAQ, ROLES_BITACORA_TALLER_MAQ y
+// ROLES_SUPERVISAN_ESTADO_UNIDAD_MAQ se eliminaron por completo (ver más
+// abajo, no quedan usos). ROLES_CAPTURAN_HORAS_MAQ/ROLES_CAPTURAN_ESTADO_
+// UNIDAD_MAQ se conservan SOLO para el menú de acceso rápido "+" (ver
+// buildQuickActions()/actions.push cerca de la línea 1812) — ahí no hay
+// permiso granular compañero (el click solo navega al tab, el "+" real de
+// cada vista sigue exigiendo checkPermiso), así que quitarlas ahí mostraría
+// atajos mal etiquetados a cabo/residente/jefe_maquinaria (comparten esos
+// tabs con operador). Decisión consultada: dejarlas en ese único uso.
+// Para el resto de la app (gate de botones reales dentro de cada vista de
+// Maquinaria), auditoría confirmó 0 casos donde quitar las 5 listas otorgue
+// un permiso nuevo a algún usuario real: los únicos puestos con cualquier
+// permiso ≠ false en estas secciones son exactamente
+// cabo/jefe_maquinaria/operador/residente, el mismo set que estas listas ya
+// cubrían. Cada botón que las usaba ahora depende ÚNICAMENTE del permiso
+// granular real (misPermisos.puede_X), mismo patrón que el resto de la app.
+// Efecto secundario aceptado: la "Vista como" (state.simulatedPuesto, solo
+// desarrollador) puede mostrar a admin/desarrollador botones que no le
+// corresponden al rol simulado mientras navegan una vista compartida entre
+// roles (ej. simular "operador" en la pestaña Horas y ver también el botón
+// Autorizar/Rechazar) — su permiso crudo real sigue siendo bypass=true
+// (checkPermiso, server/auth.js) sin importar el rol simulado. Puramente
+// cosmético para esta herramienta de preview de 2 cuentas: ningún usuario
+// real de cabo/jefe_maquinaria/operador/residente ve algo que no le
+// corresponda, y el backend sigue exigiendo el permiso real en cada acción.
 const ROLES_CAPTURAN_HORAS_MAQ = ['operador', 'admin', 'desarrollador'];
-// prompt-4-bitacora-taller-jefe-maquinaria.md — mismo criterio que las 2
-// constantes de arriba: la bitácora de taller (mantenimiento + refacciones +
-// consumibles + herramientas) es exclusiva de jefe_maquinaria (y admin/
-// desarrollador vía bypass real, no simulado).
-const ROLES_BITACORA_TALLER_MAQ = ['jefe_maquinaria', 'admin', 'desarrollador'];
+const ROLES_CAPTURAN_ESTADO_UNIDAD_MAQ = ['operador', 'admin', 'desarrollador'];
 
 // =========================================================================
 // MAQUINARIA — galería de subsecciones (prompt-39-maquinaria-galeria-
@@ -10109,13 +10107,7 @@ async function renderMaquinariaCatalogo(view) {
   const puedeCrear = !!misPermisos.puede_crear; // equipos — sección 'maquinaria', sin cambio (CN-002)
   const puedeEditar = !!misPermisos.puede_editar;
   const puedeEliminar = !!misPermisos.puede_eliminar;
-  // Bug reportado en revisión de dispositivo real (feat/maquinaria-por-
-  // cliente, commit 3fa8d9d): puedeEditar (crudo) no distingue rol simulado
-  // del real para admin/desarrollador (bypass siempre true), así que "Vista
-  // como: Cabo" mostraba el selector de operador como editable.
-  // ROLES_BITACORA_TALLER_MAQ ya es exactamente el mismo set de roles con
-  // puede_editar por default en 'maquinaria' (server/auth.js).
-  const puedeAsignarOperador = !!misPermisos.puede_editar && ROLES_BITACORA_TALLER_MAQ.includes(effectivePuesto());
+  const puedeAsignarOperador = !!misPermisos.puede_editar;
   view.innerHTML = `
     <h2 class="section-title">🛠️ Catálogo de equipos</h2>
     <p class="muted">Equipos propios — presupuesto único para toda la flota.</p>
@@ -10139,13 +10131,10 @@ async function renderMaquinariaHoras(view) {
     api('/projects').catch(() => []),
   ]);
   maquinariaEquiposCache = equipos;
-  // AND con ROLES_CAPTURAN_HORAS_MAQ/ROLES_AUTORIZAN_HORAS_MAQ: el permiso
-  // crudo del backend no distingue rol simulado de rol real para admin/
-  // desarrollador (bypass siempre true).
-  const puedeCrearHoras = !!misPermisosCaptura.puede_crear && ROLES_CAPTURAN_HORAS_MAQ.includes(effectivePuesto());
+  const puedeCrearHoras = !!misPermisosCaptura.puede_crear;
   // prompt-3-flujo-aprobacion-cabo-operador.md: puede_editar en
   // 'maquinaria_captura' ahora es "puede autorizar/rechazar reportes de horas".
-  const puedeAutorizarHoras = !!misPermisosCaptura.puede_editar && ROLES_AUTORIZAN_HORAS_MAQ.includes(effectivePuesto());
+  const puedeAutorizarHoras = !!misPermisosCaptura.puede_editar;
   const esOperador = effectivePuesto() === 'operador';
   view.innerHTML = `
     <h2 class="section-title">⏱️ Horas / Pendientes de autorizar</h2>
@@ -10169,10 +10158,8 @@ async function renderMaquinariaBitacora(view) {
   maquinariaEquiposCache = equipos;
   // CN-002: combustible/mantenimiento no comparte el permiso de 'maquinaria'.
   const puedeCrearCombustible = !!misPermisosCombustible.puede_crear;
-  // prompt-4-bitacora-taller-jefe-maquinaria.md — AND con
-  // ROLES_BITACORA_TALLER_MAQ (mismo criterio que horas arriba).
-  const puedeCrearBitacora = !!misPermisosCombustible.puede_crear && ROLES_BITACORA_TALLER_MAQ.includes(effectivePuesto());
-  const puedeVerBitacora = !!misPermisosCombustible.puede_ver && ROLES_BITACORA_TALLER_MAQ.includes(effectivePuesto());
+  const puedeCrearBitacora = !!misPermisosCombustible.puede_crear;
+  const puedeVerBitacora = !!misPermisosCombustible.puede_ver;
   view.innerHTML = `
     <h2 class="section-title">🔧 Bitácora de taller</h2>
     <p class="muted">Combustible, mantenimiento (con refacciones), consumibles y herramientas.</p>
@@ -10197,10 +10184,8 @@ async function renderMaquinariaEstadoUnidad(view) {
     api('/maquinaria/equipos'),
   ]);
   maquinariaEquiposCache = equipos;
-  // prompt-6-estado-unidad-operador.md: AND con ROLES_* (bypass admin/
-  // desarrollador no distingue "Vista como").
-  const puedeCrearEstadoUnidad = !!misPermisosEstadoUnidad.puede_crear && ROLES_CAPTURAN_ESTADO_UNIDAD_MAQ.includes(effectivePuesto());
-  const puedeSupervisarEstadoUnidad = !!misPermisosEstadoUnidad.puede_ver && ROLES_SUPERVISAN_ESTADO_UNIDAD_MAQ.includes(effectivePuesto());
+  const puedeCrearEstadoUnidad = !!misPermisosEstadoUnidad.puede_crear;
+  const puedeSupervisarEstadoUnidad = !!misPermisosEstadoUnidad.puede_ver;
   const esOperador = effectivePuesto() === 'operador';
   view.innerHTML = `
     <h2 class="section-title">🚦 Estado de las unidades</h2>
@@ -10223,9 +10208,8 @@ async function renderMaquinariaConsumibles(view) {
     api('/maquinaria/equipos'),
   ]);
   maquinariaEquiposCache = equipos;
-  // prompt-10-programa-consumibles.md: mismo AND que estado_unidad.
-  const puedeCrearConsumibles = !!misPermisosConsumibles.puede_crear && ROLES_CAPTURAN_ESTADO_UNIDAD_MAQ.includes(effectivePuesto());
-  const puedeSupervisarConsumibles = !!misPermisosConsumibles.puede_ver && ROLES_SUPERVISAN_ESTADO_UNIDAD_MAQ.includes(effectivePuesto());
+  const puedeCrearConsumibles = !!misPermisosConsumibles.puede_crear;
+  const puedeSupervisarConsumibles = !!misPermisosConsumibles.puede_ver;
   const esOperador = effectivePuesto() === 'operador';
   view.innerHTML = `
     <h2 class="section-title">⛽ Consumibles</h2>
@@ -10254,7 +10238,7 @@ async function renderMaquinariaReportesCliente(view) {
   ]);
   maquinariaEquiposCache = equipos;
   const puedeVerPresupuesto = isAdmin();
-  const puedeReasignarClienteMaq = !!misPermisos.puede_editar && ROLES_BITACORA_TALLER_MAQ.includes(effectivePuesto());
+  const puedeReasignarClienteMaq = !!misPermisos.puede_editar;
   view.innerHTML = `
     <h2 class="section-title">📊 Reportes por cliente</h2>
     <p class="muted">Presupuesto sugerido por cliente y asignación de equipos por cliente.</p>

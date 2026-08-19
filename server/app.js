@@ -58,7 +58,7 @@ const {
   upsertPorcentajeFondoGarantia,
   FONDO_GARANTIA_PCT_MIN, FONDO_GARANTIA_PCT_MAX,
 } = require('./finanzas');
-const { calcularJornal, calcularDestajo, totalConIvaEsValido, numeroALetra, calcularSplitCuentas } = require('./calculos');
+const { calcularJornal, calcularDestajo, totalConIvaDeItems, totalConIvaEsValido, numeroALetra, calcularSplitCuentas } = require('./calculos');
 const { validarClabe } = require('./catalogoBancos');
 const estadoResultados = require('./estadoResultados');
 const contabilidad = require('./contabilidad');
@@ -6456,17 +6456,26 @@ async function getOrdenesData(pid) {
     ORDER BY oc.id DESC
   `, [pid]);
   return Promise.all(ordenes.map(async (o) => {
+    // prompt-fix-saldo-iva-5-lugares.md: mismo fix que saldoDeOrden — items
+    // con iva_tasa en vez de SUM crudo, para que "Saldo pendiente" en esta
+    // lista/export use totalConIvaDeItems() (respeta o.incluye_iva) en vez
+    // de asumir que orden_compra_items.importe ya es el total pagable.
     const { rows: itemRows } = await db.pool.query(`
-      SELECT COUNT(*) AS num_items, COALESCE(SUM(importe), 0) AS importe_total
-      FROM orden_compra_items WHERE orden_compra_id = $1
+      SELECT oci.importe, i.iva_tasa
+      FROM orden_compra_items oci
+      JOIN requisicion_items ri ON ri.id = oci.requisicion_item_id
+      JOIN insumos i ON i.id = ri.insumo_id
+      WHERE oci.orden_compra_id = $1
     `, [o.id]);
     const { rows: pagoRows } = await db.pool.query(
       'SELECT COALESCE(SUM(monto), 0) AS total_pagado FROM pagos WHERE orden_compra_id = $1', [o.id]
     );
-    const importeTotal = Number(itemRows[0].importe_total);
+    const importeTotal = totalConIvaDeItems(itemRows, o.incluye_iva);
     const totalPagado = Number(pagoRows[0].total_pagado);
     return {
-      ...o, ...itemRows[0],
+      ...o,
+      num_items: itemRows.length,
+      importe_total: importeTotal,
       total_pagado: Number(totalPagado.toFixed(2)),
       saldo_pendiente: Number((importeTotal - totalPagado).toFixed(2)),
     };
@@ -6799,14 +6808,29 @@ app.post('/api/projects/:id/ordenes/:ocId/recepciones', h(auth.allow('compras'))
 // Pagos a proveedor — lectura para residente/admin, alta/baja solo admin
 // (mismo patrón que proveedores). No bloquea sobre-pago, solo advierte.
 // ---------------------------------------------------------------------------
+// prompt-fix-saldo-iva-5-lugares.md: importeTotal ahora usa
+// totalConIvaDeItems() (server/calculos.js) en vez de sumar
+// orden_compra_items.importe crudo — ese importe solo es el total real
+// cuando incluye_iva=true; para incluye_iva=false es subtotal, y
+// compararlo tal cual contra pagos.monto (que siempre incluye IVA, es lo
+// realmente transferido) producía saldo_pendiente negativo pese a estar
+// correctamente pagado.
 async function saldoDeOrden(ocId) {
-  const { rows: itemRows } = await db.pool.query(
-    'SELECT COALESCE(SUM(importe), 0) AS importe_total FROM orden_compra_items WHERE orden_compra_id = $1', [ocId]
+  const { rows: ocRows } = await db.pool.query(
+    'SELECT incluye_iva FROM ordenes_compra WHERE id = $1', [ocId]
   );
+  const incluyeIva = ocRows[0] ? ocRows[0].incluye_iva : true;
+  const { rows: itemRows } = await db.pool.query(`
+    SELECT oci.importe, i.iva_tasa
+    FROM orden_compra_items oci
+    JOIN requisicion_items ri ON ri.id = oci.requisicion_item_id
+    JOIN insumos i ON i.id = ri.insumo_id
+    WHERE oci.orden_compra_id = $1
+  `, [ocId]);
   const { rows: pagoRows } = await db.pool.query(
     'SELECT COALESCE(SUM(monto), 0) AS total_pagado FROM pagos WHERE orden_compra_id = $1', [ocId]
   );
-  const importeTotal = Number(itemRows[0].importe_total);
+  const importeTotal = totalConIvaDeItems(itemRows, incluyeIva);
   const totalPagado = Number(pagoRows[0].total_pagado);
   return {
     importe_total: importeTotal,
@@ -6986,7 +7010,11 @@ app.get('/api/projects/:id/finanzas/compromisos-abiertos', h(auth.allow('tesorer
 // estimación — mismo permiso que el resto de Tesorería/Finanzas
 // ('finanzas'/'puede_ver'), mismo patrón que Compromisos Abiertos arriba
 // (sin sección nueva en el catálogo de permisos granulares).
-app.get('/api/projects/:id/finanzas/fondo-garantia', h(auth.allow('tesoreria')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('finanzas', 'puede_ver')), h(async (req, res) => {
+// 'costos' agregado (prompt-costos-editar-fondo-garantia.md) — sin este rol
+// aquí, checkPermiso('finanzas','puede_ver') nunca se evaluaba porque
+// auth.allow() ya cortaba con 403 antes de llegar ahí, mismo patrón que el
+// PUT de abajo.
+app.get('/api/projects/:id/finanzas/fondo-garantia', h(auth.allow('tesoreria', 'costos')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('finanzas', 'puede_ver')), h(async (req, res) => {
   res.json(await getFondoGarantiaData(req.project.id));
 }));
 
@@ -6999,7 +7027,11 @@ app.get('/api/projects/:id/finanzas/fondo-garantia', h(auth.allow('tesoreria')),
 // solo enforced 'puede_ver'. verificarAccesoObra seguirá restringiendo
 // tesorería a solo las obras que tenga asignadas en usuario_proyectos, igual
 // que cualquier otro endpoint por-obra.
-app.put('/api/projects/:id/fondo-garantia', h(auth.allow('tesoreria')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('finanzas', 'puede_editar')), h(async (req, res) => {
+// 'costos' agregado (prompt-costos-editar-fondo-garantia.md) — Paul ya le
+// había dado puede_editar=true en 'finanzas' desde la matriz, pero este
+// auth.allow() hardcodeado a 'tesoreria' lo ignoraba y devolvía 403 sin
+// importar la fila de permisos_usuario.
+app.put('/api/projects/:id/fondo-garantia', h(auth.allow('tesoreria', 'costos')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('finanzas', 'puede_editar')), h(async (req, res) => {
   const pct = await upsertPorcentajeFondoGarantia(db.pool, req.project.id, (req.body || {}).porcentaje);
   res.json({ porcentaje_pactado: pct, obras: [{ id: req.project.id, nombre: req.project.nombre }] });
 }));
@@ -7014,7 +7046,11 @@ app.put('/api/projects/:id/fondo-garantia', h(auth.allow('tesoreria')), h(requir
 // obras del cliente" nunca debe tocar una obra que el usuario ni siquiera
 // puede ver. Transacción única: si una obra falla la validación de rango,
 // ninguna se actualiza (mismo criterio "todo o nada" que contrato-confirm).
-app.put('/api/clientes/:id/fondo-garantia', h(auth.allow('tesoreria')), h(async (req, res) => {
+// 'costos' agregado (prompt-costos-editar-fondo-garantia.md) — mismo fix que
+// el PUT por-obra de arriba; isAdminUser más abajo sigue evaluando solo
+// admin/desarrollador, así que costos cae en la rama de query filtrada por
+// usuario_proyectos, igual que tesorería.
+app.put('/api/clientes/:id/fondo-garantia', h(auth.allow('tesoreria', 'costos')), h(async (req, res) => {
   const clienteId = Number(req.params.id);
   if (!Number.isFinite(clienteId)) return res.status(400).json({ error: 'ID de cliente inválido' });
   const { rows: clienteRows } = await db.pool.query('SELECT id, nombre FROM clientes WHERE id = $1', [clienteId]);

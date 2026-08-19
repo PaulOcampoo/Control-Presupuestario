@@ -1887,6 +1887,40 @@ const SCHEMA = `
       WHERE pu.usuario_id = u.id AND pu.proyecto_id IS NULL AND pu.seccion = 'maquinaria_consumibles'
     );
 
+  -- prompt-fix-permisos-maquinaria-completo.md: 'maquinaria_captura' para
+  -- operador. defaultPermisosParaRol (server/auth.js:557-560) ya la da a
+  -- altas NUEVAS (puede_ver=true, puede_crear=true), pero ningún backfill
+  -- anterior cubrió a los operador ya existentes -- los backfills previos de
+  -- esta misma sección (arriba) solo cubrieron cabo/residente. Confirmado en
+  -- auditoría: 3 operador reales (ids 126, 240, 241) sin esta fila, bloqueados
+  -- para capturar horas pese a que su rol sí debería tener el permiso. INSERT
+  -- ... WHERE NOT EXISTS, mismo patrón y mismos valores que defaultPermisosParaRol
+  -- (nunca UPDATE, para no repetir el error de cabo que dejó fuera a quien
+  -- nunca tuvo la fila).
+  INSERT INTO permisos_usuario (usuario_id, proyecto_id, seccion, puede_ver, puede_crear, puede_editar, puede_editar_precios, puede_eliminar)
+  SELECT u.id, NULL, 'maquinaria_captura', true, true, false, false, false
+  FROM usuarios u
+  WHERE u.puesto = 'operador'
+    AND NOT EXISTS (
+      SELECT 1 FROM permisos_usuario pu
+      WHERE pu.usuario_id = u.id AND pu.proyecto_id IS NULL AND pu.seccion = 'maquinaria_captura'
+    );
+
+  -- prompt-fix-permisos-maquinaria-completo.md: 'maquinaria_combustible' para
+  -- jefe_maquinaria -- mismo gap y mismo criterio que 'maquinaria_captura'/
+  -- operador arriba. defaultPermisosParaRol (server/auth.js:533-536) ya da
+  -- puede_ver=true, puede_crear=true a altas NUEVAS; sin backfill previo para
+  -- esta sección. Confirmado en auditoría: 1 jefe_maquinaria real (id 128) sin
+  -- esta fila, bloqueado para registrar combustible/mantenimiento.
+  INSERT INTO permisos_usuario (usuario_id, proyecto_id, seccion, puede_ver, puede_crear, puede_editar, puede_editar_precios, puede_eliminar)
+  SELECT u.id, NULL, 'maquinaria_combustible', true, true, false, false, false
+  FROM usuarios u
+  WHERE u.puesto = 'jefe_maquinaria'
+    AND NOT EXISTS (
+      SELECT 1 FROM permisos_usuario pu
+      WHERE pu.usuario_id = u.id AND pu.proyecto_id IS NULL AND pu.seccion = 'maquinaria_combustible'
+    );
+
   -- prompt-fondo-garantia-editable-panel.md: defaultPermisosParaRol
   -- (server/auth.js) ya da puede_editar=true en 'finanzas' a tesorería para
   -- altas NUEVAS, pero solo se evalúa al crear un usuario — mismo criterio

@@ -5,7 +5,7 @@
 // "Erogado Real" sin duplicar la query — comportamiento sin cambios.
 
 const db = require('./db');
-const { montoSinIva } = require('./calculos');
+const { montoSinIva, totalConIvaDeItems } = require('./calculos');
 
 function metaToObject(rows) {
   const o = {};
@@ -50,18 +50,30 @@ async function getFinanzasResumenData(pid) {
 
   // Comprometido: solo órdenes ya aceptadas por el proveedor (confirmada en
   // adelante) — 'enviada' aún no cuenta como compromiso real de dinero.
-  const { rows: comprasComprometidoRows } = await db.pool.query(`
-    SELECT oc.id,
-           COALESCE(SUM(oci.importe), 0) AS importe_total,
+  // prompt-fix-saldo-iva-5-lugares.md: importe_total por OC ahora se arma
+  // con totalConIvaDeItems() (respeta oc.incluye_iva) en vez de sumar
+  // oci.importe crudo — ver mismo fix en saldoDeOrden/getOrdenesData
+  // (server/app.js) y fetchOrdenesComprometiblesPorObra más abajo.
+  const { rows: comprasComprometidoItemRows } = await db.pool.query(`
+    SELECT oc.id AS oc_id, oc.incluye_iva, oci.importe, i.iva_tasa,
            COALESCE((SELECT SUM(p.monto) FROM pagos p WHERE p.orden_compra_id = oc.id), 0) AS pagado
     FROM ordenes_compra oc
     LEFT JOIN orden_compra_items oci ON oci.orden_compra_id = oc.id
+    LEFT JOIN requisicion_items ri ON ri.id = oci.requisicion_item_id
+    LEFT JOIN insumos i ON i.id = ri.insumo_id
     WHERE oc.project_id = $1 AND oc.estado IN ('confirmada', 'recibida_parcial', 'recibida_completa')
-    GROUP BY oc.id
   `, [pid]);
-  const comprasComprometido = comprasComprometidoRows.reduce(
-    (s, oc) => s + Math.max(0, Number(oc.importe_total) - Number(oc.pagado)), 0
-  );
+  const comprometidoPorOc = new Map();
+  for (const row of comprasComprometidoItemRows) {
+    if (!comprometidoPorOc.has(row.oc_id)) {
+      comprometidoPorOc.set(row.oc_id, { incluyeIva: row.incluye_iva, items: [], pagado: Number(row.pagado) });
+    }
+    if (row.importe != null) comprometidoPorOc.get(row.oc_id).items.push({ importe: row.importe, iva_tasa: row.iva_tasa });
+  }
+  const comprasComprometido = [...comprometidoPorOc.values()].reduce((s, oc) => {
+    const importeTotal = totalConIvaDeItems(oc.items, oc.incluyeIva);
+    return s + Math.max(0, importeTotal - oc.pagado);
+  }, 0);
 
   const { rows: gastosPagadoRows } = await db.pool.query(
     "SELECT COALESCE(SUM(monto), 0) AS total FROM gastos_generales WHERE project_id = $1 AND estado = 'pagado'", [pid]
@@ -114,9 +126,14 @@ async function getFinanzasResumenData(pid) {
   `, [pid]);
   const jornalAprobado = Number(jornalRows[0].total);
 
-  // pagos.monto y orden_compra_items.precio_unitario se capturan con IVA
-  // incluido (monto real pagado/cotizado), mientras que montoValorizado sale
-  // de presupuestoTotal, que es sin IVA. Para que "Erogado Real" sea
+  // pagos.monto siempre es el monto real transferido (con IVA, es lo que en
+  // efecto se le paga al proveedor); comprasComprometido ahora también es
+  // real-con-IVA de verdad para toda OC gracias a totalConIvaDeItems() de
+  // arriba (antes de prompt-fix-saldo-iva-5-lugares.md, orden_compra_items.
+  // importe crudo solo era el total con IVA cuando incluye_iva=true — para
+  // incluye_iva=false era subtotal, y este ÷1.16 de abajo lo habría
+  // convertido en un "sin IVA" doblemente incorrecto). montoValorizado sale
+  // de presupuestoTotal, que es sin IVA — para que "Erogado Real" sea
   // comparable con "Avance Valorizado" se ajustan aquí SOLO estos dos montos
   // de compras a una base sin IVA (÷1.16) — nunca se toca lo guardado en
   // pagos ni orden_compra_items, que siguen representando el monto real con
@@ -188,17 +205,22 @@ const ESTATUS_COMPROMETIBLE = "('confirmada', 'recibida_parcial', 'recibida_comp
 // orden_compra_items/requisicion_items/insumos, solo agrupa distinto el
 // resultado (ver cada función abajo).
 async function fetchOrdenesComprometiblesPorObra(pids) {
+  // prompt-fix-saldo-iva-5-lugares.md: se traen los items CRUDOS (importe +
+  // iva_tasa) en vez de sumarlos en SQL — antes el importe_categoria era
+  // SUM(oci.importe) directo, correcto solo cuando incluye_iva=true. Se
+  // agrupan por (oc, categoría) aquí abajo y se pasan por
+  // totalConIvaDeItems() para obtener el total real con IVA de cada grupo,
+  // respetando oc.incluye_iva.
   const { rows: itemRows } = await db.pool.query(`
-    SELECT oc.id AS oc_id, oc.project_id, oc.folio, oc.fecha, oc.estado,
+    SELECT oc.id AS oc_id, oc.project_id, oc.folio, oc.fecha, oc.estado, oc.incluye_iva,
            pv.id AS proveedor_id, pv.nombre AS proveedor_nombre,
-           i.categoria, COALESCE(SUM(oci.importe), 0) AS importe_categoria
+           i.categoria, oci.importe, i.iva_tasa
     FROM ordenes_compra oc
     JOIN proveedores pv ON pv.id = oc.proveedor_id
     JOIN orden_compra_items oci ON oci.orden_compra_id = oc.id
     JOIN requisicion_items ri ON ri.id = oci.requisicion_item_id
     JOIN insumos i ON i.id = ri.insumo_id
     WHERE oc.project_id = ANY($1) AND oc.estado IN ${ESTATUS_COMPROMETIBLE}
-    GROUP BY oc.id, oc.project_id, oc.folio, oc.fecha, oc.estado, pv.id, pv.nombre, i.categoria
     ORDER BY oc.fecha DESC, oc.id DESC
   `, [pids]);
 
@@ -212,17 +234,25 @@ async function fetchOrdenesComprometiblesPorObra(pids) {
   const pagadoPorOc = new Map(pagoRows.map((r) => [r.oc_id, Number(r.pagado)]));
 
   const ocMap = new Map();
+  const itemsPorOcCategoria = new Map(); // `${oc_id}|${categoria}` -> { oc_id, categoria, items[] }
   for (const row of itemRows) {
     if (!ocMap.has(row.oc_id)) {
       ocMap.set(row.oc_id, {
         oc_id: row.oc_id, project_id: row.project_id, folio: row.folio, fecha: row.fecha, estado: row.estado,
         proveedor_id: row.proveedor_id, proveedor_nombre: row.proveedor_nombre,
+        incluye_iva: row.incluye_iva,
         categorias: [], importe_total: 0,
       });
     }
-    const oc = ocMap.get(row.oc_id);
-    const importe = Number(row.importe_categoria);
-    oc.categorias.push({ categoria: row.categoria || 'Sin categoría', importe });
+    const categoria = row.categoria || 'Sin categoría';
+    const key = `${row.oc_id}|${categoria}`;
+    if (!itemsPorOcCategoria.has(key)) itemsPorOcCategoria.set(key, { oc_id: row.oc_id, categoria, items: [] });
+    itemsPorOcCategoria.get(key).items.push({ importe: row.importe, iva_tasa: row.iva_tasa });
+  }
+  for (const { oc_id, categoria, items } of itemsPorOcCategoria.values()) {
+    const oc = ocMap.get(oc_id);
+    const importe = totalConIvaDeItems(items, oc.incluye_iva);
+    oc.categorias.push({ categoria, importe });
     oc.importe_total += importe;
   }
 

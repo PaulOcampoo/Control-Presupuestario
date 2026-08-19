@@ -1819,6 +1819,41 @@ const SCHEMA = `
   WHERE seccion = 'maquinaria_captura'
     AND usuario_id IN (SELECT id FROM usuarios WHERE puesto = 'cabo');
 
+  -- prompt-fix-cabo-y-extender-residente-maquinaria.md: el UPDATE de arriba
+  -- solo corrige a cabo que YA tenían una fila para 'maquinaria_captura'
+  -- (de antes del cambio de rol) -- no crea la fila para cabo que nunca la
+  -- tuvieron. Confirmado en diagnóstico real: el único cabo activo al
+  -- momento del diagnóstico (id 118) no tenía ninguna fila y por lo tanto
+  -- seguía recibiendo 403 real al intentar aprobar/rechazar un reporte de
+  -- horas. INSERT ... WHERE NOT EXISTS (mismo patrón ya usado arriba para
+  -- estado_unidad/maquinaria_consumibles, en vez de otro UPDATE que
+  -- tampoco alcanzaría a estos usuarios) para cubrir también este caso.
+  INSERT INTO permisos_usuario (usuario_id, proyecto_id, seccion, puede_ver, puede_crear, puede_editar, puede_editar_precios, puede_eliminar)
+  SELECT u.id, NULL, 'maquinaria_captura', true, false, true, false, false
+  FROM usuarios u
+  WHERE u.puesto = 'cabo'
+    AND NOT EXISTS (
+      SELECT 1 FROM permisos_usuario pu
+      WHERE pu.usuario_id = u.id AND pu.proyecto_id IS NULL AND pu.seccion = 'maquinaria_captura'
+    );
+
+  -- prompt-fix-cabo-y-extender-residente-maquinaria.md: residente gana
+  -- autorización de reportes de horas en Maquinaria, mismo criterio y misma
+  -- fila que cabo arriba (puede_ver=true, puede_editar=true, puede_crear=
+  -- false -- residente autoriza/rechaza, no captura horas él mismo).
+  -- defaultPermisosParaRol (server/auth.js) ya lo da a altas nuevas; este
+  -- backfill cubre a los residente ya existentes. INSERT ... WHERE NOT
+  -- EXISTS desde el inicio (no repetir el error de cabo arriba, que empezó
+  -- como UPDATE-only y dejó fuera a quien nunca tuvo la fila).
+  INSERT INTO permisos_usuario (usuario_id, proyecto_id, seccion, puede_ver, puede_crear, puede_editar, puede_editar_precios, puede_eliminar)
+  SELECT u.id, NULL, 'maquinaria_captura', true, false, true, false, false
+  FROM usuarios u
+  WHERE u.puesto = 'residente'
+    AND NOT EXISTS (
+      SELECT 1 FROM permisos_usuario pu
+      WHERE pu.usuario_id = u.id AND pu.proyecto_id IS NULL AND pu.seccion = 'maquinaria_captura'
+    );
+
   -- prompt-6-estado-unidad-operador.md: 'estado_unidad' es una sección NUEVA
   -- que defaultPermisosParaRol (server/auth.js) solo asigna a usuarios dados
   -- de alta a partir de este cambio — mismo patrón ya usado arriba para

@@ -3453,6 +3453,119 @@ app.put('/api/projects/:id/basicos/:basicoId', h(auth.allow('residente', 'costos
   res.json({ basico: await resolverBasico(basicoId) });
 }));
 
+// ---------------------------------------------------------------------------
+// Catálogo de Básicos (prompt-dashboard-costos-basicos-implementacion.md,
+// Tarea 2) — vista GLOBAL de solo lectura, hermana de catalogo-conceptos-
+// global (arriba): un básico único por código (DISTINCT ON, mismo criterio
+// de dedupe cross-obra que conceptosCatalogoQuery — el más reciente por
+// p.creado_en DESC se queda con descripción/unidad/costo mostrados), con su
+// costo directo resuelto vía resolverBasico() (reusado tal cual, NUNCA
+// reimplementado ni se llama calcularMatrizNeodata directo) y cuántas veces
+// se reusa como ingrediente de otro análisis, agregado a través de TODAS las
+// obras que comparten ese código — no solo la obra "representativa" elegida
+// arriba. Mismo query "usado_en" que ya existe para un básico individual en
+// GET /api/projects/:id/basicos/:basicoId más arriba, extendido aquí a nivel
+// código (ANY() sobre todos los matriz_id que comparten codigo) en vez de a
+// nivel de un solo matriz_id, más el nombre de obra (aquí sí hace falta: el
+// catálogo cruza obras, la vista por-obra no). Mismo permiso que el resto
+// del módulo: checkPermiso('costos', 'puede_ver').
+async function basicosCatalogoQuery() {
+  const { rows } = await db.pool.query(`
+    SELECT DISTINCT ON (m.codigo)
+      m.id AS matriz_id, m.codigo, m.descripcion, m.unidad,
+      p.id AS obra_origen_id, p.nombre AS obra_origen, p.creado_en AS fecha_origen,
+      c.id AS cliente_id, c.nombre AS cliente_nombre
+    FROM matrices_precio_unitario m
+    JOIN proyectos p ON p.id = m.project_id
+    JOIN clientes c ON c.id = p.cliente_id
+    WHERE m.es_basico = true AND m.codigo IS NOT NULL
+    ORDER BY m.codigo, p.creado_en DESC, m.id DESC
+  `);
+  return rows;
+}
+
+app.get('/api/costos/catalogo-basicos', h(auth.checkPermiso('costos', 'puede_ver')), h(async (req, res) => {
+  const representativos = await basicosCatalogoQuery();
+  if (!representativos.length) return res.json({ catalogo: [] });
+
+  // Todas las versiones (una fila por obra) de cada código representado
+  // arriba — el conteo de reuso y la lista de usos deben cruzar TODAS las
+  // obras donde ese código de básico existe, no solo la más reciente.
+  const codigos = representativos.map((r) => r.codigo);
+  const { rows: todasVersiones } = await db.pool.query(
+    `SELECT id, codigo FROM matrices_precio_unitario WHERE es_basico = true AND codigo = ANY($1::text[])`,
+    [codigos]
+  );
+  const idsPorCodigo = new Map();
+  for (const v of todasVersiones) {
+    if (!idsPorCodigo.has(v.codigo)) idsPorCodigo.set(v.codigo, []);
+    idsPorCodigo.get(v.codigo).push(v.id);
+  }
+  const todosLosIds = todasVersiones.map((v) => v.id);
+
+  const { rows: usos } = await db.pool.query(`
+    SELECT r.basico_matriz_id, m.id AS matriz_id, m.es_basico AS usado_en_es_basico, m.codigo AS usado_en_basico_codigo,
+           c.id AS concepto_id, c.codigo AS concepto_codigo, c.concepto AS concepto_nombre,
+           p.id AS obra_id, p.nombre AS obra_nombre
+    FROM matriz_precio_renglones r
+    JOIN matrices_precio_unitario m ON m.id = r.matriz_id
+    LEFT JOIN conceptos c ON c.id = m.concepto_id
+    JOIN proyectos p ON p.id = m.project_id
+    WHERE r.tipo = 'basico_ref' AND r.basico_matriz_id = ANY($1::int[])
+  `, [todosLosIds]);
+  const usosPorBasicoId = new Map();
+  for (const u of usos) {
+    if (!usosPorBasicoId.has(u.basico_matriz_id)) usosPorBasicoId.set(u.basico_matriz_id, []);
+    usosPorBasicoId.get(u.basico_matriz_id).push(u);
+  }
+
+  const catalogo = [];
+  for (const r of representativos) {
+    let costo_directo = null;
+    let calculo_completo = false;
+    try {
+      const resuelto = await resolverBasico(r.matriz_id);
+      costo_directo = resuelto.costo_directo;
+      calculo_completo = resuelto.completa;
+    } catch {
+      // Defensa en profundidad (mismo criterio que resolverRenglonesBasicoRef
+      // más arriba): un básico con dato corrupto (ej. referencia circular que
+      // se hubiera colado antes de validarSinCicloBasico) no debe tumbar el
+      // catálogo completo — se deja costo_directo en null para esa fila.
+    }
+    const idsDelCodigo = idsPorCodigo.get(r.codigo) || [r.matriz_id];
+    const usado_en = idsDelCodigo.flatMap((id) => usosPorBasicoId.get(id) || []);
+    catalogo.push({
+      codigo: r.codigo,
+      descripcion: r.descripcion,
+      unidad: r.unidad,
+      costo_directo,
+      calculo_completo,
+      cliente_id: r.cliente_id,
+      cliente_nombre: r.cliente_nombre,
+      obra_origen_id: r.obra_origen_id,
+      obra_origen: r.obra_origen,
+      fecha_origen: r.fecha_origen,
+      veces_reusado: usado_en.length,
+      usado_en: usado_en.map((u) => ({
+        matriz_id: u.matriz_id,
+        obra_id: u.obra_id,
+        obra_nombre: u.obra_nombre,
+        concepto_id: u.concepto_id,
+        concepto_codigo: u.concepto_codigo,
+        concepto_nombre: u.concepto_nombre,
+        // Cuando el "consumidor" es OTRO básico (anidamiento multinivel,
+        // concepto_id null) — mismo criterio que el usado_en por-obra de
+        // GET /basicos/:basicoId más arriba.
+        es_basico: u.usado_en_es_basico,
+        basico_codigo: u.usado_en_basico_codigo,
+      })),
+    });
+  }
+
+  res.json({ catalogo });
+}));
+
 app.get('/api/projects/:id/matrices', h(auth.allow('residente', 'costos')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('costos', 'puede_ver')), h(async (req, res) => {
   const pid = req.project.id;
   const { rows: conceptoRows } = await db.pool.query(

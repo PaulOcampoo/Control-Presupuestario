@@ -41,8 +41,8 @@ const ROLE_TABS = {
   // simulación de rol no puede simular "soy el usuario 8", solo "soy rol X"
   // (prompt-fix-role-tabs-contabilidad.md) — limitación conocida y
   // aceptada para esos tres, no un bug.
-  admin:          ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'cumplimiento', 'finanzas', 'compromisos', 'fondoGarantia', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', 'ordenesCambio', 'lotes', ...MAQUINARIA_TABS_ADMIN, 'cotizador', 'costos', 'costosDashboard', 'matrices', 'avance_clientes', 'composicion_costos', 'dashboardEjecutivo', ...CONTABILIDAD_TABS],
-  desarrollador:  ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'cumplimiento', 'finanzas', 'compromisos', 'fondoGarantia', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', 'ordenesCambio', 'lotes', ...MAQUINARIA_TABS_ADMIN, 'cotizador', 'costos', 'costosDashboard', 'matrices', 'avance_clientes', 'composicion_costos', 'dashboardEjecutivo', ...CONTABILIDAD_TABS],
+  admin:          ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'cumplimiento', 'finanzas', 'compromisos', 'fondoGarantia', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', 'ordenesCambio', 'lotes', ...MAQUINARIA_TABS_ADMIN, 'cotizador', 'costos', 'costosDashboard', 'matrices', 'avance_clientes', 'composicion_costos', 'dashboardEjecutivo', 'catalogoBasicos', ...CONTABILIDAD_TABS],
+  desarrollador:  ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'cumplimiento', 'finanzas', 'compromisos', 'fondoGarantia', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', 'ordenesCambio', 'lotes', ...MAQUINARIA_TABS_ADMIN, 'cotizador', 'costos', 'costosDashboard', 'matrices', 'avance_clientes', 'composicion_costos', 'dashboardEjecutivo', 'catalogoBasicos', ...CONTABILIDAD_TABS],
   residente:      ['programa', 'avance', 'destajo', 'requisiciones', 'insumos', 'ordenes', 'nominas', 'trabajadores', 'estimaciones', 'ordenesCambio', 'lotes', 'matrices'],
   cabo:           ['destajo', 'insumos', 'avance', 'requisiciones', ...MAQUINARIA_TABS_CABO, 'trabajadores', 'nominas', 'ordenesCambio'],
   compras:        ['programa', 'requisiciones', 'insumos', 'ordenes', 'proveedores', 'cumplimiento', 'cotizador'],
@@ -59,7 +59,9 @@ const ROLE_TABS = {
   // 'resumen' nuevos.
   // prompt-dashboard-costos-basicos-implementacion.md: 'costosDashboard'
   // agregado — mirror de PERMISSIONS.costos.tabs en server/auth.js.
-  costos: ['costosDashboard', 'matrices', 'costos', 'composicion_costos', 'mapeo', 'fondoGarantia', 'programa', 'resumen'],
+  // Tarea 2 del mismo prompt: 'catalogoBasicos' agregado — mismo criterio,
+  // mirror de PERMISSIONS.costos.tabs en server/auth.js.
+  costos: ['costosDashboard', 'matrices', 'costos', 'composicion_costos', 'mapeo', 'fondoGarantia', 'programa', 'resumen', 'catalogoBasicos'],
 };
 
 // Vistas que no requieren ninguna obra/proyecto seleccionado — lista
@@ -69,7 +71,7 @@ const ROLE_TABS = {
 // caen aquí (hoy: operador, jefe_maquinaria). Debe reflejar el mismo
 // conjunto que el bloque de "vistas globales" en renderView() (~línea 3670)
 // — si se agrega una vista global nueva ahí, agregarla aquí también.
-const VISTAS_SIN_PROYECTO = ['usuarios', 'proveedores', 'cumplimiento', ...MAQUINARIA_TABS_ADMIN, 'maquinaria_gallery', 'nominas_global', 'trabajadores_global', 'cotizador', 'estadoResultadosGlobal', 'costos', 'avance_clientes', 'composicion_costos', 'dashboardEjecutivo', 'costosDashboard'];
+const VISTAS_SIN_PROYECTO = ['usuarios', 'proveedores', 'cumplimiento', ...MAQUINARIA_TABS_ADMIN, 'maquinaria_gallery', 'nominas_global', 'trabajadores_global', 'cotizador', 'estadoResultadosGlobal', 'costos', 'avance_clientes', 'composicion_costos', 'dashboardEjecutivo', 'costosDashboard', 'catalogoBasicos'];
 
 const state = {
   projects: [],
@@ -1279,7 +1281,11 @@ const SECTION_DEFS = {
   // del módulo, sin sección granular nueva — ver TAB_A_SECCION en
   // server/auth.js (deliberadamente sin entrada, mismo criterio que el tab
   // 'costos'/'composicion_costos': vista GLOBAL, no por-obra).
-  costos:        { label: 'Costos',         icon: 'costos',         emoji: '📑',   tabs: ['costosDashboard', 'matrices', 'costos', 'composicion_costos', 'mapeo'], proximamente: [] },
+  // Tarea 2 del mismo prompt: 'catalogoBasicos' agregado como 6º tile —
+  // catálogo global de básicos (código único cross-obra, costo directo vía
+  // resolverBasico(), veces reusado). Mismo criterio: GLOBAL, sin entrada en
+  // TAB_A_SECCION, checkPermiso('costos', 'puede_ver') real en el endpoint.
+  costos:        { label: 'Costos',         icon: 'costos',         emoji: '📑',   tabs: ['costosDashboard', 'matrices', 'costos', 'composicion_costos', 'mapeo', 'catalogoBasicos'], proximamente: [] },
   // prompt-contabilidad-fase1/2/3/4 + prompt-contabilidad-galeria-tiles.md:
   // 5 subsecciones reales (antes: un solo tab 'contabilidad' con subnav
   // interno propio, mismo patrón que 'controlFinanciero' — reemplazado por
@@ -1297,7 +1303,7 @@ const TAB_ICONS = {
   maquinaria_consumibles: '⛽', maquinaria_reportes_cliente: '📊',
   nominas_global: '💵', trabajadores_global: '👷', cotizador: '🔍',
   estadoResultados: '📈', estadoResultadosGlobal: '📈', costos: '💲', avance_clientes: '📈', composicion_costos: '🧮',
-  cuentas: '🏦', matrices: '🧱', controlFinanciero: '💹', dashboardEjecutivo: '📊', costosDashboard: '📊',
+  cuentas: '🏦', matrices: '🧱', controlFinanciero: '💹', dashboardEjecutivo: '📊', costosDashboard: '📊', catalogoBasicos: '📚',
   contabilidadCuentas: '📒', contabilidadPolizas: '🧾', contabilidadCfdi: '📑',
   contabilidadConciliacion: '🏦', contabilidadDepreciacion: '📉', contabilidadExport: '📤',
 };
@@ -1312,7 +1318,7 @@ const TAB_LABELS = {
   cotizador: 'Cotizador', estadoResultados: 'Estado de Resultados', estadoResultadosGlobal: 'Estado de Resultados (todas las obras)',
   costos: 'Costos', avance_clientes: 'Avance por cliente', composicion_costos: 'Composición de costos',
   cuentas: 'Cuentas', matrices: 'Matrices de precio unitario', controlFinanciero: 'Control Financiero', dashboardEjecutivo: 'Dashboard Ejecutivo',
-  costosDashboard: 'Dashboard de Costos',
+  costosDashboard: 'Dashboard de Costos', catalogoBasicos: 'Catálogo de Básicos',
   contabilidadCuentas: 'Catálogo de Cuentas', contabilidadPolizas: 'Pólizas', contabilidadCfdi: 'CFDI',
   contabilidadConciliacion: 'Conciliación Bancaria', contabilidadDepreciacion: 'Depreciación de Maquinaria',
   contabilidadExport: 'Exportar / Reporte Mensual',
@@ -3181,6 +3187,16 @@ const AYUDA_CONTENIDO = {
       'Los números son globales — cruzan todas las obras de todos los clientes, igual que el Catálogo global.',
     ],
   },
+  catalogoBasicos: {
+    titulo: 'Catálogo de Básicos',
+    pasos: [
+      'Lista global (todas las obras de todos los clientes) de básicos — análisis reutilizables, ej. una receta de concreto — únicos por código: si dos obras capturan el mismo código de básico, aparecen como una sola fila.',
+      'El costo directo mostrado es el de la versión más reciente de ese código (misma obra que se lista como "obra de origen") — se calcula igual que cualquier básico dentro de Matrices, sin recalcular nada aparte.',
+      '"Reusado N veces" cuenta cuántos análisis (de cualquier obra) usan ese código de básico como ingrediente, incluyendo cuando un básico se usa dentro de OTRO básico (anidamiento). Toca la fila para ver el detalle de dónde se usa.',
+      'Un básico sin ningún uso todavía (capturado pero no referenciado en ningún análisis) también aparece en la lista — solo su detalle expandido queda vacío.',
+      'Vista de solo lectura — para crear o editar un básico entra a Matrices de precio unitario dentro de una obra.',
+    ],
+  },
 };
 
 // Botón "?" reutilizable — colócalo junto al título/acción de cualquier
@@ -4247,11 +4263,12 @@ function destroyCharts() {
 async function renderView() {
   destroyCharts();
   const view = $('#view');
-  if (state.view === 'usuarios' || state.view === 'proveedores' || state.view === 'cumplimiento' || MAQUINARIA_TABS_ADMIN.includes(state.view) || state.view === 'nominas_global' || state.view === 'trabajadores_global' || state.view === 'cotizador' || state.view === 'estadoResultadosGlobal' || state.view === 'costos' || state.view === 'avance_clientes' || state.view === 'composicion_costos' || state.view === 'cuentas' || state.view === 'controlFinanciero' || state.view === 'dashboardEjecutivo' || state.view === 'costosDashboard' || SECTION_DEFS.contabilidad.tabs.includes(state.view)) {
+  if (state.view === 'usuarios' || state.view === 'proveedores' || state.view === 'cumplimiento' || MAQUINARIA_TABS_ADMIN.includes(state.view) || state.view === 'nominas_global' || state.view === 'trabajadores_global' || state.view === 'cotizador' || state.view === 'estadoResultadosGlobal' || state.view === 'costos' || state.view === 'avance_clientes' || state.view === 'composicion_costos' || state.view === 'cuentas' || state.view === 'controlFinanciero' || state.view === 'dashboardEjecutivo' || state.view === 'costosDashboard' || state.view === 'catalogoBasicos' || SECTION_DEFS.contabilidad.tabs.includes(state.view)) {
     try {
       if (state.view === 'usuarios') { await renderUsuarios(view, state.usuariosSubView); state.usuariosSubView = null; }
       else if (state.view === 'dashboardEjecutivo') await renderDashboardEjecutivo(view);
       else if (state.view === 'costosDashboard') await renderCostosDashboard(view);
+      else if (state.view === 'catalogoBasicos') await renderCatalogoBasicos(view);
       else if (state.view === 'cuentas') await renderControlCuentas(view);
       else if (state.view === 'controlFinanciero') await renderControlFinanciero(view);
       else if (state.view === 'contabilidadCuentas') await renderContabilidadCuentas(view);
@@ -14464,6 +14481,82 @@ async function renderCostosDashboard(view) {
       </div>
     `;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Catálogo de Básicos (prompt-dashboard-costos-basicos-implementacion.md,
+// Tarea 2) — 6º tile de la galería de "Costos" (ver SECTION_DEFS.costos más
+// arriba). Consume GET /api/costos/catalogo-basicos (server/app.js,
+// checkPermiso('costos', 'puede_ver') — mismo gate que el resto del módulo).
+// Mismo patrón de tarjeta expandible que renderComposicionCostos/
+// renderAvanceClientes (.apc-item/.apc-toggle) en vez de tabla, porque cada
+// básico necesita mostrar una lista variable de usos (obras/conceptos) al
+// expandir — un dato que no cabe bien en una celda de tabla. Dos niveles de
+// estado vacío, cada uno con su propio mensaje (Stop Condition del prompt):
+//   1. Catálogo completo vacío (0 básicos vivos en toda la app — el estado
+//      real hoy en Preview) → '.empty-state' a nivel de vista.
+//   2. Un básico SIN ningún uso (creado pero nunca referenciado desde
+//      ningún análisis) → '.empty-state' dentro de su propia fila expandida,
+//      el catálogo en sí no está vacío.
+// ---------------------------------------------------------------------------
+function catalogoBasicosUsoHtml(u) {
+  if (u.es_basico) {
+    return `Dentro de otro básico: <strong>${esc(u.basico_codigo || '—')}</strong> — obra <strong>${esc(u.obra_nombre)}</strong>`;
+  }
+  return `Concepto <strong>${esc(u.concepto_codigo || '—')}</strong> ${esc(u.concepto_nombre ? `(${u.concepto_nombre})` : '')} — obra <strong>${esc(u.obra_nombre)}</strong>`;
+}
+
+async function renderCatalogoBasicos(view) {
+  view.innerHTML = `
+    <h2 class="section-title">Catálogo de Básicos ${renderHelpBtn('catalogoBasicos')}</h2>
+    <p class="muted">Básicos (análisis reutilizables, ej. una receta de concreto) únicos por código entre todas las obras, con su costo directo y cuántas veces se reusan como ingrediente de otro análisis.</p>
+    <div id="catalogoBasicosResult" class="mt-12"><div class="spinner"></div></div>
+  `;
+
+  let data;
+  try {
+    data = await api('/costos/catalogo-basicos');
+  } catch (err) {
+    view.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+    return;
+  }
+
+  const result = $('#catalogoBasicosResult');
+  const catalogo = data.catalogo;
+  if (!catalogo.length) {
+    result.innerHTML = `<div class="empty-state">Sin básicos capturados todavía — un básico se crea desde el botón "+ Nuevo básico" dentro de Matrices de precio unitario, en cualquier obra.</div>`;
+    return;
+  }
+
+  result.innerHTML = `
+    <p class="muted fs-08">${catalogo.length} básico${catalogo.length === 1 ? '' : 's'} con código, de todas las obras.</p>
+    <div class="apc-list apc-list-full">
+      ${catalogo.map((b) => `
+        <div class="apc-item apc-item-full" data-basico-codigo="${esc(b.codigo)}">
+          <button class="apc-row-top apc-toggle" type="button">
+            <span class="apc-nombre">${esc(b.codigo)} — ${esc(b.descripcion)}</span>
+            <span class="apc-row-right">
+              <span class="apc-pct">${b.calculo_completo ? fmtMoney(b.costo_directo) : '—'}</span>
+              <span class="apc-chevron">▾</span>
+            </span>
+          </button>
+          <div class="muted fs-078">${esc(b.unidad || 'Sin unidad')} · reusado ${b.veces_reusado} ${b.veces_reusado === 1 ? 'vez' : 'veces'} · obra de origen: ${esc(b.obra_origen)}${b.cliente_nombre ? ` (${esc(b.cliente_nombre)})` : ''}</div>
+          <div class="apc-obras hidden-initial">
+            ${b.usado_en.length
+              ? `<div class="project-list gap-6 mt-8">${b.usado_en.map((u) => `<div class="project-item" style="cursor:default;">${catalogoBasicosUsoHtml(u)}</div>`).join('')}</div>`
+              : `<div class="empty-state mt-8">Este básico no se usa en ningún análisis todavía.</div>`}
+          </div>
+        </div>
+      `).join('')}
+    </div>
+  `;
+  $$('.apc-toggle', result).forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const item = btn.closest('.apc-item-full');
+      item.querySelector('.apc-obras').classList.toggle('hidden-initial');
+      item.classList.toggle('apc-expanded');
+    });
+  });
 }
 
 async function renderCostos(view) {

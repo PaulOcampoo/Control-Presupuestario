@@ -14658,7 +14658,7 @@ function openCrearPresupuestoModal(catalogoOriginal) {
       const it = items[idx];
       return `
       <tr data-idx="${idx}">
-        <td><input type="checkbox" class="cp-check" data-idx="${idx}" ${seleccionados.has(idx) ? 'checked' : ''} /></td>
+        <td><label class="checkbox-circle"><input type="checkbox" class="cp-check" data-idx="${idx}" ${seleccionados.has(idx) ? 'checked' : ''} /><span class="checkbox-circle-visual"></span></label></td>
         <td>${esc(it.codigo)}</td>
         <td>${esc(it.concepto)}</td>
         <td class="num"><input type="number" class="cp-cantidad" data-idx="${idx}" value="${it.cantidad}" min="0" step="any" /></td>
@@ -14724,7 +14724,7 @@ function openCrearPresupuestoModal(catalogoOriginal) {
     <div class="table-scroll costos-review-scroll">
       <table>
         <thead><tr>
-          <th><input type="checkbox" id="cpSelAllVisibles" title="Seleccionar todos los visibles" /></th>
+          <th><label class="checkbox-circle" title="Seleccionar todos los visibles"><input type="checkbox" id="cpSelAllVisibles" /><span class="checkbox-circle-visual"></span></label></th>
           <th>Código</th><th>Concepto</th><th class="num">Cantidad</th><th class="num">Precio</th>
         </tr></thead>
         <tbody id="cpTbody">${renderRows(indicesFiltrados())}</tbody>

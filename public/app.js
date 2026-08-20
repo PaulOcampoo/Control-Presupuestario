@@ -10125,7 +10125,7 @@ const LECTURA_LABEL_POR_CATEGORIA = { maquina: 'Horómetro (hrs)', camioneta: 'K
 // misma pantalla pero físicamente vive en combustible_maquinaria (decisión
 // consultada) — el frontend no necesita saber eso, el backend lo resuelve.
 const TIPOS_CONSUMIBLE_LABELS = {
-  diesel: 'Diésel', aceite_motor: 'Aceite de motor',
+  diesel: 'Diésel', gasolina: 'Gasolina', aceite_motor: 'Aceite de motor',
   aceite_hidraulico: 'Aceite hidráulico', aceite_transmision: 'Aceite de transmisión',
 };
 

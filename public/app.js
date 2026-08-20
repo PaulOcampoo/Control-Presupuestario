@@ -12570,6 +12570,30 @@ function costosTablaHtml(catalogo) {
   `;
 }
 
+// Catálogo de Conceptos (prompt-catalogo-conceptos-implementacion.md) — reusa
+// costosFilaHtml tal cual (el backend alias grupo→categoria y precio_unitario
+// →precio_presupuesto en conceptosCatalogoQuery, mismo shape que insumos).
+// Header "Grupo/Capítulo" en vez de "Categoría" a propósito: en conceptos ese
+// campo es vocabulario libre por obra (ej. "CIMENTACIÓN"), no la taxonomía
+// cerrada de insumos.categoria — mismo dato, pero no debe leerse como si
+// fuera la misma clasificación fija.
+function conceptosTablaHtml(catalogo) {
+  if (!catalogo.length) {
+    return `<div class="empty-state">Sin conceptos con código para agregar todavía — un concepto sin código no se puede emparejar de forma confiable entre obras, así que queda fuera del catálogo.</div>`;
+  }
+  return `
+    <div class="table-scroll">
+      <table>
+        <thead><tr>
+          <th>Código</th><th>Concepto</th><th>Grupo/Capítulo</th><th>Unidad</th>
+          <th class="num">Precio unitario (más reciente)</th><th>Obra de origen</th><th>Fecha</th>
+        </tr></thead>
+        <tbody>${catalogo.map(costosFilaHtml).join('')}</tbody>
+      </table>
+    </div>
+  `;
+}
+
 // =========================================================================
 // Control de Cuentas (prompt-control-cuentas.md) — control personal de
 // saldo bancario de Paul/Fer. La sección solo aparece en el sidebar de los
@@ -14248,7 +14272,7 @@ function openEditarDepreciacionModal(fila, mes, onChange) {
 }
 
 async function renderCostos(view) {
-  let subView = 'porCliente'; // 'porCliente' | 'global'
+  let subView = 'porCliente'; // 'porCliente' | 'global' | 'conceptos'
   let clienteSeleccionado = null;
   let catalogoGlobalCache = null;
 
@@ -14257,12 +14281,14 @@ async function renderCostos(view) {
       <div class="nominas-subnav">
         <button class="btn ${subView === 'porCliente' ? 'btn-primary' : ''}" id="btnCostosSubCliente">Por cliente</button>
         <button class="btn ${subView === 'global' ? 'btn-primary' : ''}" id="btnCostosSubGlobal">Generar presupuesto (global)</button>
+        <button class="btn ${subView === 'conceptos' ? 'btn-primary' : ''}" id="btnCostosSubConceptos">Catálogo de conceptos</button>
       </div>
     `;
   }
   function bindSubNav() {
     $('#btnCostosSubCliente').addEventListener('click', showPorCliente);
     $('#btnCostosSubGlobal').addEventListener('click', showGlobal);
+    $('#btnCostosSubConceptos').addEventListener('click', showConceptos);
   }
 
   async function showPorCliente() {
@@ -14338,6 +14364,63 @@ async function renderCostos(view) {
       if (!catalogoGlobalCache?.length) { toast('No hay insumos con código para armar un presupuesto todavía', ''); return; }
       openCrearPresupuestoModal(catalogoGlobalCache);
     });
+  }
+
+  // Catálogo de Conceptos (partidas de obra reales, ej. "Excavación de
+  // cepa") — nuevo y paralelo al catálogo de insumos arriba (prompt-
+  // catalogo-conceptos-implementacion.md). Un solo tab con selector de
+  // cliente opcional ("Todos" = catálogo global) en vez de 2 tabs separados
+  // como insumos, porque acá no hace falta un flujo de exportación aparte
+  // por-cliente vs global — el mismo selector cubre ambos casos.
+  async function showConceptos() {
+    subView = 'conceptos';
+    let clienteSel = null;
+    let conceptosCache = null;
+    view.innerHTML = `
+      <h2 class="section-title">Costos ${renderHelpBtn('costos')}</h2>
+      <p class="muted">Catálogo de partidas armado a partir del precio unitario más reciente de cada concepto (por código) entre obras — selecciona un cliente o deja "Todos" para cruzar todas las obras de todos los clientes.</p>
+      ${renderSubNav()}
+      <div class="card mt-12">
+        <label>Cliente</label>
+        <select id="conceptosClienteSelect">
+          <option value="">Todos los clientes (global)</option>
+          ${state.clientes.map((c) => `<option value="${c.id}">${esc(c.nombre)}</option>`).join('')}
+        </select>
+      </div>
+      <div class="section-actions mt-12">
+        <button class="btn" id="btnConceptosExport">⭳ Exportar a Excel</button>
+        <button class="btn btn-primary" id="btnConceptosGenerarPresupuesto">+ Generar presupuesto con este catálogo</button>
+      </div>
+      <div id="conceptosResult" class="mt-12"><div class="spinner"></div></div>
+    `;
+    bindSubNav();
+    const result = $('#conceptosResult');
+    async function cargar() {
+      result.innerHTML = '<div class="spinner"></div>';
+      try {
+        const data = clienteSel
+          ? await api(`/costos/catalogo-conceptos/${clienteSel}`)
+          : await api('/costos/catalogo-conceptos-global');
+        conceptosCache = data.catalogo;
+        result.innerHTML = `<p class="muted fs-08">${data.catalogo.length} concepto${data.catalogo.length === 1 ? '' : 's'} con código${clienteSel ? '' : ', de todos los clientes'}.</p>${conceptosTablaHtml(data.catalogo)}`;
+      } catch (err) {
+        result.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+      }
+    }
+    $('#conceptosClienteSelect').addEventListener('change', (e) => {
+      clienteSel = e.target.value ? Number(e.target.value) : null;
+      cargar();
+    });
+    $('#btnConceptosExport').addEventListener('click', async () => {
+      try {
+        await downloadExport(clienteSel ? `/costos/catalogo-conceptos/${clienteSel}/export` : '/costos/catalogo-conceptos-global/export');
+      } catch (err) { toast(err.message, 'danger'); }
+    });
+    $('#btnConceptosGenerarPresupuesto').addEventListener('click', () => {
+      if (!conceptosCache?.length) { toast('No hay conceptos con código para armar un presupuesto todavía', ''); return; }
+      openCrearPresupuestoModal(conceptosCache);
+    });
+    await cargar();
   }
 
   if (subView === 'porCliente') await showPorCliente();

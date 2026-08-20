@@ -14668,16 +14668,27 @@ function openCrearPresupuestoModal(catalogoOriginal) {
     }).join('');
   }
 
+  // prompt-URGENTE-fix-crear-presupuesto-cliente.md: causa raíz confirmada
+  // con evidencia de código, no especulación — el `disabled` de ambos
+  // botones (ver template más abajo) bloquea el evento 'click' A NIVEL DE
+  // NAVEGADOR antes de que llegue a JS (los form controls con `disabled`
+  // nunca disparan 'click', es comportamiento estándar del DOM) — eso
+  // convertía en código MUERTO la validación `if (!seleccionados.size) {
+  // toast(...); return; }` que ya existía dentro de ambos handlers más
+  // abajo: nunca llegaba a ejecutarse. Con checkboxes opt-in sin marcar por
+  // default (a diferencia del × opt-out de antes de PR #167, donde TODO
+  // estaba incluido de entrada), un usuario que reproduce el flujo viejo —
+  // clic directo en "Crear presupuesto" sin marcar nada primero — se
+  // encontraba con el botón ya deshabilitado: cero efecto, cero log, cero
+  // toast, exactamente "no pasa nada sin error visible" reportado en
+  // producción. Fix: los botones ya NUNCA se deshabilitan por selección —
+  // la validación con toast ya existente (ahora sí alcanzable) da el
+  // feedback claro que hacía falta.
   function actualizarContadorYBoton() {
     const contador = $('#cpContador');
     if (contador) contador.textContent = `${seleccionados.size} de ${items.length} concepto${items.length === 1 ? '' : 's'} seleccionado${seleccionados.size === 1 ? '' : 's'}`;
     const btn = $('#btnConfirmCrearPresupuesto');
-    if (btn) {
-      btn.disabled = !seleccionados.size;
-      btn.textContent = seleccionados.size ? `Crear presupuesto (${seleccionados.size})` : 'Crear presupuesto';
-    }
-    const btnExport = $('#btnExportarCrearPresupuesto');
-    if (btnExport) btnExport.disabled = !seleccionados.size;
+    if (btn) btn.textContent = seleccionados.size ? `Crear presupuesto (${seleccionados.size})` : 'Crear presupuesto';
     const selAllChk = $('#cpSelAllVisibles');
     if (selAllChk) {
       const idxVisibles = indicesFiltrados();
@@ -14732,8 +14743,8 @@ function openCrearPresupuestoModal(catalogoOriginal) {
     </div>
     <div class="modal-actions">
       <button class="btn" id="btnCancelCrearPresupuesto">Cancelar</button>
-      <button class="btn" id="btnExportarCrearPresupuesto" disabled>⭳ Exportar a Excel</button>
-      <button class="btn btn-primary" id="btnConfirmCrearPresupuesto" disabled>Crear presupuesto</button>
+      <button class="btn" id="btnExportarCrearPresupuesto">⭳ Exportar a Excel</button>
+      <button class="btn btn-primary" id="btnConfirmCrearPresupuesto">Crear presupuesto</button>
     </div>
   `);
   $('#modal').classList.add('modal-wide');
@@ -14792,7 +14803,7 @@ function openCrearPresupuestoModal(catalogoOriginal) {
     } catch (err) {
       toast(err.message, 'danger');
     } finally {
-      btn.disabled = !seleccionados.size; btn.textContent = textoOriginal;
+      btn.disabled = false; btn.textContent = textoOriginal;
     }
   });
   $('#btnConfirmCrearPresupuesto').addEventListener('click', async () => {

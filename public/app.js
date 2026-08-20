@@ -842,8 +842,19 @@ async function api(path, opts = {}) {
 // Descarga un .xlsx generado por el servidor (reusado por todos los botones
 // "Exportar a Excel" — el archivo y su nombre los arma el backend, aquí solo
 // se dispara la descarga con el token de sesión en el header).
-async function downloadExport(path) {
-  const doFetch = (tkn) => fetch(`/api${path}`, { headers: tkn ? { Authorization: `Bearer ${tkn}` } : {} });
+// body opcional (prompt-exportar-excel-modal-catalogo.md): exports que
+// necesitan mandar datos editados en el navegador (ej. items del modal de
+// crear presupuesto) en vez de solo filtros por query string usan POST — el
+// resto de los ~7 exports existentes siguen igual, GET sin body.
+async function downloadExport(path, body = null) {
+  const doFetch = (tkn) => fetch(`/api${path}`, {
+    method: body ? 'POST' : 'GET',
+    headers: {
+      ...(tkn ? { Authorization: `Bearer ${tkn}` } : {}),
+      ...(body ? { 'Content-Type': 'application/json' } : {}),
+    },
+    ...(body ? { body: JSON.stringify(body) } : {}),
+  });
   let res = await doFetch(state.token);
   if (res.status === 401) {
     const refreshed = await tryRefreshToken();
@@ -14665,6 +14676,8 @@ function openCrearPresupuestoModal(catalogoOriginal) {
       btn.disabled = !seleccionados.size;
       btn.textContent = seleccionados.size ? `Crear presupuesto (${seleccionados.size})` : 'Crear presupuesto';
     }
+    const btnExport = $('#btnExportarCrearPresupuesto');
+    if (btnExport) btnExport.disabled = !seleccionados.size;
     const selAllChk = $('#cpSelAllVisibles');
     if (selAllChk) {
       const idxVisibles = indicesFiltrados();
@@ -14719,6 +14732,7 @@ function openCrearPresupuestoModal(catalogoOriginal) {
     </div>
     <div class="modal-actions">
       <button class="btn" id="btnCancelCrearPresupuesto">Cancelar</button>
+      <button class="btn" id="btnExportarCrearPresupuesto" disabled>⭳ Exportar a Excel</button>
       <button class="btn btn-primary" id="btnConfirmCrearPresupuesto" disabled>Crear presupuesto</button>
     </div>
   `);
@@ -14760,6 +14774,27 @@ function openCrearPresupuestoModal(catalogoOriginal) {
 
   $('#btnCloseCrearPresupuesto').addEventListener('click', closeModal);
   $('#btnCancelCrearPresupuesto').addEventListener('click', closeModal);
+  // prompt-exportar-excel-modal-catalogo.md: convive con "Crear presupuesto"
+  // (Forbidden Action: no tocarlo) — genera un .xlsx puro, nada se crea ni
+  // se persiste, el modal se queda abierto para seguir ajustando o exportar
+  // de nuevo. Mismas filas seleccionadas y mismos valores de cantidad/precio
+  // ya editados que usaría "Crear presupuesto", solo que server-side arma el
+  // archivo en vez de dar de alta la obra.
+  $('#btnExportarCrearPresupuesto').addEventListener('click', async () => {
+    if (!seleccionados.size) { toast('Selecciona al menos un concepto', ''); return; }
+    const btn = $('#btnExportarCrearPresupuesto');
+    const textoOriginal = btn.textContent;
+    btn.disabled = true; btn.textContent = 'Exportando…';
+    try {
+      const itemsSeleccionados = [...seleccionados].map((idx) => items[idx]);
+      await downloadExport('/costos/crear-presupuesto/export', { nombre: $('#cpNombre').value.trim(), items: itemsSeleccionados });
+      toast('Excel generado — cárgalo por Mapeo/Actualizar presupuesto en la obra correspondiente cuando esté listo (esto no crea la obra).', 'success');
+    } catch (err) {
+      toast(err.message, 'danger');
+    } finally {
+      btn.disabled = !seleccionados.size; btn.textContent = textoOriginal;
+    }
+  });
   $('#btnConfirmCrearPresupuesto').addEventListener('click', async () => {
     const nombre = $('#cpNombre').value.trim();
     const creandoCliente = isAdmin() && !$('#cpNuevoClienteField')?.classList.contains('hidden-initial');

@@ -3518,6 +3518,21 @@ app.get('/api/costos/catalogo-basicos', h(auth.checkPermiso('costos', 'puede_ver
   }
   const todosLosIds = todasVersiones.map((v) => v.id);
 
+  // LEFT JOIN (no INNER) a proyectos, resolviendo la obra vía COALESCE:
+  // la matriz "consumidora" m puede ser ELLA MISMA un básico (project_id
+  // propio, concepto_id NULL) o un análisis normal de concepto (project_id
+  // NULL, obra heredada vía c.project_id). El CHECK
+  // matrices_precio_unitario_concepto_xor_basico_check garantiza que nunca
+  // ambos son NULL ni ambos NOT NULL para la misma fila, así que el
+  // COALESCE no corre riesgo de tomar el valor equivocado ni de esconder
+  // una fila real. Con INNER JOIN (bug original), CUALQUIER fila donde m
+  // fuera un análisis normal (el caso de reuso más común: un básico
+  // referenciado desde el análisis de un concepto real) se descartaba en
+  // silencio porque m.project_id es NULL ahí — veces_reusado/usado_en
+  // terminaban en 0/vacío para casi todo el reuso real. LEFT JOIN además
+  // evita perder la fila por completo si algún día la obra no se puede
+  // resolver por alguna otra razón — mejor un usado_en con obra_nombre
+  // null que un conteo incorrecto.
   const { rows: usos } = await db.pool.query(`
     SELECT r.basico_matriz_id, m.id AS matriz_id, m.es_basico AS usado_en_es_basico, m.codigo AS usado_en_basico_codigo,
            c.id AS concepto_id, c.codigo AS concepto_codigo, c.concepto AS concepto_nombre,
@@ -3525,7 +3540,7 @@ app.get('/api/costos/catalogo-basicos', h(auth.checkPermiso('costos', 'puede_ver
     FROM matriz_precio_renglones r
     JOIN matrices_precio_unitario m ON m.id = r.matriz_id
     LEFT JOIN conceptos c ON c.id = m.concepto_id
-    JOIN proyectos p ON p.id = m.project_id
+    LEFT JOIN proyectos p ON p.id = COALESCE(m.project_id, c.project_id)
     WHERE r.tipo = 'basico_ref' AND r.basico_matriz_id = ANY($1::int[])
   `, [todosLosIds]);
   const usosPorBasicoId = new Map();

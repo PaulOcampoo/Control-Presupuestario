@@ -494,10 +494,14 @@ async function createConsumible({ equipo_id, tipo, cantidad, unidad, lectura, op
 // atados a una sola obra vía obra_id, ver comentario en server/db.js).
 // Insumos no distingue aceite motor/hidráulico/transmisión — los 3 resuelven
 // contra el mismo concepto genérico 'ACEITE' (confirmado en diagnóstico:
-// no hay entradas más específicas). Devuelve null si no hay ningún insumo
-// con ese concepto — la captura nunca se bloquea por esto (Forbidden Action).
+// no hay entradas más específicas). 'gasolina' sí tiene su propio concepto
+// 'GASOLINA' en Insumos, distinto de 'DIESEL' (confirmado en diagnóstico,
+// prompt-agregar-gasolina-consumibles.md) — NO cae en el bucket 'ACEITE'.
+// Devuelve null si no hay ningún insumo con ese concepto — la captura nunca
+// se bloquea por esto (Forbidden Action).
+const CONCEPTO_INSUMO_POR_TIPO_CONSUMIBLE = { diesel: 'DIESEL', gasolina: 'GASOLINA' };
 async function resolverCostoConsumible(tipo) {
-  const concepto = tipo === 'diesel' ? 'DIESEL' : 'ACEITE';
+  const concepto = CONCEPTO_INSUMO_POR_TIPO_CONSUMIBLE[tipo] || 'ACEITE';
   const { rows } = await db.pool.query(`
     SELECT i.id, i.precio_presupuesto, i.iva_tasa
     FROM insumos i JOIN proyectos p ON p.id = i.project_id

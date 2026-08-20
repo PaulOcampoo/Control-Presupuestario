@@ -1888,7 +1888,7 @@ app.post('/api/maquinaria/estado-unidad', h(auth.checkPermiso('estado_unidad', '
 // del operador dueño del equipo. Los 3 aceites sí son consumibles_maquinaria,
 // tabla nueva de verdad.
 // =========================================================================
-const TIPOS_CONSUMIBLE = ['diesel', 'aceite_motor', 'aceite_hidraulico', 'aceite_transmision'];
+const TIPOS_CONSUMIBLE = ['diesel', 'gasolina', 'aceite_motor', 'aceite_hidraulico', 'aceite_transmision'];
 
 app.get('/api/maquinaria/consumibles', h(auth.checkPermiso('maquinaria_consumibles', 'puede_ver')), h(async (req, res) => {
   const operadorId = req.user.puesto === 'operador' ? req.user.id : null;

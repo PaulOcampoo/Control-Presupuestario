@@ -1349,7 +1349,7 @@ const SCHEMA = `
   CREATE TABLE IF NOT EXISTS consumibles_maquinaria (
     id SERIAL PRIMARY KEY,
     equipo_id INTEGER NOT NULL REFERENCES equipos_maquinaria(id) ON DELETE CASCADE,
-    tipo TEXT NOT NULL CHECK (tipo IN ('aceite_motor', 'aceite_hidraulico', 'aceite_transmision')),
+    tipo TEXT NOT NULL CHECK (tipo IN ('aceite_motor', 'aceite_hidraulico', 'aceite_transmision', 'gasolina')),
     cantidad DOUBLE PRECISION NOT NULL,
     unidad TEXT NOT NULL DEFAULT 'litros',
     lectura DOUBLE PRECISION,
@@ -1361,6 +1361,16 @@ const SCHEMA = `
     creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW()
   );
   CREATE INDEX IF NOT EXISTS idx_consumibles_maquinaria_equipo ON consumibles_maquinaria(equipo_id, creado_en DESC);
+
+  -- prompt-agregar-gasolina-consumibles.md: CREATE TABLE IF NOT EXISTS de
+  -- arriba no vuelve a correr sobre Preview/producción (la tabla ya existe
+  -- desde el Programa de consumibles original) — se amplía el CHECK aquí
+  -- para esas bases ya creadas. Insumos ya tiene un concepto 'GASOLINA'
+  -- propio (distinto de 'ACEITE'/'DIESEL'), ver resolverCostoConsumible en
+  -- server/maquinaria.js.
+  ALTER TABLE consumibles_maquinaria DROP CONSTRAINT IF EXISTS consumibles_maquinaria_tipo_check;
+  ALTER TABLE consumibles_maquinaria ADD CONSTRAINT consumibles_maquinaria_tipo_check
+    CHECK (tipo IN ('aceite_motor', 'aceite_hidraulico', 'aceite_transmision', 'gasolina'));
 
   CREATE TABLE IF NOT EXISTS mantenimientos_maquinaria (
     id SERIAL PRIMARY KEY,

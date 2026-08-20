@@ -2789,6 +2789,18 @@ app.get('/api/costos/catalogo-global/export', h(auth.checkPermiso('costos', 'pue
 // se borran, solo se excluyen de este catálogo agregado.
 const EXCLUIR_OBRAS_DUPLICADAS_CATALOGO_CONCEPTOS = [13, 41, 42];
 
+// Filtro + dedupe compartidos por todo endpoint que necesite "un concepto
+// real por código" sobre el catálogo global (activo, no encabezado/total,
+// con precio, código no nulo, sin las 3 obras duplicadas de VINTE). Se
+// extrajeron a fragmentos de texto SQL (no a una función que devuelva filas)
+// para que conceptosCatalogoQuery y GET /api/costos/dashboard compartan
+// exactamente el mismo WHERE/ORDER BY sin duplicarlo a mano — cualquier
+// cambio futuro al filtro se hace en un solo lugar. Ambos usos asumen que el
+// array de exclusión va como parámetro $1 (co/p ya alias FROM conceptos co
+// JOIN proyectos p).
+const CONCEPTOS_CATALOGO_WHERE_SQL = 'co.activo = 1 AND co.es_total = 0 AND co.precio_unitario > 0 AND co.codigo IS NOT NULL AND p.id <> ALL($1::int[])';
+const CONCEPTOS_CATALOGO_ORDER_SQL = 'co.codigo, p.creado_en DESC, co.id DESC';
+
 async function conceptosCatalogoQuery(clienteId) {
   const { rows } = await db.pool.query(`
     SELECT DISTINCT ON (co.codigo)
@@ -2799,10 +2811,9 @@ async function conceptosCatalogoQuery(clienteId) {
     FROM conceptos co
     JOIN proyectos p ON p.id = co.project_id
     JOIN clientes c ON c.id = p.cliente_id
-    WHERE co.activo = 1 AND co.es_total = 0 AND co.precio_unitario > 0 AND co.codigo IS NOT NULL
-      AND p.id <> ALL($1::int[])
+    WHERE ${CONCEPTOS_CATALOGO_WHERE_SQL}
       ${clienteId ? 'AND p.cliente_id = $2' : ''}
-    ORDER BY co.codigo, p.creado_en DESC, co.id DESC
+    ORDER BY ${CONCEPTOS_CATALOGO_ORDER_SQL}
   `, clienteId
     ? [EXCLUIR_OBRAS_DUPLICADAS_CATALOGO_CONCEPTOS, clienteId]
     : [EXCLUIR_OBRAS_DUPLICADAS_CATALOGO_CONCEPTOS]);
@@ -2875,11 +2886,12 @@ app.get('/api/costos/catalogo-conceptos-global/export', h(auth.checkPermiso('cos
 // "global" que catalogo-conceptos-global/catalogo-global arriba). Tres
 // bloques independientes — cada uno puede estar vacío sin que los otros dos
 // lo estén, el frontend maneja cada caso con su propio "sin datos":
-//   1. Cobertura de matrices: cuántos conceptos del catálogo global (misma
-//      dedupe DISTINCT ON codigo + exclusión de obras duplicadas que
-//      conceptosCatalogoQuery arriba, mismo filtro es_total=0 AND
-//      precio_unitario>0 para no contar encabezados/totales como "conceptos
-//      reales") ya tienen una matriz de precio unitario asociada
+//   1. Cobertura de matrices: cuántos conceptos del catálogo global (mismo
+//      WHERE/ORDER BY que conceptosCatalogoQuery arriba, vía las constantes
+//      compartidas CONCEPTOS_CATALOGO_WHERE_SQL / CONCEPTOS_CATALOGO_ORDER_SQL
+//      — dedupe DISTINCT ON codigo + exclusión de obras duplicadas + filtro
+//      es_total=0 AND precio_unitario>0 para no contar encabezados/totales
+//      como "conceptos reales") ya tienen una matriz de precio unitario asociada
 //      (matrices_precio_unitario.concepto_id, es_basico=false — un básico
 //      standalone no es la matriz de NINGÚN concepto real; el LEFT JOIN por
 //      concepto_id ya lo excluye por sí solo porque un básico tiene
@@ -2903,9 +2915,8 @@ app.get('/api/costos/dashboard', h(auth.checkPermiso('costos', 'puede_ver')), h(
         SELECT DISTINCT ON (co.codigo) co.id
         FROM conceptos co
         JOIN proyectos p ON p.id = co.project_id
-        WHERE co.activo = 1 AND co.es_total = 0 AND co.precio_unitario > 0 AND co.codigo IS NOT NULL
-          AND p.id <> ALL($1::int[])
-        ORDER BY co.codigo, p.creado_en DESC, co.id DESC
+        WHERE ${CONCEPTOS_CATALOGO_WHERE_SQL}
+        ORDER BY ${CONCEPTOS_CATALOGO_ORDER_SQL}
       )
       SELECT COUNT(*)::int AS total, COUNT(m.id)::int AS con_matriz
       FROM catalogo c

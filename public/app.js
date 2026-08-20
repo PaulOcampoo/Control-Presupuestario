@@ -14352,7 +14352,7 @@ async function renderCostosDashboard(view) {
   try {
     data = await api('/costos/dashboard');
   } catch (err) {
-    view.innerHTML += `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+    view.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
     return;
   }
 

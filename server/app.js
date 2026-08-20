@@ -2867,6 +2867,111 @@ app.get('/api/costos/catalogo-conceptos-global/export', h(auth.checkPermiso('cos
   });
 }));
 
+// ---------------------------------------------------------------------------
+// Dashboard de Costos (prompt-dashboard-costos-basicos-implementacion.md,
+// Tarea 1) — pantalla de entrada a la sección "Costos", antes de picar
+// directo a una de las 4 (ahora 5) subsecciones existentes. 100% agregado y
+// de solo lectura, sin filtro por cliente ni por obra (mismo alcance
+// "global" que catalogo-conceptos-global/catalogo-global arriba). Tres
+// bloques independientes — cada uno puede estar vacío sin que los otros dos
+// lo estén, el frontend maneja cada caso con su propio "sin datos":
+//   1. Cobertura de matrices: cuántos conceptos del catálogo global (misma
+//      dedupe DISTINCT ON codigo + exclusión de obras duplicadas que
+//      conceptosCatalogoQuery arriba, mismo filtro es_total=0 AND
+//      precio_unitario>0 para no contar encabezados/totales como "conceptos
+//      reales") ya tienen una matriz de precio unitario asociada
+//      (matrices_precio_unitario.concepto_id, es_basico=false — un básico
+//      standalone no es la matriz de NINGÚN concepto real; el LEFT JOIN por
+//      concepto_id ya lo excluye por sí solo porque un básico tiene
+//      concepto_id NULL, el filtro es_basico=false es solo para dejarlo
+//      explícito).
+//   2. Insumos con precio inconsistente entre obras: query validada contra
+//      datos reales de Preview (margen >5% para filtrar ruido de redondeo),
+//      tal cual el diseño del prompt — no se modifica.
+//   3. Actividad reciente: últimos registros de audit_log para las 2
+//      acciones relevantes de este módulo (importar_matrices,
+//      crear_presupuesto_desde_costos) — reusa la tabla tal cual, sin tabla
+//      nueva. target_id en ambas acciones es el id de la obra afectada (la
+//      obra donde se importaron matrices, o la obra recién creada desde el
+//      catálogo), así que un solo LEFT JOIN a proyectos por target_id cubre
+//      ambas acciones.
+// ---------------------------------------------------------------------------
+app.get('/api/costos/dashboard', h(auth.checkPermiso('costos', 'puede_ver')), h(async (req, res) => {
+  const [coberturaResult, insumosResult, actividadResult] = await Promise.all([
+    db.pool.query(`
+      WITH catalogo AS (
+        SELECT DISTINCT ON (co.codigo) co.id
+        FROM conceptos co
+        JOIN proyectos p ON p.id = co.project_id
+        WHERE co.activo = 1 AND co.es_total = 0 AND co.precio_unitario > 0 AND co.codigo IS NOT NULL
+          AND p.id <> ALL($1::int[])
+        ORDER BY co.codigo, p.creado_en DESC, co.id DESC
+      )
+      SELECT COUNT(*)::int AS total, COUNT(m.id)::int AS con_matriz
+      FROM catalogo c
+      LEFT JOIN matrices_precio_unitario m ON m.concepto_id = c.id AND m.es_basico = false
+    `, [EXCLUIR_OBRAS_DUPLICADAS_CATALOGO_CONCEPTOS]),
+    db.pool.query(`
+      WITH ultimo_precio AS (
+        SELECT DISTINCT ON (i.codigo, i.project_id)
+          i.codigo, i.project_id, i.precio_presupuesto, p.nombre AS obra
+        FROM insumos i JOIN proyectos p ON p.id = i.project_id
+        WHERE i.codigo IS NOT NULL AND i.precio_presupuesto > 0
+        ORDER BY i.codigo, i.project_id, i.id DESC
+      ), agregado AS (
+        SELECT codigo, MIN(precio_presupuesto) min_p, MAX(precio_presupuesto) max_p,
+               COUNT(*) n_obras, COUNT(DISTINCT precio_presupuesto) n_precios
+        FROM ultimo_precio GROUP BY codigo HAVING COUNT(*) >= 2
+      )
+      SELECT codigo, min_p, max_p, n_obras,
+             100.0*(max_p-min_p)/NULLIF(min_p,0) pct_diff
+      FROM agregado
+      WHERE n_precios > 1 AND (max_p-min_p)/NULLIF(min_p,0) > 0.05
+      ORDER BY pct_diff DESC
+      LIMIT 50
+    `),
+    db.pool.query(`
+      SELECT al.id, al.actor_usuario, al.accion, al.target_id, al.creado_en, al.detalle,
+             p.nombre AS obra_nombre
+      FROM audit_log al
+      LEFT JOIN proyectos p ON p.id = al.target_id
+      WHERE al.accion IN ('importar_matrices', 'crear_presupuesto_desde_costos')
+      ORDER BY al.creado_en DESC
+      LIMIT 15
+    `),
+  ]);
+
+  const cobertura = coberturaResult.rows[0] || { total: 0, con_matriz: 0 };
+  const total = Number(cobertura.total) || 0;
+  const conMatriz = Number(cobertura.con_matriz) || 0;
+
+  const actividad = actividadResult.rows.map((r) => {
+    let detalle = null;
+    try { detalle = r.detalle ? JSON.parse(r.detalle) : null; } catch { detalle = null; }
+    return {
+      id: r.id, actor_usuario: r.actor_usuario, accion: r.accion,
+      target_id: r.target_id, obra_nombre: r.obra_nombre, creado_en: r.creado_en, detalle,
+    };
+  });
+
+  res.json({
+    cobertura_matrices: {
+      total_conceptos: total,
+      con_matriz: conMatriz,
+      sin_matriz: total - conMatriz,
+      pct_cobertura: total > 0 ? (100 * conMatriz) / total : 0,
+    },
+    insumos_inconsistentes: insumosResult.rows.map((r) => ({
+      codigo: r.codigo,
+      min_precio: Number(r.min_p),
+      max_precio: Number(r.max_p),
+      n_obras: Number(r.n_obras),
+      pct_diff: Number(r.pct_diff),
+    })),
+    actividad_reciente: actividad,
+  });
+}));
+
 // Crea un proyecto nuevo directo desde el catálogo agregado (ya revisado/
 // editado por el usuario en el frontend — items llega con lo que el usuario
 // confirmó, no se vuelve a consultar el catálogo aquí). Reutiliza ingest()

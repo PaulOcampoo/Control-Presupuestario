@@ -2779,7 +2779,7 @@ app.get('/api/costos/catalogo-global/export', h(auth.checkPermiso('costos', 'pue
 // NO la taxonomía cerrada de insumos.categoria — por eso el frontend la
 // etiqueta "Grupo/Capítulo", nunca "Categoría" (ver conceptosTablaHtml).
 //
-// EXCLUIR_OBRAS_DUPLICADAS_CATALOGO_CONCEPTOS: 3 obras de VINTE (ids 13, 41,
+// EXCLUIR_OBRAS_DUPLICADAS_CATALOGO: 3 obras de VINTE (ids 13, 41,
 // 42 — "715 URBANIZACION AMANI", "Presupuestos Residencial Vinte",
 // "Presupuestos Residencial Vinte Contrato 715") son la misma obra cargada 3
 // veces (mismos códigos, mismo tamaño — confirmado en diagnóstico). Decisión
@@ -2787,7 +2787,11 @@ app.get('/api/costos/catalogo-global/export', h(auth.checkPermiso('costos', 'pue
 // en el schema que las distinga de una obra real. Si aparecen más duplicados
 // reales a futuro, hay que sumarlos a mano aquí. Las 3 obras NO se tocan ni
 // se borran, solo se excluyen de este catálogo agregado.
-const EXCLUIR_OBRAS_DUPLICADAS_CATALOGO_CONCEPTOS = [13, 41, 42];
+// Compartida por el catálogo de Conceptos (conceptosCatalogoQuery, dashboard
+// de Costos) Y el catálogo de Básicos (basicosCatalogoQuery más abajo) — las
+// 3 obras duplicadas de VINTE contaminan por igual ambos catálogos si algún
+// día tienen básicos cargados, no es un problema exclusivo de Conceptos.
+const EXCLUIR_OBRAS_DUPLICADAS_CATALOGO = [13, 41, 42];
 
 // Filtro + dedupe compartidos por todo endpoint que necesite "un concepto
 // real por código" sobre el catálogo global (activo, no encabezado/total,
@@ -2815,8 +2819,8 @@ async function conceptosCatalogoQuery(clienteId) {
       ${clienteId ? 'AND p.cliente_id = $2' : ''}
     ORDER BY ${CONCEPTOS_CATALOGO_ORDER_SQL}
   `, clienteId
-    ? [EXCLUIR_OBRAS_DUPLICADAS_CATALOGO_CONCEPTOS, clienteId]
-    : [EXCLUIR_OBRAS_DUPLICADAS_CATALOGO_CONCEPTOS]);
+    ? [EXCLUIR_OBRAS_DUPLICADAS_CATALOGO, clienteId]
+    : [EXCLUIR_OBRAS_DUPLICADAS_CATALOGO]);
   return rows;
 }
 
@@ -2921,7 +2925,7 @@ app.get('/api/costos/dashboard', h(auth.checkPermiso('costos', 'puede_ver')), h(
       SELECT COUNT(*)::int AS total, COUNT(m.id)::int AS con_matriz
       FROM catalogo c
       LEFT JOIN matrices_precio_unitario m ON m.concepto_id = c.id AND m.es_basico = false
-    `, [EXCLUIR_OBRAS_DUPLICADAS_CATALOGO_CONCEPTOS]),
+    `, [EXCLUIR_OBRAS_DUPLICADAS_CATALOGO]),
     db.pool.query(`
       WITH ultimo_precio AS (
         SELECT DISTINCT ON (i.codigo, i.project_id)
@@ -3469,6 +3473,12 @@ app.put('/api/projects/:id/basicos/:basicoId', h(auth.allow('residente', 'costos
 // nivel de un solo matriz_id, más el nombre de obra (aquí sí hace falta: el
 // catálogo cruza obras, la vista por-obra no). Mismo permiso que el resto
 // del módulo: checkPermiso('costos', 'puede_ver').
+//
+// Igual que conceptosCatalogoQuery, excluye las 3 obras duplicadas de VINTE
+// (EXCLUIR_OBRAS_DUPLICADAS_CATALOGO) — hoy es un no-op porque esas obras no
+// tienen básicos, pero si algún día los tuvieran, contar sus matrices aquí
+// triplicaría veces_reusado más abajo (ver también el filtro sobre
+// todasVersiones en el handler del endpoint, que cubre la agregación de uso).
 async function basicosCatalogoQuery() {
   const { rows } = await db.pool.query(`
     SELECT DISTINCT ON (m.codigo)
@@ -3478,9 +3488,9 @@ async function basicosCatalogoQuery() {
     FROM matrices_precio_unitario m
     JOIN proyectos p ON p.id = m.project_id
     JOIN clientes c ON c.id = p.cliente_id
-    WHERE m.es_basico = true AND m.codigo IS NOT NULL
+    WHERE m.es_basico = true AND m.codigo IS NOT NULL AND p.id <> ALL($1::int[])
     ORDER BY m.codigo, p.creado_en DESC, m.id DESC
-  `);
+  `, [EXCLUIR_OBRAS_DUPLICADAS_CATALOGO]);
   return rows;
 }
 
@@ -3490,11 +3500,16 @@ app.get('/api/costos/catalogo-basicos', h(auth.checkPermiso('costos', 'puede_ver
 
   // Todas las versiones (una fila por obra) de cada código representado
   // arriba — el conteo de reuso y la lista de usos deben cruzar TODAS las
-  // obras donde ese código de básico existe, no solo la más reciente.
+  // obras donde ese código de básico existe, no solo la más reciente. Mismo
+  // filtro EXCLUIR_OBRAS_DUPLICADAS_CATALOGO que basicosCatalogoQuery: sin
+  // esto, un básico con datos en las 3 obras duplicadas de VINTE triplicaría
+  // veces_reusado (cada matriz duplicada suma sus propios usos por separado).
   const codigos = representativos.map((r) => r.codigo);
   const { rows: todasVersiones } = await db.pool.query(
-    `SELECT id, codigo FROM matrices_precio_unitario WHERE es_basico = true AND codigo = ANY($1::text[])`,
-    [codigos]
+    `SELECT m.id, m.codigo FROM matrices_precio_unitario m
+     JOIN proyectos p ON p.id = m.project_id
+     WHERE m.es_basico = true AND m.codigo = ANY($1::text[]) AND p.id <> ALL($2::int[])`,
+    [codigos, EXCLUIR_OBRAS_DUPLICADAS_CATALOGO]
   );
   const idsPorCodigo = new Map();
   for (const v of todasVersiones) {

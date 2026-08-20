@@ -43,6 +43,7 @@ const { generatePlanning } = require('./planning');
 const auth = require('./auth');
 const { sendXlsxExport, buildExportFilename } = require('./exportHelper');
 const { sendMatricesNeodataExport } = require('./matricesNeodataExport');
+const matricesImport = require('./matricesImport');
 const { extraerDatosContrato, CAMPOS_CONTRATO } = require('./extraccionContrato');
 const { crearNotificacion, notificarAdmins, CATEGORIAS_NOTIFICACION, TODOS_LOS_TIPOS, ROLES_POR_TIPO } = require('./notificaciones');
 const { buildEstimacionPdf } = require('./estimacionesPdf');
@@ -3587,6 +3588,226 @@ app.delete('/api/projects/:id/matrices/:conceptoId', h(auth.allow('residente', '
   `, [conceptoId, pid]);
   if (!rowCount) return res.status(404).json({ error: 'Este concepto no tiene matriz' });
   res.json({ ok: true });
+}));
+
+// ---------------------------------------------------------------------------
+// Importador de la hoja "Matrices" (prompt-importador-matrices-
+// implementacion.md, ver diagnóstico previo validado contra el archivo
+// real de Kaila — 23 bloques, formato Neodata). Paso SEPARADO y OPCIONAL de
+// "Actualizar presupuesto"/alta de obra (Forbidden Action: no tocar
+// ingest.js) — asume que la obra ya tiene sus conceptos/insumos cargados
+// por el flujo normal, y solo resuelve la hoja "Matrices" contra ese
+// catálogo ya existente (nunca reparsea la hoja de Insumos). Mismo patrón
+// preview→confirmar que "Actualizar presupuesto" (descargarBlobXlsxATmp +
+// exceljs; confirm nunca confía en lo que mandó el preview, re-parsea y
+// re-resuelve desde cero).
+//
+// Un bloque queda en 3 estados posibles:
+//   'ok'      — se resolvió completo, se inserta al confirmar.
+//   'omitido' — el concepto ya tiene una matriz (nunca se sobreescribe en
+//               silencio, mismo criterio que /aplicar arriba).
+//   'error'   — código de insumo/cuadrilla no resoluble, factor_pct sin
+//               base identificable, concepto no encontrado, o estructura
+//               de archivo rota — se salta, NUNCA se inserta parcial.
+// La confirmación inserta únicamente los bloques 'ok' (decisión confirmada
+// con Paul) y reporta 'omitido'/'error' en la respuesta — nunca aborta todo
+// por un bloque malo, ni inserta un bloque a medias.
+// ---------------------------------------------------------------------------
+async function prepararImportacionMatrices(pid, archivo_url) {
+  const tmpPath = path.join(os.tmpdir(), `matrices-import-${Date.now()}-${Math.round(Math.random() * 1e9)}.xlsx`);
+  try {
+    await descargarBlobXlsxATmp(archivo_url, tmpPath);
+    const ExcelJS = require('exceljs');
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.readFile(tmpPath);
+    const sheet = wb.getWorksheet('Matrices');
+    if (!sheet) throw new Error('El archivo no tiene una hoja llamada "Matrices".');
+    const bloquesCrudos = matricesImport.parseMatricesSheet(sheet);
+    if (!bloquesCrudos.length) throw new Error('No se detectó ningún bloque de análisis ("Partida:") en la hoja "Matrices".');
+
+    const [{ rows: conceptoRows }, { rows: insumoRows }, { rows: matrizRows }] = await Promise.all([
+      db.pool.query('SELECT id, codigo FROM conceptos WHERE project_id = $1 AND activo = 1 AND codigo IS NOT NULL', [pid]),
+      db.pool.query('SELECT id, codigo, categoria, precio_presupuesto FROM insumos WHERE project_id = $1 AND codigo IS NOT NULL', [pid]),
+      db.pool.query('SELECT m.concepto_id FROM matrices_precio_unitario m JOIN conceptos c ON c.id = m.concepto_id WHERE c.project_id = $1', [pid]),
+    ]);
+    // codigo -> array de filas (no un Map codigo->fila: el MISMO código
+    // puede repetir dentro de una obra apuntando a 2 conceptos reales
+    // distintos — confirmado con datos reales, AJAL.KAI.EXC01 en 2
+    // capítulos de la obra de Kaila. Un Map perdería una de las 2 filas en
+    // silencio y podría emparejar el bloque equivocado con el concepto
+    // equivocado — decisión confirmada: bloquear TODAS las ocurrencias de
+    // un código ambiguo en vez de adivinar cuál es cuál).
+    const conceptosPorCodigo = new Map();
+    for (const c of conceptoRows) {
+      if (!conceptosPorCodigo.has(c.codigo)) conceptosPorCodigo.set(c.codigo, []);
+      conceptosPorCodigo.get(c.codigo).push(c);
+    }
+    const insumosPorCodigo = new Map(insumoRows.map((i) => [i.codigo, i]));
+    const conceptoIdsConMatriz = new Set(matrizRows.map((m) => m.concepto_id));
+
+    const resultados = bloquesCrudos.map((bloque) => resolverBloqueImportacion(bloque, { conceptosPorCodigo, insumosPorCodigo, conceptoIdsConMatriz }));
+    // Salvaguarda extra: 2 bloques del MISMO archivo resolviendo al mismo
+    // concepto_id violaría el UNIQUE(concepto_id) al confirmar — se detecta
+    // aquí, antes de tocar la base, en vez de dejar que la transacción
+    // reviente a medias.
+    const vistos = new Set();
+    for (const r of resultados) {
+      if (r.estado !== 'ok') continue;
+      if (vistos.has(r.concepto_id)) { r.estado = 'error'; r.motivo = `Código de análisis "${r.codigo_analisis}" duplicado dentro de este mismo archivo.`; continue; }
+      vistos.add(r.concepto_id);
+    }
+    return resultados;
+  } finally {
+    fs.rm(tmpPath, () => {});
+  }
+}
+
+function resolverBloqueImportacion(bloque, { conceptosPorCodigo, insumosPorCodigo, conceptoIdsConMatriz }) {
+  const base = {
+    codigo_analisis: bloque.codigo_analisis, analisis_no: bloque.analisis_no, unidad: bloque.unidad,
+    rendimiento: bloque.rendimiento, cuadrilla_nombre: bloque.cuadrilla_nombre,
+    precio_unitario_excel: bloque.precio_unitario_excel,
+  };
+  if (bloque.parseErrors.length) return { ...base, estado: 'error', motivo: bloque.parseErrors.join(' ') };
+  if (!bloque.codigo_analisis) return { ...base, estado: 'error', motivo: 'No se pudo leer el código de análisis (fila "Análisis:").' };
+
+  const conceptosCandidatos = conceptosPorCodigo.get(bloque.codigo_analisis);
+  if (conceptosCandidatos && conceptosCandidatos.length > 1) {
+    return { ...base, estado: 'error', motivo: `El código "${bloque.codigo_analisis}" corresponde a ${conceptosCandidatos.length} conceptos distintos en esta obra (mismo código en más de un capítulo) — no se puede determinar automáticamente a cuál corresponde este bloque, se omite.` };
+  }
+  const concepto = conceptosCandidatos ? conceptosCandidatos[0] : null;
+  if (!concepto) {
+    return { ...base, estado: 'error', motivo: `No existe un concepto con código "${bloque.codigo_analisis}" en esta obra — carga primero el presupuesto (Actualizar presupuesto) con este código.` };
+  }
+  if (conceptoIdsConMatriz.has(concepto.id)) {
+    return { ...base, concepto_id: concepto.id, estado: 'omitido', motivo: 'Este concepto ya tiene una matriz de precio unitario — no se sobreescribe automáticamente.' };
+  }
+
+  // Básicos locales primero (únicos por código DENTRO de este bloque —
+  // decisión confirmada: nunca se enlazan a un concepto real existente
+  // aunque el código coincida, y nunca se dedupean entre bloques distintos,
+  // solo dentro del mismo). Necesitamos su costo_directo para resolver los
+  // renglones basico_ref del análisis padre.
+  const basicosResueltos = [];
+  for (const b of bloque.basicosLocales) {
+    const { renglones, errores } = matricesImport.resolverSetRenglones(b.renglones, { insumosPorCodigo, esBasico: true });
+    if (errores.length) return { ...base, concepto_id: concepto.id, estado: 'error', motivo: errores[0] };
+    const calculo = calcularMatrizNeodata(renglones, { pct_indirecto: 0, pct_utilidad: 0, pct_financiamiento: 0, rendimiento: null, es_basico: true });
+    basicosResueltos.push({ codigo: b.codigo, descripcion: b.descripcion, unidad: b.unidad, renglones, costo_directo: calculo.costo_directo });
+  }
+  const basicosPorCodigo = new Map(basicosResueltos.map((b) => [b.codigo, b]));
+
+  const renglonesDirectosCrudos = bloque.renglones.filter((r) => r.tipo !== 'basico_ref');
+  const { renglones: renglonesDirectos, errores } = matricesImport.resolverSetRenglones(
+    renglonesDirectosCrudos, { insumosPorCodigo, esBasico: false, rendimiento: bloque.rendimiento }
+  );
+  if (errores.length) return { ...base, concepto_id: concepto.id, estado: 'error', motivo: errores[0] };
+
+  const renglonesBasicoRef = bloque.renglones
+    .filter((r) => r.tipo === 'basico_ref')
+    .map((r) => ({ categoria: 'BASICOS', tipo: 'basico_ref', codigo_basico: r.codigo, cantidad: r.cantidad, precio_basico: basicosPorCodigo.get(r.codigo).costo_directo }));
+
+  const renglonesCompletos = [...renglonesDirectos, ...renglonesBasicoRef];
+  const calculo = calcularMatrizNeodata(renglonesCompletos, {
+    pct_indirecto: bloque.pct_indirecto, pct_utilidad: bloque.pct_utilidad, pct_financiamiento: bloque.pct_financiamiento,
+    rendimiento: bloque.rendimiento, es_basico: false,
+  });
+  const diff = bloque.precio_unitario_excel != null
+    ? Number((calculo.precio_unitario_calculado - bloque.precio_unitario_excel).toFixed(2))
+    : null;
+
+  return {
+    ...base, concepto_id: concepto.id, estado: 'ok',
+    completa: calculo.completa, precio_unitario_calculado: calculo.precio_unitario_calculado, diff_vs_excel: diff,
+    n_basicos: basicosResueltos.length, n_renglones: renglonesCompletos.length,
+    _persistencia: {
+      concepto_id: concepto.id, renglonesDirectos, basicosResueltos, renglonesBasicoRef,
+      cuadrilla_nombre: bloque.cuadrilla_nombre, rendimiento: bloque.rendimiento,
+      pct_indirecto: bloque.pct_indirecto, pct_utilidad: bloque.pct_utilidad, pct_financiamiento: bloque.pct_financiamiento,
+      partida: bloque.codigo_concepto, analisis_no: bloque.analisis_no != null ? String(bloque.analisis_no) : null,
+    },
+  };
+}
+
+function resumenImportacionMatrices(resultados) {
+  const limpiar = (r) => { const { _persistencia, ...resto } = r; return resto; };
+  return {
+    bloques: resultados.map(limpiar),
+    resumen: {
+      total: resultados.length,
+      ok: resultados.filter((r) => r.estado === 'ok').length,
+      omitidos: resultados.filter((r) => r.estado === 'omitido').length,
+      con_error: resultados.filter((r) => r.estado === 'error').length,
+    },
+  };
+}
+
+app.post('/api/projects/:id/matrices/import/preview', h(auth.allow('residente', 'costos')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('costos', 'puede_crear')), h(async (req, res) => {
+  const { archivo_url } = req.body || {};
+  if (!archivo_url) return res.status(400).json({ error: 'Sube un archivo .xlsx con la hoja "Matrices"' });
+  try {
+    const resultados = await prepararImportacionMatrices(req.project.id, archivo_url);
+    res.json(resumenImportacionMatrices(resultados));
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+}));
+
+app.post('/api/projects/:id/matrices/import/confirm', h(auth.allow('residente', 'costos')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('costos', 'puede_crear')), h(async (req, res) => {
+  const { archivo_url, confirmado } = req.body || {};
+  if (!archivo_url) return res.status(400).json({ error: 'Sube un archivo .xlsx con la hoja "Matrices"' });
+  if (confirmado !== true) return res.status(400).json({ error: 'Falta confirmar explícitamente la importación' });
+  const pid = req.project.id;
+  try {
+    // Nunca confía en lo que el frontend mandó del preview — re-parsea y
+    // re-resuelve desde cero (mismo criterio que "Actualizar presupuesto").
+    const resultados = await prepararImportacionMatrices(pid, archivo_url);
+    const okBloques = resultados.filter((r) => r.estado === 'ok');
+
+    let creadas = 0;
+    if (okBloques.length) {
+      await db.withTransaction(async (client) => {
+        for (const r of okBloques) {
+          const p = r._persistencia;
+          const basicoIdPorCodigo = new Map();
+          for (const b of p.basicosResueltos) {
+            const { rows } = await client.query(
+              `INSERT INTO matrices_precio_unitario (es_basico, project_id, codigo, descripcion, unidad, creado_por, actualizado_por)
+               VALUES (true, $1, $2, $3, $4, $5, $5) RETURNING id`,
+              [pid, b.codigo, b.descripcion, b.unidad || null, req.user.id]
+            );
+            basicoIdPorCodigo.set(b.codigo, rows[0].id);
+            await insertarRenglones(client, rows[0].id, b.renglones);
+          }
+          const { rows: matrizRows } = await client.query(
+            `INSERT INTO matrices_precio_unitario
+               (concepto_id, pct_indirecto, pct_utilidad, pct_financiamiento, rendimiento, partida, analisis_no, cuadrilla_nombre, creado_por, actualizado_por)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$9) RETURNING id`,
+            [p.concepto_id, p.pct_indirecto, p.pct_utilidad, p.pct_financiamiento, p.rendimiento, p.partida, p.analisis_no, p.cuadrilla_nombre, req.user.id]
+          );
+          const renglonesFinales = [
+            ...p.renglonesDirectos,
+            ...p.renglonesBasicoRef.map((rb) => ({
+              categoria: 'BASICOS', tipo: 'basico_ref',
+              basico_matriz_id: basicoIdPorCodigo.get(rb.codigo_basico), cantidad: rb.cantidad,
+            })),
+          ];
+          await insertarRenglones(client, matrizRows[0].id, renglonesFinales);
+          creadas++;
+        }
+        const ip = auth.getIp(req);
+        await client.query(
+          `INSERT INTO audit_log (actor_id, actor_usuario, accion, target_id, project_id, ip, detalle)
+           VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+          [req.user.id, req.user.usuario, 'importar_matrices', pid, pid, ip,
+            JSON.stringify({ archivo_url, creadas, omitidos: resultados.filter((r) => r.estado === 'omitido').length, con_error: resultados.filter((r) => r.estado === 'error').length })]
+        );
+      });
+    }
+    res.json({ ...resumenImportacionMatrices(resultados), creadas });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
 }));
 
 // ---------------------------------------------------------------------------

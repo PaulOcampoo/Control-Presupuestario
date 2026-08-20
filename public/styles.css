@@ -1081,6 +1081,10 @@ tr.row-pendiente { background: color-mix(in srgb, var(--yellow) 10%, transparent
 .matriz-row { cursor: pointer; }
 .matriz-row.active { background: var(--bg-surface-2); }
 .matriz-row.active td:nth-child(3) { color: var(--accent-gold); font-weight: 700; }
+/* prompt-importador-matrices-implementacion.md: fila de bloque bloqueado en
+   el preview de importación — mismo tono que .alert-box.danger, aplicado a
+   nivel fila en vez de caja completa. */
+table tr.danger { background: rgba(239,68,68,0.08); }
 .project-item.active .pname { color: var(--accent-gold); }
 .project-item .pname { font-weight: 700; font-size: var(--fs-base); line-height: 1.3; word-break: break-word; }
 .project-item .pmeta { color: var(--text-secondary); font-size: var(--fs-xs); }

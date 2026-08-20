@@ -14749,6 +14749,7 @@ async function renderMatrices(view) {
       <button class="btn" id="btnMatricesExport">⭳ Exportar a Excel</button>
       <button class="btn" id="btnMatricesLote" ${matricesSeleccionadas.size ? '' : 'disabled'}>Aplicar % en lote (${matricesSeleccionadas.size})</button>
       <button class="btn" id="btnMatricesBasicos">🧱 Básicos</button>
+      <button class="btn" id="btnMatricesImportar" ${matrices.length ? '' : 'disabled'} title="${matrices.length ? '' : 'Esta obra necesita conceptos cargados primero (Actualizar presupuesto / alta de obra) antes de poder importar Matrices'}">⭱ Importar Matrices desde Excel</button>
     </div>
 
     ${matrices.length ? `
@@ -14797,6 +14798,7 @@ async function renderMatrices(view) {
     catch (err) { toast(err.message, 'danger'); }
   });
   $('#btnMatricesBasicos').addEventListener('click', () => openBasicosListModal(view));
+  $('#btnMatricesImportar')?.addEventListener('click', () => openImportarMatricesModal(view));
 
   $$('.matSelCheck').forEach((chk) => {
     chk.addEventListener('click', (e) => e.stopPropagation());
@@ -14847,6 +14849,110 @@ async function renderMatrices(view) {
   });
 
   await paintMatrizDetalle(view);
+}
+
+// Importador de la hoja "Matrices" (prompt-importador-matrices-
+// implementacion.md) — mismo patrón visual que Lotes
+// (openImportarLotesModal): input file .xlsx → VercelBlobClient.upload →
+// preview (nunca escribe) → confirmar explícito. A diferencia de Lotes,
+// el preview aquí distingue 3 estados por bloque (ok/omitido/error) y
+// muestra el motivo específico de cada bloqueo — el volumen de casos reales
+// no resueltos (cuadrilla pre-agregada, código ambiguo dentro de la obra,
+// concepto no encontrado) es alto por diseño en v1 (ver diagnóstico), así
+// que ocultarlos habría sido engañoso.
+function openImportarMatricesModal(view) {
+  openModal(`
+    <h3>Importar Matrices desde Excel</h3>
+    <p class="muted fs-08">Lee la hoja "Matrices" (formato Neodata) y resuelve cada análisis contra los conceptos/insumos YA CARGADOS de esta obra — nunca crea conceptos ni insumos nuevos. Si un concepto de la hoja "Matrices" no existe todavía, carga primero el presupuesto (Actualizar presupuesto) con ese código.</p>
+    <input type="file" id="matricesImportFile" accept=".xlsx" />
+    <div class="modal-actions">
+      <button class="btn" id="btnCancelMatricesImport">Cerrar</button>
+    </div>
+  `);
+  $('#btnCancelMatricesImport').addEventListener('click', closeModal);
+  $('#matricesImportFile').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    if (!/\.xlsx$/i.test(file.name)) { toast('Solo se admiten archivos .xlsx', 'danger'); return; }
+    openModal(`<h3>Subiendo y analizando…</h3><div class="spinner"></div>`);
+    try {
+      const blob = await VercelBlobClient.upload(file.name, file, {
+        access: 'private',
+        handleUploadUrl: `/api/projects/upload-token`,
+        headers: state.token ? { Authorization: `Bearer ${state.token}` } : {},
+      });
+      const preview = await api(`/projects/${state.projectId}/matrices/import/preview`, {
+        method: 'POST',
+        body: { archivo_url: blob.url },
+      });
+      pintarPreviewImportacionMatrices(preview, blob.url, view);
+    } catch (err) {
+      closeModal();
+      toast(err.message, 'danger');
+    }
+  });
+}
+
+function pintarPreviewImportacionMatrices(preview, archivoUrl, view) {
+  const badge = (b) => {
+    if (b.estado === 'ok') return `<span class="badge green">Se crea${b.n_basicos ? ` (+${b.n_basicos} básico${b.n_basicos === 1 ? '' : 's'})` : ''}</span>`;
+    if (b.estado === 'omitido') return '<span class="badge muted">Ya existe — omitido</span>';
+    return '<span class="badge red">Error</span>';
+  };
+  const diffHtml = (b) => {
+    if (b.estado !== 'ok') return '—';
+    if (b.diff_vs_excel == null) return '<span class="muted">sin PRECIO UNITARIO en el Excel</span>';
+    if (b.diff_vs_excel === 0) return '<span class="badge green">Coincide exacto</span>';
+    return `<span class="muted" title="Probable cambio de precio de insumo desde que se generó este Excel">Δ ${fmtMoney(b.diff_vs_excel)}</span>`;
+  };
+  openModal(`
+    <h3>Preview de importación de Matrices</h3>
+    <p class="muted">Nada se ha guardado todavía. Revisa antes de confirmar.</p>
+    <div class="card">
+      <div class="row between"><span>Bloques detectados</span><strong>${preview.resumen.total}</strong></div>
+      <div class="row between"><span>Se van a crear</span><strong>${preview.resumen.ok}</strong></div>
+      <div class="row between"><span>Ya existen (omitidos)</span><strong>${preview.resumen.omitidos}</strong></div>
+      <div class="row between"><span>Con error (no se crean)</span><strong>${preview.resumen.con_error}</strong></div>
+    </div>
+    <div class="table-scroll mt-12">
+      <table>
+        <thead><tr><th>Código de análisis</th><th class="num">Precio Excel</th><th class="num">Precio calculado</th><th>vs. Excel</th><th>Estado</th></tr></thead>
+        <tbody>
+          ${preview.bloques.map((b) => `
+            <tr class="${b.estado === 'error' ? 'danger' : ''}">
+              <td>${esc(b.codigo_analisis || '—')}</td>
+              <td class="num">${b.precio_unitario_excel != null ? fmtMoney(b.precio_unitario_excel) : '—'}</td>
+              <td class="num">${b.precio_unitario_calculado != null ? fmtMoney(b.precio_unitario_calculado) : '—'}</td>
+              <td class="fs-08">${diffHtml(b)}</td>
+              <td class="fs-08">${badge(b)}${b.motivo ? `<div class="muted fs-08 mt-4">${esc(b.motivo)}</div>` : ''}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" id="btnCancelMatricesConfirm">Cancelar</button>
+      <button class="btn btn-primary" id="btnMatricesImportConfirm" ${preview.resumen.ok ? '' : 'disabled'}>Confirmar importación (${preview.resumen.ok})</button>
+    </div>
+  `);
+  $('#btnCancelMatricesConfirm').addEventListener('click', closeModal);
+  $('#btnMatricesImportConfirm')?.addEventListener('click', async () => {
+    const btn = $('#btnMatricesImportConfirm');
+    btn.disabled = true; btn.textContent = 'Importando…';
+    try {
+      const result = await api(`/projects/${state.projectId}/matrices/import/confirm`, {
+        method: 'POST',
+        body: { archivo_url: archivoUrl, confirmado: true },
+      });
+      closeModal();
+      invalidate('matrices');
+      toast(`${result.creadas} matriz(ces) creada(s)${result.resumen.con_error ? `, ${result.resumen.con_error} bloqueada(s) por error` : ''}`, 'success');
+      renderMatrices(view);
+    } catch (err) {
+      toast(err.message, 'danger');
+      btn.disabled = false; btn.textContent = `Confirmar importación (${preview.resumen.ok})`;
+    }
+  });
 }
 
 const MATRIZ_CATEGORIAS_UI = ['MATERIALES', 'MANO DE OBRA', 'EQUIPO Y HERRAMIENTA'];

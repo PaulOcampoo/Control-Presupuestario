@@ -14830,6 +14830,12 @@ function openCrearPresupuestoModal(catalogoOriginal) {
         method: 'POST',
         body: { nombre, cliente_id: clienteId, items: itemsSeleccionados },
       });
+      // prompt-URGENTE-presupuesto-no-aparece-galeria.md: sin esto, el cliente/
+      // obra recien creados quedaban invisibles hasta recargar la pagina --
+      // renderClientGallery()/renderObrasClientePicker() leen de state.clientes/
+      // state.projects en memoria, poblados solo en bootApp() o en el flujo
+      // standalone de "+ Crear cliente nuevo" (nunca tras crear el presupuesto).
+      await Promise.all([refreshClientList(), refreshProjectList()]);
       closeModal();
       toast(`Presupuesto "${resultado.nombre}" creado con ${resultado.num_conceptos} conceptos`, 'success');
     } catch (err) {

@@ -2063,7 +2063,16 @@ app.get('/api/cron/cotizador-refresh', requireCronSecret, h(async (req, res) => 
 // allow() literal (ordenes, programa, conceptos, etc.) — ambos roles solo
 // tienen el tab 'maquinaria' (vista global, no por-obra).
 app.get('/api/clientes', h(auth.allow('residente', 'cabo', 'compras', 'tesoreria', 'administracion', 'logistica', 'jefe_maquinaria', 'operador', 'costos')), h(async (req, res) => {
-  if (req.user.puesto === 'admin') {
+  // prompt-URGENTE-presupuesto-no-aparece-galeria.md: causa raiz del bug
+  // real reportado por Paul (desarrollador) -- este bypass solo comprobaba
+  // 'admin', dejando fuera a 'desarrollador' pese a que en el resto del
+  // codebase (~20 checks en server/app.js) ambos puestos son equivalentes.
+  // Resultado real: un cliente/obra nuevo sin fila en usuario_proyectos
+  // (ningun flujo de creacion la inserta, ni el de subir .xlsx ni el de
+  // "Crear presupuesto desde catalogo") es invisible en la galeria para
+  // desarrollador, aunque el backend lo haya creado correctamente -- exacto
+  // patron del reporte: toast de exito real, galeria vacia.
+  if (req.user.puesto === 'admin' || req.user.puesto === 'desarrollador') {
     const { rows } = await db.pool.query(`
       SELECT c.id, c.nombre, COUNT(p.id)::int AS num_proyectos
       FROM clientes c
@@ -4808,7 +4817,15 @@ app.put('/api/favoritos/orden', h(async (req, res) => {
 // Proyectos
 // ---------------------------------------------------------------------------
 app.get('/api/projects', h(auth.allow('residente', 'cabo', 'compras', 'tesoreria', 'administracion', 'logistica', 'jefe_maquinaria', 'operador', 'costos')), h(async (req, res) => {
-  const projects = req.user.puesto === 'admin'
+  // prompt-URGENTE-presupuesto-no-aparece-galeria.md: mismo bug y misma
+  // causa que GET /api/clientes -- este bypass tampoco incluia
+  // 'desarrollador'. Sin este fix, aun corrigiendo GET /api/clientes,
+  // Paul veria la tarjeta del cliente nuevo en la galeria pero un "este
+  // cliente no tiene presupuestos cargados todavia" al entrar (visibleProjects()
+  // filtra sobre este mismo listado), porque renderObrasClientePicker()
+  // depende de que state.projects (poblado por este endpoint) incluya la
+  // obra nueva.
+  const projects = req.user.puesto === 'admin' || req.user.puesto === 'desarrollador'
     ? await db.listProjects()
     : (await db.pool.query(`
         SELECT p.* FROM proyectos p

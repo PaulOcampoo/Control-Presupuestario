@@ -14615,29 +14615,80 @@ async function renderComposicionCostos(view) {
 // Modal de revisión/edición antes de crear un presupuesto nuevo desde el
 // catálogo agregado — nunca se crea nada sin que el usuario confirme aquí
 // primero (prompt-modulo-costos.md, regla dura: no crear sin revisión).
+// prompt-modal-checkbox-buscador-crear-cliente.md: opt-in vía checkbox (269+
+// conceptos — seleccionar unas pocas es el caso real, no excluir unas pocas
+// de casi todas) + buscador client-side (todo el catálogo ya está cargado
+// en memoria, sin paginación — confirmado en investigación). La selección
+// se guarda como Set de ÍNDICES sobre `items` (el array completo, nunca se
+// filtra/recorta) para que buscar no pierda selecciones ya hechas y la
+// edición de cantidad/precio siga funcionando igual que antes.
 function openCrearPresupuestoModal(catalogoOriginal) {
   let items = catalogoOriginal.map((r) => ({
     codigo: r.codigo, concepto: r.concepto, categoria: r.categoria, unidad: r.unidad,
     cantidad: r.cantidad_presupuesto || 1, precio_unitario: r.precio_presupuesto,
   }));
+  const seleccionados = new Set();
+  let filtro = '';
 
-  function renderRows() {
-    return items.map((it, idx) => `
+  const normalizar = (s) => (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  function indicesFiltrados() {
+    if (!filtro) return items.map((_, idx) => idx);
+    const q = normalizar(filtro);
+    return items.reduce((acc, it, idx) => {
+      const hay = normalizar(`${it.codigo || ''} ${it.concepto || ''}`);
+      if (hay.includes(q)) acc.push(idx);
+      return acc;
+    }, []);
+  }
+
+  function renderRows(idxVisibles) {
+    if (!idxVisibles.length) return `<tr><td colspan="5" class="muted">Sin conceptos que coincidan con la búsqueda.</td></tr>`;
+    return idxVisibles.map((idx) => {
+      const it = items[idx];
+      return `
       <tr data-idx="${idx}">
+        <td><input type="checkbox" class="cp-check" data-idx="${idx}" ${seleccionados.has(idx) ? 'checked' : ''} /></td>
         <td>${esc(it.codigo)}</td>
         <td>${esc(it.concepto)}</td>
         <td class="num"><input type="number" class="cp-cantidad" data-idx="${idx}" value="${it.cantidad}" min="0" step="any" /></td>
         <td class="num"><input type="number" class="cp-precio" data-idx="${idx}" value="${it.precio_unitario}" min="0" step="any" /></td>
-        <td><button class="icon-btn-inline" data-quitar="${idx}" title="Quitar" aria-label="Quitar">✕</button></td>
       </tr>
-    `).join('');
+    `;
+    }).join('');
+  }
+
+  function actualizarContadorYBoton() {
+    const contador = $('#cpContador');
+    if (contador) contador.textContent = `${seleccionados.size} de ${items.length} concepto${items.length === 1 ? '' : 's'} seleccionado${seleccionados.size === 1 ? '' : 's'}`;
+    const btn = $('#btnConfirmCrearPresupuesto');
+    if (btn) {
+      btn.disabled = !seleccionados.size;
+      btn.textContent = seleccionados.size ? `Crear presupuesto (${seleccionados.size})` : 'Crear presupuesto';
+    }
+    const selAllChk = $('#cpSelAllVisibles');
+    if (selAllChk) {
+      const idxVisibles = indicesFiltrados();
+      selAllChk.checked = idxVisibles.length > 0 && idxVisibles.every((idx) => seleccionados.has(idx));
+    }
   }
 
   function repintarTbody() {
     const tbody = $('#cpTbody');
-    if (tbody) tbody.innerHTML = renderRows();
-    const contador = $('#cpContador');
-    if (contador) contador.textContent = `${items.length} concepto${items.length === 1 ? '' : 's'}`;
+    if (tbody) tbody.innerHTML = renderRows(indicesFiltrados());
+    actualizarContadorYBoton();
+  }
+
+  function nuevoClienteHtml() {
+    if (!isAdmin()) return '';
+    return `
+      <div class="field hidden-initial" id="cpNuevoClienteField">
+        <label>Nombre del nuevo cliente</label>
+        <input id="cpNuevoClienteNombre" placeholder="Ej. VINTE" />
+      </div>
+      <div class="row end mb-8">
+        <button class="btn small" type="button" id="btnToggleCpNuevoCliente">+ Crear cliente nuevo</button>
+      </div>
+    `;
   }
 
   openModal(`
@@ -14652,19 +14703,31 @@ function openCrearPresupuestoModal(catalogoOriginal) {
         ${state.clientes.map((c) => `<option value="${c.id}">${esc(c.nombre)}</option>`).join('')}
       </select>
     </div>
-    <p class="muted fs-08 mt-8">Revisa/edita cantidad y precio antes de confirmar — nada se crea todavía. Quita las filas que no quieras incluir. <span id="cpContador">${items.length} concepto${items.length === 1 ? '' : 's'}</span></p>
+    ${nuevoClienteHtml()}
+    <div class="field">
+      <input type="search" id="cpBuscar" placeholder="Buscar por código o descripción…" autocomplete="off" />
+    </div>
+    <p class="muted fs-08 mt-8">Marca los conceptos que quieras incluir — nada se crea todavía. <span id="cpContador">0 de ${items.length} concepto${items.length === 1 ? '' : 's'} seleccionado(s)</span></p>
     <div class="table-scroll costos-review-scroll">
       <table>
-        <thead><tr><th>Código</th><th>Concepto</th><th class="num">Cantidad</th><th class="num">Precio</th><th></th></tr></thead>
-        <tbody id="cpTbody">${renderRows()}</tbody>
+        <thead><tr>
+          <th><input type="checkbox" id="cpSelAllVisibles" title="Seleccionar todos los visibles" /></th>
+          <th>Código</th><th>Concepto</th><th class="num">Cantidad</th><th class="num">Precio</th>
+        </tr></thead>
+        <tbody id="cpTbody">${renderRows(indicesFiltrados())}</tbody>
       </table>
     </div>
     <div class="modal-actions">
       <button class="btn" id="btnCancelCrearPresupuesto">Cancelar</button>
-      <button class="btn btn-primary" id="btnConfirmCrearPresupuesto">Crear presupuesto</button>
+      <button class="btn btn-primary" id="btnConfirmCrearPresupuesto" disabled>Crear presupuesto</button>
     </div>
   `);
   $('#modal').classList.add('modal-wide');
+
+  $('#cpBuscar').addEventListener('input', (e) => {
+    filtro = e.target.value;
+    repintarTbody();
+  });
 
   $('#cpTbody').addEventListener('input', (e) => {
     const idx = Number(e.target.dataset.idx);
@@ -14672,32 +14735,60 @@ function openCrearPresupuestoModal(catalogoOriginal) {
     if (e.target.classList.contains('cp-cantidad')) items[idx].cantidad = Number(e.target.value) || 0;
     else if (e.target.classList.contains('cp-precio')) items[idx].precio_unitario = Number(e.target.value) || 0;
   });
-  $('#cpTbody').addEventListener('click', (e) => {
-    const btn = e.target.closest('[data-quitar]');
-    if (!btn) return;
-    items.splice(Number(btn.dataset.quitar), 1);
+  $('#cpTbody').addEventListener('change', (e) => {
+    if (!e.target.classList.contains('cp-check')) return;
+    const idx = Number(e.target.dataset.idx);
+    if (e.target.checked) seleccionados.add(idx); else seleccionados.delete(idx);
+    actualizarContadorYBoton();
+  });
+  $('#cpSelAllVisibles').addEventListener('change', (e) => {
+    const idxVisibles = indicesFiltrados();
+    if (e.target.checked) idxVisibles.forEach((idx) => seleccionados.add(idx));
+    else idxVisibles.forEach((idx) => seleccionados.delete(idx));
     repintarTbody();
   });
+
+  if (isAdmin()) {
+    $('#btnToggleCpNuevoCliente').addEventListener('click', () => {
+      const field = $('#cpNuevoClienteField');
+      const nowShowing = field.classList.contains('hidden-initial');
+      field.classList.toggle('hidden-initial', !nowShowing);
+      $('#cpCliente').disabled = nowShowing;
+      $('#btnToggleCpNuevoCliente').textContent = nowShowing ? 'Usar cliente existente' : '+ Crear cliente nuevo';
+    });
+  }
+
   $('#btnCloseCrearPresupuesto').addEventListener('click', closeModal);
   $('#btnCancelCrearPresupuesto').addEventListener('click', closeModal);
   $('#btnConfirmCrearPresupuesto').addEventListener('click', async () => {
     const nombre = $('#cpNombre').value.trim();
-    const clienteId = $('#cpCliente').value ? Number($('#cpCliente').value) : null;
+    const creandoCliente = isAdmin() && !$('#cpNuevoClienteField')?.classList.contains('hidden-initial');
     if (!nombre) { toast('Indica el nombre de la obra', ''); return; }
-    if (!clienteId) { toast('Selecciona un cliente', ''); return; }
-    if (!items.length) { toast('Agrega al menos un concepto', ''); return; }
+    if (!creandoCliente && !$('#cpCliente').value) { toast('Selecciona un cliente', ''); return; }
+    if (creandoCliente && !$('#cpNuevoClienteNombre').value.trim()) { toast('Escribe el nombre del cliente nuevo', ''); return; }
+    if (!seleccionados.size) { toast('Selecciona al menos un concepto', ''); return; }
     const btn = $('#btnConfirmCrearPresupuesto');
-    btn.disabled = true; btn.textContent = 'Creando…';
+    const textoOriginal = btn.textContent;
+    btn.disabled = true;
     try {
+      let clienteId = Number($('#cpCliente').value) || null;
+      if (creandoCliente) {
+        btn.textContent = 'Creando cliente…';
+        const nuevo = await api('/clientes', { method: 'POST', body: { nombre: $('#cpNuevoClienteNombre').value.trim() } });
+        clienteId = nuevo.id;
+        await refreshClientList();
+      }
+      btn.textContent = 'Creando…';
+      const itemsSeleccionados = [...seleccionados].map((idx) => items[idx]);
       const resultado = await api('/costos/crear-presupuesto', {
         method: 'POST',
-        body: { nombre, cliente_id: clienteId, items },
+        body: { nombre, cliente_id: clienteId, items: itemsSeleccionados },
       });
       closeModal();
       toast(`Presupuesto "${resultado.nombre}" creado con ${resultado.num_conceptos} conceptos`, 'success');
     } catch (err) {
       toast(err.message, 'danger');
-      btn.disabled = false; btn.textContent = 'Crear presupuesto';
+      btn.disabled = false; btn.textContent = textoOriginal;
     }
   });
 }

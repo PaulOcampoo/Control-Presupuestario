@@ -2748,6 +2748,115 @@ app.get('/api/costos/catalogo-global/export', h(auth.checkPermiso('costos', 'pue
   });
 }));
 
+// ---------------------------------------------------------------------------
+// Catálogo de Conceptos (partidas de obra) — catálogo nuevo y paralelo al de
+// Costos/insumos de arriba (prompt-catalogo-conceptos-implementacion.md, ver
+// diagnóstico previo). Mismo patrón exacto (DISTINCT ON codigo, precio más
+// reciente por proyectos.creado_en), pero sobre `conceptos` en vez de
+// `insumos`, con 2 filtros extra de basura estructural del Excel que insumos
+// no necesita — confirmado con datos reales, ninguno de los 2 basta solo:
+//   - es_total = 0: excluye filas "TOTAL DEL PRESUPUESTO..." (13.6% de las
+//     filas en diagnóstico).
+//   - precio_unitario > 0: excluye encabezados de sección/capítulo (precio 0)
+//     Y filas de total que el parser dejó con es_total = 0 pero concepto
+//     vacío y el monto en letra metido en `codigo` (inconsistencia real del
+//     ingest, no cubierta por es_total solo).
+// Alias en la SELECT (grupo AS categoria, precio_unitario AS
+// precio_presupuesto, cantidad AS cantidad_presupuesto) para que las filas
+// tengan EXACTAMENTE la forma que ya esperan openCrearPresupuestoModal() y
+// costosFilaHtml() — se reusan tal cual, sin tocarlos (Forbidden Actions).
+// 'categoria' aquí es libre por obra (nombre de capítulo, ej. "CIMENTACIÓN"),
+// NO la taxonomía cerrada de insumos.categoria — por eso el frontend la
+// etiqueta "Grupo/Capítulo", nunca "Categoría" (ver conceptosTablaHtml).
+//
+// EXCLUIR_OBRAS_DUPLICADAS_CATALOGO_CONCEPTOS: 3 obras de VINTE (ids 13, 41,
+// 42 — "715 URBANIZACION AMANI", "Presupuestos Residencial Vinte",
+// "Presupuestos Residencial Vinte Contrato 715") son la misma obra cargada 3
+// veces (mismos códigos, mismo tamaño — confirmado en diagnóstico). Decisión
+// consultada: excluir por lista explícita de project_id — no hay ningún flag
+// en el schema que las distinga de una obra real. Si aparecen más duplicados
+// reales a futuro, hay que sumarlos a mano aquí. Las 3 obras NO se tocan ni
+// se borran, solo se excluyen de este catálogo agregado.
+const EXCLUIR_OBRAS_DUPLICADAS_CATALOGO_CONCEPTOS = [13, 41, 42];
+
+async function conceptosCatalogoQuery(clienteId) {
+  const { rows } = await db.pool.query(`
+    SELECT DISTINCT ON (co.codigo)
+      co.codigo, co.concepto, co.grupo AS categoria, co.unidad,
+      co.precio_unitario AS precio_presupuesto, co.cantidad AS cantidad_presupuesto,
+      p.id AS obra_origen_id, p.nombre AS obra_origen, p.creado_en AS fecha_origen,
+      c.id AS cliente_id, c.nombre AS cliente_nombre
+    FROM conceptos co
+    JOIN proyectos p ON p.id = co.project_id
+    JOIN clientes c ON c.id = p.cliente_id
+    WHERE co.activo = 1 AND co.es_total = 0 AND co.precio_unitario > 0 AND co.codigo IS NOT NULL
+      AND p.id <> ALL($1::int[])
+      ${clienteId ? 'AND p.cliente_id = $2' : ''}
+    ORDER BY co.codigo, p.creado_en DESC, co.id DESC
+  `, clienteId
+    ? [EXCLUIR_OBRAS_DUPLICADAS_CATALOGO_CONCEPTOS, clienteId]
+    : [EXCLUIR_OBRAS_DUPLICADAS_CATALOGO_CONCEPTOS]);
+  return rows;
+}
+
+function conceptosCatalogoExportSheet(rows, sheetName) {
+  return {
+    sheetName,
+    columns: [
+      { header: 'Código', key: 'codigo', width: 14 },
+      { header: 'Concepto', key: 'concepto', width: 40 },
+      { header: 'Grupo/Capítulo', key: 'categoria', width: 22 },
+      { header: 'Unidad', key: 'unidad', width: 10 },
+      { header: 'Precio unitario (más reciente)', key: 'precio_presupuesto', width: 24, format: 'money' },
+      { header: 'Cliente', key: 'cliente_nombre', width: 24 },
+      { header: 'Obra de origen', key: 'obra_origen', width: 30 },
+      { header: 'Fecha de origen', key: 'fecha_origen', width: 16 },
+    ],
+    rows: rows.map((r) => ({
+      codigo: r.codigo,
+      concepto: r.concepto,
+      categoria: r.categoria,
+      unidad: r.unidad,
+      precio_presupuesto: Number(r.precio_presupuesto),
+      cliente_nombre: r.cliente_nombre,
+      obra_origen: r.obra_origen,
+      fecha_origen: r.fecha_origen,
+    })),
+  };
+}
+
+app.get('/api/costos/catalogo-conceptos/:clienteId', h(auth.checkPermiso('costos', 'puede_ver')), h(async (req, res) => {
+  const clienteId = Number(req.params.clienteId);
+  const { rows: clienteRows } = await db.pool.query('SELECT id, nombre FROM clientes WHERE id = $1', [clienteId]);
+  if (!clienteRows[0]) return res.status(404).json({ error: 'Cliente no encontrado' });
+  const rows = await conceptosCatalogoQuery(clienteId);
+  res.json({ cliente: clienteRows[0], catalogo: rows });
+}));
+
+app.get('/api/costos/catalogo-conceptos/:clienteId/export', h(auth.checkPermiso('costos', 'puede_ver')), h(async (req, res) => {
+  const clienteId = Number(req.params.clienteId);
+  const { rows: clienteRows } = await db.pool.query('SELECT id, nombre FROM clientes WHERE id = $1', [clienteId]);
+  if (!clienteRows[0]) return res.status(404).json({ error: 'Cliente no encontrado' });
+  const rows = await conceptosCatalogoQuery(clienteId);
+  await sendXlsxExport(res, {
+    filename: buildExportFilename('Catalogo-Conceptos', clienteRows[0].nombre),
+    sheets: [conceptosCatalogoExportSheet(rows, 'Catálogo')],
+  });
+}));
+
+app.get('/api/costos/catalogo-conceptos-global', h(auth.checkPermiso('costos', 'puede_ver')), h(async (req, res) => {
+  const rows = await conceptosCatalogoQuery(null);
+  res.json({ catalogo: rows });
+}));
+
+app.get('/api/costos/catalogo-conceptos-global/export', h(auth.checkPermiso('costos', 'puede_ver')), h(async (req, res) => {
+  const rows = await conceptosCatalogoQuery(null);
+  await sendXlsxExport(res, {
+    filename: buildExportFilename('Catalogo-Conceptos', 'Global'),
+    sheets: [conceptosCatalogoExportSheet(rows, 'Catálogo global')],
+  });
+}));
+
 // Crea un proyecto nuevo directo desde el catálogo agregado (ya revisado/
 // editado por el usuario en el frontend — items llega con lo que el usuario
 // confirmó, no se vuelve a consultar el catálogo aquí). Reutiliza ingest()

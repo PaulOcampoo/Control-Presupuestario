@@ -2921,6 +2921,52 @@ app.post('/api/costos/crear-presupuesto', h(auth.checkPermiso('costos', 'puede_c
   res.status(201).json({ id: record.id, nombre: record.nombre, num_conceptos: items.length, total_sin_iva: totalSinIva });
 }));
 
+// Exporta a Excel los ítems armados en el modal "Crear presupuesto desde
+// catálogo" (prompt-exportar-excel-modal-catalogo.md) — SIN crear nada,
+// generación pura de archivo. Convive con POST /costos/crear-presupuesto de
+// arriba (sin tocarlo, Forbidden Action) para que el usuario pueda revisar/
+// ajustar y cargar después vía Mapeo/Actualizar presupuesto en vez de crear
+// directo. Mismas 2 columnas mínimas que el importador real de esa carga ya
+// reconoce por sinónimo de encabezado (server/parser.js: HEADER_SYNONYMS,
+// findHeaderRow — CODIGO/CONCEPTO/UNIDAD/CANTIDAD + PRECIO/IMPORTE), sin
+// necesidad de replicar hojas de metadata/totales/grupos — parseBudgetConcepts
+// los calcula solo desde el texto de cada fila, no los exige como input.
+// Mismo permiso que crear-presupuesto (puede_crear, no puede_ver): exportar
+// es parte del mismo flujo/modal, no tiene sentido darle el archivo a quien
+// ni siquiera podría crear el presupuesto directo.
+app.post('/api/costos/crear-presupuesto/export', h(auth.checkPermiso('costos', 'puede_crear')), h(async (req, res) => {
+  const { nombre, items } = req.body || {};
+  if (!Array.isArray(items) || !items.length) return res.status(400).json({ error: 'El presupuesto debe incluir al menos un concepto' });
+  for (const it of items) {
+    if (!it.codigo?.trim() || !it.concepto?.trim()) return res.status(400).json({ error: 'Cada concepto necesita código y descripción' });
+    if (!(Number(it.cantidad) >= 0) || !(Number(it.precio_unitario) >= 0)) {
+      return res.status(400).json({ error: `Cantidad/precio inválidos para el concepto "${it.concepto}"` });
+    }
+  }
+  await sendXlsxExport(res, {
+    filename: buildExportFilename('Presupuesto', nombre?.trim() || 'DesdeCatalogo'),
+    sheets: [{
+      sheetName: 'Presupuesto',
+      columns: [
+        { header: 'Código', key: 'codigo', width: 16 },
+        { header: 'Concepto', key: 'concepto', width: 50 },
+        { header: 'Unidad', key: 'unidad', width: 10 },
+        { header: 'Cantidad', key: 'cantidad', width: 14 },
+        { header: 'Precio Unitario', key: 'precio_unitario', width: 18, format: 'money' },
+        { header: 'Importe', key: 'importe', width: 18, format: 'money' },
+      ],
+      rows: items.map((it) => {
+        const cantidad = Number(it.cantidad);
+        const precio_unitario = Number(it.precio_unitario);
+        return {
+          codigo: it.codigo.trim(), concepto: it.concepto.trim(), unidad: it.unidad || '',
+          cantidad, precio_unitario, importe: cantidad * precio_unitario,
+        };
+      }),
+    }],
+  });
+}));
+
 // ---------------------------------------------------------------------------
 // Matrices de precio unitario — Análisis de Precios Unitarios formato Neodata
 // (prompt-20-matrices-formato-neodata.md, rehace prompt-14/PR #98: la spec

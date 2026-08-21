@@ -2779,7 +2779,7 @@ app.get('/api/costos/catalogo-global/export', h(auth.checkPermiso('costos', 'pue
 // NO la taxonomía cerrada de insumos.categoria — por eso el frontend la
 // etiqueta "Grupo/Capítulo", nunca "Categoría" (ver conceptosTablaHtml).
 //
-// EXCLUIR_OBRAS_DUPLICADAS_CATALOGO_CONCEPTOS: 3 obras de VINTE (ids 13, 41,
+// EXCLUIR_OBRAS_DUPLICADAS_CATALOGO: 3 obras de VINTE (ids 13, 41,
 // 42 — "715 URBANIZACION AMANI", "Presupuestos Residencial Vinte",
 // "Presupuestos Residencial Vinte Contrato 715") son la misma obra cargada 3
 // veces (mismos códigos, mismo tamaño — confirmado en diagnóstico). Decisión
@@ -2787,7 +2787,23 @@ app.get('/api/costos/catalogo-global/export', h(auth.checkPermiso('costos', 'pue
 // en el schema que las distinga de una obra real. Si aparecen más duplicados
 // reales a futuro, hay que sumarlos a mano aquí. Las 3 obras NO se tocan ni
 // se borran, solo se excluyen de este catálogo agregado.
-const EXCLUIR_OBRAS_DUPLICADAS_CATALOGO_CONCEPTOS = [13, 41, 42];
+// Compartida por el catálogo de Conceptos (conceptosCatalogoQuery, dashboard
+// de Costos) Y el catálogo de Básicos (basicosCatalogoQuery más abajo) — las
+// 3 obras duplicadas de VINTE contaminan por igual ambos catálogos si algún
+// día tienen básicos cargados, no es un problema exclusivo de Conceptos.
+const EXCLUIR_OBRAS_DUPLICADAS_CATALOGO = [13, 41, 42];
+
+// Filtro + dedupe compartidos por todo endpoint que necesite "un concepto
+// real por código" sobre el catálogo global (activo, no encabezado/total,
+// con precio, código no nulo, sin las 3 obras duplicadas de VINTE). Se
+// extrajeron a fragmentos de texto SQL (no a una función que devuelva filas)
+// para que conceptosCatalogoQuery y GET /api/costos/dashboard compartan
+// exactamente el mismo WHERE/ORDER BY sin duplicarlo a mano — cualquier
+// cambio futuro al filtro se hace en un solo lugar. Ambos usos asumen que el
+// array de exclusión va como parámetro $1 (co/p ya alias FROM conceptos co
+// JOIN proyectos p).
+const CONCEPTOS_CATALOGO_WHERE_SQL = 'co.activo = 1 AND co.es_total = 0 AND co.precio_unitario > 0 AND co.codigo IS NOT NULL AND p.id <> ALL($1::int[])';
+const CONCEPTOS_CATALOGO_ORDER_SQL = 'co.codigo, p.creado_en DESC, co.id DESC';
 
 async function conceptosCatalogoQuery(clienteId) {
   const { rows } = await db.pool.query(`
@@ -2799,13 +2815,12 @@ async function conceptosCatalogoQuery(clienteId) {
     FROM conceptos co
     JOIN proyectos p ON p.id = co.project_id
     JOIN clientes c ON c.id = p.cliente_id
-    WHERE co.activo = 1 AND co.es_total = 0 AND co.precio_unitario > 0 AND co.codigo IS NOT NULL
-      AND p.id <> ALL($1::int[])
+    WHERE ${CONCEPTOS_CATALOGO_WHERE_SQL}
       ${clienteId ? 'AND p.cliente_id = $2' : ''}
-    ORDER BY co.codigo, p.creado_en DESC, co.id DESC
+    ORDER BY ${CONCEPTOS_CATALOGO_ORDER_SQL}
   `, clienteId
-    ? [EXCLUIR_OBRAS_DUPLICADAS_CATALOGO_CONCEPTOS, clienteId]
-    : [EXCLUIR_OBRAS_DUPLICADAS_CATALOGO_CONCEPTOS]);
+    ? [EXCLUIR_OBRAS_DUPLICADAS_CATALOGO, clienteId]
+    : [EXCLUIR_OBRAS_DUPLICADAS_CATALOGO]);
   return rows;
 }
 
@@ -2864,6 +2879,111 @@ app.get('/api/costos/catalogo-conceptos-global/export', h(auth.checkPermiso('cos
   await sendXlsxExport(res, {
     filename: buildExportFilename('Catalogo-Conceptos', 'Global'),
     sheets: [conceptosCatalogoExportSheet(rows, 'Catálogo global')],
+  });
+}));
+
+// ---------------------------------------------------------------------------
+// Dashboard de Costos (prompt-dashboard-costos-basicos-implementacion.md,
+// Tarea 1) — pantalla de entrada a la sección "Costos", antes de picar
+// directo a una de las 4 (ahora 5) subsecciones existentes. 100% agregado y
+// de solo lectura, sin filtro por cliente ni por obra (mismo alcance
+// "global" que catalogo-conceptos-global/catalogo-global arriba). Tres
+// bloques independientes — cada uno puede estar vacío sin que los otros dos
+// lo estén, el frontend maneja cada caso con su propio "sin datos":
+//   1. Cobertura de matrices: cuántos conceptos del catálogo global (mismo
+//      WHERE/ORDER BY que conceptosCatalogoQuery arriba, vía las constantes
+//      compartidas CONCEPTOS_CATALOGO_WHERE_SQL / CONCEPTOS_CATALOGO_ORDER_SQL
+//      — dedupe DISTINCT ON codigo + exclusión de obras duplicadas + filtro
+//      es_total=0 AND precio_unitario>0 para no contar encabezados/totales
+//      como "conceptos reales") ya tienen una matriz de precio unitario asociada
+//      (matrices_precio_unitario.concepto_id, es_basico=false — un básico
+//      standalone no es la matriz de NINGÚN concepto real; el LEFT JOIN por
+//      concepto_id ya lo excluye por sí solo porque un básico tiene
+//      concepto_id NULL, el filtro es_basico=false es solo para dejarlo
+//      explícito).
+//   2. Insumos con precio inconsistente entre obras: query validada contra
+//      datos reales de Preview (margen >5% para filtrar ruido de redondeo),
+//      tal cual el diseño del prompt — no se modifica.
+//   3. Actividad reciente: últimos registros de audit_log para las 2
+//      acciones relevantes de este módulo (importar_matrices,
+//      crear_presupuesto_desde_costos) — reusa la tabla tal cual, sin tabla
+//      nueva. target_id en ambas acciones es el id de la obra afectada (la
+//      obra donde se importaron matrices, o la obra recién creada desde el
+//      catálogo), así que un solo LEFT JOIN a proyectos por target_id cubre
+//      ambas acciones.
+// ---------------------------------------------------------------------------
+app.get('/api/costos/dashboard', h(auth.checkPermiso('costos', 'puede_ver')), h(async (req, res) => {
+  const [coberturaResult, insumosResult, actividadResult] = await Promise.all([
+    db.pool.query(`
+      WITH catalogo AS (
+        SELECT DISTINCT ON (co.codigo) co.id
+        FROM conceptos co
+        JOIN proyectos p ON p.id = co.project_id
+        WHERE ${CONCEPTOS_CATALOGO_WHERE_SQL}
+        ORDER BY ${CONCEPTOS_CATALOGO_ORDER_SQL}
+      )
+      SELECT COUNT(*)::int AS total, COUNT(m.id)::int AS con_matriz
+      FROM catalogo c
+      LEFT JOIN matrices_precio_unitario m ON m.concepto_id = c.id AND m.es_basico = false
+    `, [EXCLUIR_OBRAS_DUPLICADAS_CATALOGO]),
+    db.pool.query(`
+      WITH ultimo_precio AS (
+        SELECT DISTINCT ON (i.codigo, i.project_id)
+          i.codigo, i.project_id, i.precio_presupuesto, p.nombre AS obra
+        FROM insumos i JOIN proyectos p ON p.id = i.project_id
+        WHERE i.codigo IS NOT NULL AND i.precio_presupuesto > 0
+        ORDER BY i.codigo, i.project_id, i.id DESC
+      ), agregado AS (
+        SELECT codigo, MIN(precio_presupuesto) min_p, MAX(precio_presupuesto) max_p,
+               COUNT(*) n_obras, COUNT(DISTINCT precio_presupuesto) n_precios
+        FROM ultimo_precio GROUP BY codigo HAVING COUNT(*) >= 2
+      )
+      SELECT codigo, min_p, max_p, n_obras,
+             100.0*(max_p-min_p)/NULLIF(min_p,0) pct_diff
+      FROM agregado
+      WHERE n_precios > 1 AND (max_p-min_p)/NULLIF(min_p,0) > 0.05
+      ORDER BY pct_diff DESC
+      LIMIT 50
+    `),
+    db.pool.query(`
+      SELECT al.id, al.actor_usuario, al.accion, al.target_id, al.creado_en, al.detalle,
+             p.nombre AS obra_nombre
+      FROM audit_log al
+      LEFT JOIN proyectos p ON p.id = al.target_id
+      WHERE al.accion IN ('importar_matrices', 'crear_presupuesto_desde_costos')
+      ORDER BY al.creado_en DESC
+      LIMIT 15
+    `),
+  ]);
+
+  const cobertura = coberturaResult.rows[0] || { total: 0, con_matriz: 0 };
+  const total = Number(cobertura.total) || 0;
+  const conMatriz = Number(cobertura.con_matriz) || 0;
+
+  const actividad = actividadResult.rows.map((r) => {
+    let detalle = null;
+    try { detalle = r.detalle ? JSON.parse(r.detalle) : null; } catch { detalle = null; }
+    return {
+      id: r.id, actor_usuario: r.actor_usuario, accion: r.accion,
+      target_id: r.target_id, obra_nombre: r.obra_nombre, creado_en: r.creado_en, detalle,
+    };
+  });
+
+  res.json({
+    cobertura_matrices: {
+      total_conceptos: total,
+      con_matriz: conMatriz,
+      sin_matriz: total - conMatriz,
+      pct_cobertura: total > 0 ? (100 * conMatriz) / total : 0,
+    },
+    insumos_inconsistentes: insumosResult.rows.map((r) => ({
+      codigo: r.codigo,
+      min_precio: Number(r.min_p),
+      max_precio: Number(r.max_p),
+      n_obras: Number(r.n_obras),
+      pct_diff: Number(r.pct_diff),
+    })),
+    actividad_reciente: actividad,
   });
 }));
 
@@ -3335,6 +3455,145 @@ app.put('/api/projects/:id/basicos/:basicoId', h(auth.allow('residente', 'costos
     );
   });
   res.json({ basico: await resolverBasico(basicoId) });
+}));
+
+// ---------------------------------------------------------------------------
+// Catálogo de Básicos (prompt-dashboard-costos-basicos-implementacion.md,
+// Tarea 2) — vista GLOBAL de solo lectura, hermana de catalogo-conceptos-
+// global (arriba): un básico único por código (DISTINCT ON, mismo criterio
+// de dedupe cross-obra que conceptosCatalogoQuery — el más reciente por
+// p.creado_en DESC se queda con descripción/unidad/costo mostrados), con su
+// costo directo resuelto vía resolverBasico() (reusado tal cual, NUNCA
+// reimplementado ni se llama calcularMatrizNeodata directo) y cuántas veces
+// se reusa como ingrediente de otro análisis, agregado a través de TODAS las
+// obras que comparten ese código — no solo la obra "representativa" elegida
+// arriba. Mismo query "usado_en" que ya existe para un básico individual en
+// GET /api/projects/:id/basicos/:basicoId más arriba, extendido aquí a nivel
+// código (ANY() sobre todos los matriz_id que comparten codigo) en vez de a
+// nivel de un solo matriz_id, más el nombre de obra (aquí sí hace falta: el
+// catálogo cruza obras, la vista por-obra no). Mismo permiso que el resto
+// del módulo: checkPermiso('costos', 'puede_ver').
+//
+// Igual que conceptosCatalogoQuery, excluye las 3 obras duplicadas de VINTE
+// (EXCLUIR_OBRAS_DUPLICADAS_CATALOGO) — hoy es un no-op porque esas obras no
+// tienen básicos, pero si algún día los tuvieran, contar sus matrices aquí
+// triplicaría veces_reusado más abajo (ver también el filtro sobre
+// todasVersiones en el handler del endpoint, que cubre la agregación de uso).
+async function basicosCatalogoQuery() {
+  const { rows } = await db.pool.query(`
+    SELECT DISTINCT ON (m.codigo)
+      m.id AS matriz_id, m.codigo, m.descripcion, m.unidad,
+      p.id AS obra_origen_id, p.nombre AS obra_origen, p.creado_en AS fecha_origen,
+      c.id AS cliente_id, c.nombre AS cliente_nombre
+    FROM matrices_precio_unitario m
+    JOIN proyectos p ON p.id = m.project_id
+    JOIN clientes c ON c.id = p.cliente_id
+    WHERE m.es_basico = true AND m.codigo IS NOT NULL AND p.id <> ALL($1::int[])
+    ORDER BY m.codigo, p.creado_en DESC, m.id DESC
+  `, [EXCLUIR_OBRAS_DUPLICADAS_CATALOGO]);
+  return rows;
+}
+
+app.get('/api/costos/catalogo-basicos', h(auth.checkPermiso('costos', 'puede_ver')), h(async (req, res) => {
+  const representativos = await basicosCatalogoQuery();
+  if (!representativos.length) return res.json({ catalogo: [] });
+
+  // Todas las versiones (una fila por obra) de cada código representado
+  // arriba — el conteo de reuso y la lista de usos deben cruzar TODAS las
+  // obras donde ese código de básico existe, no solo la más reciente. Mismo
+  // filtro EXCLUIR_OBRAS_DUPLICADAS_CATALOGO que basicosCatalogoQuery: sin
+  // esto, un básico con datos en las 3 obras duplicadas de VINTE triplicaría
+  // veces_reusado (cada matriz duplicada suma sus propios usos por separado).
+  const codigos = representativos.map((r) => r.codigo);
+  const { rows: todasVersiones } = await db.pool.query(
+    `SELECT m.id, m.codigo FROM matrices_precio_unitario m
+     JOIN proyectos p ON p.id = m.project_id
+     WHERE m.es_basico = true AND m.codigo = ANY($1::text[]) AND p.id <> ALL($2::int[])`,
+    [codigos, EXCLUIR_OBRAS_DUPLICADAS_CATALOGO]
+  );
+  const idsPorCodigo = new Map();
+  for (const v of todasVersiones) {
+    if (!idsPorCodigo.has(v.codigo)) idsPorCodigo.set(v.codigo, []);
+    idsPorCodigo.get(v.codigo).push(v.id);
+  }
+  const todosLosIds = todasVersiones.map((v) => v.id);
+
+  // LEFT JOIN (no INNER) a proyectos, resolviendo la obra vía COALESCE:
+  // la matriz "consumidora" m puede ser ELLA MISMA un básico (project_id
+  // propio, concepto_id NULL) o un análisis normal de concepto (project_id
+  // NULL, obra heredada vía c.project_id). El CHECK
+  // matrices_precio_unitario_concepto_xor_basico_check garantiza que nunca
+  // ambos son NULL ni ambos NOT NULL para la misma fila, así que el
+  // COALESCE no corre riesgo de tomar el valor equivocado ni de esconder
+  // una fila real. Con INNER JOIN (bug original), CUALQUIER fila donde m
+  // fuera un análisis normal (el caso de reuso más común: un básico
+  // referenciado desde el análisis de un concepto real) se descartaba en
+  // silencio porque m.project_id es NULL ahí — veces_reusado/usado_en
+  // terminaban en 0/vacío para casi todo el reuso real. LEFT JOIN además
+  // evita perder la fila por completo si algún día la obra no se puede
+  // resolver por alguna otra razón — mejor un usado_en con obra_nombre
+  // null que un conteo incorrecto.
+  const { rows: usos } = await db.pool.query(`
+    SELECT r.basico_matriz_id, m.id AS matriz_id, m.es_basico AS usado_en_es_basico, m.codigo AS usado_en_basico_codigo,
+           c.id AS concepto_id, c.codigo AS concepto_codigo, c.concepto AS concepto_nombre,
+           p.id AS obra_id, p.nombre AS obra_nombre
+    FROM matriz_precio_renglones r
+    JOIN matrices_precio_unitario m ON m.id = r.matriz_id
+    LEFT JOIN conceptos c ON c.id = m.concepto_id
+    LEFT JOIN proyectos p ON p.id = COALESCE(m.project_id, c.project_id)
+    WHERE r.tipo = 'basico_ref' AND r.basico_matriz_id = ANY($1::int[])
+  `, [todosLosIds]);
+  const usosPorBasicoId = new Map();
+  for (const u of usos) {
+    if (!usosPorBasicoId.has(u.basico_matriz_id)) usosPorBasicoId.set(u.basico_matriz_id, []);
+    usosPorBasicoId.get(u.basico_matriz_id).push(u);
+  }
+
+  const catalogo = [];
+  for (const r of representativos) {
+    let costo_directo = null;
+    let calculo_completo = false;
+    try {
+      const resuelto = await resolverBasico(r.matriz_id);
+      costo_directo = resuelto.costo_directo;
+      calculo_completo = resuelto.completa;
+    } catch {
+      // Defensa en profundidad (mismo criterio que resolverRenglonesBasicoRef
+      // más arriba): un básico con dato corrupto (ej. referencia circular que
+      // se hubiera colado antes de validarSinCicloBasico) no debe tumbar el
+      // catálogo completo — se deja costo_directo en null para esa fila.
+    }
+    const idsDelCodigo = idsPorCodigo.get(r.codigo) || [r.matriz_id];
+    const usado_en = idsDelCodigo.flatMap((id) => usosPorBasicoId.get(id) || []);
+    catalogo.push({
+      codigo: r.codigo,
+      descripcion: r.descripcion,
+      unidad: r.unidad,
+      costo_directo,
+      calculo_completo,
+      cliente_id: r.cliente_id,
+      cliente_nombre: r.cliente_nombre,
+      obra_origen_id: r.obra_origen_id,
+      obra_origen: r.obra_origen,
+      fecha_origen: r.fecha_origen,
+      veces_reusado: usado_en.length,
+      usado_en: usado_en.map((u) => ({
+        matriz_id: u.matriz_id,
+        obra_id: u.obra_id,
+        obra_nombre: u.obra_nombre,
+        concepto_id: u.concepto_id,
+        concepto_codigo: u.concepto_codigo,
+        concepto_nombre: u.concepto_nombre,
+        // Cuando el "consumidor" es OTRO básico (anidamiento multinivel,
+        // concepto_id null) — mismo criterio que el usado_en por-obra de
+        // GET /basicos/:basicoId más arriba.
+        es_basico: u.usado_en_es_basico,
+        basico_codigo: u.usado_en_basico_codigo,
+      })),
+    });
+  }
+
+  res.json({ catalogo });
 }));
 
 app.get('/api/projects/:id/matrices', h(auth.allow('residente', 'costos')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('costos', 'puede_ver')), h(async (req, res) => {

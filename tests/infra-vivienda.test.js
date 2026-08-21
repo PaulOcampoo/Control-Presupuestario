@@ -119,7 +119,11 @@ afterAll(async () => {
     if (remanentes[0].n !== 0) throw new Error('Limpieza incompleta: quedaron filas de conceptos_grupo_categoria de prueba.');
   }
   if (tempUserId) {
-    await request(app).delete(`/api/usuarios/${tempUserId}`).set('Authorization', `Bearer ${adminToken}`);
+    const delRes = await request(app).delete(`/api/usuarios/${tempUserId}`).set('Authorization', `Bearer ${adminToken}`);
+    const { rows: usuarioRemanente } = await db.pool.query('SELECT id FROM usuarios WHERE id = $1', [tempUserId]);
+    if (delRes.status !== 200 || usuarioRemanente.length !== 0) {
+      throw new Error(`Limpieza incompleta: usuario temporal ${tempUsuario} (id ${tempUserId}) no se borró (status ${delRes.status}).`);
+    }
   }
   await db.pool.end();
 });

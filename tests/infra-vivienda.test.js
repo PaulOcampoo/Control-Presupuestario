@@ -22,6 +22,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import request from 'supertest';
 import app from '../server/app.js';
 import db from '../server/db.js';
+import { presupuestoTotalDe } from '../server/finanzas.js';
 
 const ADMIN_USER = process.env.ADMIN_USER || 'admin';
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
@@ -311,6 +312,22 @@ describe('GET /api/projects/:id/avance-por-categoria', () => {
     expect(conceptosRes.status).toBe(200);
     const sumaMotorExistente = conceptosRes.body.items.reduce((acc, it) => acc + Number(it.importe_ejecutado_acumulado || 0), 0);
     expect(total.importe_ejecutado_acumulado).toBeCloseTo(sumaMotorExistente, 2);
+
+    // Regresión del bug real (revisión de código independiente contra
+    // Preview): antes, total.pct_avance salía de dividir entre
+    // SUM(conceptos.importe) crudo en vez de presupuestoTotalDe(pid) — la
+    // MISMA función que ya usa PUT /avances/:semana/conceptos (server/
+    // app.js:8270) para persistir avance_financiero_real. presupuestoTotalDe()
+    // prefiere proyectos.meta.total_sin_iva cuando existe, que en la mayoría
+    // de las obras reales NO coincide con SUM(conceptos.importe) — para la
+    // obra 30 ("RED HIDRAULICA") la divergencia era de 3.3x (13.42% vs
+    // 44.54%). Se recalcula aquí el % "motor real" con la MISMA función
+    // (presupuestoTotalDe, server/finanzas.js:16 — no un valor hardcodeado)
+    // para que la suite detecte si vuelve a desalinearse.
+    const presupuestoTotalReal = await presupuestoTotalDe(testProjectId);
+    expect(presupuestoTotalReal).toBeGreaterThan(0);
+    const pctAvanceMotorReal = Math.max(0, Math.min(100, (total.importe_ejecutado_acumulado / presupuestoTotalReal) * 100));
+    expect(total.pct_avance).toBeCloseTo(pctAvanceMotorReal, 6);
   });
 
   it('admin mantiene acceso total sin depender de permisos_usuario', async () => {

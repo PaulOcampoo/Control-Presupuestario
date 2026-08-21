@@ -8397,6 +8397,18 @@ app.post('/api/projects/:id/grupos-categoria', h(auth.allow('residente', 'cabo')
 app.get('/api/projects/:id/avance-por-categoria', h(auth.allow('residente', 'cabo', 'logistica')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('avance', 'puede_ver')), h(async (req, res) => {
   const pid = req.project.id;
 
+  // Denominador: MISMA fuente de verdad que el motor de avance ya existente
+  // (presupuestoTotalDe(), server/finanzas.js:16 — usada tanto por
+  // PUT /avances/:semana/conceptos más arriba como por getFinanzasResumenData()
+  // del Resumen/Dashboard). presupuestoTotalDe() prefiere proyectos.meta.
+  // total_sin_iva cuando existe, que NO siempre coincide con
+  // SUM(conceptos.importe) — confirmado contra Preview real: en 6 de 7 obras
+  // reales ambos totales divergen (ej. obra 41: 1.71M vs 5.69M), lo que antes
+  // hacía que este endpoint reportara un % de avance total distinto (hasta
+  // 3.3x) al que ya muestra el Resumen/Dashboard para la misma obra. Bug real
+  // detectado por revisión de código independiente contra datos de Preview.
+  const presupuestoTotalReal = await presupuestoTotalDe(pid);
+
   // Mismo cálculo por-concepto que ya usa avances/:semana/conceptos y el
   // auto-cálculo de PUT /avances/:semana/conceptos (SUM(cantidad_ejecutada) ×
   // precio_unitario, acumulado a la fecha — sin filtrar por semana porque
@@ -8438,24 +8450,44 @@ app.get('/api/projects/:id/avance-por-categoria', h(auth.allow('residente', 'cab
     total.importe_ejecutado_acumulado += Number(r.importe_ejecutado_acumulado) || 0;
     if (r.grupo && r.grupo.trim()) gruposPorCategoria[categoria].add(r.grupo);
   }
-  // importe_presupuesto/importe_ejecutado_acumulado se dejan SIN redondear
-  // (mismo criterio que avances/:semana/conceptos arriba, que tampoco
-  // redondea importe_ejecutado_acumulado) — redondear aquí con toFixed(2)
-  // rompía en la práctica la identidad infra+vivienda+sin_clasificar=total
-  // en casos borde tipo "x.xx5" (1.005.toFixed(2) === '1.00', artefacto
-  // clásico de punto flotante), y además desalineaba el total contra la
-  // suma cruda del motor de avance ya existente. El redondeo a 2 decimales
-  // es puramente cosa de presentación — fmtMoney ya lo hace en el frontend.
+  // importe_ejecutado_acumulado se deja SIN redondear (mismo criterio que
+  // avances/:semana/conceptos arriba, que tampoco redondea
+  // importe_ejecutado_acumulado) — redondear aquí con toFixed(2) rompía en
+  // la práctica la identidad infra+vivienda+sin_clasificar=total en casos
+  // borde tipo "x.xx5" (1.005.toFixed(2) === '1.00', artefacto clásico de
+  // punto flotante). El redondeo a 2 decimales es puramente cosa de
+  // presentación — fmtMoney ya lo hace en el frontend.
+  //
+  // importe_presupuesto, en cambio, SÍ se reescala: hasta aquí cada bucket
+  // trae la suma cruda de conceptos.importe (rawTotalPresupuesto), que NO es
+  // necesariamente igual a presupuestoTotalReal (ver comentario arriba de
+  // presupuestoTotalDe()). Se calcula la proporción de cada categoría sobre
+  // el crudo y se aplica esa MISMA proporción sobre el total real — así los
+  // 3 denominadores por categoría siguen sumando exacto al denominador real
+  // (invariante que ya cubre el test de abajo), y total.pct_avance queda
+  // matemáticamente idéntico al que ya calcula y persiste el motor real
+  // (avance_financiero_real vía PUT /avances/:semana/conceptos, misma
+  // fórmula: importe_ejecutado_acumulado / presupuestoTotalDe(pid) × 100,
+  // con el mismo clamp [0, 100]).
+  const rawTotalPresupuesto = total.importe_presupuesto;
+  const escala = rawTotalPresupuesto > 0 ? presupuestoTotalReal / rawTotalPresupuesto : 0;
   for (const categoria of Object.keys(categorias)) {
     const bucket = categorias[categoria];
     bucket.n_grupos = gruposPorCategoria[categoria].size;
+    bucket.importe_presupuesto = bucket.importe_presupuesto * escala;
     bucket.pct_avance = bucket.importe_presupuesto > 0
-      ? (bucket.importe_ejecutado_acumulado / bucket.importe_presupuesto) * 100
+      ? Math.max(0, Math.min(100, (bucket.importe_ejecutado_acumulado / bucket.importe_presupuesto) * 100))
       : 0;
   }
   total.n_grupos = gruposPorCategoria.infraestructura.size + gruposPorCategoria.vivienda.size + gruposPorCategoria.sin_clasificar.size;
-  total.pct_avance = total.importe_presupuesto > 0
-    ? (total.importe_ejecutado_acumulado / total.importe_presupuesto) * 100
+  // total.importe_presupuesto se fija al denominador real (no a la re-suma de
+  // los buckets ya escalados) — son matemáticamente iguales salvo epsilon de
+  // punto flotante (rawTotalPresupuesto × escala = presupuestoTotalReal por
+  // construcción), pero fijarlo directo evita arrastrar ese epsilon al valor
+  // que de verdad importa para pct_avance.
+  total.importe_presupuesto = presupuestoTotalReal;
+  total.pct_avance = presupuestoTotalReal > 0
+    ? Math.max(0, Math.min(100, (total.importe_ejecutado_acumulado / presupuestoTotalReal) * 100))
     : 0;
 
   res.json({

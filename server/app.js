@@ -8297,6 +8297,207 @@ app.put('/api/projects/:id/avances/:semana/conceptos', h(auth.allow('residente',
 }));
 
 // ---------------------------------------------------------------------------
+// Infraestructura vs. Vivienda (prompt-fase2-infraestructura-implementacion.md,
+// diagnóstico previo en prompt-diagnostico-fase2-infraestructura.md) — Fase 2
+// del roadmap "Desarrollador de Vivienda": tabla de mapeo admin-curada
+// grupo→categoría (conceptos_grupo_categoria, server/db.js) + KPIs de avance
+// físico/financiero de infraestructura vs. vivienda lado a lado, reusando el
+// motor de avance ya existente (avance_conceptos, misma fórmula que ya usa
+// PUT /avances/:semana/conceptos más arriba: SUM(cantidad_ejecutada ×
+// precio_unitario) — ver esa misma fórmula unas líneas arriba, donde
+// avance_fisico_real y avance_financiero_real se setean AL MISMO valor
+// pctReal, confirmando que "físico" y "financiero" son el mismo % ponderado
+// por presupuesto en este modelo de datos; no hay un "avance físico" propio
+// por concepto/grupo distinto de ese ponderado financiero — nada que inventar
+// aquí). NO se toca avances_semanales/avance_conceptos ni la fórmula en sí
+// (Forbidden Action explícita) — solo se agrega/filtra su resultado ya
+// calculado, por categoría en vez de por concepto individual. Mismo
+// checkPermiso('avance', ...) que los endpoints hermanos de arriba — sin
+// sección de permiso nueva, reusa 'avance' tal cual.
+// Grupos sin clasificar NUNCA se omiten del total ni se asumen en una
+// categoría por default (Forbidden Action explícita) — quedan agregados
+// aparte como 'sin_clasificar', con la lista de grupos pendientes expuesta
+// para que la UI pueda avisar que el % no está completo hasta clasificarlos
+// todos.
+// ---------------------------------------------------------------------------
+app.get('/api/projects/:id/grupos-categoria', h(auth.allow('residente', 'cabo', 'logistica')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('avance', 'puede_ver')), h(async (req, res) => {
+  const pid = req.project.id;
+  const { rows } = await db.pool.query(`
+    SELECT g.grupo, cgc.categoria
+    FROM (
+      SELECT DISTINCT grupo FROM conceptos
+      WHERE project_id = $1 AND es_total = 0 AND activo = 1 AND grupo IS NOT NULL AND TRIM(grupo) <> ''
+    ) g
+    LEFT JOIN conceptos_grupo_categoria cgc ON cgc.project_id = $1 AND cgc.grupo = g.grupo
+    ORDER BY g.grupo
+  `, [pid]);
+  res.json({ grupos: rows.map((r) => ({ grupo: r.grupo, categoria: r.categoria || null })) });
+}));
+
+const CATEGORIAS_GRUPO_VALIDAS = ['infraestructura', 'vivienda', 'sin_clasificar'];
+
+app.post('/api/projects/:id/grupos-categoria', h(auth.allow('residente', 'cabo')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('avance', 'puede_crear')), h(async (req, res) => {
+  const pid = req.project.id;
+  const { clasificaciones } = req.body || {};
+  if (!Array.isArray(clasificaciones) || clasificaciones.length === 0) {
+    return res.status(400).json({ error: 'clasificaciones debe ser un arreglo no vacío' });
+  }
+  for (const c of clasificaciones) {
+    if (!c || typeof c.grupo !== 'string' || !c.grupo.trim()) {
+      return res.status(400).json({ error: 'Cada clasificación requiere un grupo válido' });
+    }
+    if (!CATEGORIAS_GRUPO_VALIDAS.includes(c.categoria)) {
+      return res.status(400).json({ error: `categoria inválida para '${c.grupo}': debe ser infraestructura, vivienda o sin_clasificar` });
+    }
+  }
+
+  // Solo se permite clasificar grupos que de verdad existen hoy en el
+  // presupuesto activo de esta obra — evita basura arbitraria en la tabla de
+  // mapeo (ej. typos, grupos de una obra distinta pegados por error).
+  const { rows: gruposReales } = await db.pool.query(`
+    SELECT DISTINCT grupo FROM conceptos
+    WHERE project_id = $1 AND es_total = 0 AND activo = 1 AND grupo IS NOT NULL AND TRIM(grupo) <> ''
+  `, [pid]);
+  const gruposSet = new Set(gruposReales.map((g) => g.grupo));
+  for (const c of clasificaciones) {
+    if (!gruposSet.has(c.grupo)) {
+      return res.status(400).json({ error: `'${c.grupo}' no es un grupo de conceptos activo de esta obra` });
+    }
+  }
+
+  await db.withTransaction(async (client) => {
+    for (const c of clasificaciones) {
+      if (c.categoria === 'sin_clasificar') {
+        // "Sin clasificar" nunca se persiste como valor — es la ausencia de
+        // fila (ver CHECK constraint en server/db.js), así que reclasificar a
+        // sin_clasificar borra la fila si existía.
+        await client.query('DELETE FROM conceptos_grupo_categoria WHERE project_id = $1 AND grupo = $2', [pid, c.grupo]);
+      } else {
+        await client.query(`
+          INSERT INTO conceptos_grupo_categoria (project_id, grupo, categoria, creado_por)
+          VALUES ($1, $2, $3, $4)
+          ON CONFLICT (project_id, grupo) DO UPDATE SET categoria = EXCLUDED.categoria, creado_por = EXCLUDED.creado_por, creado_en = NOW()
+        `, [pid, c.grupo, c.categoria, req.user.id]);
+      }
+    }
+  });
+
+  const { rows } = await db.pool.query(`
+    SELECT g.grupo, cgc.categoria
+    FROM (
+      SELECT DISTINCT grupo FROM conceptos
+      WHERE project_id = $1 AND es_total = 0 AND activo = 1 AND grupo IS NOT NULL AND TRIM(grupo) <> ''
+    ) g
+    LEFT JOIN conceptos_grupo_categoria cgc ON cgc.project_id = $1 AND cgc.grupo = g.grupo
+    ORDER BY g.grupo
+  `, [pid]);
+  res.json({ grupos: rows.map((r) => ({ grupo: r.grupo, categoria: r.categoria || null })) });
+}));
+
+app.get('/api/projects/:id/avance-por-categoria', h(auth.allow('residente', 'cabo', 'logistica')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('avance', 'puede_ver')), h(async (req, res) => {
+  const pid = req.project.id;
+
+  // Denominador: MISMA fuente de verdad que el motor de avance ya existente
+  // (presupuestoTotalDe(), server/finanzas.js:16 — usada tanto por
+  // PUT /avances/:semana/conceptos más arriba como por getFinanzasResumenData()
+  // del Resumen/Dashboard). presupuestoTotalDe() prefiere proyectos.meta.
+  // total_sin_iva cuando existe, que NO siempre coincide con
+  // SUM(conceptos.importe) — confirmado contra Preview real: en 6 de 7 obras
+  // reales ambos totales divergen (ej. obra 41: 1.71M vs 5.69M), lo que antes
+  // hacía que este endpoint reportara un % de avance total distinto (hasta
+  // 3.3x) al que ya muestra el Resumen/Dashboard para la misma obra. Bug real
+  // detectado por revisión de código independiente contra datos de Preview.
+  const presupuestoTotalReal = await presupuestoTotalDe(pid);
+
+  // Mismo cálculo por-concepto que ya usa avances/:semana/conceptos y el
+  // auto-cálculo de PUT /avances/:semana/conceptos (SUM(cantidad_ejecutada) ×
+  // precio_unitario, acumulado a la fecha — sin filtrar por semana porque
+  // esto es el acumulado actual, no un corte semanal puntual). El motor de
+  // cálculo en sí NO se toca: es la misma fórmula, solo agregada por
+  // categoría en vez de por concepto/semana individual.
+  const { rows } = await db.pool.query(`
+    SELECT
+      c.id AS concepto_id,
+      c.grupo,
+      c.importe AS importe_presupuesto,
+      COALESCE(ej.cantidad_acumulada, 0) * c.precio_unitario AS importe_ejecutado_acumulado,
+      cgc.categoria
+    FROM conceptos c
+    LEFT JOIN (
+      SELECT ac.concepto_id, SUM(ac.cantidad_ejecutada) AS cantidad_acumulada
+      FROM avance_conceptos ac
+      JOIN conceptos cc ON cc.id = ac.concepto_id
+      WHERE cc.project_id = $1
+      GROUP BY ac.concepto_id
+    ) ej ON ej.concepto_id = c.id
+    LEFT JOIN conceptos_grupo_categoria cgc ON cgc.project_id = $1 AND cgc.grupo = c.grupo
+    WHERE c.project_id = $1 AND c.es_total = 0 AND c.activo = 1
+  `, [pid]);
+
+  const vacio = () => ({ n_grupos: 0, n_conceptos: 0, importe_presupuesto: 0, importe_ejecutado_acumulado: 0, pct_avance: 0 });
+  const categorias = { infraestructura: vacio(), vivienda: vacio(), sin_clasificar: vacio() };
+  const gruposPorCategoria = { infraestructura: new Set(), vivienda: new Set(), sin_clasificar: new Set() };
+  const total = vacio();
+
+  for (const r of rows) {
+    const categoria = r.categoria || 'sin_clasificar';
+    const bucket = categorias[categoria];
+    bucket.n_conceptos += 1;
+    bucket.importe_presupuesto += Number(r.importe_presupuesto) || 0;
+    bucket.importe_ejecutado_acumulado += Number(r.importe_ejecutado_acumulado) || 0;
+    total.n_conceptos += 1;
+    total.importe_presupuesto += Number(r.importe_presupuesto) || 0;
+    total.importe_ejecutado_acumulado += Number(r.importe_ejecutado_acumulado) || 0;
+    if (r.grupo && r.grupo.trim()) gruposPorCategoria[categoria].add(r.grupo);
+  }
+  // importe_ejecutado_acumulado se deja SIN redondear (mismo criterio que
+  // avances/:semana/conceptos arriba, que tampoco redondea
+  // importe_ejecutado_acumulado) — redondear aquí con toFixed(2) rompía en
+  // la práctica la identidad infra+vivienda+sin_clasificar=total en casos
+  // borde tipo "x.xx5" (1.005.toFixed(2) === '1.00', artefacto clásico de
+  // punto flotante). El redondeo a 2 decimales es puramente cosa de
+  // presentación — fmtMoney ya lo hace en el frontend.
+  //
+  // importe_presupuesto, en cambio, SÍ se reescala: hasta aquí cada bucket
+  // trae la suma cruda de conceptos.importe (rawTotalPresupuesto), que NO es
+  // necesariamente igual a presupuestoTotalReal (ver comentario arriba de
+  // presupuestoTotalDe()). Se calcula la proporción de cada categoría sobre
+  // el crudo y se aplica esa MISMA proporción sobre el total real — así los
+  // 3 denominadores por categoría siguen sumando exacto al denominador real
+  // (invariante que ya cubre el test de abajo), y total.pct_avance queda
+  // matemáticamente idéntico al que ya calcula y persiste el motor real
+  // (avance_financiero_real vía PUT /avances/:semana/conceptos, misma
+  // fórmula: importe_ejecutado_acumulado / presupuestoTotalDe(pid) × 100,
+  // con el mismo clamp [0, 100]).
+  const rawTotalPresupuesto = total.importe_presupuesto;
+  const escala = rawTotalPresupuesto > 0 ? presupuestoTotalReal / rawTotalPresupuesto : 0;
+  for (const categoria of Object.keys(categorias)) {
+    const bucket = categorias[categoria];
+    bucket.n_grupos = gruposPorCategoria[categoria].size;
+    bucket.importe_presupuesto = bucket.importe_presupuesto * escala;
+    bucket.pct_avance = bucket.importe_presupuesto > 0
+      ? Math.max(0, Math.min(100, (bucket.importe_ejecutado_acumulado / bucket.importe_presupuesto) * 100))
+      : 0;
+  }
+  total.n_grupos = gruposPorCategoria.infraestructura.size + gruposPorCategoria.vivienda.size + gruposPorCategoria.sin_clasificar.size;
+  // total.importe_presupuesto se fija al denominador real (no a la re-suma de
+  // los buckets ya escalados) — son matemáticamente iguales salvo epsilon de
+  // punto flotante (rawTotalPresupuesto × escala = presupuestoTotalReal por
+  // construcción), pero fijarlo directo evita arrastrar ese epsilon al valor
+  // que de verdad importa para pct_avance.
+  total.importe_presupuesto = presupuestoTotalReal;
+  total.pct_avance = presupuestoTotalReal > 0
+    ? Math.max(0, Math.min(100, (total.importe_ejecutado_acumulado / presupuestoTotalReal) * 100))
+    : 0;
+
+  res.json({
+    categorias,
+    total,
+    grupos_sin_clasificar: [...gruposPorCategoria.sin_clasificar].sort(),
+  });
+}));
+
+// ---------------------------------------------------------------------------
 // Resumen / dashboard
 // ---------------------------------------------------------------------------
 // 'costos' agregado (prompt-seccion-costos-implementacion.md): ganó el tab

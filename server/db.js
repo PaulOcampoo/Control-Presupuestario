@@ -2071,6 +2071,33 @@ const SCHEMA = `
   SELECT t.id, t.project_id, t.curp, t.activo, COALESCE(t.fecha_ingreso::timestamptz, t.creado_en)
   FROM trabajadores t
   WHERE NOT EXISTS (SELECT 1 FROM trabajador_obras o WHERE o.trabajador_id = t.id);
+
+  -- Fase 2 del roadmap "Desarrollador de Vivienda" (prompt-fase2-
+  -- infraestructura-implementacion.md, diagnóstico previo en prompt-
+  -- diagnostico-fase2-infraestructura.md). conceptos.grupo ya distingue de
+  -- facto infraestructura de vivienda en datos reales (ej. "CALLE BARRANCAS",
+  -- "RED HIDRAULICA" vs. "AZOTEA", "NIVEL 1-4", "TORRE A/B") pero es texto
+  -- libre e inconsistente entre obras — esta tabla es la curación MANUAL
+  -- admin/residente de esa clasificación, nunca inferida por keyword-matching
+  -- (Forbidden Action explícita del prompt). Scoped por project_id a
+  -- propósito: el mismo texto de grupo puede significar cosas distintas en
+  -- obras distintas, así que la clasificación nunca se comparte entre obras.
+  -- Solo 2 valores en el CHECK ('infraestructura'/'vivienda') — "sin
+  -- clasificar" NUNCA se persiste como valor: es la ausencia de fila para ese
+  -- (project_id, grupo), resuelta en tiempo de consulta vía LEFT JOIN (ver
+  -- GET /api/projects/:id/avance-por-categoria en server/app.js). Sin
+  -- relación con la tabla lotes (Fase 1) a propósito — Forbidden Action
+  -- explícita, ninguna FK ni JOIN cruzado entre ambas tablas en esta fase.
+  CREATE TABLE IF NOT EXISTS conceptos_grupo_categoria (
+    id SERIAL PRIMARY KEY,
+    project_id INTEGER NOT NULL REFERENCES proyectos(id) ON DELETE CASCADE,
+    grupo TEXT NOT NULL,
+    categoria TEXT NOT NULL CHECK (categoria IN ('infraestructura', 'vivienda')),
+    creado_por INTEGER REFERENCES usuarios(id),
+    creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(project_id, grupo)
+  );
+  CREATE INDEX IF NOT EXISTS idx_conceptos_grupo_categoria_project ON conceptos_grupo_categoria(project_id);
 `;
 
 // prompt-fix-error-permiso-trabajadores.md → el diagnóstico de ese prompt no

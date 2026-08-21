@@ -41,14 +41,14 @@ const ROLE_TABS = {
   // simulación de rol no puede simular "soy el usuario 8", solo "soy rol X"
   // (prompt-fix-role-tabs-contabilidad.md) — limitación conocida y
   // aceptada para esos tres, no un bug.
-  admin:          ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'cumplimiento', 'finanzas', 'compromisos', 'fondoGarantia', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', 'ordenesCambio', 'lotes', ...MAQUINARIA_TABS_ADMIN, 'cotizador', 'costos', 'costosDashboard', 'matrices', 'avance_clientes', 'composicion_costos', 'dashboardEjecutivo', 'catalogoBasicos', ...CONTABILIDAD_TABS],
-  desarrollador:  ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'cumplimiento', 'finanzas', 'compromisos', 'fondoGarantia', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', 'ordenesCambio', 'lotes', ...MAQUINARIA_TABS_ADMIN, 'cotizador', 'costos', 'costosDashboard', 'matrices', 'avance_clientes', 'composicion_costos', 'dashboardEjecutivo', 'catalogoBasicos', ...CONTABILIDAD_TABS],
-  residente:      ['programa', 'avance', 'destajo', 'requisiciones', 'insumos', 'ordenes', 'nominas', 'trabajadores', 'estimaciones', 'ordenesCambio', 'lotes', 'matrices'],
-  cabo:           ['destajo', 'insumos', 'avance', 'requisiciones', ...MAQUINARIA_TABS_CABO, 'trabajadores', 'nominas', 'ordenesCambio'],
+  admin:          ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'cumplimiento', 'finanzas', 'compromisos', 'fondoGarantia', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', 'ordenesCambio', 'lotes', 'infraVivienda', ...MAQUINARIA_TABS_ADMIN, 'cotizador', 'costos', 'costosDashboard', 'matrices', 'avance_clientes', 'composicion_costos', 'dashboardEjecutivo', 'catalogoBasicos', ...CONTABILIDAD_TABS],
+  desarrollador:  ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'cumplimiento', 'finanzas', 'compromisos', 'fondoGarantia', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', 'ordenesCambio', 'lotes', 'infraVivienda', ...MAQUINARIA_TABS_ADMIN, 'cotizador', 'costos', 'costosDashboard', 'matrices', 'avance_clientes', 'composicion_costos', 'dashboardEjecutivo', 'catalogoBasicos', ...CONTABILIDAD_TABS],
+  residente:      ['programa', 'avance', 'destajo', 'requisiciones', 'insumos', 'ordenes', 'nominas', 'trabajadores', 'estimaciones', 'ordenesCambio', 'lotes', 'infraVivienda', 'matrices'],
+  cabo:           ['destajo', 'insumos', 'avance', 'requisiciones', ...MAQUINARIA_TABS_CABO, 'trabajadores', 'nominas', 'ordenesCambio', 'infraVivienda'],
   compras:        ['programa', 'requisiciones', 'insumos', 'ordenes', 'proveedores', 'cumplimiento', 'cotizador'],
   tesoreria:      ['resumen', 'finanzas', 'compromisos', 'fondoGarantia', 'ordenes', 'contrato', 'impuestos', 'proveedores', 'cumplimiento', 'dashboardEjecutivo'],
   administracion: ['resumen', 'programa', 'destajo', 'ordenes', 'proveedores', 'cumplimiento', 'contrato', 'impuestos', 'mapeo'],
-  logistica:      ['programa', 'avance', 'requisiciones', 'insumos', 'ordenes'],
+  logistica:      ['programa', 'avance', 'requisiciones', 'insumos', 'ordenes', 'infraVivienda'],
   jefe_maquinaria: MAQUINARIA_TABS_JEFE,
   operador: MAQUINARIA_TABS_OPERADOR,
   // Rol nuevo (prompt-nuevo-rol-costos.md) — mirror de PERMISSIONS.costos en
@@ -1246,7 +1246,7 @@ const SECTION_DEFS = {
   // (prompt-costos-mapeo-y-mover-tiles.md), pero esa sección se disolvió
   // (prompt-seccion-costos-implementacion.md, ver 'costos' más abajo) —
   // ordenesCambio regresa aquí, de donde salió.
-  obra:          { label: 'Obra',           icon: 'obra',           emoji: '🏗️',  tabs: ['programa', 'avance', 'destajo', 'estimaciones', 'ordenesCambio', 'lotes'], proximamente: [] },
+  obra:          { label: 'Obra',           icon: 'obra',           emoji: '🏗️',  tabs: ['programa', 'avance', 'destajo', 'estimaciones', 'ordenesCambio', 'lotes', 'infraVivienda'], proximamente: [] },
   compras:       { label: 'Compras',        icon: 'compras',        emoji: '🛒',   tabs: ['requisiciones', 'insumos', 'proveedores', 'cumplimiento', 'ordenes', 'cotizador'], proximamente: ['Subcontratos'] },
   tesoreria:     { label: 'Tesorería',      icon: 'tesoreria',      emoji: '💰',   tabs: ['finanzas', 'compromisos', 'fondoGarantia', 'estadoResultados', 'estadoResultadosGlobal', 'impuestos', 'controlFinanciero'], proximamente: [] },
   // 'mapeo' vivió un tiempo aquí, luego en Presupuestos, ahora en la nueva
@@ -1298,7 +1298,7 @@ const SECTION_DEFS = {
 const TAB_ICONS = {
   resumen: '📊', contrato: '📄', impuestos: '🧾', insumos: '📦', requisiciones: '🧾',
   proveedores: '🏭', cumplimiento: '✅', ordenes: '🛒', programa: '🗓️', avance: '📈', destajo: '👷',
-  finanzas: '💰', compromisos: '📌', fondoGarantia: '🔒', mapeo: '🔗', usuarios: '👤', trabajadores: '👷', nominas: '💵', estimaciones: '🧮', ordenesCambio: '📝', lotes: '🏘️',
+  finanzas: '💰', compromisos: '📌', fondoGarantia: '🔒', mapeo: '🔗', usuarios: '👤', trabajadores: '👷', nominas: '💵', estimaciones: '🧮', ordenesCambio: '📝', lotes: '🏘️', infraVivienda: '🏙️',
   maquinaria_catalogo: '🛠️', maquinaria_horas: '⏱️', maquinaria_bitacora: '🔧', maquinaria_estado_unidad: '🚦',
   maquinaria_consumibles: '⛽', maquinaria_reportes_cliente: '📊',
   nominas_global: '💵', trabajadores_global: '👷', cotizador: '🔍',
@@ -1310,7 +1310,7 @@ const TAB_ICONS = {
 const TAB_LABELS = {
   resumen: 'Resumen', contrato: 'Contrato', impuestos: 'Impuestos', insumos: 'Insumos', requisiciones: 'Requisiciones',
   proveedores: 'Proveedores', cumplimiento: 'Cumplimiento', ordenes: 'Órdenes de Compra', programa: 'Programa', avance: 'Avance', destajo: 'Destajo',
-  finanzas: 'Finanzas', compromisos: 'Compromisos Abiertos', fondoGarantia: 'Fondo de Garantía', mapeo: 'Mapeo', usuarios: 'Usuarios', trabajadores: 'Trabajadores', nominas: 'Nóminas', estimaciones: 'Estimaciones', ordenesCambio: 'Órdenes de Cambio', lotes: 'Lotes',
+  finanzas: 'Finanzas', compromisos: 'Compromisos Abiertos', fondoGarantia: 'Fondo de Garantía', mapeo: 'Mapeo', usuarios: 'Usuarios', trabajadores: 'Trabajadores', nominas: 'Nóminas', estimaciones: 'Estimaciones', ordenesCambio: 'Órdenes de Cambio', lotes: 'Lotes', infraVivienda: 'Infraestructura vs. Vivienda',
   maquinaria_catalogo: 'Catálogo de equipos', maquinaria_horas: 'Horas / Pendientes de autorizar',
   maquinaria_bitacora: 'Bitácora de taller', maquinaria_estado_unidad: 'Estado de las unidades',
   maquinaria_consumibles: 'Consumibles', maquinaria_reportes_cliente: 'Reportes por cliente',
@@ -3045,6 +3045,16 @@ const AYUDA_CONTENIDO = {
       '"modelo_vivienda" es texto libre por ahora — un catálogo formal de modelos de casa es una fase futura del roadmap.',
     ],
   },
+  infraVivienda: {
+    titulo: 'Infraestructura vs. Vivienda',
+    pasos: [
+      'Compara el avance de infraestructura (calles, drenaje, redes) contra el de vivienda dentro de esta misma obra, usando los mismos datos de Avance ya capturados — no es una captura nueva, solo un cruce distinto de la información existente.',
+      'Primero clasifica los grupos del presupuesto de esta obra en la pestaña "Clasificar grupos": cada grupo (ej. "RED HIDRAULICA", "AZOTEA") se marca como Infraestructura, Vivienda, o se deja sin clasificar.',
+      'Es curación 100% manual — la app nunca adivina la categoría de un grupo por su nombre. Un grupo sin clasificar se muestra aparte como "Sin clasificar" en los KPIs, nunca se cuenta como infraestructura o vivienda por default.',
+      'Los KPIs (% de avance financiero, importe ejecutado vs. presupuestado) se recalculan automáticamente en cuanto guardas una clasificación — reflejan siempre el estado actual del avance ya capturado en la pestaña Avance.',
+      'Mientras existan grupos sin clasificar, el % de "Sin clasificar" te avisa que el desglose infraestructura/vivienda todavía no está completo — el total de las 3 categorías siempre suma el 100% del avance de la obra.',
+    ],
+  },
   nominaCaptura: {
     titulo: 'Captura de nómina',
     pasos: [
@@ -4368,6 +4378,7 @@ async function renderView() {
       case 'estimaciones': await renderEstimaciones(view); break;
       case 'ordenesCambio': await renderOrdenesCambio(view); break;
       case 'lotes': await renderLotes(view); break;
+      case 'infraVivienda': await renderInfraVivienda(view); break;
       case 'matrices': await renderMatrices(view); break;
       default: view.innerHTML = '';
     }
@@ -8664,6 +8675,10 @@ const TAB_A_SECCION = {
   // prompt-lotes-fase1.md: sección propia por-obra, mirror de
   // server/auth.js TAB_A_SECCION.
   lotes: 'lotes',
+  // prompt-fase2-infraestructura-implementacion.md: reusa la sección 'avance'
+  // tal cual (mismo checkPermiso que los endpoints hermanos de Avance en
+  // server/app.js) — NO es una sección de permiso nueva, a propósito.
+  infraVivienda: 'avance',
 };
 function defaultPermisosParaRolFrontend(puesto) {
   const tabs = ROLE_TABS[puesto] || [];
@@ -19311,6 +19326,256 @@ function pintarPreviewImportacionLotes(preview, archivoUrl, onImportado) {
     } catch (err) {
       toast(err.message, 'danger');
       btn.disabled = false; btn.textContent = 'Confirmar importación';
+    }
+  });
+}
+
+// ---------------------------------------------------------------------------
+// VISTA: Infraestructura vs. Vivienda (prompt-fase2-infraestructura-
+// implementacion.md, diagnóstico previo en prompt-diagnostico-fase2-
+// infraestructura.md) — Fase 2 del roadmap "Desarrollador de Vivienda".
+// Dos subvistas dentro de la misma pestaña de Obra (mismo patrón de "una
+// sola pestaña, sin sección de nivel superior nueva" que Lotes arriba):
+//   - "Avance por categoría": KPIs de infraestructura vs. vivienda lado a
+//     lado, mismo lenguaje visual .kpi-grid que Resumen (renderInicio) y
+//     mismo criterio de doughnut que renderCostosDashboard.
+//   - "Clasificar grupos": curación 100% manual grupo→categoría — NUNCA
+//     inferida por keyword-matching (Forbidden Action explícita del
+//     prompt), guardado por lote (batch) para minimizar requests al
+//     clasificar varios grupos de una obra grande de una sola vez.
+// Reusa GET /avances/:semana/conceptos indirectamente (mismo motor, nunca
+// tocado) vía GET /avance-por-categoria — server/app.js.
+// ---------------------------------------------------------------------------
+let infraViviendaSub = 'kpis';
+
+async function renderInfraVivienda(view) {
+  view.innerHTML = `
+    <h2 class="section-title">Infraestructura vs. Vivienda ${renderHelpBtn('infraVivienda')}</h2>
+    <p class="muted">Avance físico/financiero de infraestructura vs. vivienda dentro de esta obra, reusando los mismos datos ya capturados en Avance.</p>
+    <div class="chip-row">
+      <button class="chip ${infraViviendaSub === 'kpis' ? 'active' : ''}" data-iv-sub="kpis" type="button">Avance por categoría</button>
+      <button class="chip ${infraViviendaSub === 'clasificar' ? 'active' : ''}" data-iv-sub="clasificar" type="button">Clasificar grupos</button>
+    </div>
+    <div id="infraViviendaBody" class="mt-12"><div class="spinner"></div></div>
+  `;
+  $$('[data-iv-sub]', view).forEach((btn) => {
+    btn.addEventListener('click', () => {
+      if (infraViviendaSub === btn.dataset.ivSub) return;
+      infraViviendaSub = btn.dataset.ivSub;
+      renderInfraVivienda(view);
+    });
+  });
+  const body = $('#infraViviendaBody');
+  if (infraViviendaSub === 'clasificar') await renderInfraViviendaClasificar(body);
+  else await renderInfraViviendaKpis(body);
+}
+
+const INFRA_VIVIENDA_CATEGORIA_LABELS = {
+  infraestructura: 'Infraestructura',
+  vivienda: 'Vivienda',
+  sin_clasificar: 'Sin clasificar',
+};
+
+async function renderInfraViviendaKpis(body) {
+  let data;
+  try {
+    data = await api(`/projects/${state.projectId}/avance-por-categoria`);
+  } catch (err) {
+    body.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+    return;
+  }
+
+  const { categorias, total, grupos_sin_clasificar } = data;
+  if (!total.n_conceptos) {
+    body.innerHTML = '<div class="empty-state">Esta obra no tiene conceptos activos en su presupuesto todavía.</div>';
+    return;
+  }
+
+  const pctPresupuestoSinClasificar = total.importe_presupuesto > 0
+    ? (categorias.sin_clasificar.importe_presupuesto / total.importe_presupuesto) * 100
+    : 0;
+
+  body.innerHTML = `
+    ${grupos_sin_clasificar.length ? `
+      <div class="alert-box warn mb-12">
+        ⚠️ ${grupos_sin_clasificar.length} grupo${grupos_sin_clasificar.length === 1 ? '' : 's'} sin clasificar
+        (${fmtPct(pctPresupuestoSinClasificar)} del presupuesto de esta obra) — el desglose infraestructura/vivienda
+        no está completo hasta que termines de clasificarlos en la pestaña "Clasificar grupos".
+      </div>
+    ` : ''}
+    <div class="kpi-grid">
+      <div class="kpi accent"><div class="label">Presupuesto total</div><div class="value">${fmtMoney(total.importe_presupuesto)}</div></div>
+      <div class="kpi green"><div class="label">Ejecutado acumulado</div><div class="value">${fmtMoney(total.importe_ejecutado_acumulado)}</div></div>
+      <div class="kpi"><div class="label">Avance total</div><div class="value">${fmtPct(total.pct_avance)}</div></div>
+      <div class="kpi ${grupos_sin_clasificar.length ? 'yellow' : 'green'}"><div class="label">Grupos sin clasificar</div><div class="value">${grupos_sin_clasificar.length} / ${total.n_grupos}</div></div>
+    </div>
+    <div class="global-chart-section mt-12">
+      <div class="bienvenida-summary-title">Presupuesto por categoría</div>
+      <div class="global-chart-wrap">
+        <div class="global-chart-canvas-wrap">
+          <canvas id="infraViviendaChart" width="140" height="140"></canvas>
+        </div>
+        <div class="global-chart-kpis">
+          ${['infraestructura', 'vivienda', 'sin_clasificar'].map((cat) => `
+            <div class="global-kpi">
+              <span class="global-kpi-label">${esc(INFRA_VIVIENDA_CATEGORIA_LABELS[cat])}</span>
+              <span class="global-kpi-value accent">${fmtPct(categorias[cat].pct_avance)}</span>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    </div>
+    <div class="table-scroll mt-12">
+      <table>
+        <thead><tr><th>Categoría</th><th class="num">Grupos</th><th class="num">Conceptos</th><th class="num">Presupuesto</th><th class="num">Ejecutado</th><th class="num">% Avance</th></tr></thead>
+        <tbody>
+          ${['infraestructura', 'vivienda', 'sin_clasificar'].map((cat) => `
+            <tr>
+              <td>${esc(INFRA_VIVIENDA_CATEGORIA_LABELS[cat])}</td>
+              <td class="num">${categorias[cat].n_grupos}</td>
+              <td class="num">${categorias[cat].n_conceptos}</td>
+              <td class="num">${fmtMoney(categorias[cat].importe_presupuesto)}</td>
+              <td class="num">${fmtMoney(categorias[cat].importe_ejecutado_acumulado)}</td>
+              <td class="num">${fmtPct(categorias[cat].pct_avance)}</td>
+            </tr>
+          `).join('')}
+          <tr class="fw-700">
+            <td>Total</td>
+            <td class="num">${total.n_grupos}</td>
+            <td class="num">${total.n_conceptos}</td>
+            <td class="num">${fmtMoney(total.importe_presupuesto)}</td>
+            <td class="num">${fmtMoney(total.importe_ejecutado_acumulado)}</td>
+            <td class="num">${fmtPct(total.pct_avance)}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  `;
+
+  // renderInfraVivienda() togglea subvistas sin pasar por renderView()/
+  // destroyCharts() (mismo canvas id se reemplaza en el DOM cada vez que se
+  // vuelve a esta subvista) — destruir la instancia previa a mano evita
+  // acumular Chart.js instances huérfanas al ir y volver entre pestañas.
+  if (state.charts.infraVivienda) state.charts.infraVivienda.destroy();
+  const ctx = $('#infraViviendaChart').getContext('2d');
+  const cc = chartColors();
+  const dataPresupuesto = [
+    categorias.infraestructura.importe_presupuesto,
+    categorias.vivienda.importe_presupuesto,
+    categorias.sin_clasificar.importe_presupuesto,
+  ];
+  state.charts.infraVivienda = new Chart(ctx, {
+    type: 'doughnut',
+    data: {
+      labels: ['Infraestructura', 'Vivienda', 'Sin clasificar'],
+      datasets: [{
+        data: dataPresupuesto,
+        backgroundColor: ['#0ea5e9', '#22c55e', cc.grid],
+        borderColor: cc.primary,
+        borderWidth: 3,
+      }],
+    },
+    options: {
+      responsive: false,
+      cutout: '62%',
+      animation: animationForChart('infraVivienda'),
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: (c) => `${c.label}: ${fmtMoney(c.raw)}` } },
+      },
+    },
+  });
+  state.charts.infraVivienda._cpBorderSurface = 'primary';
+  state.charts.infraVivienda._cpGridBgIndexes = [2];
+}
+
+async function renderInfraViviendaClasificar(body) {
+  let data;
+  try {
+    data = await api(`/projects/${state.projectId}/grupos-categoria`);
+  } catch (err) {
+    body.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+    return;
+  }
+
+  const grupos = data.grupos;
+  if (!grupos.length) {
+    body.innerHTML = '<div class="empty-state">Esta obra no tiene grupos de conceptos para clasificar (los conceptos del presupuesto no tienen columna "grupo" capturada).</div>';
+    return;
+  }
+
+  // Snapshot de lo cargado del servidor + selección actual en pantalla —
+  // el diff entre ambos (buildCambiosPendientes) es lo único que se manda al
+  // guardar, y determina si el botón "Guardar" está habilitado.
+  const originales = new Map(grupos.map((g) => [g.grupo, g.categoria || 'sin_clasificar']));
+  const seleccion = new Map(originales);
+
+  body.innerHTML = `
+    <p class="muted">Clasifica cada grupo del presupuesto de esta obra. Es curación 100% manual — la app nunca adivina la categoría por el nombre del grupo.</p>
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>Grupo</th><th>Categoría</th></tr></thead>
+        <tbody id="ivClasificarTbody">
+          ${grupos.map((g) => `
+            <tr data-grupo="${esc(g.grupo)}">
+              <td>${esc(g.grupo)}</td>
+              <td>
+                <div class="chip-row">
+                  ${['infraestructura', 'vivienda', 'sin_clasificar'].map((cat) => `
+                    <button class="chip iv-cat-btn ${(g.categoria || 'sin_clasificar') === cat ? 'active' : ''}" data-cat="${cat}" type="button">${esc(INFRA_VIVIENDA_CATEGORIA_LABELS[cat])}</button>
+                  `).join('')}
+                </div>
+              </td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </div>
+    <div class="modal-actions mt-12">
+      <span id="ivCambiosPendientes" class="muted fs-08"></span>
+      <button class="btn btn-primary" id="btnGuardarClasificacion" disabled>Guardar clasificación</button>
+    </div>
+  `;
+
+  const btnGuardar = $('#btnGuardarClasificacion');
+  const spanCambios = $('#ivCambiosPendientes');
+
+  function actualizarEstadoBoton() {
+    let cambios = 0;
+    for (const [grupo, cat] of seleccion) {
+      if (originales.get(grupo) !== cat) cambios += 1;
+    }
+    btnGuardar.disabled = cambios === 0;
+    spanCambios.textContent = cambios ? `${cambios} cambio${cambios === 1 ? '' : 's'} sin guardar` : '';
+  }
+
+  $$('#ivClasificarTbody tr', body).forEach((tr) => {
+    const grupo = tr.dataset.grupo;
+    $$('.iv-cat-btn', tr).forEach((btn) => {
+      btn.addEventListener('click', () => {
+        seleccion.set(grupo, btn.dataset.cat);
+        $$('.iv-cat-btn', tr).forEach((b) => b.classList.toggle('active', b === btn));
+        actualizarEstadoBoton();
+      });
+    });
+  });
+
+  btnGuardar.addEventListener('click', async () => {
+    const clasificaciones = [];
+    for (const [grupo, cat] of seleccion) {
+      if (originales.get(grupo) !== cat) clasificaciones.push({ grupo, categoria: cat });
+    }
+    if (!clasificaciones.length) return;
+    btnGuardar.disabled = true;
+    btnGuardar.textContent = 'Guardando…';
+    try {
+      await api(`/projects/${state.projectId}/grupos-categoria`, { method: 'POST', body: { clasificaciones } });
+      toast('Clasificación guardada', 'success');
+      await renderInfraViviendaClasificar(body);
+    } catch (err) {
+      toast(err.message, 'danger');
+      btnGuardar.disabled = false;
+      btnGuardar.textContent = 'Guardar clasificación';
     }
   });
 }

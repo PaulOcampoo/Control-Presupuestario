@@ -297,8 +297,21 @@ const DESTAJO_SYNONYMS = {
     'P.U. DESTAJO', 'P.U DESTAJO', 'PU DESTAJO', 'PU. DESTAJO',
     'PRECIO DESTAJO', 'PRECIO DE DESTAJO', 'PRECIO UNITARIO DE DESTAJO',
     'PRECIO UNITARIO DESTAJO', 'DESTAJO', 'P.U.', 'PRECIO UNITARIO', 'PU',
+    // prompt-fix-destajo-parser.md: formato real confirmado contra EST Kaila
+    // Red Hidraulica 06082026.xlsx -- hoja "Destajos" sin columna de
+    // destajista, precio de mano de obra bajo estos encabezados en vez de
+    // "P.U. DESTAJO".
+    'PU MANO DE OBRA', 'P.U. MANO DE OBRA', 'P.U MANO DE OBRA',
+    'PRECIO MANO DE OBRA', 'PRECIO UNITARIO MANO DE OBRA',
   ],
 };
+
+// prompt-fix-destajo-parser.md: nombre del destajista sintetico cuando la
+// hoja Destajos no trae columna de destajista/cuadrilla -- caso real
+// confirmado (desglose de Mano de Obra por concepto, no asignacion por
+// subcontratista). destajo_items.destajista_id es NOT NULL, asi que hace
+// falta una fila en `destajistas` para poder insertar estas filas.
+const DESTAJISTA_GENERICO_NOMBRE = 'Mano de Obra General';
 
 function findHeaderRowDestajo(sheet, maxRows = 25) {
   for (let r = 1; r <= Math.min(sheet.rowCount, maxRows); r++) {
@@ -329,7 +342,11 @@ function parseDestajistas(workbook) {
 
   const { rowNumber, colMap } = header;
   const results = new Map();
-  let currentDest = null;
+  // Sin columna de destajista detectada en el header: toda la hoja se trata
+  // como un solo grupo genérico (ver DESTAJISTA_GENERICO_NOMBRE) en vez de
+  // descartar las filas en silencio. Si la columna SÍ existe, el forward-fill
+  // de abajo sigue funcionando exactamente igual que antes.
+  let currentDest = colMap.destajista == null ? DESTAJISTA_GENERICO_NOMBRE : null;
 
   for (let r = rowNumber + 1; r <= destSheet.rowCount; r++) {
     const row = destSheet.getRow(r);
@@ -440,4 +457,4 @@ async function parseWorkbook(filePath) {
   };
 }
 
-module.exports = { parseWorkbook };
+module.exports = { parseWorkbook, parseDestajistas, parseDestajoPrecios };

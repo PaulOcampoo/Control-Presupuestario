@@ -1,6 +1,7 @@
 'use strict';
 
 const { generatePlanning } = require('./planning');
+const matricesImport = require('./matricesImport');
 
 // Inserta muchas filas en pocas consultas (en vez de un round-trip por fila,
 // que en Neon/Vercel puede tardar tanto que la función serverless expira a
@@ -24,7 +25,11 @@ async function batchInsert(client, table, columns, rows, extraSql = '') {
   return allRows;
 }
 
-async function ingest(client, projectId, parsed) {
+// prompt-matrices-auto-import-alta-obra.md: userId es opcional (los 2 call
+// sites de crear-presupuesto/import-completo en server/app.js no pasan
+// matricesBloques, así que nunca llegan al bloque que lo usa) -- solo
+// POST /api/projects (alta real desde un .xlsx) lo manda.
+async function ingest(client, projectId, parsed, userId = null) {
   const metaEntries = Object.entries(parsed.meta).filter(([, v]) => v != null);
   if (metaEntries.length) {
     await batchInsert(
@@ -93,6 +98,80 @@ async function ingest(client, projectId, parsed) {
       ['project_id', 'destajista_id', 'concepto_id', 'codigo', 'concepto', 'unidad', 'cantidad_asignada', 'precio_destajo', 'orden'],
       itemRows
     );
+  }
+
+  // prompt-matrices-auto-import-alta-obra.md: hoja "Matrices" (formato
+  // Neodata APU) del mismo workbook, resuelta contra los conceptos/insumos
+  // recién insertados arriba en esta misma transacción -- mismo matching
+  // (matricesImport.resolverBloqueImportacion) que ya usa el importador
+  // manual (/api/projects/:id/matrices/import/*), que se deja intacto para
+  // obras existentes o para corregir/actualizar matrices después.
+  //
+  // Todo-o-nada a propósito (igual que el import de 4 hojas de PR #176): si
+  // CUALQUIER bloque no se puede resolver, se lanza y toda la transacción
+  // de alta de obra hace rollback -- no queda una obra con conceptos pero
+  // sin matrices a medias. conceptoIdsConMatriz siempre vacío: una obra
+  // recién creada en esta misma llamada nunca pudo tener una matriz previa.
+  if (parsed.matricesBloques && parsed.matricesBloques.length > 0) {
+    const { rows: conceptoRows } = await client.query(
+      'SELECT id, codigo FROM conceptos WHERE project_id = $1 AND activo = 1 AND codigo IS NOT NULL', [projectId]
+    );
+    const { rows: insumoRows } = await client.query(
+      'SELECT id, codigo, categoria, precio_presupuesto FROM insumos WHERE project_id = $1 AND codigo IS NOT NULL', [projectId]
+    );
+    const conceptosPorCodigo = new Map();
+    for (const c of conceptoRows) {
+      if (!conceptosPorCodigo.has(c.codigo)) conceptosPorCodigo.set(c.codigo, []);
+      conceptosPorCodigo.get(c.codigo).push(c);
+    }
+    const insumosPorCodigo = new Map(insumoRows.map((i) => [i.codigo, i]));
+
+    const resultados = parsed.matricesBloques.map((bloque) => matricesImport.resolverBloqueImportacion(
+      bloque, { conceptosPorCodigo, insumosPorCodigo, conceptoIdsConMatriz: new Set() }
+    ));
+
+    // Misma salvaguarda que prepararImportacionMatrices: 2 bloques del mismo
+    // archivo resolviendo al mismo concepto_id violaría el UNIQUE(concepto_id).
+    const vistos = new Set();
+    for (const r of resultados) {
+      if (r.estado !== 'ok') continue;
+      if (vistos.has(r.concepto_id)) { r.estado = 'error'; r.motivo = `Código de análisis "${r.codigo_analisis}" duplicado dentro de este mismo archivo.`; continue; }
+      vistos.add(r.concepto_id);
+    }
+
+    const conErrores = resultados.filter((r) => r.estado === 'error');
+    if (conErrores.length) {
+      throw new Error(`No se pudo generar la matriz de precio unitario para "${conErrores[0].codigo_analisis || '(sin código)'}": ${conErrores[0].motivo}`);
+    }
+
+    for (const r of resultados) {
+      if (r.estado !== 'ok') continue; // 'omitido' no debería darse en una obra recién creada
+      const p = r._persistencia;
+      const basicoIdPorCodigo = new Map();
+      for (const b of p.basicosResueltos) {
+        const { rows } = await client.query(
+          `INSERT INTO matrices_precio_unitario (es_basico, project_id, codigo, descripcion, unidad, creado_por, actualizado_por)
+           VALUES (true, $1, $2, $3, $4, $5, $5) RETURNING id`,
+          [projectId, b.codigo, b.descripcion, b.unidad || null, userId]
+        );
+        basicoIdPorCodigo.set(b.codigo, rows[0].id);
+        await matricesImport.insertarRenglones(client, rows[0].id, b.renglones);
+      }
+      const { rows: matrizRows } = await client.query(
+        `INSERT INTO matrices_precio_unitario
+           (concepto_id, pct_indirecto, pct_utilidad, pct_financiamiento, rendimiento, partida, analisis_no, cuadrilla_nombre, creado_por, actualizado_por)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$9) RETURNING id`,
+        [p.concepto_id, p.pct_indirecto, p.pct_utilidad, p.pct_financiamiento, p.rendimiento, p.partida, p.analisis_no, p.cuadrilla_nombre, userId]
+      );
+      const renglonesFinales = [
+        ...p.renglonesDirectos,
+        ...p.renglonesBasicoRef.map((rb) => ({
+          categoria: 'BASICOS', tipo: 'basico_ref',
+          basico_matriz_id: basicoIdPorCodigo.get(rb.codigo_basico), cantidad: rb.cantidad,
+        })),
+      ];
+      await matricesImport.insertarRenglones(client, matrizRows[0].id, renglonesFinales);
+    }
   }
 }
 

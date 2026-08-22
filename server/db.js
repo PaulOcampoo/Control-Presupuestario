@@ -2098,6 +2098,18 @@ const SCHEMA = `
     UNIQUE(project_id, grupo)
   );
   CREATE INDEX IF NOT EXISTS idx_conceptos_grupo_categoria_project ON conceptos_grupo_categoria(project_id);
+
+  -- Categoría de costo (prompt-nomina-personal-maquinaria-implementacion.md,
+  -- diagnóstico previo en prompt-diagnostico-nomina-personal-maquinaria.md):
+  -- permite dar de alta personal de Maquinaria (operadores, mantenimiento)
+  -- como trabajadores normales, reusando el motor de nómina existente sin
+  -- ningún cambio, pero marcados para que su costo se impute al reporte de
+  -- Maquinaria por cliente (getReportePorCliente, server/maquinaria.js) en
+  -- vez de mezclarse con el costo general de obra. Sin CHECK a nivel BD,
+  -- mismo patrón ya usado para 'puesto'/'actividad' — validado en código
+  -- (server/app.js). DEFAULT 'obra' para no reclasificar retroactivamente a
+  -- ningún trabajador ya existente.
+  ALTER TABLE trabajadores ADD COLUMN IF NOT EXISTS categoria_costo TEXT NOT NULL DEFAULT 'obra';
 `;
 
 // prompt-fix-error-permiso-trabajadores.md → el diagnóstico de ese prompt no

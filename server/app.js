@@ -8973,6 +8973,7 @@ app.put('/api/projects/:id/destajistas/:destId/avance/:semana', h(auth.allow('re
 // ===========================================================================
 const TIPOS_PAGO = ['jornal', 'destajo', 'mixto'];
 const PERIODICIDADES = ['semanal', 'quincenal', 'mensual'];
+const CATEGORIAS_COSTO = ['obra', 'maquinaria'];
 const TIPOS_DOC = ['ine_frente', 'ine_reverso', 'curp_doc', 'comprobante_domicilio', 'otro'];
 
 // Vista global: todos los trabajadores de todas las obras, con la obra y
@@ -9001,7 +9002,7 @@ const TIPOS_DOC = ['ine_frente', 'ine_reverso', 'curp_doc', 'comprobante_domicil
 const TRABAJADOR_COLUMNAS_LISTADO = `t.id, t.destajista_id, t.nombre, t.puesto, t.tipo_pago,
   t.tarifa_jornal, t.periodicidad, t.curp, t.rfc, t.nss, t.telefono, t.direccion,
   t.contacto_emergencia, t.contacto_emergencia_nombre, t.contacto_emergencia_telefono,
-  t.fecha_ingreso, t.activo, t.fecha_baja, t.motivo_baja, t.orden, t.creado_en`;
+  t.fecha_ingreso, t.activo, t.fecha_baja, t.motivo_baja, t.orden, t.creado_en, t.categoria_costo`;
 
 // prompt-32-fix-listado-trabajadores-duplicado.md: UNA fila por trabajador,
 // nunca una por asignación — el intento anterior (prompt-31, comentario
@@ -9208,10 +9209,12 @@ app.post('/api/projects/:id/trabajadores', h(auth.allow('residente', 'cabo', 'ad
           contacto_emergencia_telefono, fecha_ingreso, destajista_id,
           cuenta_nomina_hsbc, cuenta_alterna, banco_nomina, banco_alterna,
           tarjeta_nomina, tarjeta_alterna,
-          split_cuenta_nomina_pct } = req.body || {};
+          split_cuenta_nomina_pct, categoria_costo } = req.body || {};
   if (!nombre?.trim()) return res.status(400).json({ error: 'El nombre es requerido' });
   if (!TIPOS_PAGO.includes(tipo_pago)) return res.status(400).json({ error: 'tipo_pago inválido' });
   if (!PERIODICIDADES.includes(periodicidad)) return res.status(400).json({ error: 'periodicidad inválida' });
+  const categoriaCosto = categoria_costo || 'obra';
+  if (!CATEGORIAS_COSTO.includes(categoriaCosto)) return res.status(400).json({ error: 'categoria_costo inválida' });
   const destId = destajista_id ? Number(destajista_id) : null;
   if (destId) {
     const { rows: dRows } = await db.pool.query('SELECT id FROM destajistas WHERE id=$1 AND project_id=$2', [destId, req.project.id]);
@@ -9252,8 +9255,8 @@ app.post('/api/projects/:id/trabajadores', h(auth.allow('residente', 'cabo', 'ad
            curp, rfc, nss, telefono, direccion, contacto_emergencia,
            contacto_emergencia_nombre, contacto_emergencia_telefono, fecha_ingreso,
            cuenta_nomina_hsbc, cuenta_alterna, banco_nomina, banco_alterna, split_cuenta_nomina_pct,
-           tarjeta_nomina, tarjeta_alterna)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23) RETURNING *`,
+           tarjeta_nomina, tarjeta_alterna, categoria_costo)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24) RETURNING *`,
         [req.project.id, destId, nombre.trim(), puesto?.trim()||null, tipo_pago,
          Math.max(0, Number(tarifa_jornal)||0), periodicidad,
          curpTrim, rfc?.trim()||null, nss?.trim()||null,
@@ -9261,7 +9264,7 @@ app.post('/api/projects/:id/trabajadores', h(auth.allow('residente', 'cabo', 'ad
          contacto_emergencia_nombre?.trim()||null, contacto_emergencia_telefono?.trim()||null,
          fecha_ingreso||null,
          nomina.cuenta, alterna.cuenta, nomina.banco, alterna.banco, splitPct,
-         tarjetaNomina, tarjetaAlterna]
+         tarjetaNomina, tarjetaAlterna, categoriaCosto]
       );
       await client.query(
         `INSERT INTO trabajador_obras (trabajador_id, project_id, curp, activo, asignado_por)
@@ -9288,10 +9291,12 @@ app.put('/api/projects/:id/trabajadores/:wId', h(auth.allow('residente', 'cabo',
           contacto_emergencia_telefono, fecha_ingreso, destajista_id,
           cuenta_nomina_hsbc, cuenta_alterna, banco_nomina, banco_alterna,
           tarjeta_nomina, tarjeta_alterna,
-          split_cuenta_nomina_pct } = req.body || {};
+          split_cuenta_nomina_pct, categoria_costo } = req.body || {};
   if (!nombre?.trim()) return res.status(400).json({ error: 'El nombre es requerido' });
   if (!TIPOS_PAGO.includes(tipo_pago)) return res.status(400).json({ error: 'tipo_pago inválido' });
   if (!PERIODICIDADES.includes(periodicidad)) return res.status(400).json({ error: 'periodicidad inválida' });
+  const categoriaCosto = categoria_costo || 'obra';
+  if (!CATEGORIAS_COSTO.includes(categoriaCosto)) return res.status(400).json({ error: 'categoria_costo inválida' });
   const destId = destajista_id ? Number(destajista_id) : null;
   if (destId) {
     const { rows: dRows } = await db.pool.query('SELECT id FROM destajistas WHERE id=$1 AND project_id=$2', [destId, req.project.id]);
@@ -9309,14 +9314,14 @@ app.put('/api/projects/:id/trabajadores/:wId', h(auth.allow('residente', 'cabo',
     'destajista_id=$1', 'nombre=$2', 'puesto=$3', 'tipo_pago=$4', 'tarifa_jornal=$5',
     'periodicidad=$6', 'curp=$7', 'rfc=$8', 'nss=$9', 'telefono=$10', 'direccion=$11',
     'contacto_emergencia=$12', 'contacto_emergencia_nombre=$13', 'contacto_emergencia_telefono=$14',
-    'fecha_ingreso=$15',
+    'fecha_ingreso=$15', 'categoria_costo=$16',
   ];
   const params = [destId, nombre.trim(), puesto?.trim()||null, tipo_pago,
     Math.max(0, Number(tarifa_jornal)||0), periodicidad,
     curp?.trim()||null, rfc?.trim()||null, nss?.trim()||null,
     telefono?.trim()||null, direccion?.trim()||null, contacto_emergencia?.trim()||null,
     contacto_emergencia_nombre?.trim()||null, contacto_emergencia_telefono?.trim()||null,
-    fecha_ingreso||null];
+    fecha_ingreso||null, categoriaCosto];
   let nomina = { discrepancia: null };
   let alterna = { discrepancia: null };
   if (puedeEditarBancarios) {

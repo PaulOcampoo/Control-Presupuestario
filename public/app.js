@@ -10651,6 +10651,8 @@ function renderReporteClientesMaqHtml(reporte) {
     <tr>
       <td>${esc(c.cliente)}${c.fuente_mixta ? '<span class="muted fs-07" title="Al menos una obra de este cliente no tiene insumos de categoría \'Equipo y herramienta\' capturados — se usó el subtotal confirmado del contrato en su lugar."> *</span>' : ''}</td>
       <td class="num">${fmtMoney(c.presupuesto_sugerido)}</td>
+      <td class="num">${fmtMoney(c.gasto_combustible + c.gasto_mantenimiento)}</td>
+      <td class="num">${fmtMoney(c.gasto_personal)}</td>
       <td class="num">${fmtMoney(c.gasto_total)}</td>
     </tr>
   `).join('');
@@ -10660,21 +10662,23 @@ function renderReporteClientesMaqHtml(reporte) {
       <td class="muted">Equipos sin obra asignada</td>
       <td class="num muted">—</td>
       <td class="num">${fmtMoney(sinObra.gasto_total)}</td>
+      <td class="num muted">—</td>
+      <td class="num">${fmtMoney(sinObra.gasto_total)}</td>
     </tr>
   ` : '';
   return `
     <h3 class="section-title">Presupuesto sugerido por cliente</h3>
-    <p class="muted fs-08">Calculado automáticamente desde los insumos de "Equipo y herramienta" de cada obra${reporte.fuente_mixta ? ' (los marcados con * usan el subtotal del contrato confirmado como respaldo)' : ''} — no reemplaza el presupuesto manual, solo lo sugiere.</p>
+    <p class="muted fs-08">Calculado automáticamente desde los insumos de "Equipo y herramienta" de cada obra${reporte.fuente_mixta ? ' (los marcados con * usan el subtotal del contrato confirmado como respaldo)' : ''} — no reemplaza el presupuesto manual, solo lo sugiere. "Personal" incluye solo nómina ya aprobada de trabajadores marcados como categoría "Maquinaria".</p>
     <div class="card">
       <div class="table-scroll">
         <table>
-          <thead><tr><th>Cliente</th><th class="num">Presupuesto sugerido</th><th class="num">Gasto real</th></tr></thead>
+          <thead><tr><th>Cliente</th><th class="num">Presupuesto sugerido</th><th class="num">Combustible + mantenimiento</th><th class="num">Personal</th><th class="num">Gasto real total</th></tr></thead>
           <tbody>
             ${filas}
             ${sinObraRow}
           </tbody>
           <tfoot>
-            <tr><td><strong>Total global</strong></td><td class="num"><strong>${fmtMoney(reporte.total_sugerido)}</strong></td><td class="num"><strong>${fmtMoney(reporte.por_cliente.reduce((s, c) => s + c.gasto_total, 0) + sinObra.gasto_total)}</strong></td></tr>
+            <tr><td><strong>Total global</strong></td><td class="num"><strong>${fmtMoney(reporte.total_sugerido)}</strong></td><td class="num"><strong>${fmtMoney(reporte.por_cliente.reduce((s, c) => s + c.gasto_combustible + c.gasto_mantenimiento, 0) + sinObra.gasto_total)}</strong></td><td class="num"><strong>${fmtMoney(reporte.por_cliente.reduce((s, c) => s + c.gasto_personal, 0))}</strong></td><td class="num"><strong>${fmtMoney(reporte.por_cliente.reduce((s, c) => s + c.gasto_total, 0) + sinObra.gasto_total)}</strong></td></tr>
           </tfoot>
         </table>
       </div>
@@ -12368,6 +12372,7 @@ $('#toast').addEventListener('click', () => { clearTimeout(toast._t); $('#toast'
 
 const TIPO_PAGO_LABELS = { jornal: 'Jornal fijo', destajo: 'Destajo', mixto: 'Mixto' };
 const PERIODICIDAD_LABELS = { semanal: 'Semanal', quincenal: 'Quincenal', mensual: 'Mensual' };
+const CATEGORIA_COSTO_LABELS = { obra: 'Obra', maquinaria: 'Maquinaria' };
 const TIPO_DOC_LABELS = { ine_frente: 'INE frente', ine_reverso: 'INE reverso', curp_doc: 'CURP', domicilio: 'Comprobante domicilio', otro: 'Otro' };
 
 // Vista global — solo admin/desarrollador (ver GET /api/trabajadores en
@@ -16104,6 +16109,7 @@ function paintTrabajadoresList(trabajadores, listEl, repaint, permisos) {
           <div class="mt4-fs08">
             <span class="badge muted">${esc(TIPO_PAGO_LABELS[t.tipo_pago] || t.tipo_pago)}</span>
             <span class="badge muted">${esc(PERIODICIDAD_LABELS[t.periodicidad] || t.periodicidad)}</span>
+            ${t.categoria_costo === 'maquinaria' ? `<span class="badge purple">Maquinaria</span>` : ''}
             ${!t.activo ? `<span class="badge red">Inactivo</span>` : ''}
           </div>
         </div>
@@ -16303,6 +16309,8 @@ async function openTrabajadorModal(trab, repaint, permisosBancarios, obraId = st
     .map(([v, l]) => `<option value="${v}" ${trab && trab.tipo_pago === v ? 'selected' : ''}>${l}</option>`).join('');
   const periodicidadOpts = Object.entries(PERIODICIDAD_LABELS)
     .map(([v, l]) => `<option value="${v}" ${trab && trab.periodicidad === v ? 'selected' : v === 'semanal' ? 'selected' : ''}>${l}</option>`).join('');
+  const categoriaCostoOpts = Object.entries(CATEGORIA_COSTO_LABELS)
+    .map(([v, l]) => `<option value="${v}" ${trab && trab.categoria_costo === v ? 'selected' : (!trab && v === 'obra') ? 'selected' : ''}>${l}</option>`).join('');
   const destajistaOpts = `<option value="">— Sin vínculo —</option>` +
     destajistas.map((d) => `<option value="${d.id}" ${trab && trab.destajista_id === d.id ? 'selected' : ''}>${esc(d.nombre)}</option>`).join('');
 
@@ -16314,6 +16322,9 @@ async function openTrabajadorModal(trab, repaint, permisosBancarios, obraId = st
       <div class="field"><label>Fecha de ingreso</label><input id="tFechaIngreso" type="date" value="${trab?.fecha_ingreso ? trab.fecha_ingreso.slice(0,10) : ''}" /></div>
       <div class="field"><label>Tipo de pago *</label><select id="tTipoPago">${tipoPagoOpts}</select></div>
       <div class="field"><label>Periodicidad *</label><select id="tPeriodicidad">${periodicidadOpts}</select></div>
+      <div class="field"><label>Categoría de costo</label><select id="tCategoriaCosto">${categoriaCostoOpts}</select>
+        <p class="muted fs076-m200">Determina si su nómina se imputa al costo general de obra o al reporte de Maquinaria por cliente.</p>
+      </div>
       <div class="field field-full" id="tTarifaField"><label>Tarifa jornal ($/día)</label><input id="tTarifa" type="text" inputmode="decimal" value="${formatMoneyInputDisplay(trab?.tarifa_jornal ?? '')}" /></div>
       <div class="field field-full">
         <label>Vínculo con destajista (opcional)</label>
@@ -16390,6 +16401,7 @@ async function openTrabajadorModal(trab, repaint, permisosBancarios, obraId = st
       fecha_ingreso: $('#tFechaIngreso').value || null,
       tipo_pago: $('#tTipoPago').value,
       periodicidad: $('#tPeriodicidad').value,
+      categoria_costo: $('#tCategoriaCosto').value,
       tarifa_jornal: parseFloat(parseMoneyInputRaw($('#tTarifa').value)) || 0,
       destajista_id: Number($('#tDestajista').value) || null,
       curp: $('#tCurp').value.trim() || null,

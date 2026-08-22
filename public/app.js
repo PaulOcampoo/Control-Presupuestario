@@ -17018,10 +17018,14 @@ async function apiDownload(path, fallbackName) {
 // ---------------------------------------------------------------------------
 
 const NOMINA_ESTADO_LABELS = {
-  borrador: 'Borrador', revision: 'En revisión', aprobada: 'Aprobada', rechazada: 'Rechazada',
+  borrador: 'Borrador', revision: 'En revisión', aprobada: 'Aprobada', rechazada: 'Rechazada', cancelada: 'Cancelada',
 };
+// 'purple' para cancelada: distinguible tanto de 'muted' (borrador, activa)
+// como de 'red' (rechazada, requiere acción/reenvío) -- cancelada es un
+// estado terminal, sin acción pendiente, así que no debe leerse como
+// ninguno de esos dos (prompt-cancelar-nomina-implementacion.md).
 const NOMINA_ESTADO_BADGE = {
-  borrador: 'muted', revision: 'yellow', aprobada: 'green', rechazada: 'red',
+  borrador: 'muted', revision: 'yellow', aprobada: 'green', rechazada: 'red', cancelada: 'purple',
 };
 
 // Vista global — solo admin/desarrollador (ver GET /api/nominas en server/app.js):
@@ -18114,6 +18118,7 @@ async function renderNominas(view) {
               <button class="btn small btn-primary" data-aprobar-nomina="${n.id}">Aprobar</button>
               <button class="btn small btn-danger" data-rechazar-nomina="${n.id}">Rechazar</button>` : ''}
             ${n.estado === 'aprobada' && puedeAprobarNomina() ? `<button class="btn small" data-reabrir-nomina="${n.id}">Reabrir</button>` : ''}
+            ${['borrador', 'revision'].includes(n.estado) && puedeAprobarNomina() ? `<button class="btn small btn-danger" data-cancelar-nomina="${n.id}">Cancelar</button>` : ''}
             ${n.estado === 'aprobada' ? `<button class="btn small btn-primary" data-exportar-nomina="${n.id}" data-exportar-nombre="Nomina_${n.id}">Exportar Excel</button>` : ''}
           </div>
         </div>
@@ -18152,6 +18157,9 @@ async function renderNominas(view) {
       });
       $$('[data-reabrir-nomina]', el).forEach((btn) => {
         btn.addEventListener('click', () => openCambioEstadoModal(Number(btn.dataset.reabrirNomina), 'borrador', null, loadNominas));
+      });
+      $$('[data-cancelar-nomina]', el).forEach((btn) => {
+        btn.addEventListener('click', () => openCambioEstadoModal(Number(btn.dataset.cancelarNomina), 'cancelada', true, loadNominas));
       });
       $$('[data-exportar-nomina]', el).forEach((btn) => {
         btn.addEventListener('click', async () => {
@@ -18278,25 +18286,38 @@ async function openVerNominaModal(nominaId) {
 }
 
 async function openCambioEstadoModal(nominaId, nuevoEstado, pedirNota, onDone) {
-  const accionLabel = { revision: 'Enviar a revisión', aprobada: 'Aprobar nómina', rechazada: 'Rechazar nómina', borrador: 'Reabrir nómina' }[nuevoEstado];
+  const accionLabel = { revision: 'Enviar a revisión', aprobada: 'Aprobar nómina', rechazada: 'Rechazar nómina', borrador: 'Reabrir nómina', cancelada: 'Cancelar nómina' }[nuevoEstado];
+  // prompt-cancelar-nomina-implementacion.md: cancelar exige motivo (a
+  // diferencia de rechazar, que lo deja opcional) -- mismo modal, distinto
+  // texto y validación. "Cerrar" en vez de "Cancelar" para el botón de
+  // descartar el modal: con la acción misma llamándose "Cancelar nómina",
+  // un botón "Cancelar" ahí se prestaría a confundirse con confirmar la
+  // cancelación.
+  const esCancelacion = nuevoEstado === 'cancelada';
+  const notaLabel = esCancelacion ? 'Motivo de cancelación (obligatorio)' : 'Nota para el residente (opcional)';
+  const dismissLabel = esCancelacion ? 'Cerrar' : 'Cancelar';
   openModal(`
     <h3>${accionLabel}</h3>
-    ${pedirNota ? `<div class="field"><label>Nota para el residente (opcional)</label><textarea id="estadoNota" rows="3"></textarea></div>` : ''}
+    ${pedirNota ? `<div class="field"><label>${notaLabel}</label><textarea id="estadoNota" rows="3"></textarea></div>` : ''}
     <p class="muted fs-088">¿Confirmas el cambio de estado?</p>
     <div class="modal-actions">
-      <button class="btn" id="btnCancelEstado">Cancelar</button>
+      <button class="btn" id="btnCancelEstado">${dismissLabel}</button>
       <button class="btn btn-primary" id="btnConfirmEstado">Confirmar</button>
     </div>
   `);
   $('#btnCancelEstado').addEventListener('click', closeModal);
   $('#btnConfirmEstado').addEventListener('click', async () => {
     const btn = $('#btnConfirmEstado');
-    btn.disabled = true;
+    // nota_rechazo (no "nota") -- así es como lo lee PUT /nominas/:id/estado
+    // en el backend (req.body.nota_rechazo); reusar el mismo nombre de
+    // campo para el motivo de cancelación, igual que hace el backend.
     const nota = pedirNota ? ($('#estadoNota')?.value.trim() || null) : null;
+    if (esCancelacion && !nota) { toast('Escribe un motivo de cancelación', 'danger'); return; }
+    btn.disabled = true;
     try {
       await api(`/projects/${state.projectId}/nominas/${nominaId}/estado`, {
         method: 'PUT',
-        body: { estado: nuevoEstado, nota },
+        body: { estado: nuevoEstado, nota_rechazo: nota },
       });
       toast('Estado actualizado', 'success');
       closeModal();

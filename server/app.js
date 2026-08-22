@@ -39,6 +39,7 @@ function trackServerEvent(distinctId, event, properties = {}) {
 const db = require('./db');
 const { parseWorkbook } = require('./parser');
 const { ingest } = require('./ingest');
+const { parseArchivo4Hojas, resumenParaPreview } = require('./crearPresupuestoImport');
 const { generatePlanning } = require('./planning');
 const auth = require('./auth');
 const { sendXlsxExport, buildExportFilename } = require('./exportHelper');
@@ -2817,9 +2818,17 @@ const EXCLUIR_OBRAS_DUPLICADAS_CATALOGO = [13, 41, 42];
 const CONCEPTOS_CATALOGO_WHERE_SQL = 'co.activo = 1 AND co.es_total = 0 AND co.precio_unitario > 0 AND co.codigo IS NOT NULL AND p.id <> ALL($1::int[])';
 const CONCEPTOS_CATALOGO_ORDER_SQL = 'co.codigo, p.creado_en DESC, co.id DESC';
 
+// prompt-fase1-3-export-import-4-hojas.md: co.id AS concepto_id_origen se
+// agrega para que el modal "Crear presupuesto desde catálogo" pueda trazar
+// cada concepto seleccionado de vuelta a su obra/concepto real de origen
+// (necesario para resolver Destajo/Insumos/Matrices en el export de 4
+// hojas) -- obra_origen_id ya existía. Ningún consumidor actual (dashboard,
+// export de catálogo de solo lectura) se ve afectado: ambos solo leen las
+// claves que ya usaban, un campo extra en la fila no les cambia nada.
 async function conceptosCatalogoQuery(clienteId) {
   const { rows } = await db.pool.query(`
     SELECT DISTINCT ON (co.codigo)
+      co.id AS concepto_id_origen,
       co.codigo, co.concepto, co.grupo AS categoria, co.unidad,
       co.precio_unitario AS precio_presupuesto, co.cantidad AS cantidad_presupuesto,
       p.id AS obra_origen_id, p.nombre AS obra_origen, p.creado_en AS fecha_origen,
@@ -3062,6 +3071,75 @@ app.post('/api/costos/crear-presupuesto', h(auth.checkPermiso('costos', 'puede_c
   res.status(201).json({ id: record.id, nombre: record.nombre, num_conceptos: items.length, total_sin_iva: totalSinIva });
 }));
 
+// ---------------------------------------------------------------------------
+// prompt-fase1-3-export-import-4-hojas.md: queries cross-obra "de origen"
+// para las Hojas 2-4 del export de "Crear presupuesto desde catálogo".
+// Ninguna reemplaza ni modifica destajo_items/insumos/matrices_precio_unitario
+// de la obra de origen -- son 100% de lectura, resuelven "qué había en la
+// obra donde vive hoy este concepto" para poder copiarlo a la obra nueva.
+// ---------------------------------------------------------------------------
+
+// Destajo: 1 fila por concepto en la práctica (confirmado contra los 28
+// destajo_items reales de Preview — ningún concepto_id con más de un
+// destajista, y ninguno con más de una fila). Si llegara a haber más de una
+// fila para el mismo concepto_id, se usa la más reciente por id (criterio
+// acordado con Paul: no hay ambigüedad real hoy, no vale la pena una regla
+// más compleja para un caso que no ocurre).
+async function destajoOrigenQuery(obraOrigenId, conceptoId) {
+  const { rows } = await db.pool.query(`
+    SELECT di.precio_destajo, di.unidad, di.codigo, di.concepto, d.nombre AS destajista_nombre
+    FROM destajo_items di
+    JOIN destajistas d ON d.id = di.destajista_id
+    WHERE di.project_id = $1 AND di.concepto_id = $2
+    ORDER BY di.id DESC
+    LIMIT 1
+  `, [obraOrigenId, conceptoId]);
+  return rows[0] || null;
+}
+
+// Insumos: resuelto vía matriz_precio_renglones (decisión confirmada con
+// Paul tras verificar en Preview que concepto_insumos solo tiene 1 fila real
+// en toda la base — no es fuente viable). Si el concepto no tiene matriz
+// cargada en su obra de origen, esta query no devuelve nada — caso esperado,
+// no error (documentado explícitamente en el prompt).
+async function insumosOrigenQuery(obraOrigenId, conceptoId) {
+  const { rows } = await db.pool.query(`
+    SELECT DISTINCT insumos.codigo, insumos.concepto AS descripcion, insumos.categoria,
+           insumos.unidad, insumos.precio_presupuesto, insumos.iva_tasa
+    FROM matriz_precio_renglones r
+    JOIN matrices_precio_unitario m ON r.matriz_id = m.id
+    JOIN insumos ON r.insumo_id = insumos.id
+    WHERE m.concepto_id = $1 AND r.tipo = 'insumo' AND insumos.project_id = $2
+    ORDER BY insumos.codigo
+  `, [conceptoId, obraOrigenId]);
+  return rows;
+}
+
+// Matrices: cabecera (matrices_precio_unitario) + todos sus renglones
+// (matriz_precio_renglones), ambos de la obra de origen. concepto_id ya es
+// único por matriz (UNIQUE en el schema), así que a lo más 1 matriz por
+// concepto.
+async function matrizOrigenQuery(obraOrigenId, conceptoId) {
+  const { rows: cabRows } = await db.pool.query(`
+    SELECT m.id, m.pct_indirecto, m.pct_utilidad, m.pct_financiamiento,
+           m.rendimiento, m.partida, m.analisis_no, m.cuadrilla_nombre
+    FROM matrices_precio_unitario m
+    JOIN conceptos c ON c.id = m.concepto_id
+    WHERE m.concepto_id = $1 AND c.project_id = $2
+  `, [conceptoId, obraOrigenId]);
+  const cabecera = cabRows[0] || null;
+  if (!cabecera) return null;
+  const { rows: renglones } = await db.pool.query(`
+    SELECT r.categoria, r.tipo, r.codigo, r.descripcion, r.cantidad, r.factor_referencia,
+           i.codigo AS insumo_codigo
+    FROM matriz_precio_renglones r
+    LEFT JOIN insumos i ON i.id = r.insumo_id
+    WHERE r.matriz_id = $1
+    ORDER BY r.orden, r.id
+  `, [cabecera.id]);
+  return { cabecera, renglones };
+}
+
 // Exporta a Excel los ítems armados en el modal "Crear presupuesto desde
 // catálogo" (prompt-exportar-excel-modal-catalogo.md) — SIN crear nada,
 // generación pura de archivo. Convive con POST /costos/crear-presupuesto de
@@ -3075,6 +3153,70 @@ app.post('/api/costos/crear-presupuesto', h(auth.checkPermiso('costos', 'puede_c
 // Mismo permiso que crear-presupuesto (puede_crear, no puede_ver): exportar
 // es parte del mismo flujo/modal, no tiene sentido darle el archivo a quien
 // ni siquiera podría crear el presupuesto directo.
+// prompt-fase1-3-export-import-4-hojas.md: si al menos un ítem trae
+// obra_origen_id + concepto_id_origen (viene del catálogo de Conceptos, no
+// del de Insumos — ver openCrearPresupuestoModal), se generan también las
+// Hojas 2-4 resolviendo cada ítem contra su obra/concepto de origen real.
+// Hoja 1 no cambia de formato bajo ninguna circunstancia (Forbidden Action).
+async function construirHojasDestajoInsumosMatrices(items) {
+  const conOrigen = items.filter((it) => it.obra_origen_id != null && it.concepto_id_origen != null);
+
+  const destajoFilas = [];
+  const insumosFilas = [];
+  const matricesFilas = [];
+
+  await Promise.all(conOrigen.map(async (it) => {
+    const [destajo, insumos, matriz] = await Promise.all([
+      destajoOrigenQuery(it.obra_origen_id, it.concepto_id_origen),
+      insumosOrigenQuery(it.obra_origen_id, it.concepto_id_origen),
+      matrizOrigenQuery(it.obra_origen_id, it.concepto_id_origen),
+    ]);
+
+    if (destajo) {
+      destajoFilas.push({
+        codigo: it.codigo, concepto: it.concepto, unidad: destajo.unidad || it.unidad || '',
+        precio_destajo_maximo: Number(destajo.precio_destajo), destajista_nombre: destajo.destajista_nombre,
+      });
+    }
+
+    for (const ins of insumos) {
+      insumosFilas.push({
+        codigo_insumo: ins.codigo, descripcion: ins.descripcion, categoria: ins.categoria,
+        unidad: ins.unidad, precio_presupuesto: Number(ins.precio_presupuesto),
+        iva_tasa: Number(ins.iva_tasa), codigo_concepto: it.codigo,
+      });
+    }
+
+    if (matriz) {
+      const { cabecera, renglones } = matriz;
+      const base = {
+        codigo_concepto: it.codigo, partida: cabecera.partida, rendimiento: cabecera.rendimiento,
+        pct_indirecto: Number(cabecera.pct_indirecto), pct_utilidad: Number(cabecera.pct_utilidad),
+        pct_financiamiento: Number(cabecera.pct_financiamiento), analisis_no: cabecera.analisis_no,
+        cuadrilla_nombre: cabecera.cuadrilla_nombre,
+      };
+      // Tabla denormalizada (1 fila por renglón, cabecera repetida) en vez de
+      // 2 bloques separados dentro de la misma hoja — sendXlsxExport/addSheet
+      // (server/exportHelper.js) solo soporta 1 tabla plana por hoja; una
+      // matriz sin renglones (caso raro, no visto en datos reales de
+      // Preview) igual emite 1 fila para no perder la cabecera.
+      if (!renglones.length) {
+        matricesFilas.push({ ...base, categoria_renglon: null, tipo_renglon: null, codigo_insumo_renglon: null, descripcion_renglon: null, cantidad_renglon: null, factor_referencia_renglon: null });
+      } else {
+        for (const r of renglones) {
+          matricesFilas.push({
+            ...base, categoria_renglon: r.categoria, tipo_renglon: r.tipo,
+            codigo_insumo_renglon: r.insumo_codigo || r.codigo, descripcion_renglon: r.descripcion,
+            cantidad_renglon: Number(r.cantidad), factor_referencia_renglon: r.factor_referencia,
+          });
+        }
+      }
+    }
+  }));
+
+  return { destajoFilas, insumosFilas, matricesFilas };
+}
+
 app.post('/api/costos/crear-presupuesto/export', h(auth.checkPermiso('costos', 'puede_crear')), h(async (req, res) => {
   const { nombre, items } = req.body || {};
   if (!Array.isArray(items) || !items.length) return res.status(400).json({ error: 'El presupuesto debe incluir al menos un concepto' });
@@ -3084,28 +3226,240 @@ app.post('/api/costos/crear-presupuesto/export', h(auth.checkPermiso('costos', '
       return res.status(400).json({ error: `Cantidad/precio inválidos para el concepto "${it.concepto}"` });
     }
   }
+  const sheets = [{
+    sheetName: 'Presupuesto',
+    columns: [
+      { header: 'Código', key: 'codigo', width: 16 },
+      { header: 'Concepto', key: 'concepto', width: 50 },
+      { header: 'Unidad', key: 'unidad', width: 10 },
+      { header: 'Cantidad', key: 'cantidad', width: 14 },
+      { header: 'Precio Unitario', key: 'precio_unitario', width: 18, format: 'money' },
+      { header: 'Importe', key: 'importe', width: 18, format: 'money' },
+    ],
+    rows: items.map((it) => {
+      const cantidad = Number(it.cantidad);
+      const precio_unitario = Number(it.precio_unitario);
+      return {
+        codigo: it.codigo.trim(), concepto: it.concepto.trim(), unidad: it.unidad || '',
+        cantidad, precio_unitario, importe: cantidad * precio_unitario,
+      };
+    }),
+  }];
+
+  const tieneOrigen = items.some((it) => it.obra_origen_id != null && it.concepto_id_origen != null);
+  if (tieneOrigen) {
+    const { destajoFilas, insumosFilas, matricesFilas } = await construirHojasDestajoInsumosMatrices(items);
+    sheets.push(
+      {
+        sheetName: 'Destajo',
+        columns: [
+          { header: 'Código', key: 'codigo', width: 16 },
+          { header: 'Concepto', key: 'concepto', width: 50 },
+          { header: 'Unidad', key: 'unidad', width: 10 },
+          { header: 'Precio Destajo Máximo', key: 'precio_destajo_maximo', width: 20, format: 'money' },
+          { header: 'Destajista (obra de origen)', key: 'destajista_nombre', width: 26 },
+        ],
+        rows: destajoFilas,
+      },
+      {
+        sheetName: 'Insumos',
+        columns: [
+          { header: 'Código Insumo', key: 'codigo_insumo', width: 16 },
+          { header: 'Descripción', key: 'descripcion', width: 45 },
+          { header: 'Categoría', key: 'categoria', width: 18 },
+          { header: 'Unidad', key: 'unidad', width: 10 },
+          { header: 'Precio Presupuesto', key: 'precio_presupuesto', width: 18, format: 'money' },
+          { header: 'IVA Tasa', key: 'iva_tasa', width: 10, format: 'int' },
+          { header: 'Código Concepto', key: 'codigo_concepto', width: 16 },
+        ],
+        rows: insumosFilas,
+      },
+      {
+        sheetName: 'Matrices',
+        columns: [
+          { header: 'Código Concepto', key: 'codigo_concepto', width: 16 },
+          { header: 'Partida', key: 'partida', width: 20 },
+          { header: 'Rendimiento', key: 'rendimiento', width: 14 },
+          { header: '% Indirecto', key: 'pct_indirecto', width: 14 },
+          { header: '% Utilidad', key: 'pct_utilidad', width: 14 },
+          { header: '% Financiamiento', key: 'pct_financiamiento', width: 16 },
+          { header: 'Análisis No.', key: 'analisis_no', width: 14 },
+          { header: 'Cuadrilla', key: 'cuadrilla_nombre', width: 20 },
+          { header: 'Categoría (renglón)', key: 'categoria_renglon', width: 20 },
+          { header: 'Tipo (renglón)', key: 'tipo_renglon', width: 12 },
+          { header: 'Código Insumo (renglón)', key: 'codigo_insumo_renglon', width: 20 },
+          { header: 'Descripción (renglón)', key: 'descripcion_renglon', width: 40 },
+          { header: 'Cantidad (renglón)', key: 'cantidad_renglon', width: 16 },
+          { header: 'Factor Referencia (renglón)', key: 'factor_referencia_renglon', width: 20 },
+        ],
+        rows: matricesFilas,
+      },
+    );
+  }
+
   await sendXlsxExport(res, {
     filename: buildExportFilename('Presupuesto', nombre?.trim() || 'DesdeCatalogo'),
-    sheets: [{
-      sheetName: 'Presupuesto',
-      columns: [
-        { header: 'Código', key: 'codigo', width: 16 },
-        { header: 'Concepto', key: 'concepto', width: 50 },
-        { header: 'Unidad', key: 'unidad', width: 10 },
-        { header: 'Cantidad', key: 'cantidad', width: 14 },
-        { header: 'Precio Unitario', key: 'precio_unitario', width: 18, format: 'money' },
-        { header: 'Importe', key: 'importe', width: 18, format: 'money' },
-      ],
-      rows: items.map((it) => {
-        const cantidad = Number(it.cantidad);
-        const precio_unitario = Number(it.precio_unitario);
-        return {
-          codigo: it.codigo.trim(), concepto: it.concepto.trim(), unidad: it.unidad || '',
-          cantidad, precio_unitario, importe: cantidad * precio_unitario,
-        };
-      }),
-    }],
+    sheets,
   });
+}));
+
+// ---------------------------------------------------------------------------
+// prompt-fase1-3-export-import-4-hojas.md: import completo del archivo de 4
+// hojas — crea una obra NUEVA (presupuesto + destajo + insumos + matrices)
+// en una sola transacción. Ruta separada, NO reutiliza el importador de
+// Mapeo ni el de Matrices Neodata (Forbidden Action) — ninguno de los dos
+// soporta crear conceptos/insumos nuevos desde cero, que es justo lo que
+// hace falta aquí. Alcance v1: solo creación de obra nueva (confirmado con
+// Paul) — no hay "actualizar obra existente".
+// Mismo patrón preview→confirm que "Actualizar presupuesto"/Matrices
+// Neodata: confirm nunca confía en lo que mandó el preview, re-descarga y
+// re-parsea el archivo desde cero.
+async function prepararImportCompleto(archivo_url) {
+  const tmpPath = path.join(os.tmpdir(), `crear-presupuesto-import-${Date.now()}-${Math.round(Math.random() * 1e9)}.xlsx`);
+  try {
+    await descargarBlobXlsxATmp(archivo_url, tmpPath);
+    return await parseArchivo4Hojas(tmpPath);
+  } finally {
+    fs.rm(tmpPath, () => {});
+  }
+}
+
+app.post('/api/costos/crear-presupuesto/import-completo/preview', h(auth.checkPermiso('costos', 'puede_crear')), h(async (req, res) => {
+  const { archivo_url } = req.body || {};
+  if (!archivo_url) return res.status(400).json({ error: 'Sube un archivo .xlsx de 4 hojas (Presupuesto/Destajo/Insumos/Matrices)' });
+  try {
+    const parsed = await prepararImportCompleto(archivo_url);
+    res.json(resumenParaPreview(parsed));
+  } catch (err) {
+    res.status(err.status || 400).json({ error: err.message });
+  }
+}));
+
+app.post('/api/costos/crear-presupuesto/import-completo/confirm', h(auth.checkPermiso('costos', 'puede_crear')), h(async (req, res) => {
+  const { archivo_url, nombre, cliente_id, confirmado } = req.body || {};
+  if (!archivo_url) return res.status(400).json({ error: 'Sube un archivo .xlsx de 4 hojas (Presupuesto/Destajo/Insumos/Matrices)' });
+  if (!nombre?.trim()) return res.status(400).json({ error: 'Indica el nombre de la obra' });
+  const clienteId = Number(cliente_id);
+  if (!Number.isFinite(clienteId)) return res.status(400).json({ error: 'Indica a qué cliente pertenece este presupuesto' });
+  if (confirmado !== true) return res.status(400).json({ error: 'Falta confirmar explícitamente la importación' });
+  const { rows: clienteRows } = await db.pool.query('SELECT id FROM clientes WHERE id = $1', [clienteId]);
+  if (!clienteRows[0]) return res.status(400).json({ error: 'El cliente indicado no existe' });
+
+  let parsed;
+  try {
+    parsed = await prepararImportCompleto(archivo_url);
+  } catch (err) {
+    return res.status(err.status || 400).json({ error: err.message });
+  }
+
+  // Destajistas agrupados por nombre (case-insensitive, decisión confirmada
+  // con Paul) — el universo de destajistas es por obra, así que "recrear por
+  // nombre" siempre CREA un destajista nuevo en la obra nueva (nunca hay uno
+  // preexistente con quien hacer match, la obra no existe hasta este mismo
+  // insert). ingest() ya resuelve concepto_id por código contra los
+  // conceptos recién insertados — mismo mecanismo que usa para archivos de
+  // alta inicial con hoja de Destajistas real.
+  const destajistasPorNombreLower = new Map();
+  for (const d of parsed.destajo) {
+    const nombreDestajista = d.destajista_nombre?.trim() || 'Sin destajista asignado';
+    const key = nombreDestajista.toLowerCase();
+    if (!destajistasPorNombreLower.has(key)) destajistasPorNombreLower.set(key, { nombre: nombreDestajista, orden: destajistasPorNombreLower.size, items: [] });
+    destajistasPorNombreLower.get(key).items.push({
+      codigo: d.codigo, concepto: parsed.conceptos.find((c) => c.codigo === d.codigo)?.concepto || d.codigo,
+      unidad: d.unidad, cantidad_asignada: 0, precio_destajo: d.precio_destajo_maximo, orden: 0,
+    });
+
+  }
+
+  const ingestParsed = {
+    meta: { total_sin_iva: parsed.conceptos.reduce((s, c) => s + c.importe, 0) },
+    conceptos: parsed.conceptos.map((c) => ({ ...c, grupo: null, es_total: 0 })),
+    insumos: [], // Hoja 3 se inserta aparte abajo (real, no el mirror-de-conceptos que usa ingest()).
+    destajistas: [...destajistasPorNombreLower.values()],
+  };
+
+  let record;
+  try {
+    await db.withTransaction(async (client) => {
+      // Proyecto creado DENTRO de la transacción (a diferencia de
+      // POST /costos/crear-presupuesto, que lo crea afuera) -- Forbidden
+      // Action explícita de este prompt: "si cualquier paso falla, rollback
+      // completo, no dejar la obra a medias". Si createProjectRecord
+      // corriera afuera y luego ingest() u otro insert fallara, quedaría un
+      // proyecto vacío huérfano.
+      const { rows: projRows } = await client.query(
+        'INSERT INTO proyectos (nombre, archivo_original, cliente_id) VALUES ($1, $2, $3) RETURNING *',
+        [nombre.trim(), null, clienteId]
+      );
+      record = projRows[0];
+
+      await ingest(client, record.id, ingestParsed);
+
+      const { rows: conceptoRows } = await client.query('SELECT id, codigo FROM conceptos WHERE project_id = $1', [record.id]);
+      const conceptoIdPorCodigo = new Map(conceptoRows.map((c) => [c.codigo, c.id]));
+
+      // Hoja 3 real (multi-insumo por concepto, vía matriz de origen) +
+      // concepto_insumos, para consistencia con el resto del sistema aunque
+      // hoy casi ningún concepto tenga esa relación poblada (ver Fase 0).
+      const insumoIdPorCodigo = new Map();
+      for (const ins of parsed.insumos) {
+        const { rows } = await client.query(
+          `INSERT INTO insumos (project_id, codigo, concepto, categoria, unidad, cantidad_presupuesto, precio_presupuesto, importe_presupuesto, iva_tasa, orden)
+           VALUES ($1,$2,$3,$4,$5,0,$6,0,$7,0) RETURNING id`,
+          [record.id, ins.codigo_insumo, ins.descripcion, ins.categoria, ins.unidad, ins.precio_presupuesto, ins.iva_tasa || 16]
+        );
+        insumoIdPorCodigo.set(ins.codigo_insumo, rows[0].id);
+        const conceptoId = conceptoIdPorCodigo.get(ins.codigo_concepto);
+        if (conceptoId) {
+          await client.query(
+            'INSERT INTO concepto_insumos (concepto_id, insumo_id) VALUES ($1,$2) ON CONFLICT DO NOTHING',
+            [conceptoId, insumoIdPorCodigo.get(ins.codigo_insumo)]
+          );
+        }
+      }
+
+      // Hoja 4: matrices_precio_unitario + matriz_precio_renglones,
+      // resolviendo insumo_id de cada renglón contra los insumos recién
+      // insertados arriba (por código) -- si un renglón referencia un
+      // código de insumo que no vino en Hoja 3, el renglón se inserta sin
+      // insumo_id (tipo factor_pct ya funciona así de por sí; para tipo
+      // 'insumo' sin match, se guarda igual con insumo_id NULL en vez de
+      // perder el renglón completo, ya que categoria/tipo/cantidad siguen
+      // siendo información real).
+      for (const m of parsed.matrices) {
+        const conceptoId = conceptoIdPorCodigo.get(m.codigo_concepto);
+        if (!conceptoId) continue; // ya validado arriba, no debería pasar
+        const { rows: matRows } = await client.query(
+          `INSERT INTO matrices_precio_unitario
+             (concepto_id, pct_indirecto, pct_utilidad, pct_financiamiento, rendimiento, partida, analisis_no, cuadrilla_nombre)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
+          [conceptoId, m.pct_indirecto, m.pct_utilidad, m.pct_financiamiento, m.rendimiento, m.partida, m.analisis_no, m.cuadrilla_nombre]
+        );
+        const matrizId = matRows[0].id;
+        let orden = 0;
+        for (const r of m.renglones) {
+          const insumoId = r.codigo_insumo ? (insumoIdPorCodigo.get(r.codigo_insumo) || null) : null;
+          await client.query(
+            `INSERT INTO matriz_precio_renglones (matriz_id, categoria, tipo, insumo_id, codigo, descripcion, cantidad, factor_referencia, orden)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+            [matrizId, r.categoria, r.tipo, insumoId, r.codigo_insumo || null, r.descripcion, r.cantidad, r.factor_referencia, orden++]
+          );
+        }
+      }
+
+      const ip = auth.getIp(req);
+      await client.query(
+        `INSERT INTO audit_log (actor_id, actor_usuario, accion, target_id, project_id, ip, detalle)
+         VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+        [req.user.id, req.user.usuario, 'crear_presupuesto_import_completo', record.id, record.id, ip,
+          JSON.stringify({ cliente_id: clienteId, ...resumenParaPreview(parsed) })]
+      );
+    });
+  } catch (err) {
+    return res.status(400).json({ error: err.message });
+  }
+
+  res.status(201).json({ id: record.id, nombre: record.nombre, ...resumenParaPreview(parsed) });
 }));
 
 // ---------------------------------------------------------------------------

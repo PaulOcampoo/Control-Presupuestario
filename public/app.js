@@ -14941,6 +14941,12 @@ function openCrearPresupuestoModal(catalogoOriginal) {
     codigo: r.codigo, concepto: r.concepto, categoria: r.categoria, unidad: r.unidad,
     cantidad: r.cantidad_presupuesto || 1, precio_unitario: r.precio_presupuesto,
     obra_origen_id: r.obra_origen_id ?? null, concepto_id_origen: r.concepto_id_origen ?? null,
+    // prompt-advertencia-catalogo-sin-destajo-matriz.md: flags de solo lectura
+    // (nunca se mandan de vuelta como parte del "modelo" del ítem que importa
+    // al backend -- éste los ignora si llegan, no se limpian a propósito para
+    // no complicar el mapeo). null cuando el catálogo de origen es el de
+    // Insumos (conMatrices=false), igual que concepto_id_origen.
+    tiene_destajo: r.tiene_destajo ?? null, tiene_matriz: r.tiene_matriz ?? null,
   }));
   // true si el catálogo de origen es el de Conceptos (tiene concepto_id_origen
   // en al menos una fila) -- solo entonces tiene sentido Destajo/Matrices.
@@ -14959,8 +14965,23 @@ function openCrearPresupuestoModal(catalogoOriginal) {
     }, []);
   }
 
+  // prompt-advertencia-catalogo-sin-destajo-matriz.md: badge puramente
+  // informativo, nunca bloquea selección/export (Forbidden Action). '' (sin
+  // ícono) cuando el concepto no tiene origen trazable (catálogo de Insumos)
+  // o cuando sí tiene destajo Y matriz -- el ícono es la excepción, no la regla.
+  function warnBadgeHtml(it) {
+    if (it.concepto_id_origen == null) return '';
+    const faltaDestajo = !it.tiene_destajo;
+    const faltaMatriz = !it.tiene_matriz;
+    if (!faltaDestajo && !faltaMatriz) return '';
+    const titulo = faltaDestajo && faltaMatriz
+      ? 'Sin destajo ni matriz cargados en la obra de origen'
+      : faltaDestajo ? 'Sin destajo cargado en la obra de origen' : 'Sin matriz cargada en la obra de origen';
+    return `<span class="cp-warn-badge" title="${esc(titulo)}">⚠️</span>`;
+  }
+
   function renderRows(idxVisibles) {
-    if (!idxVisibles.length) return `<tr><td colspan="5" class="muted">Sin conceptos que coincidan con la búsqueda.</td></tr>`;
+    if (!idxVisibles.length) return `<tr><td colspan="${conMatrices ? 6 : 5}" class="muted">Sin conceptos que coincidan con la búsqueda.</td></tr>`;
     return idxVisibles.map((idx) => {
       const it = items[idx];
       return `
@@ -14970,9 +14991,28 @@ function openCrearPresupuestoModal(catalogoOriginal) {
         <td>${esc(it.concepto)}</td>
         <td class="num"><input type="number" class="cp-cantidad" data-idx="${idx}" value="${it.cantidad}" min="0" step="any" /></td>
         <td class="num"><input type="number" class="cp-precio" data-idx="${idx}" value="${it.precio_unitario}" min="0" step="any" /></td>
+        ${conMatrices ? `<td class="cp-warn-col">${warnBadgeHtml(it)}</td>` : ''}
       </tr>
     `;
     }).join('');
+  }
+
+  // prompt-advertencia-catalogo-sin-destajo-matriz.md: resumen no bloqueante
+  // de la SELECCIÓN actual (no de todo el catálogo) -- se recalcula en cada
+  // repintarTbody/actualizarContadorYBoton para que quede visible en el modal
+  // antes de que el usuario le dé a exportar/confirmar, sin necesidad de un
+  // diálogo aparte que interrumpa el flujo.
+  function resumenAdvertenciasSeleccion() {
+    if (!conMatrices) return '';
+    const idxsSel = [...seleccionados];
+    const conAdvertencia = idxsSel.filter((idx) => items[idx].concepto_id_origen != null && (!items[idx].tiene_destajo || !items[idx].tiene_matriz));
+    if (!conAdvertencia.length) return '';
+    const sinMatriz = conAdvertencia.filter((idx) => !items[idx].tiene_matriz).length;
+    const sinDestajo = conAdvertencia.filter((idx) => !items[idx].tiene_destajo).length;
+    const partes = [];
+    if (sinMatriz) partes.push(`${sinMatriz} sin matriz`);
+    if (sinDestajo) partes.push(`${sinDestajo} sin destajo`);
+    return `⚠️ ${conAdvertencia.length} de ${idxsSel.length} concepto${idxsSel.length === 1 ? '' : 's'} seleccionado${idxsSel.length === 1 ? '' : 's'} (${partes.join(', ')}) traerán Hojas 2-4 incompletas si exportas ahora.`;
   }
 
   // prompt-URGENTE-fix-crear-presupuesto-cliente.md: causa raíz confirmada
@@ -15001,6 +15041,8 @@ function openCrearPresupuestoModal(catalogoOriginal) {
       const idxVisibles = indicesFiltrados();
       selAllChk.checked = idxVisibles.length > 0 && idxVisibles.every((idx) => seleccionados.has(idx));
     }
+    const resumenEl = $('#cpAdvertenciaResumen');
+    if (resumenEl) resumenEl.textContent = resumenAdvertenciasSeleccion();
   }
 
   function repintarTbody() {
@@ -15044,10 +15086,12 @@ function openCrearPresupuestoModal(catalogoOriginal) {
         <thead><tr>
           <th><label class="checkbox-circle" title="Seleccionar todos los visibles"><input type="checkbox" id="cpSelAllVisibles" /><span class="checkbox-circle-visual"></span></label></th>
           <th>Código</th><th>Concepto</th><th class="num">Cantidad</th><th class="num">Precio</th>
+          ${conMatrices ? `<th class="cp-warn-col" title="Destajo/Matriz en la obra de origen"></th>` : ''}
         </tr></thead>
         <tbody id="cpTbody">${renderRows(indicesFiltrados())}</tbody>
       </table>
     </div>
+    ${conMatrices ? `<p id="cpAdvertenciaResumen" class="muted fs-08 mt-8 cp-warn-resumen"></p>` : ''}
     <div class="modal-actions">
       <button class="btn" id="btnCancelCrearPresupuesto">Cancelar</button>
       <button class="btn" id="btnExportarCrearPresupuesto">⭳ Exportar a Excel</button>
@@ -15101,6 +15145,12 @@ function openCrearPresupuestoModal(catalogoOriginal) {
   // archivo en vez de dar de alta la obra.
   $('#btnExportarCrearPresupuesto').addEventListener('click', async () => {
     if (!seleccionados.size) { toast('Selecciona al menos un concepto', ''); return; }
+    // prompt-advertencia-catalogo-sin-destajo-matriz.md: aviso puramente
+    // informativo justo antes de generar el archivo -- no detiene el export
+    // (Forbidden Action), el resumen persistente arriba de la tabla ya venía
+    // visible desde antes de hacer clic.
+    const resumen = resumenAdvertenciasSeleccion();
+    if (resumen) toast(resumen, '');
     const btn = $('#btnExportarCrearPresupuesto');
     const textoOriginal = btn.textContent;
     btn.disabled = true; btn.textContent = 'Exportando…';

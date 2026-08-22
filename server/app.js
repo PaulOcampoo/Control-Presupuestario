@@ -10110,7 +10110,13 @@ app.post('/api/projects/:id/asistencia/desmarcar-todos', h(auth.allow('residente
 // ===========================================================================
 // NÓMINAS
 // ===========================================================================
-const ESTADOS_NOMINA = ['borrador', 'revision', 'aprobada', 'rechazada'];
+// prompt-cancelar-nomina-implementacion.md: 'cancelada' es soft-delete
+// (mismo patrón ya usado en Requisiciones) para una nómina capturada por
+// error en 'borrador'/'revision' -- NUNCA se agrega la transición
+// aprobada→cancelada (una aprobada ya es "dinero real" en Erogado Real y en
+// el Reporte de Maquinaria por cliente; revertir eso es una decisión de
+// negocio aparte, no este cambio).
+const ESTADOS_NOMINA = ['borrador', 'revision', 'aprobada', 'rechazada', 'cancelada'];
 
 // Vista global: todas las nóminas de todas las obras y todos los residentes
 // (a diferencia de GET /projects/:id/nominas, que un residente solo ve las
@@ -10629,9 +10635,11 @@ app.put('/api/projects/:id/nominas/:nomId/estado', h(auth.allow('residente', 'ca
   const esCabo = req.user.puesto === 'cabo';
 
   // Máquina de estados y validación de rol
+  // prompt-cancelar-nomina-implementacion.md: cancelar es admin-only, solo
+  // desde borrador/revision -- nunca desde aprobada (fuera de alcance).
   const transicionesPermitidas = {
-    borrador:  { revision: true },                    // residente, cabo o admin
-    revision:  { aprobada: esAdmin, rechazada: esAdmin, borrador: esAdmin },
+    borrador:  { revision: true, cancelada: esAdmin },
+    revision:  { aprobada: esAdmin, rechazada: esAdmin, borrador: esAdmin, cancelada: esAdmin },
     rechazada: { borrador: true },                    // residente, cabo o admin
     aprobada:  { borrador: esAdmin },                 // solo admin puede reabrir
   };
@@ -10639,10 +10647,16 @@ app.put('/api/projects/:id/nominas/:nomId/estado', h(auth.allow('residente', 'ca
     return res.status(403).json({ error: `No puedes cambiar de '${nom.estado}' a '${estado}'` });
   }
   // Residente/cabo solo pueden enviar a revisión (mismo límite para ambos —
-  // ninguno de los dos puede aprobar/rechazar/reabrir, eso sigue siendo
-  // exclusivo de admin vía esAdmin arriba).
+  // ninguno de los dos puede aprobar/rechazar/reabrir/cancelar, eso sigue
+  // siendo exclusivo de admin vía esAdmin arriba).
   if ((esResidente || esCabo) && !['revision'].includes(estado)) {
     return res.status(403).json({ error: 'Este rol solo puede enviar la nómina a revisión' });
+  }
+  // Motivo obligatorio para cancelar (nota_rechazo reusado en este contexto
+  // como "motivo de cancelación") -- a diferencia de rechazar, que lo deja
+  // opcional, cancelar es más definitivo y Paul pidió que siempre se explique.
+  if (estado === 'cancelada' && !nota_rechazo?.trim()) {
+    return res.status(400).json({ error: 'La cancelación requiere un motivo' });
   }
 
   const aprobadaPor = estado === 'aprobada' ? req.user.id : null;
@@ -10668,7 +10682,13 @@ app.delete('/api/projects/:id/nominas/:nomId', h(auth.allow('residente', 'cabo')
   const nomId = Number(req.params.nomId);
   const { rows: nomRows } = await db.pool.query('SELECT estado FROM nominas WHERE id=$1 AND project_id=$2', [nomId, req.project.id]);
   if (!nomRows[0]) return res.status(404).json({ error: 'Nómina no encontrada' });
-  if (nomRows[0].estado === 'aprobada') return res.status(409).json({ error: 'No se puede eliminar una nómina aprobada' });
+  // prompt-cancelar-nomina-implementacion.md: acotado a 'borrador' únicamente
+  // (antes permitía también 'revision'/'rechazada') -- mismo patrón que el
+  // DELETE de Requisiciones. Cualquier nómina que ya salió de 'borrador' se
+  // cancela (soft-delete vía PUT /estado), nunca se borra físicamente.
+  if (nomRows[0].estado !== 'borrador') {
+    return res.status(400).json({ error: 'Solo se pueden eliminar nóminas en estado "borrador"' });
+  }
   await db.pool.query('DELETE FROM nominas WHERE id=$1', [nomId]);
   res.json({ ok: true });
 }));

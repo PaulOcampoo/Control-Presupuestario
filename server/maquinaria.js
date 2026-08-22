@@ -348,12 +348,22 @@ async function getPresupuestoSugerido() {
 }
 
 // Reporte de Maquinaria por cliente (Fase 2): presupuesto sugerido (arriba)
-// vs. gasto real (combustible + mantenimiento) de los equipos actualmente
-// asignados a obras de ese cliente. Limitación conocida: el gasto se
-// atribuye según la obra ACTUAL del equipo (equipos_maquinaria.obra_id) —
+// vs. gasto real (combustible + mantenimiento + personal) de los equipos
+// actualmente asignados a obras de ese cliente. Limitación conocida: el gasto
+// se atribuye según la obra ACTUAL del equipo (equipos_maquinaria.obra_id) —
 // si un equipo cambió de obra después de que se le cargó combustible, ese
 // gasto histórico queda con la obra/cliente de HOY, no la de cuando se
 // generó. Es la única relación equipo↔obra↔cliente que existe hoy.
+//
+// gasto_personal (prompt-nomina-personal-maquinaria-implementacion.md):
+// SUM(nomina_items.monto_total) de trabajadores con categoria_costo =
+// 'maquinaria', solo de nóminas 'aprobada' — mismo criterio de "dinero real"
+// que ya exige el resto del sistema de Nómina (una nómina en borrador/revisión
+// puede cambiar o rechazarse, no debe contarse como gasto todavía). A
+// diferencia de combustible/mantenimiento (atribuidos vía equipos_maquinaria.
+// obra_id, que es mutable), aquí se atribuye vía nominas.project_id, que es
+// fijo por periodo de nómina — no hay el mismo problema de reatribución
+// retroactiva. reportes_horas_maquinaria NO se toca ni se referencia aquí.
 async function getReportePorCliente() {
   const sugerido = await getPresupuestoSugerido();
   const sugeridoPorCliente = new Map(sugerido.por_cliente.map((c) => [c.cliente_id, c]));
@@ -374,11 +384,19 @@ async function getReportePorCliente() {
           JOIN equipos_maquinaria e ON e.id = mm.equipo_id
           JOIN proyectos p ON p.id = e.obra_id
           WHERE p.cliente_id = $1 AND mm.activo = true
-        ), 0) AS gasto_mantenimiento
+        ), 0) AS gasto_mantenimiento,
+        COALESCE((
+          SELECT SUM(ni.monto_total) FROM nomina_items ni
+          JOIN trabajadores t ON t.id = ni.trabajador_id AND t.categoria_costo = 'maquinaria'
+          JOIN nominas n ON n.id = ni.nomina_id AND n.estado = 'aprobada'
+          JOIN proyectos p ON p.id = n.project_id
+          WHERE p.cliente_id = $1
+        ), 0) AS gasto_personal
     `, [cliente.id]);
     const sug = sugeridoPorCliente.get(cliente.id);
     const gastoCombustible = Number(gastoRows[0].gasto_combustible);
     const gastoMantenimiento = Number(gastoRows[0].gasto_mantenimiento);
+    const gastoPersonal = Number(gastoRows[0].gasto_personal);
     porCliente.push({
       cliente_id: cliente.id,
       cliente: cliente.nombre,
@@ -386,7 +404,8 @@ async function getReportePorCliente() {
       fuente_mixta: sug?.fuente_mixta || false,
       gasto_combustible: gastoCombustible,
       gasto_mantenimiento: gastoMantenimiento,
-      gasto_total: gastoCombustible + gastoMantenimiento,
+      gasto_personal: gastoPersonal,
+      gasto_total: gastoCombustible + gastoMantenimiento + gastoPersonal,
     });
   }
 

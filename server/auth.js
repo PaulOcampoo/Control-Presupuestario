@@ -1002,10 +1002,24 @@ function tabsParaUsuario(user) {
 }
 
 // Restringe el acceso a la obra (proyecto) cargada por requireProject: el
-// admin siempre pasa; el resto solo si tiene una fila en usuario_proyectos
-// para ese project_id. Debe ir después de requireProject en la cadena.
+// admin siempre pasa, sin excepción. 'desarrollador' pasa sin restricción
+// SOLO si no tiene ninguna fila en usuario_proyectos (preserva el caso de
+// PR #170: su propio cliente/obra recién creado, antes de que nadie le
+// asigne nada) -- en cuanto un admin le asigna obras explícitas, se
+// restringe igual que cualquier otro rol. Antes de este fix, 'desarrollador'
+// bypaseaba esta función incondicionalmente (introducido en d01825f0,
+// 2026-07-08, ANTES y por separado de PR #170), lo que daba acceso completo
+// de lectura/escritura a CUALQUIER obra vía cualquier endpoint gateado por
+// esta función (nóminas, requisiciones, finanzas, contratos, avances...),
+// sin importar usuario_proyectos -- confirmado con evidencia HTTP real
+// (prompt-URGENTE-fix-acceso-todos-presupuestos.md): un desarrollador de
+// prueba restringido a 2 obras obtenía 200 al pedir una tercera obra no
+// asignada, donde un residente con la misma asignación obtenía 403.
+// El resto de roles no cambia: sin fila en usuario_proyectos, sin acceso.
 async function verificarAccesoObra(req, res, next) {
-  if (req.user.puesto === 'admin' || req.user.puesto === 'desarrollador') return next();
+  const veTodo = req.user.puesto === 'admin'
+    || (req.user.puesto === 'desarrollador' && !(await db.usuarioTieneAsignacionExplicita(req.user.id)));
+  if (veTodo) return next();
   const projectId = req.project ? req.project.id : Number(req.params.id);
   const { rows } = await db.pool.query(
     'SELECT 1 FROM usuario_proyectos WHERE usuario_id = $1 AND project_id = $2',

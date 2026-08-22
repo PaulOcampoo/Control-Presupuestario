@@ -12,6 +12,7 @@
  */
 
 const ExcelJS = require('exceljs');
+const { parseMatricesSheet } = require('./matricesImport');
 
 function norm(text) {
   return String(text == null ? '' : text)
@@ -416,6 +417,14 @@ async function parseWorkbook(filePath) {
   const insumos = insumosSheet ? parseInsumos(insumosSheet) : [];
   const destajistas = parseDestajistas(workbook);
   const destajoPrecios = parseDestajoPrecios(workbook);
+  // prompt-matrices-auto-import-alta-obra.md: hoja "Matrices" (nombre exacto,
+  // igual que ya asume el importador manual en server/app.js:
+  // prepararImportacionMatrices) -- se expone cruda (bloques sin resolver
+  // contra conceptos/insumos todavía) para que ingest.js decida cuándo y
+  // contra qué conceptos resolverlos, reusando matricesImport.parseMatricesSheet
+  // en vez de reimplementar el parseo.
+  const matricesSheet = workbook.getWorksheet('Matrices');
+  const matricesBloques = matricesSheet ? parseMatricesSheet(matricesSheet) : [];
 
   return {
     meta,
@@ -423,6 +432,7 @@ async function parseWorkbook(filePath) {
     insumos,
     destajistas,
     destajoPrecios,
+    matricesBloques,
     sheets: {
       presupuesto: budgetSheet ? budgetSheet.name : null,
       insumos: insumosSheet ? insumosSheet.name : null,

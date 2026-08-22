@@ -3,25 +3,27 @@
 // Importador de la hoja "Matrices" del Excel de presupuesto (prompt-
 // importador-matrices-implementacion.md, ver diagnóstico previo validado
 // contra el archivo real EST_Kaila_Red_Hidraulica_06082026.xlsx — 23
-// bloques reales, formato Neodata). Módulo hoja: NO depende de db.js ni de
-// server/app.js — recibe todo lo que necesita como parámetros (mismo
-// patrón que el resto de módulos de server/, ej. maquinaria.js/lotes.js —
-// la orquestación con DB vive en los endpoints de app.js). En particular
-// `calcularMatrizNeodata` se recibe inyectada desde app.js (que ya la tiene
-// definida y exportada) en vez de requerir './app' — evita una dependencia
-// circular (app.js requeriría este módulo para montar sus 2 endpoints
-// nuevos) y cumple la Forbidden Action de no tocar esa función.
+// bloques reales, formato Neodata). Módulo hoja: NO depende de db.js — la
+// orquestación con DB (queries, transacción) vive en los endpoints de
+// app.js y, desde prompt-matrices-auto-import-alta-obra.md, también en
+// server/ingest.js (alta de obra). calcularMatrizNeodata/MATRIZ_CATEGORIAS
+// viven AQUÍ (no en app.js) precisamente para que ingest.js pueda reusarlos
+// sin crear un require circular (app.js ya requiere ./ingest) — app.js las
+// re-exporta con los mismos nombres de siempre, ningún call site existente
+// cambia.
 //
-// Dos fases separadas a propósito:
+// Tres fases separadas a propósito:
 //   1. parseMatricesSheet(sheet): lectura pura fila por fila del Excel —
 //      no sabe nada de insumos/conceptos de ninguna obra, solo entiende la
 //      estructura del archivo. Nunca falla por datos de negocio, solo por
 //      estructura de archivo rota.
-//   2. resolverBloques(...): cruza lo parseado contra el catálogo YA
-//      CARGADO de insumos/conceptos de la obra (asume que "Actualizar
-//      presupuesto"/alta de obra ya corrió — este módulo nunca reparsea la
-//      hoja de Insumos, ver Forbidden Actions) y arma exactamente lo que
-//      insertarRenglones()/calcularMatrizNeodata() ya esperan.
+//   2. resolverBloqueImportacion(...)/resolverSetRenglones(...): cruzan lo
+//      parseado contra el catálogo YA CARGADO de insumos/conceptos de la
+//      obra (asume que "Actualizar presupuesto"/alta de obra ya corrió, sea
+//      en la misma transacción como en ingest.js o antes como en el
+//      importador manual — este módulo nunca reparsea la hoja de Insumos).
+//   3. calcularMatrizNeodata(...): cascada CD/CI/CF/CU sobre los renglones
+//      ya resueltos, sin tocar DB.
 //
 // Limitación conocida y documentada, NO un bug: la hoja real usa 2 formas
 // distintas para una cuadrilla de mano de obra — desglosada por oficio
@@ -33,6 +35,109 @@
 // ERROR_CUADRILLA_PRECOLAPSADA abajo.
 
 const CATEGORIAS_SECCION = ['MATERIALES', 'MANO DE OBRA', 'EQUIPO Y HERRAMIENTA', 'BASICOS'];
+// prompt-matrices-basicos-anidados.md: 'BASICOS' es una 4a categoría para
+// renglones tipo='basico_ref' (un análisis completo reutilizable, ej. una
+// receta de concreto, insertado como un renglón más). A diferencia de
+// MATERIALES/MANO DE OBRA/EQUIPO (siempre esperadas — null si están vacías
+// = matriz incompleta), BASICOS es opcional: la inmensa mayoría de análisis
+// reales no usan ningún básico, así que vacía se trata como 0, no como
+// matriz incompleta (ver el `vacio` condicional más abajo).
+const MATRIZ_CATEGORIAS = CATEGORIAS_SECCION;
+// prompt-matrices-basicos-anidados.md, CP2: Number(n.toFixed(2)) redondea mal
+// los casos exactos ".xx5" por representación binaria de punto flotante (ej.
+// 175.41 × 0.5 = 87.705 matemáticamente, pero (87.705).toFixed(2) da "87.70"
+// en vez de "87.71" — Excel/negocio redondean medio hacia arriba). Detectado
+// al reproducir el renglón EQREV del básico 10401-292 contra el Excel real
+// (fila 172: importe esperado 87.71). Math.round(n*100)/100 no tiene ese
+// sesgo para este caso (verificado: 0 diferencias contra el helper viejo en
+// 200k valores aleatorios — el bug viejo solo se manifestaba en fronteras
+// ".xx5" exactas, no en general).
+const r2 = (n) => Math.round(n * 100) / 100;
+
+// prompt-matrices-auto-import-alta-obra.md: movida desde server/app.js (con
+// MATRIZ_CATEGORIAS/r2 de arriba) para que ingest.js pueda reusarla sin
+// requerir './app' — app.js la re-exporta con el mismo nombre de siempre.
+function calcularMatrizNeodata(renglones, opts) {
+  const pctIndirecto = Number(opts.pct_indirecto) || 0;
+  const pctUtilidad = Number(opts.pct_utilidad) || 0;
+  const pctFinanciamiento = Number(opts.pct_financiamiento) || 0;
+  const rendimiento = opts.rendimiento != null ? Number(opts.rendimiento) : null;
+  // Un básico (es_basico=true) NO divide su categoría MANO DE OBRA entre un
+  // `rendimiento` externo — su renglón de cuadrilla ya trae la división
+  // embebida por fila vía `operador` ('/', ej. "5218.31 / 12"), a diferencia
+  // de una matriz normal (varias filas '*' sumadas y divididas UNA vez entre
+  // matriz.rendimiento). Sin este flag, un básico sin rendimiento capturado
+  // caería en la rama "incompleta" que es correcta para matrices normales
+  // pero rompería el cálculo del básico (prompt-matrices-basicos-anidados.md,
+  // CP2 — verificado contra el Excel real).
+  const esBasico = !!opts.es_basico;
+
+  const subtotales = {};
+  const categorias = MATRIZ_CATEGORIAS.map((cat) => {
+    const delaCat = renglones.filter((r) => r.categoria === cat);
+    if (!delaCat.length) {
+      const vacio = cat === 'BASICOS' ? 0 : null;
+      subtotales[cat] = vacio;
+      return { categoria: cat, subtotal: vacio, importe_jornada: null, renglones: [] };
+    }
+    let sumaInsumos = 0;
+    let sumaFactores = 0;
+    const renglonesCalc = delaCat.map((r) => {
+      if (r.tipo === 'factor_pct') {
+        const base = subtotales[r.factor_referencia];
+        const importe = base != null ? r2(base * Number(r.cantidad)) : null;
+        if (importe != null) sumaFactores += importe;
+        return { ...r, precio_referencia: base, importe };
+      }
+      // tipo='insumo' toma el precio del catálogo (precio_presupuesto);
+      // tipo='basico_ref' toma el costo directo YA RESUELTO del básico
+      // referenciado (ver resolverBasico/resolverRenglonesBasicoRef en
+      // server/app.js — se deja en r.precio_basico antes de llegar aquí).
+      // Mismo patrón cantidad×precio en ambos casos, solo cambia la fuente
+      // del precio. `operador` es la pieza nueva: '/' es el único caso real
+      // hoy (cuadrilla pre-agregada dentro de un básico, ej. "5218.31 / 12"
+      // — verificado contra el Excel real, prompt-matrices-basicos-anidados.md,
+      // CP0). Default '*' preserva el cálculo de todo lo demás sin cambio.
+      const precio = r.tipo === 'basico_ref' ? Number(r.precio_basico) : Number(r.precio_presupuesto);
+      const importe = r.operador === '/' ? r2(precio / Number(r.cantidad)) : r2(precio * Number(r.cantidad));
+      sumaInsumos += importe;
+      return { ...r, importe };
+    });
+    const importeJornada = r2(sumaInsumos + sumaFactores);
+    const esManoObra = cat === 'MANO DE OBRA';
+    const subtotal = esManoObra && !esBasico
+      ? (rendimiento && rendimiento > 0 ? r2(importeJornada / rendimiento) : null)
+      : importeJornada;
+    subtotales[cat] = subtotal;
+    return { categoria: cat, subtotal, importe_jornada: (esManoObra && !esBasico) ? importeJornada : null, renglones: renglonesCalc };
+  });
+
+  const completa = categorias.every((c) => c.subtotal != null);
+  const cd = r2(categorias.reduce((s, c) => s + (c.subtotal || 0), 0));
+  const ci = r2(cd * pctIndirecto / 100);
+  const subtotal1 = r2(cd + ci);
+  const cf = r2(subtotal1 * pctFinanciamiento / 100);
+  const subtotal2 = r2(subtotal1 + cf);
+  const cu = r2(subtotal2 * pctUtilidad / 100);
+  const precioUnitario = r2(subtotal2 + cu);
+
+  // % de incidencia (informativo): importe ÷ CD, por renglón y por subtotal de categoría.
+  const categoriasConIncidencia = categorias.map((c) => ({
+    ...c,
+    pct_incidencia: (c.subtotal != null && cd > 0) ? Number((c.subtotal / cd).toFixed(6)) : null,
+    renglones: c.renglones.map((r) => ({
+      ...r,
+      pct_incidencia: (r.importe != null && cd > 0) ? Number((r.importe / cd).toFixed(6)) : null,
+    })),
+  }));
+
+  return {
+    categorias: categoriasConIncidencia, completa,
+    costo_directo: cd, ci, subtotal1, cf, subtotal2, cu,
+    precio_unitario_calculado: precioUnitario,
+  };
+}
+
 const ERROR_CUADRILLA_PRECOLAPSADA = (codigo, categoria) =>
   `Renglón de "${categoria}" con código "${codigo}" parece ser una cuadrilla pre-agregada en una sola fila ` +
   `(sin desglose por oficio) — este patrón del Excel no está soportado todavía en el importador. ` +
@@ -307,8 +412,107 @@ function resolverSetRenglones(renglonesCrudos, { insumosPorCodigo, esBasico, ren
   return { renglones: errores.length ? [] : renglones, errores };
 }
 
+// Resuelve un bloque crudo (de parseMatricesSheet) contra los mapas
+// codigo->concepto(s)/insumo YA CARGADOS de la obra (misma obra sea nueva o
+// existente -- prompt-matrices-auto-import-alta-obra.md reusa esta función
+// tal cual desde ingest.js, en vez de duplicar el matching).
+function resolverBloqueImportacion(bloque, { conceptosPorCodigo, insumosPorCodigo, conceptoIdsConMatriz }) {
+  const base = {
+    codigo_analisis: bloque.codigo_analisis, analisis_no: bloque.analisis_no, unidad: bloque.unidad,
+    rendimiento: bloque.rendimiento, cuadrilla_nombre: bloque.cuadrilla_nombre,
+    precio_unitario_excel: bloque.precio_unitario_excel,
+  };
+  if (bloque.parseErrors.length) return { ...base, estado: 'error', motivo: bloque.parseErrors.join(' ') };
+  if (!bloque.codigo_analisis) return { ...base, estado: 'error', motivo: 'No se pudo leer el código de análisis (fila "Análisis:").' };
+
+  const conceptosCandidatos = conceptosPorCodigo.get(bloque.codigo_analisis);
+  if (conceptosCandidatos && conceptosCandidatos.length > 1) {
+    return { ...base, estado: 'error', motivo: `El código "${bloque.codigo_analisis}" corresponde a ${conceptosCandidatos.length} conceptos distintos en esta obra (mismo código en más de un capítulo) — no se puede determinar automáticamente a cuál corresponde este bloque, se omite.` };
+  }
+  const concepto = conceptosCandidatos ? conceptosCandidatos[0] : null;
+  if (!concepto) {
+    return { ...base, estado: 'error', motivo: `No existe un concepto con código "${bloque.codigo_analisis}" en esta obra — carga primero el presupuesto (Actualizar presupuesto) con este código.` };
+  }
+  if (conceptoIdsConMatriz.has(concepto.id)) {
+    return { ...base, concepto_id: concepto.id, estado: 'omitido', motivo: 'Este concepto ya tiene una matriz de precio unitario — no se sobreescribe automáticamente.' };
+  }
+
+  // Básicos locales primero (únicos por código DENTRO de este bloque —
+  // decisión confirmada: nunca se enlazan a un concepto real existente
+  // aunque el código coincida, y nunca se dedupean entre bloques distintos,
+  // solo dentro del mismo). Necesitamos su costo_directo para resolver los
+  // renglones basico_ref del análisis padre.
+  const basicosResueltos = [];
+  for (const b of bloque.basicosLocales) {
+    const { renglones, errores } = resolverSetRenglones(b.renglones, { insumosPorCodigo, esBasico: true });
+    if (errores.length) return { ...base, concepto_id: concepto.id, estado: 'error', motivo: errores[0] };
+    const calculo = calcularMatrizNeodata(renglones, { pct_indirecto: 0, pct_utilidad: 0, pct_financiamiento: 0, rendimiento: null, es_basico: true });
+    basicosResueltos.push({ codigo: b.codigo, descripcion: b.descripcion, unidad: b.unidad, renglones, costo_directo: calculo.costo_directo });
+  }
+  const basicosPorCodigo = new Map(basicosResueltos.map((b) => [b.codigo, b]));
+
+  const renglonesDirectosCrudos = bloque.renglones.filter((r) => r.tipo !== 'basico_ref');
+  const { renglones: renglonesDirectos, errores } = resolverSetRenglones(
+    renglonesDirectosCrudos, { insumosPorCodigo, esBasico: false, rendimiento: bloque.rendimiento }
+  );
+  if (errores.length) return { ...base, concepto_id: concepto.id, estado: 'error', motivo: errores[0] };
+
+  const renglonesBasicoRef = bloque.renglones
+    .filter((r) => r.tipo === 'basico_ref')
+    .map((r) => ({ categoria: 'BASICOS', tipo: 'basico_ref', codigo_basico: r.codigo, cantidad: r.cantidad, precio_basico: basicosPorCodigo.get(r.codigo).costo_directo }));
+
+  const renglonesCompletos = [...renglonesDirectos, ...renglonesBasicoRef];
+  const calculo = calcularMatrizNeodata(renglonesCompletos, {
+    pct_indirecto: bloque.pct_indirecto, pct_utilidad: bloque.pct_utilidad, pct_financiamiento: bloque.pct_financiamiento,
+    rendimiento: bloque.rendimiento, es_basico: false,
+  });
+  const diff = bloque.precio_unitario_excel != null
+    ? Number((calculo.precio_unitario_calculado - bloque.precio_unitario_excel).toFixed(2))
+    : null;
+
+  return {
+    ...base, concepto_id: concepto.id, estado: 'ok',
+    completa: calculo.completa, precio_unitario_calculado: calculo.precio_unitario_calculado, diff_vs_excel: diff,
+    n_basicos: basicosResueltos.length, n_renglones: renglonesCompletos.length,
+    _persistencia: {
+      concepto_id: concepto.id, renglonesDirectos, basicosResueltos, renglonesBasicoRef,
+      cuadrilla_nombre: bloque.cuadrilla_nombre, rendimiento: bloque.rendimiento,
+      pct_indirecto: bloque.pct_indirecto, pct_utilidad: bloque.pct_utilidad, pct_financiamiento: bloque.pct_financiamiento,
+      partida: bloque.codigo_concepto, analisis_no: bloque.analisis_no != null ? String(bloque.analisis_no) : null,
+    },
+  };
+}
+
+// Inserta los renglones YA resueltos de una matriz/básico (matrizId ya debe
+// existir). Movida desde server/app.js (mismo motivo que calcularMatrizNeodata)
+// para que ingest.js pueda reusarla dentro de la transacción de alta de obra.
+async function insertarRenglones(client, matrizId, renglones) {
+  let orden = 0;
+  for (const r of renglones) {
+    await client.query(
+      `INSERT INTO matriz_precio_renglones (matriz_id, categoria, tipo, insumo_id, codigo, descripcion, cantidad, operador, factor_referencia, basico_matriz_id, orden)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+      [
+        matrizId, r.categoria, r.tipo,
+        r.tipo === 'insumo' ? Number(r.insumo_id) : null,
+        r.tipo === 'factor_pct' ? r.codigo.trim() : null,
+        r.tipo === 'factor_pct' ? r.descripcion.trim() : null,
+        Number(r.cantidad),
+        r.operador === '/' ? '/' : '*',
+        r.tipo === 'factor_pct' ? r.factor_referencia : null,
+        r.tipo === 'basico_ref' ? Number(r.basico_matriz_id) : null,
+        orden++,
+      ]
+    );
+  }
+}
+
 module.exports = {
   parseMatricesSheet,
   resolverSetRenglones,
+  resolverBloqueImportacion,
+  calcularMatrizNeodata,
+  insertarRenglones,
   CATEGORIAS_SECCION,
+  MATRIZ_CATEGORIAS,
 };

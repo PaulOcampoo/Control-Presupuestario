@@ -2173,6 +2173,19 @@ async function createProjectRecord(nombre, archivoOriginal, clienteId) {
   return rows[0];
 }
 
+// prompt-URGENTE-fix-acceso-todos-presupuestos.md: compartida entre
+// server/app.js (GET /api/clientes, GET /api/projects) y server/auth.js
+// (verificarAccesoObra) -- los 3 puntos necesitan el mismo criterio para
+// decidir si 'desarrollador' debe verlo todo (sin fila asignada, igual que
+// antes de PR #170) o restringirse a sus obras asignadas (con >=1 fila).
+async function usuarioTieneAsignacionExplicita(usuarioId) {
+  const { rows } = await pool.query(
+    'SELECT EXISTS(SELECT 1 FROM usuario_proyectos WHERE usuario_id = $1) AS existe',
+    [usuarioId]
+  );
+  return rows[0].existe;
+}
+
 async function deleteProject(id) {
   return withTransaction(async (client) => {
     // Varias FK no tienen ON DELETE CASCADE, lo que hace que el DELETE en
@@ -2204,4 +2217,4 @@ async function deleteProject(id) {
   });
 }
 
-module.exports = { pool, initSchema, withTransaction, listProjects, getProject, createProjectRecord, deleteProject };
+module.exports = { pool, initSchema, withTransaction, listProjects, getProject, createProjectRecord, deleteProject, usuarioTieneAsignacionExplicita };

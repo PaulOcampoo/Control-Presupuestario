@@ -2047,6 +2047,21 @@ app.get('/api/cron/cotizador-refresh', requireCronSecret, h(async (req, res) => 
 // se deriva de si el usuario tiene acceso a >=1 proyecto de ese cliente vía
 // usuario_proyectos (admin ve todos, igual que en GET /api/projects).
 // ---------------------------------------------------------------------------
+// prompt-URGENTE-fix-acceso-todos-presupuestos.md: 'admin' ve TODO siempre,
+// sin excepción -- nunca requiere ni respeta fila en usuario_proyectos (así
+// fue siempre, y así se queda). 'desarrollador' es distinto: si un admin le
+// asignó filas explícitas en usuario_proyectos (vía el panel de "Obras
+// asignadas"), esas filas SÍ deben restringirlo -- antes de este fix,
+// 'desarrollador' bypaseaba el filtro incondicionalmente igual que 'admin'
+// (PR #170), así que esa asignación quedaba sin efecto real: el usuario
+// seguía viendo TODOS los clientes/obras (y, al ser 'desarrollador' real,
+// también los botones de administración "Cambiar cliente"/"Eliminar" en el
+// drawer, gateados client-side solo por isAdmin()) -- confirmado con
+// evidencia HTTP real (login como desarrollador de prueba con 2 obras
+// asignadas → devolvía las 7 obras de los 3 clientes, no solo esas 2).
+// Un 'desarrollador' SIN ninguna fila en usuario_proyectos (el caso que
+// PR #170 vino a arreglar: su propio cliente/obra recién creado, antes de
+// que nadie le asigne nada) sigue viendo todo -- eso no cambia aquí.
 // Orden personalizado: LEFT JOIN a orden_clientes_usuario del usuario actual.
 // Clientes sin fila de orden guardada (nunca reordenados, o creados después
 // del último guardado) quedan con posicion NULL y se van al final por nombre
@@ -2063,16 +2078,9 @@ app.get('/api/cron/cotizador-refresh', requireCronSecret, h(async (req, res) => 
 // allow() literal (ordenes, programa, conceptos, etc.) — ambos roles solo
 // tienen el tab 'maquinaria' (vista global, no por-obra).
 app.get('/api/clientes', h(auth.allow('residente', 'cabo', 'compras', 'tesoreria', 'administracion', 'logistica', 'jefe_maquinaria', 'operador', 'costos')), h(async (req, res) => {
-  // prompt-URGENTE-presupuesto-no-aparece-galeria.md: causa raiz del bug
-  // real reportado por Paul (desarrollador) -- este bypass solo comprobaba
-  // 'admin', dejando fuera a 'desarrollador' pese a que en el resto del
-  // codebase (~20 checks en server/app.js) ambos puestos son equivalentes.
-  // Resultado real: un cliente/obra nuevo sin fila en usuario_proyectos
-  // (ningun flujo de creacion la inserta, ni el de subir .xlsx ni el de
-  // "Crear presupuesto desde catalogo") es invisible en la galeria para
-  // desarrollador, aunque el backend lo haya creado correctamente -- exacto
-  // patron del reporte: toast de exito real, galeria vacia.
-  if (req.user.puesto === 'admin' || req.user.puesto === 'desarrollador') {
+  const veTodo = req.user.puesto === 'admin'
+    || (req.user.puesto === 'desarrollador' && !(await db.usuarioTieneAsignacionExplicita(req.user.id)));
+  if (veTodo) {
     const { rows } = await db.pool.query(`
       SELECT c.id, c.nombre, COUNT(p.id)::int AS num_proyectos
       FROM clientes c
@@ -2401,7 +2409,11 @@ function alertaContratoDeObra(finObra) {
 }
 
 app.get('/api/dashboard-ejecutivo', h(auth.allow('tesoreria')), h(async (req, res) => {
-  const esAdmin = req.user.puesto === 'admin' || req.user.puesto === 'desarrollador';
+  // prompt-URGENTE-fix-acceso-todos-presupuestos.md: mismo criterio que
+  // GET /api/clientes/GET /api/projects/verificarAccesoObra -- 'desarrollador'
+  // con usuario_proyectos asignado se restringe igual que cualquier otro rol.
+  const esAdmin = req.user.puesto === 'admin'
+    || (req.user.puesto === 'desarrollador' && !(await db.usuarioTieneAsignacionExplicita(req.user.id)));
 
   const params = [];
   let join = '';
@@ -5076,15 +5088,16 @@ app.put('/api/favoritos/orden', h(async (req, res) => {
 // Proyectos
 // ---------------------------------------------------------------------------
 app.get('/api/projects', h(auth.allow('residente', 'cabo', 'compras', 'tesoreria', 'administracion', 'logistica', 'jefe_maquinaria', 'operador', 'costos')), h(async (req, res) => {
-  // prompt-URGENTE-presupuesto-no-aparece-galeria.md: mismo bug y misma
-  // causa que GET /api/clientes -- este bypass tampoco incluia
-  // 'desarrollador'. Sin este fix, aun corrigiendo GET /api/clientes,
-  // Paul veria la tarjeta del cliente nuevo en la galeria pero un "este
-  // cliente no tiene presupuestos cargados todavia" al entrar (visibleProjects()
-  // filtra sobre este mismo listado), porque renderObrasClientePicker()
-  // depende de que state.projects (poblado por este endpoint) incluya la
-  // obra nueva.
-  const projects = req.user.puesto === 'admin' || req.user.puesto === 'desarrollador'
+  // prompt-URGENTE-fix-acceso-todos-presupuestos.md: mismo criterio que
+  // GET /api/clientes (ver comentario ahí) -- 'admin' ve todo siempre;
+  // 'desarrollador' ve todo SOLO si no tiene ninguna fila en
+  // usuario_proyectos (preserva el fix de PR #170 para su propio
+  // cliente/obra recién creado), pero se restringe igual que cualquier
+  // otro rol en cuanto un admin le asigna obras explícitas -- antes de
+  // este fix esa asignación no tenía ningún efecto para 'desarrollador'.
+  const veTodo = req.user.puesto === 'admin'
+    || (req.user.puesto === 'desarrollador' && !(await db.usuarioTieneAsignacionExplicita(req.user.id)));
+  const projects = veTodo
     ? await db.listProjects()
     : (await db.pool.query(`
         SELECT p.* FROM proyectos p
@@ -6343,7 +6356,10 @@ app.get('/api/projects/:id/materiales-disponibles/export', h(auth.allow('residen
 // criterio que getReportePorCliente (server/maquinaria.js), sin 403 para una
 // vista agregada (a diferencia del endpoint de una sola obra, arriba).
 async function getObrasDelClienteParaUsuario(clienteId, req) {
-  const esAdmin = req.user.puesto === 'admin' || req.user.puesto === 'desarrollador';
+  // prompt-URGENTE-fix-acceso-todos-presupuestos.md: 'desarrollador' con
+  // usuario_proyectos asignado se restringe igual que 'residente' aquí.
+  const esAdmin = req.user.puesto === 'admin'
+    || (req.user.puesto === 'desarrollador' && !(await db.usuarioTieneAsignacionExplicita(req.user.id)));
   const { rows } = await db.pool.query(`
     SELECT p.id, p.nombre
     FROM proyectos p
@@ -6897,7 +6913,11 @@ const UMBRAL_RIESGO_SUMINISTRO_DIAS = 3;
 const OC_ESTADOS_CONFIRMADA = ['confirmada', 'recibida_parcial', 'recibida_completa'];
 
 async function getProgramaSuministrosData(req) {
-  const esAdmin = req.user.puesto === 'admin' || req.user.puesto === 'desarrollador';
+  // prompt-URGENTE-fix-acceso-todos-presupuestos.md: mismo criterio que
+  // getObrasDelClienteParaUsuario -- 'desarrollador' con usuario_proyectos
+  // asignado se restringe igual que cualquier otro rol.
+  const esAdmin = req.user.puesto === 'admin'
+    || (req.user.puesto === 'desarrollador' && !(await db.usuarioTieneAsignacionExplicita(req.user.id)));
   const { desde: desdeQuery, hasta: hastaQuery, obra_id, cliente_id } = req.query;
 
   let desde = desdeQuery, hasta = hastaQuery;
@@ -7708,7 +7728,12 @@ app.put('/api/clientes/:id/fondo-garantia', h(auth.allow('tesoreria', 'costos'))
   const { rows: clienteRows } = await db.pool.query('SELECT id, nombre FROM clientes WHERE id = $1', [clienteId]);
   if (!clienteRows[0]) return res.status(404).json({ error: 'Cliente no encontrado' });
 
-  const isAdminUser = req.user.puesto === 'admin' || req.user.puesto === 'desarrollador';
+  // prompt-URGENTE-fix-acceso-todos-presupuestos.md: 'desarrollador' con
+  // usuario_proyectos asignado se restringe igual que tesorería/costos --
+  // antes de este fix podía escribir fondo_garantia en obras de cualquier
+  // cliente aunque tuviera asignación explícita limitada.
+  const isAdminUser = req.user.puesto === 'admin'
+    || (req.user.puesto === 'desarrollador' && !(await db.usuarioTieneAsignacionExplicita(req.user.id)));
   const proyQuery = isAdminUser
     ? `SELECT id, nombre FROM proyectos WHERE cliente_id = $1 ORDER BY id`
     : `SELECT p.id, p.nombre FROM proyectos p

@@ -2825,6 +2825,17 @@ const CONCEPTOS_CATALOGO_ORDER_SQL = 'co.codigo, p.creado_en DESC, co.id DESC';
 // hojas) -- obra_origen_id ya existía. Ningún consumidor actual (dashboard,
 // export de catálogo de solo lectura) se ve afectado: ambos solo leen las
 // claves que ya usaban, un campo extra en la fila no les cambia nada.
+//
+// prompt-advertencia-catalogo-sin-destajo-matriz.md: tiene_destajo/
+// tiene_matriz se agregan como EXISTS correlacionados (no un JOIN + GROUP
+// BY) para no alterar la cardinalidad de la fila bajo DISTINCT ON — cada
+// EXISTS resuelve por índice (destajo_items ya tiene PK compuesta implícita
+// vía FK + WHERE project_id/concepto_id, matrices_precio_unitario tiene
+// concepto_id UNIQUE) así que el costo por fila es O(1), no un escaneo.
+// matrices_precio_unitario no necesita filtrar por project_id -- concepto_id
+// es UNIQUE y ya referencia un concepto de un solo proyecto (igual que hace
+// matrizOrigenQuery más abajo, que solo usa el JOIN a conceptos para
+// confirmar, nunca para desambiguar).
 async function conceptosCatalogoQuery(clienteId) {
   const { rows } = await db.pool.query(`
     SELECT DISTINCT ON (co.codigo)
@@ -2832,7 +2843,13 @@ async function conceptosCatalogoQuery(clienteId) {
       co.codigo, co.concepto, co.grupo AS categoria, co.unidad,
       co.precio_unitario AS precio_presupuesto, co.cantidad AS cantidad_presupuesto,
       p.id AS obra_origen_id, p.nombre AS obra_origen, p.creado_en AS fecha_origen,
-      c.id AS cliente_id, c.nombre AS cliente_nombre
+      c.id AS cliente_id, c.nombre AS cliente_nombre,
+      EXISTS (
+        SELECT 1 FROM destajo_items di WHERE di.project_id = p.id AND di.concepto_id = co.id
+      ) AS tiene_destajo,
+      EXISTS (
+        SELECT 1 FROM matrices_precio_unitario m WHERE m.concepto_id = co.id
+      ) AS tiene_matriz
     FROM conceptos co
     JOIN proyectos p ON p.id = co.project_id
     JOIN clientes c ON c.id = p.cliente_id

@@ -2841,6 +2841,13 @@ html[data-palette="dorada"]:not([data-theme="light"]) .welcome-card {
 .nomina-tfoot-total { padding: var(--space-6) var(--space-8); font-weight: 600; text-align: right; border-top: 2px solid var(--border-color); }
 .nomina-warn-row { color: var(--color-warning, #f59e0b); }
 
+/* prompt-advertencia-catalogo-sin-destajo-matriz.md: badge informativo en el
+   modal "Crear presupuesto desde catálogo" -- nunca bloquea, solo avisa qué
+   conceptos traerán Hojas 2-4 incompletas al exportar. */
+.cp-warn-col { width: 32px; text-align: center; }
+.cp-warn-badge { cursor: help; font-size: 1em; }
+.cp-warn-resumen { color: var(--color-warning, #f59e0b); }
+
 /* Desglose de pago de Estimaciones (Prompt 4, prompts-cotizador-sidebar-
    permisos-estimaciones.md) — el renglón de Total a pagar es el resultado
    final del cálculo, resaltado en dorado para que sea inequívoco (mismo

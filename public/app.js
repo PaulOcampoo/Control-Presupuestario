@@ -14931,10 +14931,20 @@ async function renderComposicionCostos(view) {
 // filtra/recorta) para que buscar no pierda selecciones ya hechas y la
 // edición de cantidad/precio siga funcionando igual que antes.
 function openCrearPresupuestoModal(catalogoOriginal) {
+  // prompt-fase1-3-export-import-4-hojas.md: obra_origen_id/concepto_id_origen
+  // ya NO se descartan -- viajan en cada ítem hasta el export, para que Hojas
+  // 2-4 (Destajo/Insumos/Matrices) puedan resolverse contra la obra/concepto
+  // real de donde salió cada renglón. Vienen undefined cuando el catálogo de
+  // origen es el de Insumos (costosCatalogoQuery, sin concepto_id propio) —
+  // ese caso sigue exportando solo Hoja 1, ver conMatrices más abajo.
   let items = catalogoOriginal.map((r) => ({
     codigo: r.codigo, concepto: r.concepto, categoria: r.categoria, unidad: r.unidad,
     cantidad: r.cantidad_presupuesto || 1, precio_unitario: r.precio_presupuesto,
+    obra_origen_id: r.obra_origen_id ?? null, concepto_id_origen: r.concepto_id_origen ?? null,
   }));
+  // true si el catálogo de origen es el de Conceptos (tiene concepto_id_origen
+  // en al menos una fila) -- solo entonces tiene sentido Destajo/Matrices.
+  const conMatrices = catalogoOriginal.some((r) => r.concepto_id_origen != null);
   const seleccionados = new Set();
   let filtro = '';
 
@@ -15041,6 +15051,7 @@ function openCrearPresupuestoModal(catalogoOriginal) {
     <div class="modal-actions">
       <button class="btn" id="btnCancelCrearPresupuesto">Cancelar</button>
       <button class="btn" id="btnExportarCrearPresupuesto">⭳ Exportar a Excel</button>
+      ${conMatrices ? `<button class="btn" id="btnImportCompletoCrearPresupuesto">⭱ Importar completo (4 hojas)</button>` : ''}
       <button class="btn btn-primary" id="btnConfirmCrearPresupuesto">Crear presupuesto</button>
     </div>
   `);
@@ -15138,6 +15149,105 @@ function openCrearPresupuestoModal(catalogoOriginal) {
     } catch (err) {
       toast(err.message, 'danger');
       btn.disabled = false; btn.textContent = textoOriginal;
+    }
+  });
+
+  // prompt-fase1-3-export-import-4-hojas.md: alterna a "Crear presupuesto"
+  // (arriba) — en vez de crear solo conceptos de una vez, exige subir de
+  // vuelta el .xlsx de 4 hojas (exportado con el botón de al lado, editado
+  // o no) y crea TODO (presupuesto + destajo + insumos + matrices) en una
+  // sola transacción tras preview/confirmación explícita. Solo visible
+  // cuando el catálogo de origen es el de Conceptos (conMatrices) — el de
+  // Insumos no tiene concepto_id_origen, no hay Destajo/Matrices que trazar.
+  $('#btnImportCompletoCrearPresupuesto')?.addEventListener('click', async () => {
+    const nombre = $('#cpNombre').value.trim();
+    const creandoCliente = isAdmin() && !$('#cpNuevoClienteField')?.classList.contains('hidden-initial');
+    if (!nombre) { toast('Indica el nombre de la obra', ''); return; }
+    if (!creandoCliente && !$('#cpCliente').value) { toast('Selecciona un cliente', ''); return; }
+    if (creandoCliente && !$('#cpNuevoClienteNombre').value.trim()) { toast('Escribe el nombre del cliente nuevo', ''); return; }
+    let clienteId = Number($('#cpCliente').value) || null;
+    if (creandoCliente) {
+      try {
+        const nuevo = await api('/clientes', { method: 'POST', body: { nombre: $('#cpNuevoClienteNombre').value.trim() } });
+        clienteId = nuevo.id;
+        await refreshClientList();
+      } catch (err) { toast(err.message, 'danger'); return; }
+    }
+    abrirImportCompletoModal({ nombre, clienteId });
+  });
+}
+
+// prompt-fase1-3-export-import-4-hojas.md: sub-modal de "Importar completo
+// (4 hojas)" — mismo patrón visual que openImportarMatricesModal (input
+// file .xlsx → VercelBlobClient.upload → preview, nunca escribe → confirmar
+// explícito). nombre/clienteId ya vienen resueltos del modal padre (incluye
+// "crear cliente nuevo" si aplicaba) — el archivo de 4 hojas no trae esa
+// información, solo los conceptos/destajo/insumos/matrices.
+function abrirImportCompletoModal({ nombre, clienteId }) {
+  openModal(`
+    <h3>Importar completo (4 hojas)</h3>
+    <p class="muted fs-08">Sube el Excel de 4 hojas (Presupuesto/Destajo/Insumos/Matrices) exportado desde este mismo modal. Al confirmar se crea la obra "${esc(nombre)}" completa: presupuesto, destajo, insumos y matrices, todo en un solo paso — nada se guarda hasta que confirmes.</p>
+    <input type="file" id="importCompletoFile" accept=".xlsx" />
+    <div class="modal-actions">
+      <button class="btn" id="btnCancelImportCompleto">Cerrar</button>
+    </div>
+  `);
+  $('#btnCancelImportCompleto').addEventListener('click', closeModal);
+  $('#importCompletoFile').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    if (!/\.xlsx$/i.test(file.name)) { toast('Solo se admiten archivos .xlsx', 'danger'); return; }
+    openModal(`<h3>Subiendo y analizando…</h3><div class="spinner"></div>`);
+    try {
+      const blob = await VercelBlobClient.upload(file.name, file, {
+        access: 'private',
+        handleUploadUrl: `/api/projects/upload-token`,
+        headers: state.token ? { Authorization: `Bearer ${state.token}` } : {},
+      });
+      const preview = await api('/costos/crear-presupuesto/import-completo/preview', {
+        method: 'POST',
+        body: { archivo_url: blob.url },
+      });
+      pintarPreviewImportCompleto(preview, blob.url, { nombre, clienteId });
+    } catch (err) {
+      closeModal();
+      toast(err.message, 'danger');
+    }
+  });
+}
+
+function pintarPreviewImportCompleto(preview, archivoUrl, { nombre, clienteId }) {
+  openModal(`
+    <h3>Preview de importación completa</h3>
+    <p class="muted">Nada se ha guardado todavía. Se creará la obra "${esc(nombre)}" con:</p>
+    <div class="card">
+      <div class="row between"><span>Conceptos</span><strong>${preview.num_conceptos}</strong></div>
+      <div class="row between"><span>Destajos</span><strong>${preview.num_destajos}</strong></div>
+      <div class="row between"><span>Insumos</span><strong>${preview.num_insumos}</strong></div>
+      <div class="row between"><span>Matrices</span><strong>${preview.num_matrices}</strong> <span class="muted fs-08">(${preview.num_renglones_matrices} renglón${preview.num_renglones_matrices === 1 ? '' : 'es'})</span></div>
+      <div class="row between"><span>Total sin IVA</span><strong>${fmtMoney(preview.total_sin_iva)}</strong></div>
+      ${preview.destajistas_distintos.length ? `<div class="row between"><span>Destajista${preview.destajistas_distintos.length === 1 ? '' : 's'} a crear</span><strong>${esc(preview.destajistas_distintos.join(', '))}</strong></div>` : ''}
+    </div>
+    <div class="modal-actions">
+      <button class="btn" id="btnCancelImportCompletoConfirm">Cancelar</button>
+      <button class="btn btn-primary" id="btnImportCompletoConfirm">Confirmar e importar</button>
+    </div>
+  `);
+  $('#btnCancelImportCompletoConfirm').addEventListener('click', closeModal);
+  $('#btnImportCompletoConfirm').addEventListener('click', async () => {
+    const btn = $('#btnImportCompletoConfirm');
+    btn.disabled = true; btn.textContent = 'Creando…';
+    try {
+      const resultado = await api('/costos/crear-presupuesto/import-completo/confirm', {
+        method: 'POST',
+        body: { archivo_url: archivoUrl, nombre, cliente_id: clienteId, confirmado: true },
+      });
+      await Promise.all([refreshClientList(), refreshProjectList()]);
+      closeModal();
+      toast(`Presupuesto "${resultado.nombre}" creado — ${resultado.num_conceptos} conceptos, ${resultado.num_destajos} destajos, ${resultado.num_insumos} insumos, ${resultado.num_matrices} matrices`, 'success');
+    } catch (err) {
+      toast(err.message, 'danger');
+      btn.disabled = false; btn.textContent = 'Confirmar e importar';
     }
   });
 }

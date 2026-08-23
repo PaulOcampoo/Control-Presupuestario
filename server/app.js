@@ -45,6 +45,7 @@ const auth = require('./auth');
 const { sendXlsxExport, buildExportFilename } = require('./exportHelper');
 const { sendMatricesNeodataExport } = require('./matricesNeodataExport');
 const matricesImport = require('./matricesImport');
+const reprocesoDestajoMatrices = require('./reprocesoDestajoMatrices');
 const { extraerDatosContrato, CAMPOS_CONTRATO } = require('./extraccionContrato');
 const { crearNotificacion, notificarAdmins, CATEGORIAS_NOTIFICACION, TODOS_LOS_TIPOS, ROLES_POR_TIPO } = require('./notificaciones');
 const { buildEstimacionPdf } = require('./estimacionesPdf');
@@ -4334,6 +4335,183 @@ app.post('/api/projects/:id/matrices/import/confirm', h(auth.allow('residente', 
     res.json({ ...resumenImportacionMatrices(resultados), creadas });
   } catch (err) {
     res.status(400).json({ error: err.message });
+  }
+}));
+
+// ---------------------------------------------------------------------------
+// Reprocesar Destajo/Matrices en obras existentes
+// (prompt-reprocesar-destajo-matrices-obras-viejas.md) — completa
+// destajo_items/matrices_precio_unitario en obras cargadas ANTES del fix de
+// PR #178/#179 (v355), volviendo a subir el mismo Excel original. NUNCA crea
+// conceptos, NUNCA toca Presupuesto/Insumos ya cargados -- solo resuelve las
+// hojas Destajos/Matrices contra los conceptos YA EXISTENTES de la obra por
+// código. Reusa parseWorkbook (ya sabe leer ambas hojas del formato estándar
+// de 5 hojas) y matricesImport.resolverBloqueImportacion tal cual (diseñada
+// justo para este caso: matching contra conceptos ya existentes).
+// ---------------------------------------------------------------------------
+async function prepararReprocesoDestajoMatrices(pid, parsed) {
+  if (!parsed.destajistas.length && !parsed.matricesBloques.length) {
+    throw new Error('No se detectó una hoja "Destajos" ni "Matrices" en este archivo.');
+  }
+  const [{ rows: conceptoRows }, { rows: insumoRows }, { rows: destajoConceptoRows }, { rows: matrizConceptoRows }] = await Promise.all([
+    db.pool.query('SELECT id, codigo FROM conceptos WHERE project_id = $1 AND codigo IS NOT NULL', [pid]),
+    db.pool.query('SELECT id, codigo, categoria, precio_presupuesto FROM insumos WHERE project_id = $1 AND codigo IS NOT NULL', [pid]),
+    db.pool.query('SELECT DISTINCT concepto_id FROM destajo_items WHERE project_id = $1 AND concepto_id IS NOT NULL', [pid]),
+    db.pool.query('SELECT m.concepto_id FROM matrices_precio_unitario m JOIN conceptos c ON c.id = m.concepto_id WHERE c.project_id = $1', [pid]),
+  ]);
+  // conceptosPorCodigo: array de candidatos por código (no un Map 1:1) para
+  // detectar códigos ambiguos dentro de la obra -- mismo criterio que
+  // prepararImportacionMatrices, compartido aquí entre Destajo y Matrices.
+  const conceptosPorCodigo = new Map();
+  for (const c of conceptoRows) {
+    if (!conceptosPorCodigo.has(c.codigo)) conceptosPorCodigo.set(c.codigo, []);
+    conceptosPorCodigo.get(c.codigo).push(c);
+  }
+  const insumosPorCodigo = new Map(insumoRows.map((i) => [i.codigo, i]));
+  const conceptoIdsConDestajo = new Set(destajoConceptoRows.map((r) => r.concepto_id));
+  const conceptoIdsConMatriz = new Set(matrizConceptoRows.map((r) => r.concepto_id));
+
+  const destajo = reprocesoDestajoMatrices.resolverDestajoContraConceptos(
+    parsed.destajistas, { conceptosPorCodigo, conceptoIdsConDestajo, destajoPrecios: parsed.destajoPrecios }
+  );
+
+  const matrices = parsed.matricesBloques.map((bloque) => matricesImport.resolverBloqueImportacion(
+    bloque, { conceptosPorCodigo, insumosPorCodigo, conceptoIdsConMatriz }
+  ));
+  // Misma salvaguarda que prepararImportacionMatrices: 2 bloques del mismo
+  // archivo resolviendo al mismo concepto_id violaría el UNIQUE(concepto_id).
+  const vistos = new Set();
+  for (const r of matrices) {
+    if (r.estado !== 'ok') continue;
+    if (vistos.has(r.concepto_id)) { r.estado = 'error'; r.motivo = `Código de análisis "${r.codigo_analisis}" duplicado dentro de este mismo archivo.`; continue; }
+    vistos.add(r.concepto_id);
+  }
+
+  return {
+    destajo,
+    matrices,
+    resumen: {
+      destajo_nuevos: destajo.nuevos.length,
+      destajo_omitidos: destajo.omitidos.length,
+      destajo_sin_match: destajo.sinMatch.length,
+      destajo_ambiguos: destajo.ambiguos.length,
+      matrices_nuevas: matrices.filter((r) => r.estado === 'ok').length,
+      matrices_omitidas: matrices.filter((r) => r.estado === 'omitido').length,
+      matrices_con_error: matrices.filter((r) => r.estado === 'error').length,
+    },
+  };
+}
+
+app.post('/api/projects/:id/reprocesar-destajo-matrices/preview', h(auth.allow('residente', 'costos')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('costos', 'puede_crear')), h(async (req, res) => {
+  const { archivo_url } = req.body || {};
+  if (!archivo_url) return res.status(400).json({ error: 'Sube el archivo .xlsx original de esta obra' });
+  const pid = req.project.id;
+  const tmpPath = path.join(os.tmpdir(), `reprocesar-dm-${Date.now()}-${Math.round(Math.random() * 1e9)}.xlsx`);
+  try {
+    await descargarBlobXlsxATmp(archivo_url, tmpPath);
+    const parsed = await parseWorkbook(tmpPath);
+    const resultado = await prepararReprocesoDestajoMatrices(pid, parsed);
+    const { matrices, ...resto } = resultado;
+    res.json({ ...resto, matrices: matrices.map(({ _persistencia, ...m }) => m) });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  } finally {
+    fs.rm(tmpPath, () => {});
+  }
+}));
+
+app.post('/api/projects/:id/reprocesar-destajo-matrices/confirm', h(auth.allow('residente', 'costos')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('costos', 'puede_crear')), h(async (req, res) => {
+  const { archivo_url, confirmado } = req.body || {};
+  if (!archivo_url) return res.status(400).json({ error: 'Sube el archivo .xlsx original de esta obra' });
+  if (confirmado !== true) return res.status(400).json({ error: 'Falta confirmar explícitamente el reproceso' });
+  const pid = req.project.id;
+  const tmpPath = path.join(os.tmpdir(), `reprocesar-dm-${Date.now()}-${Math.round(Math.random() * 1e9)}.xlsx`);
+  try {
+    // Nunca confía en lo que el frontend mandó del preview — re-parsea y
+    // re-resuelve desde cero (mismo criterio que "Actualizar presupuesto" y
+    // que el importador manual de Matrices).
+    await descargarBlobXlsxATmp(archivo_url, tmpPath);
+    const parsed = await parseWorkbook(tmpPath);
+    const resultado = await prepararReprocesoDestajoMatrices(pid, parsed);
+
+    let destajoCreados = 0;
+    let matricesCreadas = 0;
+    await db.withTransaction(async (client) => {
+      if (resultado.destajo.nuevos.length) {
+        const { rows: destExistentes } = await client.query('SELECT id, nombre FROM destajistas WHERE project_id = $1', [pid]);
+        const destajistaIdPorNombreLower = new Map(destExistentes.map((d) => [d.nombre.toLowerCase(), d.id]));
+        let siguienteOrden = destExistentes.length;
+        const porDestajista = new Map();
+        for (const item of resultado.destajo.nuevos) {
+          const key = item.destajista_nombre.toLowerCase();
+          if (!porDestajista.has(key)) porDestajista.set(key, []);
+          porDestajista.get(key).push(item);
+        }
+        for (const [key, items] of porDestajista) {
+          let destajistaId = destajistaIdPorNombreLower.get(key);
+          if (!destajistaId) {
+            const { rows } = await client.query(
+              'INSERT INTO destajistas (project_id, nombre, orden) VALUES ($1,$2,$3) RETURNING id',
+              [pid, items[0].destajista_nombre, siguienteOrden++]
+            );
+            destajistaId = rows[0].id;
+            destajistaIdPorNombreLower.set(key, destajistaId);
+          }
+          for (const item of items) {
+            await client.query(
+              `INSERT INTO destajo_items (project_id, destajista_id, concepto_id, codigo, concepto, unidad, cantidad_asignada, precio_destajo, orden)
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+              [pid, destajistaId, item.concepto_id, item.codigo, item.concepto, item.unidad, item.cantidad_asignada, item.precio_destajo, item.orden]
+            );
+            destajoCreados++;
+          }
+        }
+      }
+
+      const okBloques = resultado.matrices.filter((r) => r.estado === 'ok');
+      for (const r of okBloques) {
+        const p = r._persistencia;
+        const basicoIdPorCodigo = new Map();
+        for (const b of p.basicosResueltos) {
+          const { rows } = await client.query(
+            `INSERT INTO matrices_precio_unitario (es_basico, project_id, codigo, descripcion, unidad, creado_por, actualizado_por)
+             VALUES (true, $1, $2, $3, $4, $5, $5) RETURNING id`,
+            [pid, b.codigo, b.descripcion, b.unidad || null, req.user.id]
+          );
+          basicoIdPorCodigo.set(b.codigo, rows[0].id);
+          await insertarRenglones(client, rows[0].id, b.renglones);
+        }
+        const { rows: matrizRows } = await client.query(
+          `INSERT INTO matrices_precio_unitario
+             (concepto_id, pct_indirecto, pct_utilidad, pct_financiamiento, rendimiento, partida, analisis_no, cuadrilla_nombre, creado_por, actualizado_por)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$9) RETURNING id`,
+          [p.concepto_id, p.pct_indirecto, p.pct_utilidad, p.pct_financiamiento, p.rendimiento, p.partida, p.analisis_no, p.cuadrilla_nombre, req.user.id]
+        );
+        const renglonesFinales = [
+          ...p.renglonesDirectos,
+          ...p.renglonesBasicoRef.map((rb) => ({
+            categoria: 'BASICOS', tipo: 'basico_ref',
+            basico_matriz_id: basicoIdPorCodigo.get(rb.codigo_basico), cantidad: rb.cantidad,
+          })),
+        ];
+        await insertarRenglones(client, matrizRows[0].id, renglonesFinales);
+        matricesCreadas++;
+      }
+
+      const ip = auth.getIp(req);
+      await client.query(
+        `INSERT INTO audit_log (actor_id, actor_usuario, accion, target_id, project_id, ip, detalle)
+         VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+        [req.user.id, req.user.usuario, 'reprocesar_destajo_matrices', pid, pid, ip,
+          JSON.stringify({ archivo_url, destajo_creados: destajoCreados, matrices_creadas: matricesCreadas, resumen: resultado.resumen })]
+      );
+    });
+
+    res.json({ destajo_creados: destajoCreados, matrices_creadas: matricesCreadas, resumen: resultado.resumen });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  } finally {
+    fs.rm(tmpPath, () => {});
   }
 }));
 

@@ -15350,6 +15350,7 @@ async function renderMatrices(view) {
       <button class="btn" id="btnMatricesLote" ${matricesSeleccionadas.size ? '' : 'disabled'}>Aplicar % en lote (${matricesSeleccionadas.size})</button>
       <button class="btn" id="btnMatricesBasicos">🧱 Básicos</button>
       <button class="btn" id="btnMatricesImportar" ${matrices.length ? '' : 'disabled'} title="${matrices.length ? '' : 'Esta obra necesita conceptos cargados primero (Actualizar presupuesto / alta de obra) antes de poder importar Matrices'}">⭱ Importar Matrices desde Excel</button>
+      <button class="btn" id="btnReprocesarDestajoMatrices" ${matrices.length ? '' : 'disabled'} title="${matrices.length ? 'Sube el mismo Excel original de esta obra para completar Destajo y Matrices sin tocar Presupuesto/Insumos ya cargados' : 'Esta obra necesita conceptos cargados primero'}">🔄 Reprocesar Destajo/Matrices</button>
     </div>
 
     ${matrices.length ? `
@@ -15399,6 +15400,7 @@ async function renderMatrices(view) {
   });
   $('#btnMatricesBasicos').addEventListener('click', () => openBasicosListModal(view));
   $('#btnMatricesImportar')?.addEventListener('click', () => openImportarMatricesModal(view));
+  $('#btnReprocesarDestajoMatrices')?.addEventListener('click', () => openReprocesarDestajoMatricesModal(view));
 
   $$('.matSelCheck').forEach((chk) => {
     chk.addEventListener('click', (e) => e.stopPropagation());
@@ -15551,6 +15553,123 @@ function pintarPreviewImportacionMatrices(preview, archivoUrl, view) {
     } catch (err) {
       toast(err.message, 'danger');
       btn.disabled = false; btn.textContent = `Confirmar importación (${preview.resumen.ok})`;
+    }
+  });
+}
+
+// prompt-reprocesar-destajo-matrices-obras-viejas.md: mismo patrón visual que
+// openImportarMatricesModal — sube el MISMO Excel original de la obra (5
+// hojas), pero solo lee Destajos/Matrices y resuelve contra los conceptos YA
+// EXISTENTES (nunca crea conceptos, nunca toca Presupuesto/Insumos).
+function openReprocesarDestajoMatricesModal(view) {
+  openModal(`
+    <h3>Reprocesar Destajo/Matrices</h3>
+    <p class="muted fs-08">Para obras cargadas antes del fix de Destajo/Matrices: sube el mismo Excel original de esta obra (5 hojas) — solo se leen "Destajos" y "Matrices", resolviendo cada fila/bloque contra los conceptos que YA EXISTEN aquí por código. Presupuesto e Insumos no se tocan. Los conceptos que ya tengan destajo o matriz se omiten (no se duplican ni se sobreescriben).</p>
+    <input type="file" id="reprocesoDMFile" accept=".xlsx" />
+    <div class="modal-actions">
+      <button class="btn" id="btnCancelReprocesoDM">Cerrar</button>
+    </div>
+  `);
+  $('#btnCancelReprocesoDM').addEventListener('click', closeModal);
+  $('#reprocesoDMFile').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    if (!/\.xlsx$/i.test(file.name)) { toast('Solo se admiten archivos .xlsx', 'danger'); return; }
+    openModal(`<h3>Subiendo y analizando…</h3><div class="spinner"></div>`);
+    try {
+      const blob = await VercelBlobClient.upload(file.name, file, {
+        access: 'private',
+        handleUploadUrl: `/api/projects/upload-token`,
+        headers: state.token ? { Authorization: `Bearer ${state.token}` } : {},
+      });
+      const preview = await api(`/projects/${state.projectId}/reprocesar-destajo-matrices/preview`, {
+        method: 'POST',
+        body: { archivo_url: blob.url },
+      });
+      pintarPreviewReprocesoDestajoMatrices(preview, blob.url, view);
+    } catch (err) {
+      closeModal();
+      toast(err.message, 'danger');
+    }
+  });
+}
+
+function pintarPreviewReprocesoDestajoMatrices(preview, archivoUrl, view) {
+  const r = preview.resumen;
+  const filaDestajo = (item, tipo) => `
+    <tr>
+      <td>${esc(item.codigo || '—')}</td>
+      <td>${esc(item.concepto || '—')}</td>
+      <td class="fs-08">${tipo}${item.motivo ? `<div class="muted fs-08 mt-4">${esc(item.motivo)}</div>` : ''}</td>
+    </tr>
+  `;
+  const filasDestajo = [
+    ...preview.destajo.nuevos.map((i) => filaDestajo(i, '<span class="badge green">Se crea</span>')),
+    ...preview.destajo.omitidos.map((i) => filaDestajo(i, '<span class="badge muted">Ya existe — omitido</span>')),
+    ...preview.destajo.sinMatch.map((i) => filaDestajo(i, '<span class="badge red">Sin match</span>')),
+    ...preview.destajo.ambiguos.map((i) => filaDestajo(i, '<span class="badge red">Código ambiguo</span>')),
+  ].join('');
+  const badgeMatriz = (b) => {
+    if (b.estado === 'ok') return '<span class="badge green">Se crea</span>';
+    if (b.estado === 'omitido') return '<span class="badge muted">Ya existe — omitido</span>';
+    return '<span class="badge red">Error</span>';
+  };
+
+  openModal(`
+    <h3>Preview de reproceso Destajo/Matrices</h3>
+    <p class="muted">Nada se ha guardado todavía. Revisa antes de confirmar.</p>
+    <div class="card">
+      <div class="row between"><span>Destajo — se crea</span><strong>${r.destajo_nuevos}</strong></div>
+      <div class="row between"><span>Destajo — ya existe (omitido)</span><strong>${r.destajo_omitidos}</strong></div>
+      <div class="row between"><span>Destajo — sin match / ambiguo</span><strong>${r.destajo_sin_match + r.destajo_ambiguos}</strong></div>
+      <div class="row between"><span>Matrices — se crea</span><strong>${r.matrices_nuevas}</strong></div>
+      <div class="row between"><span>Matrices — ya existe (omitido)</span><strong>${r.matrices_omitidas}</strong></div>
+      <div class="row between"><span>Matrices — con error</span><strong>${r.matrices_con_error}</strong></div>
+    </div>
+    ${filasDestajo ? `
+      <h4 class="mt-12">Destajo</h4>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Código</th><th>Concepto</th><th>Estado</th></tr></thead>
+          <tbody>${filasDestajo}</tbody>
+        </table>
+      </div>
+    ` : ''}
+    ${preview.matrices.length ? `
+      <h4 class="mt-12">Matrices</h4>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Código de análisis</th><th>Estado</th></tr></thead>
+          <tbody>${preview.matrices.map((b) => `
+            <tr>
+              <td>${esc(b.codigo_analisis || '—')}</td>
+              <td class="fs-08">${badgeMatriz(b)}${b.motivo ? `<div class="muted fs-08 mt-4">${esc(b.motivo)}</div>` : ''}</td>
+            </tr>
+          `).join('')}</tbody>
+        </table>
+      </div>
+    ` : ''}
+    <div class="modal-actions">
+      <button class="btn" id="btnCancelReprocesoDMConfirm">Cancelar</button>
+      <button class="btn btn-primary" id="btnReprocesoDMConfirm" ${(r.destajo_nuevos + r.matrices_nuevas) ? '' : 'disabled'}>Confirmar (${r.destajo_nuevos + r.matrices_nuevas})</button>
+    </div>
+  `);
+  $('#btnCancelReprocesoDMConfirm').addEventListener('click', closeModal);
+  $('#btnReprocesoDMConfirm')?.addEventListener('click', async () => {
+    const btn = $('#btnReprocesoDMConfirm');
+    btn.disabled = true; btn.textContent = 'Aplicando…';
+    try {
+      const result = await api(`/projects/${state.projectId}/reprocesar-destajo-matrices/confirm`, {
+        method: 'POST',
+        body: { archivo_url: archivoUrl, confirmado: true },
+      });
+      closeModal();
+      invalidate('matrices');
+      toast(`${result.destajo_creados} destajo(s) y ${result.matrices_creadas} matriz(ces) creados`, 'success');
+      renderMatrices(view);
+    } catch (err) {
+      toast(err.message, 'danger');
+      btn.disabled = false; btn.textContent = `Confirmar (${r.destajo_nuevos + r.matrices_nuevas})`;
     }
   });
 }

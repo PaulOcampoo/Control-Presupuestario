@@ -2798,14 +2798,23 @@ app.get('/api/costos/catalogo-global/export', h(auth.checkPermiso('costos', 'pue
 // "Presupuestos Residencial Vinte Contrato 715") son la misma obra cargada 3
 // veces (mismos códigos, mismo tamaño — confirmado en diagnóstico). Decisión
 // consultada: excluir por lista explícita de project_id — no hay ningún flag
-// en el schema que las distinga de una obra real. Si aparecen más duplicados
-// reales a futuro, hay que sumarlos a mano aquí. Las 3 obras NO se tocan ni
-// se borran, solo se excluyen de este catálogo agregado.
+// en el schema que las distinga de una obra real (proyectos NO tiene columna
+// activo). Si aparecen más duplicados reales a futuro, hay que sumarlos a
+// mano aquí. Las obras NO se tocan ni se borran, solo se excluyen de este
+// catálogo agregado.
+// id 67 ("prueba1"): no es un duplicado de VINTE, es un proyecto de prueba
+// real de Paul sin presupuesto/datos financieros vigentes. Se agrega a esta
+// misma lista por el mismo motivo estructural (nada en el schema distingue
+// "obra de prueba" de "obra real") — al ser el proyecto más reciente entre
+// las obras que comparten código con conceptos reales (ej. 10401-002,
+// también en la obra real más vieja "671 CASA CLUB"), el DISTINCT ON lo
+// prefería sobre la obra real y el catálogo mostraba "sin destajo/matriz"
+// para conceptos que sí tienen todo completo en su obra real.
 // Compartida por el catálogo de Conceptos (conceptosCatalogoQuery, dashboard
-// de Costos) Y el catálogo de Básicos (basicosCatalogoQuery más abajo) — las
-// 3 obras duplicadas de VINTE contaminan por igual ambos catálogos si algún
-// día tienen básicos cargados, no es un problema exclusivo de Conceptos.
-const EXCLUIR_OBRAS_DUPLICADAS_CATALOGO = [13, 41, 42];
+// de Costos) Y el catálogo de Básicos (basicosCatalogoQuery más abajo) — toda
+// obra en esta lista contamina por igual ambos catálogos si algún día tiene
+// básicos cargados, no es un problema exclusivo de Conceptos.
+const EXCLUIR_OBRAS_DUPLICADAS_CATALOGO = [13, 41, 42, 67];
 
 // Filtro + dedupe compartidos por todo endpoint que necesite "un concepto
 // real por código" sobre el catálogo global (activo, no encabezado/total,

@@ -2110,6 +2110,106 @@ const SCHEMA = `
   -- (server/app.js). DEFAULT 'obra' para no reclasificar retroactivamente a
   -- ningún trabajador ya existente.
   ALTER TABLE trabajadores ADD COLUMN IF NOT EXISTS categoria_costo TEXT NOT NULL DEFAULT 'obra';
+
+  -- Catálogo Maestro de Costos (prompt-catalogo-maestro-costos.md, Task 1/5):
+  -- catálogo GLOBAL de conceptos/insumos/destajo/matrices cargado desde
+  -- Excels de referencia (histórico de obras cerradas, tabuladores externos,
+  -- etc.), a propósito SIN project_id en ninguna de las 5 tablas de abajo —
+  -- a diferencia de absolutamente todo el resto del esquema (conceptos,
+  -- insumos, destajo_items, matriz_precio_renglones), que sí es por-obra.
+  -- El objetivo es tener una biblioteca de referencia reusable entre obras
+  -- (consultar "¿cuánto costó esto en otra obra?" / "¿qué matriz le
+  -- corresponde a este concepto?"), no un presupuesto vivo — por eso vive
+  -- fuera del árbol proyecto->conceptos->... y no participa de avance,
+  -- requisiciones, ni ninguna otra tabla operativa por-obra.
+  CREATE TABLE IF NOT EXISTS catalogo_archivos (
+    id SERIAL PRIMARY KEY,
+    nombre_archivo TEXT NOT NULL,
+    blob_url TEXT NOT NULL,
+    fecha_carga TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    cargado_por INTEGER REFERENCES usuarios(id),
+    estado TEXT NOT NULL DEFAULT 'procesando' CHECK (estado IN ('procesado', 'error', 'procesando')),
+    notas_error TEXT
+  );
+  CREATE INDEX IF NOT EXISTS idx_catalogo_archivos_estado ON catalogo_archivos(estado);
+
+  -- activo BOOLEAN (no INTEGER 0/1 como conceptos.activo, ver comentario en
+  -- esa columna más arriba): tabla nueva sin código legado que dependa del
+  -- estilo INTEGER, y el prompt pide explícitamente "soft-delete boolean,
+  -- default true" — BOOLEAN es más estricto (rechaza cualquier valor que no
+  -- sea true/false) y no hay ninguna razón para replicar la convención vieja
+  -- aquí.
+  CREATE TABLE IF NOT EXISTS catalogo_conceptos (
+    id SERIAL PRIMARY KEY,
+    archivo_id INTEGER NOT NULL REFERENCES catalogo_archivos(id) ON DELETE CASCADE,
+    codigo TEXT,
+    concepto TEXT NOT NULL,
+    unidad TEXT,
+    precio_unitario DOUBLE PRECISION DEFAULT 0,
+    activo BOOLEAN NOT NULL DEFAULT true
+  );
+  CREATE INDEX IF NOT EXISTS idx_catalogo_conceptos_archivo ON catalogo_conceptos(archivo_id);
+  CREATE INDEX IF NOT EXISTS idx_catalogo_conceptos_concepto ON catalogo_conceptos(concepto);
+
+  -- archivo_id aquí es redundante con catalogo_conceptos.archivo_id (vía
+  -- concepto_id) -- se guarda igual, denormalizado, para poder filtrar por
+  -- archivo sin JOIN. Nada en el schema obliga a que ambos coincidan: quien
+  -- inserte en catalogo_destajo/catalogo_insumos/catalogo_matrices (Task 2,
+  -- el importador) debe escribir siempre el archivo_id del MISMO archivo que
+  -- originó ese concepto_id -- un archivo_id desalineado no truena en
+  -- ninguna query, solo produce filas fantasma al filtrar por archivo.
+  CREATE TABLE IF NOT EXISTS catalogo_destajo (
+    id SERIAL PRIMARY KEY,
+    archivo_id INTEGER NOT NULL REFERENCES catalogo_archivos(id) ON DELETE CASCADE,
+    concepto_id INTEGER NOT NULL REFERENCES catalogo_conceptos(id) ON DELETE CASCADE,
+    precio_destajo DOUBLE PRECISION DEFAULT 0,
+    destajista_nombre TEXT
+  );
+  CREATE INDEX IF NOT EXISTS idx_catalogo_destajo_archivo ON catalogo_destajo(archivo_id);
+  CREATE INDEX IF NOT EXISTS idx_catalogo_destajo_concepto ON catalogo_destajo(concepto_id);
+
+  -- Equivalente global de matriz_precio_renglones (que es por-obra, ligada a
+  -- insumos vía insumo_id): aquí no hay tabla insumos por-obra que referenciar,
+  -- así que el insumo se guarda como texto libre, igual que concepto/unidad
+  -- de catalogo_conceptos.
+  CREATE TABLE IF NOT EXISTS catalogo_insumos (
+    id SERIAL PRIMARY KEY,
+    archivo_id INTEGER NOT NULL REFERENCES catalogo_archivos(id) ON DELETE CASCADE,
+    concepto_id INTEGER NOT NULL REFERENCES catalogo_conceptos(id) ON DELETE CASCADE,
+    insumo TEXT NOT NULL,
+    cantidad DOUBLE PRECISION DEFAULT 0,
+    precio_unitario_insumo DOUBLE PRECISION DEFAULT 0
+  );
+  CREATE INDEX IF NOT EXISTS idx_catalogo_insumos_archivo ON catalogo_insumos(archivo_id);
+  CREATE INDEX IF NOT EXISTS idx_catalogo_insumos_concepto ON catalogo_insumos(concepto_id);
+
+  -- Descubierto al diseñar Task 3 (importar-a-obra, prompt-catalogo-maestro-
+  -- costos.md): 'insumo' arriba se llenaba (Task 2) con
+  -- "r.descripcion || r.codigo_insumo" -- un único campo humano-legible que
+  -- PIERDE el código cuando ambos existen. Task 3 necesita el código exacto
+  -- para resolver/crear el insumo correspondiente en la obra destino (mismo
+  -- mecanismo "resolver insumo_id por código" que usa el import real a obra,
+  -- server/app.js ~3468). Se agrega codigo_insumo como columna separada;
+  -- 'insumo' se conserva tal cual como la etiqueta legible. NOT NULL directo
+  -- (no backfill) porque la tabla está vacía en Preview a la fecha de este
+  -- cambio -- confirmado antes de escribir este ALTER.
+  ALTER TABLE catalogo_insumos ADD COLUMN IF NOT EXISTS codigo_insumo TEXT NOT NULL DEFAULT '';
+  ALTER TABLE catalogo_insumos ALTER COLUMN codigo_insumo DROP DEFAULT;
+
+  -- datos JSONB (no una tabla relacional tipo matriz_precio_renglones): el
+  -- modelo relacional de matriz_precio_renglones depende de insumo_id -> FK a
+  -- insumos por-obra, que aquí no existe (ver catalogo_insumos arriba). El
+  -- plan pide guardar "el mismo shape que Hoja 4 actual" — JSONB preserva ese
+  -- shape (Neodata) tal cual, sin construir una sombra relacional completa de
+  -- matriz_precio_renglones solo para un catálogo de solo-lectura/consulta.
+  CREATE TABLE IF NOT EXISTS catalogo_matrices (
+    id SERIAL PRIMARY KEY,
+    archivo_id INTEGER NOT NULL REFERENCES catalogo_archivos(id) ON DELETE CASCADE,
+    concepto_id INTEGER NOT NULL REFERENCES catalogo_conceptos(id) ON DELETE CASCADE,
+    datos JSONB NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_catalogo_matrices_archivo ON catalogo_matrices(archivo_id);
+  CREATE INDEX IF NOT EXISTS idx_catalogo_matrices_concepto ON catalogo_matrices(concepto_id);
 `;
 
 // prompt-fix-error-permiso-trabajadores.md → el diagnóstico de ese prompt no

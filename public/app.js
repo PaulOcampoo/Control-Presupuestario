@@ -14580,7 +14580,7 @@ async function renderCatalogoBasicos(view) {
 }
 
 async function renderCostos(view) {
-  let subView = 'porCliente'; // 'porCliente' | 'global' | 'conceptos'
+  let subView = 'porCliente'; // 'porCliente' | 'global' | 'conceptos' | 'catalogoMaestro'
   let clienteSeleccionado = null;
   let catalogoGlobalCache = null;
 
@@ -14590,6 +14590,7 @@ async function renderCostos(view) {
         <button class="btn ${subView === 'porCliente' ? 'btn-primary' : ''}" id="btnCostosSubCliente">Por cliente</button>
         <button class="btn ${subView === 'global' ? 'btn-primary' : ''}" id="btnCostosSubGlobal">Generar presupuesto (global)</button>
         <button class="btn ${subView === 'conceptos' ? 'btn-primary' : ''}" id="btnCostosSubConceptos">Catálogo de conceptos</button>
+        <button class="btn ${subView === 'catalogoMaestro' ? 'btn-primary' : ''}" id="btnCostosSubCatalogoMaestro">Catálogo Maestro</button>
       </div>
     `;
   }
@@ -14597,6 +14598,7 @@ async function renderCostos(view) {
     $('#btnCostosSubCliente').addEventListener('click', showPorCliente);
     $('#btnCostosSubGlobal').addEventListener('click', showGlobal);
     $('#btnCostosSubConceptos').addEventListener('click', showConceptos);
+    $('#btnCostosSubCatalogoMaestro').addEventListener('click', showCatalogoMaestro);
   }
 
   async function showPorCliente() {
@@ -14729,6 +14731,236 @@ async function renderCostos(view) {
       openCrearPresupuestoModal(conceptosCache);
     });
     await cargar();
+  }
+
+  // Catálogo Maestro (prompt-catalogo-maestro-costos.md, Task 4/5): repositorio
+  // GLOBAL de precios/destajo/insumos/matrices, independiente de cualquier
+  // obra -- coexiste con "Catálogo de conceptos" arriba (ese cruza obras YA
+  // cargadas; este vive de archivos subidos aparte, nunca ligados a una obra
+  // hasta que se importan explícitamente). Carga/administración de archivos:
+  // solo visible si isAdmin() (admin/desarrollador, mismo gate que el backend
+  // vía auth.allow() -- puramente UX, el 403 real ya lo pone el backend si
+  // alguien llega aquí sin serlo). Búsqueda/importar-a-obra: sin gate de
+  // frontend (mismo criterio que Matrices, ver comentario "sin fetch de
+  // permisos_usuario aquí" más abajo) -- un 403 real de
+  // checkPermiso('costos','puede_crear') se atrapa como toast.
+  async function showCatalogoMaestro() {
+    subView = 'catalogoMaestro';
+    const seleccionados = new Set(); // catalogo_concepto id
+    let resultados = [];
+    let busquedaVacia = true;
+
+    function cmEstadoBadgeHtml(a) {
+      if (a.estado === 'procesado') return `<span class="badge green">Procesado</span>`;
+      if (a.estado === 'procesando') return `<span class="badge yellow">Procesando…</span>`;
+      return `<span class="badge red" title="${esc(a.notas_error || '')}">Error</span>`;
+    }
+
+    function cmArchivosTablaHtml(archivos) {
+      if (!archivos.length) return `<p class="muted fs-08">Todavía no se ha subido ningún archivo.</p>`;
+      return `
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th>Archivo</th><th>Cargado por</th><th>Fecha</th><th>Estado</th><th class="num">Conceptos</th><th></th></tr></thead>
+            <tbody>
+              ${archivos.map((a) => `
+                <tr>
+                  <td>${esc(a.nombre_archivo)}</td>
+                  <td>${esc(a.cargado_por_nombre || '—')}</td>
+                  <td>${fmtDate(a.fecha_carga)}</td>
+                  <td>${cmEstadoBadgeHtml(a)}</td>
+                  <td class="num">${a.conteo_conceptos}</td>
+                  <td><button class="btn small btn-danger" data-cm-eliminar="${a.id}" data-cm-nombre="${esc(a.nombre_archivo)}">Eliminar</button></td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+      `;
+    }
+
+    // prompt-advertencia-catalogo-sin-destajo-matriz.md: mismo badge visual
+    // (.cp-warn-badge) que "Crear presupuesto desde catálogo" (warnBadgeHtml,
+    // arriba) -- reusado tal cual, solo cambia el criterio de "origen": ahí
+    // es la obra de origen, aquí es directamente el catálogo maestro.
+    function warnBadgeCm(it) {
+      if (it.tiene_destajo && it.tiene_matriz) return '';
+      const titulo = !it.tiene_destajo && !it.tiene_matriz
+        ? 'Sin destajo ni matriz en el catálogo' : !it.tiene_destajo ? 'Sin destajo en el catálogo' : 'Sin matriz en el catálogo';
+      return `<span class="cp-warn-badge" title="${esc(titulo)}">⚠️</span>`;
+    }
+
+    async function cargarArchivos() {
+      const result = $('#cmArchivosResult');
+      if (!result) return;
+      result.innerHTML = '<div class="spinner"></div>';
+      try {
+        const data = await api('/costos/catalogo-maestro/archivos');
+        result.innerHTML = cmArchivosTablaHtml(data.archivos);
+        $$('[data-cm-eliminar]', result).forEach((btn) => {
+          btn.addEventListener('click', async () => {
+            if (!confirm(`¿Eliminar "${btn.dataset.cmNombre}" del catálogo? Sus conceptos dejan de aparecer en la búsqueda. El archivo original y las obras que ya hayan importado desde él NO se ven afectados.`)) return;
+            try {
+              await api(`/costos/catalogo-maestro/archivos/${btn.dataset.cmEliminar}`, { method: 'DELETE' });
+              toast('Archivo eliminado del catálogo', 'success');
+              await cargarArchivos();
+            } catch (err) { toast(err.message, 'danger'); }
+          });
+        });
+      } catch (err) {
+        result.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+      }
+    }
+
+    function actualizarBarraImportar() {
+      const barra = $('#cmImportarBarra');
+      if (!barra) return;
+      // .hidden-initial (utility class), NUNCA .style.display -- la CSP de
+      // este server (style-src 'self', sin unsafe-inline) bloquea también
+      // las mutaciones de el.style.propiedad, no solo el atributo style="".
+      barra.classList.toggle('hidden-initial', !seleccionados.size);
+      const contador = $('#cmContador');
+      if (contador) contador.textContent = `${seleccionados.size} concepto${seleccionados.size === 1 ? '' : 's'} seleccionado${seleccionados.size === 1 ? '' : 's'}`;
+    }
+
+    function renderResultados() {
+      const cont = $('#cmBusquedaResult');
+      if (!cont) return;
+      if (!resultados.length) {
+        cont.innerHTML = busquedaVacia ? '' : '<p class="muted fs-08">Sin resultados.</p>';
+        return;
+      }
+      cont.innerHTML = `
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th></th><th>Código</th><th>Concepto</th><th>Archivo origen</th><th class="num">Precio</th><th></th></tr></thead>
+            <tbody>
+              ${resultados.map((r) => `
+                <tr>
+                  <td><label class="checkbox-circle"><input type="checkbox" class="cm-check" data-id="${r.id}" ${seleccionados.has(r.id) ? 'checked' : ''} /><span class="checkbox-circle-visual"></span></label></td>
+                  <td>${esc(r.codigo)}</td>
+                  <td>${esc(r.concepto)}</td>
+                  <td class="muted fs-08">${esc(r.nombre_archivo)}</td>
+                  <td class="num">${fmtMoney(r.precio_unitario)}</td>
+                  <td class="cp-warn-col">${warnBadgeCm(r)}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+        <div class="row between mt-12 hidden-initial" id="cmImportarBarra">
+          <span id="cmContador" class="muted fs-08"></span>
+          <div class="row">
+            <select id="cmObraDestino">
+              <option value="">Selecciona la obra destino…</option>
+              ${state.projects.map((p) => `<option value="${p.id}">${esc((state.clientes.find((c) => c.id === p.cliente_id) || {}).nombre || '—')} — ${esc(p.nombre)}</option>`).join('')}
+            </select>
+            <button class="btn btn-primary" id="btnCmImportar">Importar a esta obra</button>
+          </div>
+        </div>
+      `;
+      $$('.cm-check', cont).forEach((chk) => {
+        chk.addEventListener('change', (e) => {
+          const id = Number(e.target.dataset.id);
+          if (e.target.checked) seleccionados.add(id); else seleccionados.delete(id);
+          actualizarBarraImportar();
+        });
+      });
+      actualizarBarraImportar();
+      $('#btnCmImportar')?.addEventListener('click', async () => {
+        const proyectoId = Number($('#cmObraDestino').value);
+        if (!proyectoId) { toast('Selecciona la obra destino', ''); return; }
+        if (!seleccionados.size) { toast('Selecciona al menos un concepto', ''); return; }
+        const btn = $('#btnCmImportar');
+        btn.disabled = true; btn.textContent = 'Importando…';
+        try {
+          const resultado = await api('/costos/catalogo-maestro/importar-a-obra', {
+            method: 'POST',
+            body: { proyecto_id: proyectoId, concepto_ids: [...seleccionados] },
+          });
+          seleccionados.clear();
+          let msg = `${resultado.importados.length} concepto${resultado.importados.length === 1 ? '' : 's'} importado${resultado.importados.length === 1 ? '' : 's'}`;
+          if (resultado.omitidos_duplicados.length) {
+            msg += ` — ${resultado.omitidos_duplicados.length} omitido${resultado.omitidos_duplicados.length === 1 ? '' : 's'} por ya existir en esa obra (${resultado.omitidos_duplicados.map((o) => o.codigo).join(', ')})`;
+          }
+          toast(msg, resultado.importados.length ? 'success' : '');
+          renderResultados();
+        } catch (err) {
+          toast(err.message, 'danger');
+          btn.disabled = false; btn.textContent = 'Importar a esta obra';
+        }
+      });
+    }
+
+    view.innerHTML = `
+      <h2 class="section-title">Costos ${renderHelpBtn('costos')}</h2>
+      <p class="muted">Repositorio global de precios históricos, independiente de cualquier obra — súbelo una vez desde archivos Excel de 4 hojas y luego busca e importa conceptos (con su destajo/insumos/matriz) directo a cualquier obra existente.</p>
+      ${renderSubNav()}
+      ${isAdmin() ? `
+      <div class="card mt-12">
+        <h3 class="mt-0">Archivos del catálogo</h3>
+        <div class="row end mb-8">
+          <input type="file" id="cmArchivoInput" accept=".xlsx" class="hidden-initial" />
+          <button class="btn btn-primary" id="btnCmSubirArchivo">⭱ Subir archivo (.xlsx de 4 hojas)</button>
+        </div>
+        <div id="cmArchivosResult"><div class="spinner"></div></div>
+      </div>
+      ` : ''}
+      <div class="card mt-12">
+        <h3 class="mt-0">Buscar e importar a una obra</h3>
+        <div class="field">
+          <input type="search" id="cmBuscar" placeholder="Buscar por código o descripción…" autocomplete="off" />
+        </div>
+        <div id="cmBusquedaResult" class="mt-12"></div>
+      </div>
+    `;
+    bindSubNav();
+
+    if (isAdmin()) {
+      await cargarArchivos();
+      $('#btnCmSubirArchivo').addEventListener('click', () => $('#cmArchivoInput').click());
+      $('#cmArchivoInput').addEventListener('change', async (e) => {
+        const file = e.target.files[0];
+        e.target.value = '';
+        if (!file) return;
+        if (!/\.xlsx$/i.test(file.name)) { toast('Solo se admiten archivos .xlsx', 'danger'); return; }
+        const btn = $('#btnCmSubirArchivo');
+        const textoOriginal = btn.textContent;
+        btn.disabled = true; btn.textContent = 'Subiendo…';
+        try {
+          const blob = await VercelBlobClient.upload(file.name, file, {
+            access: 'private',
+            handleUploadUrl: '/api/costos/catalogo-maestro/upload-token',
+            headers: state.token ? { Authorization: `Bearer ${state.token}` } : {},
+          });
+          btn.textContent = 'Procesando…';
+          const resultado = await api('/costos/catalogo-maestro/upload', {
+            method: 'POST',
+            body: { archivo_url: blob.url, nombre_archivo: file.name },
+          });
+          toast(`"${file.name}" procesado — ${resultado.numConceptos} conceptos, ${resultado.numDestajo} destajos, ${resultado.numInsumos} insumos, ${resultado.numMatrices} matrices`, 'success');
+          await cargarArchivos();
+        } catch (err) {
+          toast(err.message, 'danger');
+        } finally {
+          btn.disabled = false; btn.textContent = textoOriginal;
+        }
+      });
+    }
+
+    $('#cmBuscar').addEventListener('input', debounce(async (e) => {
+      const q = e.target.value.trim();
+      busquedaVacia = !q;
+      seleccionados.clear();
+      if (!q) { resultados = []; $('#cmBusquedaResult').innerHTML = ''; return; }
+      try {
+        const data = await api(`/costos/catalogo-maestro/conceptos${queryString({ q })}`);
+        resultados = data.conceptos;
+        renderResultados();
+      } catch (err) {
+        $('#cmBusquedaResult').innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+      }
+    }, 300));
   }
 
   if (subView === 'porCliente') await showPorCliente();

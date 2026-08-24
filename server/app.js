@@ -61,7 +61,7 @@ const {
   upsertPorcentajeFondoGarantia,
   FONDO_GARANTIA_PCT_MIN, FONDO_GARANTIA_PCT_MAX,
 } = require('./finanzas');
-const { calcularJornal, calcularDestajo, totalConIvaDeItems, totalConIvaEsValido, numeroALetra, calcularSplitCuentas } = require('./calculos');
+const { calcularJornal, calcularDestajo, totalConIvaDeItems, totalConIvaEsValido, numeroALetra, calcularSplitCuentas, distribuirDestajoGrupo } = require('./calculos');
 const { validarClabe } = require('./catalogoBancos');
 const estadoResultados = require('./estadoResultados');
 const contabilidad = require('./contabilidad');
@@ -10972,7 +10972,7 @@ app.post('/api/projects/:id/nominas/:nomId/calcular', h(auth.allow('residente', 
   const { rows: trabajadores } = await db.pool.query(
     `SELECT t.* FROM trabajadores t
      JOIN trabajador_obras o ON o.trabajador_id = t.id AND o.project_id=$1 AND o.activo=true
-     WHERE t.activo=true ORDER BY t.nombre`,
+     WHERE t.activo=true ORDER BY t.nombre, t.id`,
     [req.project.id]
   );
 
@@ -10988,33 +10988,60 @@ app.post('/api/projects/:id/nominas/:nomId/calcular', h(auth.allow('residente', 
   );
   const asistMap = new Map(asistRows.map((r) => [r.trabajador_id, r.dias_presentes]));
 
-  // Destajo acumulado por trabajador (desde avance_destajo para semanas que solapan el periodo)
+  // Destajo acumulado por DESTAJISTA (no por trabajador) desde avance_destajo
+  // para semanas que solapan el periodo. prompt-fix-distribucion-destajo-
+  // nomina.md: antes se agrupaba por t.id, así que cada trabajador vinculado
+  // al mismo destajista_id disparaba su propio JOIN contra destajo_items/
+  // avance_destajo y recibía el total completo — bug de duplicación/
+  // triplicación cuando varios trabajadores comparten un destajista. Agrupar
+  // por destajista_id da un solo total por destajista, que luego se reparte
+  // en JS con distribuirDestajoGrupo().
+  const destajistaIdsRelevantes = [...new Set(
+    trabajadores
+      .filter((t) => (t.tipo_pago === 'destajo' || t.tipo_pago === 'mixto') && t.destajista_id)
+      .map((t) => t.destajista_id)
+  )];
   const { rows: destajoRows } = await db.pool.query(`
-    SELECT t.id AS trabajador_id, COALESCE(SUM(ad.cantidad_ejecutada * di.precio_destajo), 0) AS monto_destajo
-    FROM trabajadores t
-    JOIN destajistas dest ON dest.id = t.destajista_id
+    SELECT dest.id AS destajista_id, dest.nombre AS destajista_nombre,
+           COALESCE(SUM(ad.cantidad_ejecutada * di.precio_destajo), 0) AS monto_destajo
+    FROM destajistas dest
     JOIN destajo_items di ON di.destajista_id = dest.id
     JOIN avance_destajo ad ON ad.destajo_item_id = di.id
     JOIN avances_semanales av ON av.semana = ad.semana AND av.project_id = $1
-    WHERE t.project_id = $1 AND t.id = ANY($4::int[])
+    WHERE dest.project_id = $1 AND dest.id = ANY($4::int[])
       AND av.fecha_inicio <= $3 AND av.fecha_fin >= $2
-    GROUP BY t.id`,
-    [req.project.id, nom.fecha_inicio, nom.fecha_fin, trabajadores.map((t) => t.id)]
+    GROUP BY dest.id, dest.nombre`,
+    [req.project.id, nom.fecha_inicio, nom.fecha_fin, destajistaIdsRelevantes]
   );
-  const destajoMap = new Map(destajoRows.map((r) => [r.trabajador_id, Number(r.monto_destajo)]));
+
+  // Reparte cada total por destajista entre sus trabajadores vinculados
+  // (ver distribuirDestajoGrupo en server/calculos.js para la regla completa
+  // de $500 mínimo por vinculado + remanente al principal, y los edge cases
+  // de remanente negativo / principal no identificable por nombre).
+  const montoDestPorTrabajador = new Map();
+  const alertaDestPorTrabajador = new Map();
+  for (const row of destajoRows) {
+    const grupo = trabajadores.filter((t) => t.destajista_id === row.destajista_id && (t.tipo_pago === 'destajo' || t.tipo_pago === 'mixto'));
+    const reparto = distribuirDestajoGrupo(Number(row.monto_destajo), grupo, row.destajista_nombre);
+    reparto.forEach((r) => {
+      montoDestPorTrabajador.set(r.id, r.monto);
+      if (r.alerta) alertaDestPorTrabajador.set(r.id, r.alerta);
+    });
+  }
 
   await db.withTransaction(async (client) => {
     // Eliminar items previos para recalcular limpio
     await client.query('DELETE FROM nomina_items WHERE nomina_id=$1', [nomId]);
     for (const t of trabajadores) {
       const dias = asistMap.get(t.id) || 0;
-      const montoDest = (t.tipo_pago === 'destajo' || t.tipo_pago === 'mixto') ? (destajoMap.get(t.id) || 0) : 0;
+      const montoDest = (t.tipo_pago === 'destajo' || t.tipo_pago === 'mixto') ? (montoDestPorTrabajador.get(t.id) || 0) : 0;
       const montoJornal = (t.tipo_pago === 'jornal' || t.tipo_pago === 'mixto') ? calcularJornal(dias, t.tarifa_jornal) : 0;
       const total = montoJornal + montoDest;
+      const alertaDestajo = alertaDestPorTrabajador.get(t.id) || null;
       await client.query(`
-        INSERT INTO nomina_items (nomina_id, trabajador_id, dias_trabajados, monto_jornal, monto_destajo, monto_total)
-        VALUES ($1,$2,$3,$4,$5,$6)`,
-        [nomId, t.id, dias, montoJornal, montoDest, total]
+        INSERT INTO nomina_items (nomina_id, trabajador_id, dias_trabajados, monto_jornal, monto_destajo, monto_total, alerta_destajo)
+        VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+        [nomId, t.id, dias, montoJornal, montoDest, total, alertaDestajo]
       );
     }
   });

@@ -158,4 +158,60 @@ function calcularSplitCuentas(montoTotal, splitPct, tieneCuentaAlterna) {
   return { montoCuentaNomina, montoCuentaAlterna };
 }
 
-module.exports = { calcularJornal, calcularDestajo, montoSinIva, totalConIvaDeItems, totalConIvaEsValido, numeroALetra, calcularSplitCuentas };
+// Nómina/destajo: distribución del monto total de un destajista entre todos
+// los trabajadores vinculados a él (destajista_id compartido) cuando hay más
+// de uno (prompt-fix-distribucion-destajo-nomina.md). Antes de este fix,
+// POST /nominas/:nomId/calcular calculaba el destajo agrupando por
+// trabajador_id en vez de por destajista_id, así que el JOIN completo contra
+// destajo_items/avance_destajo se repetía por cada vinculado — cada uno
+// recibía el total completo del destajista (bug de duplicación/triplicación
+// con N vinculados). Regla de negocio: cada vinculado (no el principal)
+// recibe un mínimo fijo de $500; el destajista principal — resuelto por
+// name-matching de trabajador.nombre contra el nombre del destajista, sin
+// distinguir mayúsculas ni espacios — se queda con el remanente. Si
+// $500 × vinculados excede el total disponible, o si ningún trabajador del
+// grupo coincide de nombre con el destajista, no hay forma segura de elegir
+// quién absorbe el faltante/sobrante: se reparte el total a prorrata entre
+// el grupo entero y se marca `alerta` en cada entrada para que la UI avise y
+// un humano lo revise — nunca se asigna un monto negativo. El último
+// miembro de cada reparto prorrateado absorbe el residuo (total - suma de
+// los demás) en vez de recibir la misma fracción que el resto, para que la
+// suma del grupo cuadre exacto con `total` sin diferencia de redondeo.
+// grupo: [{ id, nombre }, ...], en cualquier orden (típicamente ya vienen
+// ordenados por nombre desde el caller). Devuelve [{ id, monto, alerta }].
+function distribuirDestajoGrupo(total, grupo, nombreDestajista, minimoVinculado = 500) {
+  const totalNum = Number(total) || 0;
+  if (grupo.length <= 1) {
+    return grupo.map((t) => ({ id: t.id, monto: totalNum, alerta: null }));
+  }
+
+  const normalizar = (s) => String(s || '').trim().toLowerCase();
+  const prorratear = (miembros, montoTotal, alerta) => {
+    let acumulado = 0;
+    return miembros.map((t, i) => {
+      const monto = i === miembros.length - 1 ? montoTotal - acumulado : montoTotal / miembros.length;
+      acumulado += monto;
+      return { id: t.id, monto, alerta };
+    });
+  };
+
+  const principal = grupo.find((t) => normalizar(t.nombre) === normalizar(nombreDestajista));
+  if (!principal) {
+    return prorratear(grupo, totalNum, 'No se identificó al destajista principal por nombre dentro del grupo vinculado: el destajo se repartió en partes iguales. Revisar vínculo.');
+  }
+
+  const vinculados = grupo.filter((t) => t.id !== principal.id);
+  const costoVinculados = minimoVinculado * vinculados.length;
+  if (costoVinculados <= totalNum) {
+    const resultado = vinculados.map((t) => ({ id: t.id, monto: minimoVinculado, alerta: null }));
+    resultado.push({ id: principal.id, monto: totalNum - costoVinculados, alerta: null });
+    return resultado;
+  }
+
+  const alerta = 'Remanente insuficiente para el mínimo de $500 por vinculado: se repartió el destajo a prorrata y el destajista principal quedó en $0. Revisar.';
+  const resultado = prorratear(vinculados, totalNum, alerta);
+  resultado.push({ id: principal.id, monto: 0, alerta });
+  return resultado;
+}
+
+module.exports = { calcularJornal, calcularDestajo, montoSinIva, totalConIvaDeItems, totalConIvaEsValido, numeroALetra, calcularSplitCuentas, distribuirDestajoGrupo };

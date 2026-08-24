@@ -2183,6 +2183,19 @@ const SCHEMA = `
   CREATE INDEX IF NOT EXISTS idx_catalogo_insumos_archivo ON catalogo_insumos(archivo_id);
   CREATE INDEX IF NOT EXISTS idx_catalogo_insumos_concepto ON catalogo_insumos(concepto_id);
 
+  -- Descubierto al diseñar Task 3 (importar-a-obra, prompt-catalogo-maestro-
+  -- costos.md): 'insumo' arriba se llenaba (Task 2) con
+  -- "r.descripcion || r.codigo_insumo" -- un único campo humano-legible que
+  -- PIERDE el código cuando ambos existen. Task 3 necesita el código exacto
+  -- para resolver/crear el insumo correspondiente en la obra destino (mismo
+  -- mecanismo "resolver insumo_id por código" que usa el import real a obra,
+  -- server/app.js ~3468). Se agrega codigo_insumo como columna separada;
+  -- 'insumo' se conserva tal cual como la etiqueta legible. NOT NULL directo
+  -- (no backfill) porque la tabla está vacía en Preview a la fecha de este
+  -- cambio -- confirmado antes de escribir este ALTER.
+  ALTER TABLE catalogo_insumos ADD COLUMN IF NOT EXISTS codigo_insumo TEXT NOT NULL DEFAULT '';
+  ALTER TABLE catalogo_insumos ALTER COLUMN codigo_insumo DROP DEFAULT;
+
   -- datos JSONB (no una tabla relacional tipo matriz_precio_renglones): el
   -- modelo relacional de matriz_precio_renglones depende de insumo_id -> FK a
   -- insumos por-obra, que aquí no existe (ver catalogo_insumos arriba). El

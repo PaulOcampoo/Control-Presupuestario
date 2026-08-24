@@ -32,6 +32,11 @@ const { parseArchivo4Hojas } = require('./crearPresupuestoImport');
 //   en vez de un FK). Renglones tipo 'factor_pct' se excluyen de
 //   catalogo_insumos (no representan un insumo real) pero SÍ quedan
 //   preservados dentro del JSONB de catalogo_matrices.
+//   codigo_insumo se guarda en columna propia (además de 'insumo', la
+//   etiqueta legible) -- Task 3 lo necesita intacto para resolver/crear el
+//   insumo correspondiente en la obra destino; guardarlo mezclado con la
+//   descripción en un solo campo de texto lo hacía irrecuperable cuando
+//   ambos existían (bug real, corregido antes de escribir Task 3).
 async function procesarArchivoCatalogo(client, archivoId, tmpPath) {
   const parsed = await parseArchivo4Hojas(tmpPath);
 
@@ -77,9 +82,9 @@ async function procesarArchivoCatalogo(client, archivoId, tmpPath) {
     for (const r of m.renglones) {
       if (r.tipo !== 'insumo' || !r.codigo_insumo) continue;
       await client.query(
-        `INSERT INTO catalogo_insumos (archivo_id, concepto_id, insumo, cantidad, precio_unitario_insumo)
-         VALUES ($1,$2,$3,$4,$5)`,
-        [archivoId, conceptoId, r.descripcion || r.codigo_insumo, r.cantidad, precioPorCodigoInsumo.get(r.codigo_insumo) || 0]
+        `INSERT INTO catalogo_insumos (archivo_id, concepto_id, insumo, codigo_insumo, cantidad, precio_unitario_insumo)
+         VALUES ($1,$2,$3,$4,$5,$6)`,
+        [archivoId, conceptoId, r.descripcion || r.codigo_insumo, r.codigo_insumo, r.cantidad, precioPorCodigoInsumo.get(r.codigo_insumo) || 0]
       );
       numInsumos++;
     }

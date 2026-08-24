@@ -196,9 +196,10 @@ describe('POST /api/costos/catalogo-maestro/upload', () => {
     expect(destajoRows[0].precio_destajo).toBe(80);
     expect(destajoRows[0].destajista_nombre).toBe('QA Destajista Prueba');
 
-    const { rows: insumoRows } = await db.pool.query('SELECT concepto_id, insumo, cantidad, precio_unitario_insumo FROM catalogo_insumos WHERE archivo_id = $1', [archivoIdCreado]);
+    const { rows: insumoRows } = await db.pool.query('SELECT concepto_id, insumo, codigo_insumo, cantidad, precio_unitario_insumo FROM catalogo_insumos WHERE archivo_id = $1', [archivoIdCreado]);
     expect(insumoRows).toHaveLength(1);
     expect(insumoRows[0].concepto_id).toBe(conceptoId);
+    expect(insumoRows[0].codigo_insumo).toBe(COD_INSUMO);
     expect(insumoRows[0].cantidad).toBe(2);
     // Precio resuelto contra la Hoja 3 "Insumos" por código, no viene de la Hoja 4.
     expect(insumoRows[0].precio_unitario_insumo).toBe(45);

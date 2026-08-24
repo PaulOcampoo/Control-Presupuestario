@@ -3490,6 +3490,131 @@ app.post('/api/costos/crear-presupuesto/import-completo/confirm', h(auth.checkPe
 }));
 
 // ---------------------------------------------------------------------------
+// Catálogo Maestro de Costos (prompt-catalogo-maestro-costos.md, Task 2/5) —
+// repositorio GLOBAL de conceptos/destajo/insumos/matrices cargado desde
+// archivos Excel de 4 hojas (mismo formato/parser que "Crear presupuesto
+// desde catálogo" arriba, vía parseArchivo4Hojas). Carga y administración
+// (los 4 endpoints de este bloque): solo admin/desarrollador -- auth.allow()
+// sin puestos extra (decisión consultada: no se granulariza en
+// permisos_usuario para esta primera versión, ver server/catalogoMaestro.js
+// para el mapeo de datos). Búsqueda/consumo desde "Crear presupuesto desde
+// catálogo" (Task 3) usará el permiso 'costos'.puede_crear existente en su
+// lugar, no este gate.
+const catalogoMaestro = require('./catalogoMaestro');
+
+// Igual patrón que /api/contabilidad/movimientos/upload-token
+// (server/app.js ~5049): token firmado para subir directo del browser a
+// Blob, NO multipart -- así es como TODO archivo .xlsx se sube en este
+// codebase, el texto "multipart" del prompt original no corresponde a
+// ningún patrón real existente aquí.
+app.post('/api/costos/catalogo-maestro/upload-token', h(auth.allow()), h(async (req, res) => {
+  try {
+    const jsonResponse = await handleUpload({
+      body: req.body,
+      request: req,
+      onBeforeGenerateToken: async (pathname) => {
+        if (!/\.xlsx$/i.test(pathname)) {
+          throw new Error('Solo se admiten archivos .xlsx');
+        }
+        return {
+          allowedContentTypes: ['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'],
+          addRandomSuffix: true,
+          maximumSizeInBytes: 15 * 1024 * 1024,
+        };
+      },
+    });
+    res.json(jsonResponse);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+}));
+
+app.post('/api/costos/catalogo-maestro/upload', h(auth.allow()), h(async (req, res) => {
+  const { archivo_url, nombre_archivo } = req.body || {};
+  if (!archivo_url) return res.status(400).json({ error: 'Falta archivo_url (sube el archivo primero vía upload-token)' });
+  if (!nombre_archivo?.trim()) return res.status(400).json({ error: 'Falta nombre_archivo' });
+
+  // La fila de catalogo_archivos se crea en su PROPIA transacción/statement,
+  // ANTES de intentar parsear -- así siempre queda un registro (estado
+  // 'procesando' -> 'procesado'/'error'), incluso si el parseo revienta.
+  const { rows: archivoRows } = await db.pool.query(
+    `INSERT INTO catalogo_archivos (nombre_archivo, blob_url, cargado_por, estado)
+     VALUES ($1,$2,$3,'procesando') RETURNING id`,
+    [nombre_archivo.trim(), archivo_url, req.user.id]
+  );
+  const archivoId = archivoRows[0].id;
+
+  const tmpPath = path.join(os.tmpdir(), `catalogo-maestro-${Date.now()}-${Math.round(Math.random() * 1e9)}.xlsx`);
+  try {
+    await descargarBlobXlsxATmp(archivo_url, tmpPath);
+    const resumen = await db.withTransaction((client) => catalogoMaestro.procesarArchivoCatalogo(client, archivoId, tmpPath));
+    await db.pool.query(`UPDATE catalogo_archivos SET estado = 'procesado' WHERE id = $1`, [archivoId]);
+    res.status(201).json({ id: archivoId, estado: 'procesado', ...resumen });
+  } catch (err) {
+    await db.pool.query(`UPDATE catalogo_archivos SET estado = 'error', notas_error = $1 WHERE id = $2`, [err.message, archivoId]);
+    res.status(err.status || 400).json({ id: archivoId, estado: 'error', error: err.message });
+  } finally {
+    fs.promises.unlink(tmpPath).catch(() => {});
+  }
+}));
+
+app.get('/api/costos/catalogo-maestro/archivos', h(auth.allow()), h(async (req, res) => {
+  res.json({ archivos: await catalogoMaestro.listarArchivos(db.pool) });
+}));
+
+app.delete('/api/costos/catalogo-maestro/archivos/:id', h(auth.allow()), h(async (req, res) => {
+  const archivoId = Number(req.params.id);
+  if (!Number.isFinite(archivoId)) return res.status(400).json({ error: 'id inválido' });
+  const conceptosDesactivados = await catalogoMaestro.eliminarArchivo(db.pool, archivoId);
+  if (conceptosDesactivados === null) return res.status(404).json({ error: 'Archivo no encontrado' });
+  res.json({ id: archivoId, conceptos_desactivados: conceptosDesactivados });
+}));
+
+// Task 3/5 — búsqueda y consumo. Mismos roles que "Crear presupuesto desde
+// catálogo" hoy (checkPermiso('costos','puede_crear'), NO auth.allow() como
+// los 4 endpoints de carga/administración arriba — decisión explícita del
+// plan, sección Permisos).
+app.get('/api/costos/catalogo-maestro/conceptos', h(auth.checkPermiso('costos', 'puede_crear')), h(async (req, res) => {
+  const q = (req.query.q || '').trim();
+  if (!q) return res.status(400).json({ error: 'Falta el parámetro de búsqueda q' });
+  res.json({ conceptos: await catalogoMaestro.buscarConceptos(db.pool, q) });
+}));
+
+app.post('/api/costos/catalogo-maestro/importar-a-obra', h(auth.checkPermiso('costos', 'puede_crear')), h(async (req, res) => {
+  const { proyecto_id, concepto_ids } = req.body || {};
+  const proyectoId = Number(proyecto_id);
+  if (!Number.isFinite(proyectoId)) return res.status(400).json({ error: 'Falta proyecto_id' });
+  if (!Array.isArray(concepto_ids) || !concepto_ids.length) return res.status(400).json({ error: 'Falta concepto_ids (lista no vacía)' });
+  const ids = concepto_ids.map(Number);
+  if (ids.some((n) => !Number.isFinite(n))) return res.status(400).json({ error: 'concepto_ids debe ser una lista de enteros' });
+
+  const { rows: proyectoRows } = await db.pool.query('SELECT id FROM proyectos WHERE id = $1', [proyectoId]);
+  if (!proyectoRows[0]) return res.status(404).json({ error: 'La obra destino no existe' });
+
+  const ip = auth.getIp(req);
+  let resultado;
+  try {
+    // audit_log dentro de la MISMA transacción que el import (igual que
+    // import-completo/confirm, server/app.js ~3477-3483) -- si el log
+    // fallara fuera de la transacción, el cliente vería un 500 pese a que
+    // el import ya se hubiera confirmado, un falso negativo confuso.
+    resultado = await db.withTransaction(async (client) => {
+      const r = await catalogoMaestro.importarAObra(client, proyectoId, ids);
+      await client.query(
+        `INSERT INTO audit_log (actor_id, actor_usuario, accion, target_id, project_id, ip, detalle)
+         VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+        [req.user.id, req.user.usuario, 'catalogo_maestro_importar_a_obra', proyectoId, proyectoId, ip, JSON.stringify(r)]
+      );
+      return r;
+    });
+  } catch (err) {
+    return res.status(err.status || 400).json({ error: err.message });
+  }
+
+  res.status(201).json({ proyecto_id: proyectoId, ...resultado });
+}));
+
+// ---------------------------------------------------------------------------
 // Matrices de precio unitario — Análisis de Precios Unitarios formato Neodata
 // (prompt-20-matrices-formato-neodata.md, rehace prompt-14/PR #98: la spec
 // anterior simplificaba la fórmula real — error de especificación, no de

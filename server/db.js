@@ -2151,6 +2151,13 @@ const SCHEMA = `
   CREATE INDEX IF NOT EXISTS idx_catalogo_conceptos_archivo ON catalogo_conceptos(archivo_id);
   CREATE INDEX IF NOT EXISTS idx_catalogo_conceptos_concepto ON catalogo_conceptos(concepto);
 
+  -- archivo_id aquí es redundante con catalogo_conceptos.archivo_id (vía
+  -- concepto_id) -- se guarda igual, denormalizado, para poder filtrar por
+  -- archivo sin JOIN. Nada en el schema obliga a que ambos coincidan: quien
+  -- inserte en catalogo_destajo/catalogo_insumos/catalogo_matrices (Task 2,
+  -- el importador) debe escribir siempre el archivo_id del MISMO archivo que
+  -- originó ese concepto_id -- un archivo_id desalineado no truena en
+  -- ninguna query, solo produce filas fantasma al filtrar por archivo.
   CREATE TABLE IF NOT EXISTS catalogo_destajo (
     id SERIAL PRIMARY KEY,
     archivo_id INTEGER NOT NULL REFERENCES catalogo_archivos(id) ON DELETE CASCADE,

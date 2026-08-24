@@ -3490,6 +3490,87 @@ app.post('/api/costos/crear-presupuesto/import-completo/confirm', h(auth.checkPe
 }));
 
 // ---------------------------------------------------------------------------
+// Catálogo Maestro de Costos (prompt-catalogo-maestro-costos.md, Task 2/5) —
+// repositorio GLOBAL de conceptos/destajo/insumos/matrices cargado desde
+// archivos Excel de 4 hojas (mismo formato/parser que "Crear presupuesto
+// desde catálogo" arriba, vía parseArchivo4Hojas). Carga y administración
+// (los 4 endpoints de este bloque): solo admin/desarrollador -- auth.allow()
+// sin puestos extra (decisión consultada: no se granulariza en
+// permisos_usuario para esta primera versión, ver server/catalogoMaestro.js
+// para el mapeo de datos). Búsqueda/consumo desde "Crear presupuesto desde
+// catálogo" (Task 3) usará el permiso 'costos'.puede_crear existente en su
+// lugar, no este gate.
+const catalogoMaestro = require('./catalogoMaestro');
+
+// Igual patrón que /api/contabilidad/movimientos/upload-token
+// (server/app.js ~5049): token firmado para subir directo del browser a
+// Blob, NO multipart -- así es como TODO archivo .xlsx se sube en este
+// codebase, el texto "multipart" del prompt original no corresponde a
+// ningún patrón real existente aquí.
+app.post('/api/costos/catalogo-maestro/upload-token', h(auth.allow()), h(async (req, res) => {
+  try {
+    const jsonResponse = await handleUpload({
+      body: req.body,
+      request: req,
+      onBeforeGenerateToken: async (pathname) => {
+        if (!/\.xlsx$/i.test(pathname)) {
+          throw new Error('Solo se admiten archivos .xlsx');
+        }
+        return {
+          allowedContentTypes: ['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'],
+          addRandomSuffix: true,
+          maximumSizeInBytes: 15 * 1024 * 1024,
+        };
+      },
+    });
+    res.json(jsonResponse);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+}));
+
+app.post('/api/costos/catalogo-maestro/upload', h(auth.allow()), h(async (req, res) => {
+  const { archivo_url, nombre_archivo } = req.body || {};
+  if (!archivo_url) return res.status(400).json({ error: 'Falta archivo_url (sube el archivo primero vía upload-token)' });
+  if (!nombre_archivo?.trim()) return res.status(400).json({ error: 'Falta nombre_archivo' });
+
+  // La fila de catalogo_archivos se crea en su PROPIA transacción/statement,
+  // ANTES de intentar parsear -- así siempre queda un registro (estado
+  // 'procesando' -> 'procesado'/'error'), incluso si el parseo revienta.
+  const { rows: archivoRows } = await db.pool.query(
+    `INSERT INTO catalogo_archivos (nombre_archivo, blob_url, cargado_por, estado)
+     VALUES ($1,$2,$3,'procesando') RETURNING id`,
+    [nombre_archivo.trim(), archivo_url, req.user.id]
+  );
+  const archivoId = archivoRows[0].id;
+
+  const tmpPath = path.join(os.tmpdir(), `catalogo-maestro-${Date.now()}-${Math.round(Math.random() * 1e9)}.xlsx`);
+  try {
+    await descargarBlobXlsxATmp(archivo_url, tmpPath);
+    const resumen = await db.withTransaction((client) => catalogoMaestro.procesarArchivoCatalogo(client, archivoId, tmpPath));
+    await db.pool.query(`UPDATE catalogo_archivos SET estado = 'procesado' WHERE id = $1`, [archivoId]);
+    res.status(201).json({ id: archivoId, estado: 'procesado', ...resumen });
+  } catch (err) {
+    await db.pool.query(`UPDATE catalogo_archivos SET estado = 'error', notas_error = $1 WHERE id = $2`, [err.message, archivoId]);
+    res.status(err.status || 400).json({ id: archivoId, estado: 'error', error: err.message });
+  } finally {
+    fs.promises.unlink(tmpPath).catch(() => {});
+  }
+}));
+
+app.get('/api/costos/catalogo-maestro/archivos', h(auth.allow()), h(async (req, res) => {
+  res.json({ archivos: await catalogoMaestro.listarArchivos(db.pool) });
+}));
+
+app.delete('/api/costos/catalogo-maestro/archivos/:id', h(auth.allow()), h(async (req, res) => {
+  const archivoId = Number(req.params.id);
+  if (!Number.isFinite(archivoId)) return res.status(400).json({ error: 'id inválido' });
+  const conceptosDesactivados = await catalogoMaestro.eliminarArchivo(db.pool, archivoId);
+  if (conceptosDesactivados === null) return res.status(404).json({ error: 'Archivo no encontrado' });
+  res.json({ id: archivoId, conceptos_desactivados: conceptosDesactivados });
+}));
+
+// ---------------------------------------------------------------------------
 // Matrices de precio unitario — Análisis de Precios Unitarios formato Neodata
 // (prompt-20-matrices-formato-neodata.md, rehace prompt-14/PR #98: la spec
 // anterior simplificaba la fórmula real — error de especificación, no de

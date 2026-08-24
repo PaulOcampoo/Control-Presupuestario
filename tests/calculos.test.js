@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { calcularJornal, calcularDestajo, montoSinIva, totalConIvaEsValido, numeroALetra, calcularSplitCuentas } from '../server/calculos.js';
+import { calcularJornal, calcularDestajo, montoSinIva, totalConIvaEsValido, numeroALetra, calcularSplitCuentas, distribuirDestajoGrupo } from '../server/calculos.js';
 
 describe('calcularJornal (tarifa_diaria × días presentes)', () => {
   it('caso normal: 6 días presentes a $350/día', () => {
@@ -175,5 +175,80 @@ describe('calcularSplitCuentas (prompt-29-split-pago-cuentas.md)', () => {
 
   it('monto_total 0: ambas partes en 0', () => {
     expect(calcularSplitCuentas(0, 70, true)).toEqual({ montoCuentaNomina: 0, montoCuentaAlterna: 0 });
+  });
+});
+
+describe('distribuirDestajoGrupo (prompt-fix-distribucion-destajo-nomina.md)', () => {
+  it('destajista sin vinculados (grupo de 1): recibe el 100% del total, sin cambio de comportamiento', () => {
+    const grupo = [{ id: 1, nombre: 'Juan Pérez' }];
+    expect(distribuirDestajoGrupo(10850.42, grupo, 'Juan Pérez')).toEqual([
+      { id: 1, monto: 10850.42, alerta: null },
+    ]);
+  });
+
+  it('destajista + 2 vinculados: cada vinculado recibe $500 fijo y el principal el remanente, cuadrando exacto con el total original', () => {
+    const grupo = [
+      { id: 1, nombre: 'Juan Pérez' },
+      { id: 2, nombre: 'Pedro Ramírez' },
+      { id: 3, nombre: 'Luis Torres' },
+    ];
+    const reparto = distribuirDestajoGrupo(10850.42, grupo, 'Juan Pérez');
+    expect(reparto).toEqual([
+      { id: 2, monto: 500, alerta: null },
+      { id: 3, monto: 500, alerta: null },
+      { id: 1, monto: 9850.42, alerta: null },
+    ]);
+    expect(reparto.reduce((s, r) => s + r.monto, 0)).toBe(10850.42);
+  });
+
+  it('name-matching es insensible a mayúsculas y espacios al resolver al principal', () => {
+    const grupo = [
+      { id: 1, nombre: '  juan PÉREZ  ' },
+      { id: 2, nombre: 'Pedro Ramírez' },
+    ];
+    const reparto = distribuirDestajoGrupo(1500, grupo, 'Juan Pérez');
+    expect(reparto).toEqual([
+      { id: 2, monto: 500, alerta: null },
+      { id: 1, monto: 1000, alerta: null },
+    ]);
+  });
+
+  it('edge case: remanente negativo (5 vinculados a $500 = $2,500 excede un total de $2,000) — prorratea entre vinculados, principal en $0 y ambos marcados con alerta', () => {
+    const grupo = [
+      { id: 1, nombre: 'Juan Pérez' },
+      { id: 2, nombre: 'A' }, { id: 3, nombre: 'B' }, { id: 4, nombre: 'C' }, { id: 5, nombre: 'D' }, { id: 6, nombre: 'E' },
+    ];
+    const reparto = distribuirDestajoGrupo(2000, grupo, 'Juan Pérez');
+    const principal = reparto.find((r) => r.id === 1);
+    const vinculados = reparto.filter((r) => r.id !== 1);
+    expect(principal.monto).toBe(0);
+    expect(principal.alerta).toMatch(/Remanente insuficiente/);
+    vinculados.forEach((v) => {
+      expect(v.monto).toBe(400); // 2000 / 5 vinculados
+      expect(v.alerta).toMatch(/Remanente insuficiente/);
+    });
+    expect(reparto.reduce((s, r) => s + r.monto, 0)).toBe(2000);
+  });
+
+  it('edge case: ningún trabajador del grupo coincide de nombre con el destajista — reparte en partes iguales entre todo el grupo y marca alerta en todos', () => {
+    const grupo = [
+      { id: 1, nombre: 'Ayudante Uno' },
+      { id: 2, nombre: 'Ayudante Dos' },
+    ];
+    const reparto = distribuirDestajoGrupo(1000, grupo, 'Destajista Sin Coincidencia');
+    expect(reparto).toEqual([
+      { id: 1, monto: 500, alerta: expect.stringMatching(/No se identificó al destajista principal/) },
+      { id: 2, monto: 500, alerta: expect.stringMatching(/No se identificó al destajista principal/) },
+    ]);
+    expect(reparto.reduce((s, r) => s + r.monto, 0)).toBe(1000);
+  });
+
+  it('el último miembro de un reparto prorrateado absorbe el residuo para que la suma cuadre exacto incluso con montos que no dividen limpio', () => {
+    const grupo = [
+      { id: 1, nombre: 'Juan Pérez' },
+      { id: 2, nombre: 'A' }, { id: 3, nombre: 'B' }, { id: 4, nombre: 'C' },
+    ];
+    const reparto = distribuirDestajoGrupo(1000, grupo, 'Juan Pérez'); // 500*3=1500 > 1000 -> prorratea entre 3 vinculados
+    expect(reparto.reduce((s, r) => s + r.monto, 0)).toBe(1000);
   });
 });

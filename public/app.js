@@ -17700,7 +17700,7 @@ async function renderNominasGlobal(view) {
                     <td>${esc(it.trabajador_puesto || '—')}</td>
                     <td class="num">${it.dias_trabajados ?? '—'}</td>
                     <td class="num">${fmtMoney(it.monto_jornal)}</td>
-                    <td class="num">${fmtMoney(it.monto_destajo)}</td>
+                    <td class="num">${fmtMoney(it.monto_destajo)}${it.alerta_destajo ? ` <span title="${esc(it.alerta_destajo)}">⚠️</span>` : ''}</td>
                     <td class="num">${fmtMoney(it.monto_total)}</td>
                   </tr>`).join('')}
                 </tbody>
@@ -18745,10 +18745,17 @@ async function openVerNominaModal(nominaId) {
     const hasSplit = items.some((i) => 'monto_cuenta_nomina' in i);
     const sinAsistencia = items.every((i) => (i.dias_trabajados || 0) === 0);
     const sinTarifa = items.some((i) => (i.dias_trabajados || 0) > 0 && (i.monto_jornal || 0) === 0 && (i.tipo_pago === 'jornal' || i.tipo_pago === 'mixto'));
+    // prompt-fix-distribucion-destajo-nomina.md: alerta_destajo viene del backend
+    // cuando el reparto de un destajo entre vinculados tuvo que prorratearse
+    // (remanente insuficiente o principal no identificable por nombre) — se
+    // muestra una sola vez arriba de la tabla, no por fila, para no repetir el
+    // mismo aviso varias veces cuando afecta a todo un grupo vinculado.
+    const alertasDestajo = [...new Set(items.map((i) => i.alerta_destajo).filter(Boolean))];
     el.innerHTML = `
       <div class="muted nomina-detalle-fecha">${esc(data.fecha_inicio)} al ${esc(data.fecha_fin)}</div>
       ${sinAsistencia ? `<div class="alert-box nomina-detalle-alert">⚠️ Todos los trabajadores tienen 0 días — guarda la asistencia del periodo antes de calcular.</div>` : ''}
       ${sinTarifa ? `<div class="alert-box nomina-detalle-alert">⚠️ Algún trabajador tiene tarifa $0/día. Edita el trabajador y asigna una tarifa jornal.</div>` : ''}
+      ${alertasDestajo.map((a) => `<div class="alert-box nomina-detalle-alert">⚠️ ${esc(a)}</div>`).join('')}
       <div class="nomina-table-wrap">
       <table class="nomina-table">
         <thead><tr>
@@ -18768,13 +18775,13 @@ async function openVerNominaModal(nominaId) {
             const montoTot = Number(i.monto_total || 0);
             const montoCtaNomina = Number(i.monto_cuenta_nomina || 0);
             const montoCtaAlterna = Number(i.monto_cuenta_alterna || 0);
-            const warnRow = (i.dias_trabajados || 0) > 0 && montoTot === 0;
+            const warnRow = ((i.dias_trabajados || 0) > 0 && montoTot === 0) || Boolean(i.alerta_destajo);
             return `<tr class="${warnRow ? 'nomina-warn-row' : ''}">
               <td class="nomina-td">${esc(i.trabajador_nombre || i.nombre_trabajador || '—')}</td>
               <td class="nomina-td-right">${i.dias_trabajados ?? 0}</td>
               <td class="nomina-td-right">${tarifaJornal > 0 ? '$' + tarifaJornal.toLocaleString('es-MX', { minimumFractionDigits: 2 }) : '<span class="muted">—</span>'}</td>
               <td class="nomina-td-right">$${montoJornal.toLocaleString('es-MX', { minimumFractionDigits: 2 })}</td>
-              ${hasDest ? `<td class="nomina-td-right">$${montoDest.toLocaleString('es-MX', { minimumFractionDigits: 2 })}</td>` : ''}
+              ${hasDest ? `<td class="nomina-td-right">$${montoDest.toLocaleString('es-MX', { minimumFractionDigits: 2 })}${i.alerta_destajo ? ' ⚠️' : ''}</td>` : ''}
               ${hasSplit ? `
                 <td class="nomina-td-right">$${montoCtaNomina.toLocaleString('es-MX', { minimumFractionDigits: 2 })}${i.banco_nomina ? ` <span class="muted">(${esc(i.banco_nomina)})</span>` : ''}</td>
                 <td class="nomina-td-right">$${montoCtaAlterna.toLocaleString('es-MX', { minimumFractionDigits: 2 })}${i.banco_alterna ? ` <span class="muted">(${esc(i.banco_alterna)})</span>` : ''}</td>

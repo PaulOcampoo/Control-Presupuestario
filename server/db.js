@@ -792,6 +792,14 @@ const SCHEMA = `
   );
   CREATE INDEX IF NOT EXISTS idx_nomina_items_nomina ON nomina_items(nomina_id);
 
+  -- prompt-fix-distribucion-destajo-nomina.md: cuando un destajo se reparte a
+  -- prorrata entre varios trabajadores vinculados (porque el mínimo de $500
+  -- por vinculado excede el remanente, o porque no se pudo resolver al
+  -- destajista principal por name-matching), se guarda el motivo aquí para
+  -- que la UI muestre un aviso visual — NULL en el caso normal (sin reparto
+  -- especial, incluye jornal y destajo de un solo trabajador sin vinculados).
+  ALTER TABLE nomina_items ADD COLUMN IF NOT EXISTS alerta_destajo TEXT;
+
   -- Rate limiting de endpoints costosos (ej. extracción PDF via Claude API).
   -- Serverless-safe: persiste entre instancias igual que login_attempts.
   -- Índice compuesto para la consulta de ventana temporal (usuario + endpoint + creado_en).

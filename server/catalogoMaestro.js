@@ -122,4 +122,178 @@ async function eliminarArchivo(pool, archivoId) {
   return rowCount;
 }
 
-module.exports = { procesarArchivoCatalogo, listarArchivos, eliminarArchivo };
+// Task 3/5 — búsqueda de conceptos por texto (código o nombre) a través de
+// TODOS los archivos activos. Deliberadamente SIN dedupe por código (a
+// diferencia de conceptosCatalogoQuery en server/app.js, que sí hace
+// DISTINCT ON — ese catálogo agregado modela "un concepto real vigente por
+// obra", pero aquí el usuario está navegando un catálogo de REFERENCIA con
+// posible traslape entre archivos subidos por separado, y quedarse solo con
+// "el más reciente" escondería silenciosamente destajo/precio distintos de
+// otro archivo igual de válido). Requiere q no vacío para no devolver miles
+// de filas sin filtro -- límite duro de 100 resultados por la misma razón.
+async function buscarConceptos(pool, q) {
+  const { rows } = await pool.query(
+    `SELECT c.id, c.codigo, c.concepto, c.unidad, c.precio_unitario,
+       c.archivo_id, a.nombre_archivo, a.fecha_carga,
+       EXISTS (SELECT 1 FROM catalogo_destajo d WHERE d.concepto_id = c.id) AS tiene_destajo,
+       EXISTS (SELECT 1 FROM catalogo_insumos i WHERE i.concepto_id = c.id) AS tiene_insumos,
+       EXISTS (SELECT 1 FROM catalogo_matrices m WHERE m.concepto_id = c.id) AS tiene_matriz
+     FROM catalogo_conceptos c
+     JOIN catalogo_archivos a ON a.id = c.archivo_id
+     WHERE c.activo = true AND (c.concepto ILIKE $1 OR c.codigo ILIKE $1)
+     ORDER BY a.fecha_carga DESC, c.codigo
+     LIMIT 100`,
+    [`%${q}%`]
+  );
+  return rows;
+}
+
+// Task 3/5 — importar conceptos seleccionados del Catálogo Maestro a una
+// obra YA EXISTENTE (proyecto_id). Deliberadamente NO reusa server/ingest.js
+// (aunque el plan dice "usando la MISMA lógica de ingest()"): ingest() está
+// diseñado para ALTA DE OBRA DESDE CERO -- además de conceptos/insumos,
+// genera programa_ejecucion + avances_semanales completos (generatePlanning)
+// para TODOS los conceptos de la obra, y su bloque de matrices asume
+// conceptoIdsConMatriz siempre vacío ("una obra recién creada nunca pudo
+// tener una matriz previa" -- comentario explícito en ingest.js). Llamarlo
+// contra una obra EXISTENTE recalcularía/duplicaría programa y avance de
+// TODA la obra, no solo de los conceptos nuevos -- exactamente lo que
+// CLAUDE.md prohíbe ("preservar siempre datos existentes de avance"). En su
+// lugar se replica el patrón manual de
+// /api/costos/crear-presupuesto/import-completo/confirm (resolver por
+// código, transacción única), extendido con lo que ese flujo nunca necesitó
+// por ser siempre alta-desde-cero: name-matching de destajista contra los
+// YA EXISTENTES en la obra destino, y resolución de insumo por código
+// también contra los YA EXISTENTES (nunca se asume que la obra está vacía).
+//
+// Colisión de código con un concepto YA activo en la obra destino: se omite
+// (nunca se sobreescribe ni duplica -- mismo criterio de "preservar datos
+// existentes"), reportado en omitidos_duplicados para que el caller
+// (Task 4) se lo muestre al usuario.
+//
+// "Auto-creación de destajista genérico si no hay match" (texto del plan):
+// no existe ningún destajista genérico "Mano de Obra General" en este
+// codebase (confirmado -- el único fallback real es el nombre literal
+// 'Sin destajista asignado', usado en import-completo/confirm cuando
+// destajista_nombre viene vacío). Se sigue ese mismo criterio real: si no
+// hay match por nombre (case-insensitive) contra los destajistas ya
+// existentes en la obra, se crea uno nuevo con el nombre del catálogo (o
+// 'Sin destajista asignado' si venía vacío) -- "genérico" en el sentido de
+// "no curado a mano", no un nombre fijo inventado sin precedente real.
+async function importarAObra(client, proyectoId, catalogoConceptoIds) {
+  const { rows: seleccionados } = await client.query(
+    `SELECT id, codigo, concepto, unidad, precio_unitario FROM catalogo_conceptos WHERE id = ANY($1) AND activo = true`,
+    [catalogoConceptoIds]
+  );
+  const encontrados = new Set(seleccionados.map((c) => c.id));
+  const noEncontrados = catalogoConceptoIds.filter((id) => !encontrados.has(id));
+  if (noEncontrados.length) {
+    const err = new Error(`concepto_id no encontrado o inactivo en el catálogo maestro: ${noEncontrados.join(', ')}`);
+    err.status = 400;
+    throw err;
+  }
+
+  const { rows: existentesObra } = await client.query(
+    `SELECT codigo FROM conceptos WHERE project_id = $1 AND activo = 1 AND codigo IS NOT NULL`, [proyectoId]
+  );
+  const codigosExistentes = new Set(existentesObra.map((c) => c.codigo));
+  const aImportar = seleccionados.filter((c) => !codigosExistentes.has(c.codigo));
+  const omitidosDuplicados = seleccionados
+    .filter((c) => codigosExistentes.has(c.codigo))
+    .map((c) => ({ concepto_id_catalogo: c.id, codigo: c.codigo, concepto: c.concepto }));
+
+  if (!aImportar.length) return { importados: [], omitidos_duplicados: omitidosDuplicados };
+
+  const { rows: [{ max_orden: maxOrdenConcepto }] } = await client.query(
+    `SELECT COALESCE(MAX(orden), 0) AS max_orden FROM conceptos WHERE project_id = $1`, [proyectoId]
+  );
+  let siguienteOrdenConcepto = maxOrdenConcepto + 1;
+
+  const { rows: destajistasObra } = await client.query(`SELECT id, nombre FROM destajistas WHERE project_id = $1`, [proyectoId]);
+  const destajistaIdPorNombreLower = new Map(destajistasObra.map((d) => [d.nombre.toLowerCase(), d.id]));
+  const { rows: [{ max_orden: maxOrdenDestajista }] } = await client.query(
+    `SELECT COALESCE(MAX(orden), 0) AS max_orden FROM destajistas WHERE project_id = $1`, [proyectoId]
+  );
+  let siguienteOrdenDestajista = maxOrdenDestajista + 1;
+
+  const { rows: insumosObra } = await client.query(`SELECT id, codigo FROM insumos WHERE project_id = $1 AND codigo IS NOT NULL`, [proyectoId]);
+  const insumoIdPorCodigo = new Map(insumosObra.map((i) => [i.codigo, i.id]));
+  const { rows: [{ max_orden: maxOrdenInsumo }] } = await client.query(
+    `SELECT COALESCE(MAX(orden), 0) AS max_orden FROM insumos WHERE project_id = $1`, [proyectoId]
+  );
+  let siguienteOrdenInsumo = maxOrdenInsumo + 1;
+
+  const importados = [];
+
+  for (const c of aImportar) {
+    const { rows: conceptoRows } = await client.query(
+      `INSERT INTO conceptos (project_id, codigo, concepto, unidad, cantidad, precio_unitario, importe, grupo, es_total, orden, activo)
+       VALUES ($1,$2,$3,$4,0,$5,0,NULL,0,$6,1) RETURNING id`,
+      [proyectoId, c.codigo, c.concepto, c.unidad, c.precio_unitario, siguienteOrdenConcepto++]
+    );
+    const conceptoIdObra = conceptoRows[0].id;
+    importados.push({ concepto_id_catalogo: c.id, codigo: c.codigo, concepto_id_obra: conceptoIdObra });
+
+    const { rows: destajoRows } = await client.query(
+      `SELECT precio_destajo, destajista_nombre FROM catalogo_destajo WHERE concepto_id = $1`, [c.id]
+    );
+    for (const d of destajoRows) {
+      const nombreDestajista = d.destajista_nombre?.trim() || 'Sin destajista asignado';
+      const key = nombreDestajista.toLowerCase();
+      let destajistaId = destajistaIdPorNombreLower.get(key);
+      if (!destajistaId) {
+        const { rows: nuevoDestajista } = await client.query(
+          `INSERT INTO destajistas (project_id, nombre, orden) VALUES ($1,$2,$3) RETURNING id`,
+          [proyectoId, nombreDestajista, siguienteOrdenDestajista++]
+        );
+        destajistaId = nuevoDestajista[0].id;
+        destajistaIdPorNombreLower.set(key, destajistaId);
+      }
+      await client.query(
+        `INSERT INTO destajo_items (project_id, destajista_id, concepto_id, codigo, concepto, unidad, cantidad_asignada, precio_destajo, orden)
+         VALUES ($1,$2,$3,$4,$5,$6,0,$7,0)`,
+        [proyectoId, destajistaId, conceptoIdObra, c.codigo, c.concepto, c.unidad, d.precio_destajo]
+      );
+    }
+
+    const { rows: matrizRows } = await client.query(`SELECT datos FROM catalogo_matrices WHERE concepto_id = $1`, [c.id]);
+    for (const { datos } of matrizRows) {
+      const { rows: nuevaMatriz } = await client.query(
+        `INSERT INTO matrices_precio_unitario (concepto_id, pct_indirecto, pct_utilidad, pct_financiamiento, rendimiento, partida, analisis_no, cuadrilla_nombre)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
+        [conceptoIdObra, datos.pct_indirecto, datos.pct_utilidad, datos.pct_financiamiento, datos.rendimiento, datos.partida, datos.analisis_no, datos.cuadrilla_nombre]
+      );
+      const matrizIdObra = nuevaMatriz[0].id;
+      let ordenRenglon = 0;
+      for (const r of (datos.renglones || [])) {
+        let insumoId = null;
+        if (r.codigo_insumo) {
+          insumoId = insumoIdPorCodigo.get(r.codigo_insumo) || null;
+          if (!insumoId) {
+            const { rows: catIns } = await client.query(
+              `SELECT precio_unitario_insumo FROM catalogo_insumos WHERE concepto_id = $1 AND codigo_insumo = $2 LIMIT 1`,
+              [c.id, r.codigo_insumo]
+            );
+            const { rows: nuevoInsumo } = await client.query(
+              `INSERT INTO insumos (project_id, codigo, concepto, categoria, cantidad_presupuesto, precio_presupuesto, importe_presupuesto, orden)
+               VALUES ($1,$2,$3,$4,0,$5,0,$6) RETURNING id`,
+              [proyectoId, r.codigo_insumo, r.descripcion || r.codigo_insumo, r.categoria, catIns[0]?.precio_unitario_insumo || 0, siguienteOrdenInsumo++]
+            );
+            insumoId = nuevoInsumo[0].id;
+            insumoIdPorCodigo.set(r.codigo_insumo, insumoId);
+          }
+          await client.query(`INSERT INTO concepto_insumos (concepto_id, insumo_id) VALUES ($1,$2) ON CONFLICT DO NOTHING`, [conceptoIdObra, insumoId]);
+        }
+        await client.query(
+          `INSERT INTO matriz_precio_renglones (matriz_id, categoria, tipo, insumo_id, codigo, descripcion, cantidad, factor_referencia, orden)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+          [matrizIdObra, r.categoria, r.tipo, insumoId, r.codigo_insumo || null, r.descripcion, r.cantidad, r.factor_referencia, ordenRenglon++]
+        );
+      }
+    }
+  }
+
+  return { importados, omitidos_duplicados: omitidosDuplicados };
+}
+
+module.exports = { procesarArchivoCatalogo, listarArchivos, eliminarArchivo, buscarConceptos, importarAObra };

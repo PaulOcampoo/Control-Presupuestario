@@ -3570,6 +3570,44 @@ app.delete('/api/costos/catalogo-maestro/archivos/:id', h(auth.allow()), h(async
   res.json({ id: archivoId, conceptos_desactivados: conceptosDesactivados });
 }));
 
+// Task 3/5 — búsqueda y consumo. Mismos roles que "Crear presupuesto desde
+// catálogo" hoy (checkPermiso('costos','puede_crear'), NO auth.allow() como
+// los 4 endpoints de carga/administración arriba — decisión explícita del
+// plan, sección Permisos).
+app.get('/api/costos/catalogo-maestro/conceptos', h(auth.checkPermiso('costos', 'puede_crear')), h(async (req, res) => {
+  const q = (req.query.q || '').trim();
+  if (!q) return res.status(400).json({ error: 'Falta el parámetro de búsqueda q' });
+  res.json({ conceptos: await catalogoMaestro.buscarConceptos(db.pool, q) });
+}));
+
+app.post('/api/costos/catalogo-maestro/importar-a-obra', h(auth.checkPermiso('costos', 'puede_crear')), h(async (req, res) => {
+  const { proyecto_id, concepto_ids } = req.body || {};
+  const proyectoId = Number(proyecto_id);
+  if (!Number.isFinite(proyectoId)) return res.status(400).json({ error: 'Falta proyecto_id' });
+  if (!Array.isArray(concepto_ids) || !concepto_ids.length) return res.status(400).json({ error: 'Falta concepto_ids (lista no vacía)' });
+  const ids = concepto_ids.map(Number);
+  if (ids.some((n) => !Number.isFinite(n))) return res.status(400).json({ error: 'concepto_ids debe ser una lista de enteros' });
+
+  const { rows: proyectoRows } = await db.pool.query('SELECT id FROM proyectos WHERE id = $1', [proyectoId]);
+  if (!proyectoRows[0]) return res.status(404).json({ error: 'La obra destino no existe' });
+
+  let resultado;
+  try {
+    resultado = await db.withTransaction((client) => catalogoMaestro.importarAObra(client, proyectoId, ids));
+  } catch (err) {
+    return res.status(err.status || 400).json({ error: err.message });
+  }
+
+  const ip = auth.getIp(req);
+  await db.pool.query(
+    `INSERT INTO audit_log (actor_id, actor_usuario, accion, target_id, project_id, ip, detalle)
+     VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+    [req.user.id, req.user.usuario, 'catalogo_maestro_importar_a_obra', proyectoId, proyectoId, ip, JSON.stringify(resultado)]
+  );
+
+  res.status(201).json({ proyecto_id: proyectoId, ...resultado });
+}));
+
 // ---------------------------------------------------------------------------
 // Matrices de precio unitario — Análisis de Precios Unitarios formato Neodata
 // (prompt-20-matrices-formato-neodata.md, rehace prompt-14/PR #98: la spec

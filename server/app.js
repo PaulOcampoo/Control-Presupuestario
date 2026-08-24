@@ -3591,19 +3591,25 @@ app.post('/api/costos/catalogo-maestro/importar-a-obra', h(auth.checkPermiso('co
   const { rows: proyectoRows } = await db.pool.query('SELECT id FROM proyectos WHERE id = $1', [proyectoId]);
   if (!proyectoRows[0]) return res.status(404).json({ error: 'La obra destino no existe' });
 
+  const ip = auth.getIp(req);
   let resultado;
   try {
-    resultado = await db.withTransaction((client) => catalogoMaestro.importarAObra(client, proyectoId, ids));
+    // audit_log dentro de la MISMA transacción que el import (igual que
+    // import-completo/confirm, server/app.js ~3477-3483) -- si el log
+    // fallara fuera de la transacción, el cliente vería un 500 pese a que
+    // el import ya se hubiera confirmado, un falso negativo confuso.
+    resultado = await db.withTransaction(async (client) => {
+      const r = await catalogoMaestro.importarAObra(client, proyectoId, ids);
+      await client.query(
+        `INSERT INTO audit_log (actor_id, actor_usuario, accion, target_id, project_id, ip, detalle)
+         VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+        [req.user.id, req.user.usuario, 'catalogo_maestro_importar_a_obra', proyectoId, proyectoId, ip, JSON.stringify(r)]
+      );
+      return r;
+    });
   } catch (err) {
     return res.status(err.status || 400).json({ error: err.message });
   }
-
-  const ip = auth.getIp(req);
-  await db.pool.query(
-    `INSERT INTO audit_log (actor_id, actor_usuario, accion, target_id, project_id, ip, detalle)
-     VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-    [req.user.id, req.user.usuario, 'catalogo_maestro_importar_a_obra', proyectoId, proyectoId, ip, JSON.stringify(resultado)]
-  );
 
   res.status(201).json({ proyecto_id: proyectoId, ...resultado });
 }));

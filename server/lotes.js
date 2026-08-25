@@ -212,29 +212,30 @@ async function validarModeloDeLaObra(pid, modeloId) {
   }
 }
 
+// estatus_venta NUNCA se acepta del caller (Fase 4, prompt-implementacion-
+// pr-a-compradores-apartado.md): es un campo derivado, escrito solo por las
+// transacciones de apartar/cancelar-apartado (server/ventas.js) — un lote
+// recién creado siempre nace 'no_disponible' (default de la columna), sin
+// excepción. Si el body trae estatus_venta, se ignora en silencio (decisión
+// documentada: ignorar, no rechazar con 400 — mismo criterio de tolerancia
+// que otros PUT de este archivo, que ya ignoran campos no reconocidos).
 async function createLote(pid, {
   manzana, numero_lote, modelo_vivienda, superficie_m2, fecha_entrega_estimada,
-  modelo_vivienda_id, precio_lista_override, estatus_venta,
+  modelo_vivienda_id, precio_lista_override,
 }) {
   if (!numero_lote || !String(numero_lote).trim()) {
     const err = new Error('numero_lote es requerido');
     err.status = 400;
     throw err;
   }
-  const estatusVentaFinal = estatus_venta || 'no_disponible';
-  if (!ESTATUS_VENTA.includes(estatusVentaFinal)) {
-    const err = new Error(`estatus_venta inválido: "${estatusVentaFinal}"`);
-    err.status = 400;
-    throw err;
-  }
   await validarModeloDeLaObra(pid, modelo_vivienda_id ?? null);
   const { rows } = await db.pool.query(
     `INSERT INTO lotes (project_id, manzana, numero_lote, modelo_vivienda, superficie_m2, fecha_entrega_estimada,
-       modelo_vivienda_id, precio_lista_override, estatus_venta)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+       modelo_vivienda_id, precio_lista_override)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
      RETURNING *`,
     [pid, (manzana || '').trim(), String(numero_lote).trim(), modelo_vivienda || null, superficie_m2 ?? null,
-      fecha_entrega_estimada || null, modelo_vivienda_id ?? null, precio_lista_override ?? null, estatusVentaFinal]
+      fecha_entrega_estimada || null, modelo_vivienda_id ?? null, precio_lista_override ?? null]
   );
   return rows[0];
 }
@@ -264,7 +265,10 @@ async function updateLote(id, pid, data) {
     fecha_entrega_real: data.fecha_entrega_real !== undefined ? data.fecha_entrega_real : actual.fecha_entrega_real,
     modelo_vivienda_id: data.modelo_vivienda_id !== undefined ? data.modelo_vivienda_id : actual.modelo_vivienda_id,
     precio_lista_override: data.precio_lista_override !== undefined ? data.precio_lista_override : actual.precio_lista_override,
-    estatus_venta: data.estatus_venta !== undefined ? data.estatus_venta : actual.estatus_venta,
+    // estatus_venta NUNCA se lee de `data` (Fase 4) — siempre el valor
+    // actual en DB, sin importar qué mande el caller. Solo lo escriben
+    // crearApartado/cancelarApartado en server/ventas.js.
+    estatus_venta: actual.estatus_venta,
   };
 
   if (!campos.numero_lote) {
@@ -274,11 +278,6 @@ async function updateLote(id, pid, data) {
   }
   if (!ESTATUS_LOTE.includes(campos.estatus)) {
     const err = new Error(`estatus inválido: "${campos.estatus}"`);
-    err.status = 400;
-    throw err;
-  }
-  if (!ESTATUS_VENTA.includes(campos.estatus_venta)) {
-    const err = new Error(`estatus_venta inválido: "${campos.estatus_venta}"`);
     err.status = 400;
     throw err;
   }

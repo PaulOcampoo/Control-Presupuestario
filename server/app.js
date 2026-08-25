@@ -70,6 +70,7 @@ const { parseMovimientosBancarios } = require('./movimientosBancariosParser');
 const { emparejarConceptos, calcularCambios, aplicarCambiosConceptos } = require('./reintegracionPresupuesto');
 const ordenesCambio = require('./ordenesCambio');
 const lotes = require('./lotes');
+const modelosVivienda = require('./modelosVivienda');
 
 // CN-007: nombre_archivo/pdf_filename vienen del cliente (upload); una comilla
 // doble en el valor rompe fuera del filename="..." y permite inyectar
@@ -6659,6 +6660,53 @@ app.post('/api/projects/:id/lotes/importar/confirmar', h(auth.allow('residente')
     res.status(err.status || 400).json({ error: err.message });
   } finally {
     fs.rm(tmpPath, () => {});
+  }
+}));
+
+// ---------------------------------------------------------------------------
+// Catálogo comercial de modelos de vivienda (prompt-implementacion-catalogo-
+// comercial.md, diagnóstico previo en prompt-diagnostico-catalogo-comercial.md)
+// — Fase 3 del roadmap "Desarrollador de Vivienda". Consulta (GET) para
+// admin/desarrollador/residente, mismo criterio de acceso que Lotes.
+// Crear/editar/eliminar (soft-delete) SOLO admin/desarrollador — gateado a
+// nivel de ruta con auth.allow() SIN argumentos (información comercial
+// sensible, precio de lista, no delegable a otro rol hoy). checkPermiso
+// SÍ se encadena de todas formas en las 3 rutas, aunque admin/desarrollador
+// lo bypaseen siempre — mismo patrón EXACTO que aprobar/rechazar en
+// ordenes_cambio (server/app.js, PUT /api/ordenes-cambio/:ocId/aprobar):
+// queda como infraestructura preparada para el día que se delegue esta
+// acción a otro rol, sin requerir otra migración de permisos.
+// ---------------------------------------------------------------------------
+app.get('/api/projects/:id/modelos-vivienda', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('modelos_vivienda', 'puede_ver')), h(async (req, res) => {
+  res.json(await modelosVivienda.listModelos(req.project.id));
+}));
+
+app.post('/api/projects/:id/modelos-vivienda', h(auth.allow()), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('modelos_vivienda', 'puede_crear')), h(async (req, res) => {
+  try {
+    const nuevo = await modelosVivienda.createModelo(req.project.id, req.body || {});
+    res.status(201).json(nuevo);
+  } catch (err) {
+    if (err.code === '23505') return res.status(409).json({ error: 'Ya existe un modelo con ese nombre en esta obra' });
+    res.status(err.status || 400).json({ error: err.message });
+  }
+}));
+
+app.put('/api/projects/:id/modelos-vivienda/:modeloId', h(auth.allow()), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('modelos_vivienda', 'puede_editar')), h(async (req, res) => {
+  try {
+    const actualizado = await modelosVivienda.updateModelo(Number(req.params.modeloId), req.project.id, req.body || {});
+    res.json(actualizado);
+  } catch (err) {
+    if (err.code === '23505') return res.status(409).json({ error: 'Ya existe un modelo con ese nombre en esta obra' });
+    res.status(err.status || 400).json({ error: err.message });
+  }
+}));
+
+app.delete('/api/projects/:id/modelos-vivienda/:modeloId', h(auth.allow()), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('modelos_vivienda', 'puede_eliminar')), h(async (req, res) => {
+  try {
+    const eliminado = await modelosVivienda.softDeleteModelo(Number(req.params.modeloId), req.project.id);
+    res.json(eliminado);
+  } catch (err) {
+    res.status(err.status || 400).json({ error: err.message });
   }
 }));
 

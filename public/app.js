@@ -41,9 +41,9 @@ const ROLE_TABS = {
   // simulación de rol no puede simular "soy el usuario 8", solo "soy rol X"
   // (prompt-fix-role-tabs-contabilidad.md) — limitación conocida y
   // aceptada para esos tres, no un bug.
-  admin:          ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'cumplimiento', 'finanzas', 'compromisos', 'fondoGarantia', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', 'ordenesCambio', 'lotes', 'infraVivienda', ...MAQUINARIA_TABS_ADMIN, 'cotizador', 'costos', 'costosDashboard', 'matrices', 'avance_clientes', 'composicion_costos', 'dashboardEjecutivo', 'catalogoBasicos', ...CONTABILIDAD_TABS],
-  desarrollador:  ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'cumplimiento', 'finanzas', 'compromisos', 'fondoGarantia', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', 'ordenesCambio', 'lotes', 'infraVivienda', ...MAQUINARIA_TABS_ADMIN, 'cotizador', 'costos', 'costosDashboard', 'matrices', 'avance_clientes', 'composicion_costos', 'dashboardEjecutivo', 'catalogoBasicos', ...CONTABILIDAD_TABS],
-  residente:      ['programa', 'avance', 'destajo', 'requisiciones', 'insumos', 'ordenes', 'nominas', 'trabajadores', 'estimaciones', 'ordenesCambio', 'lotes', 'infraVivienda', 'matrices'],
+  admin:          ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'cumplimiento', 'finanzas', 'compromisos', 'fondoGarantia', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', 'ordenesCambio', 'lotes', 'modelosVivienda', 'infraVivienda', ...MAQUINARIA_TABS_ADMIN, 'cotizador', 'costos', 'costosDashboard', 'matrices', 'avance_clientes', 'composicion_costos', 'dashboardEjecutivo', 'catalogoBasicos', ...CONTABILIDAD_TABS],
+  desarrollador:  ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'cumplimiento', 'finanzas', 'compromisos', 'fondoGarantia', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', 'ordenesCambio', 'lotes', 'modelosVivienda', 'infraVivienda', ...MAQUINARIA_TABS_ADMIN, 'cotizador', 'costos', 'costosDashboard', 'matrices', 'avance_clientes', 'composicion_costos', 'dashboardEjecutivo', 'catalogoBasicos', ...CONTABILIDAD_TABS],
+  residente:      ['programa', 'avance', 'destajo', 'requisiciones', 'insumos', 'ordenes', 'nominas', 'trabajadores', 'estimaciones', 'ordenesCambio', 'lotes', 'modelosVivienda', 'infraVivienda', 'matrices'],
   cabo:           ['destajo', 'insumos', 'avance', 'requisiciones', ...MAQUINARIA_TABS_CABO, 'trabajadores', 'nominas', 'ordenesCambio', 'infraVivienda'],
   compras:        ['programa', 'requisiciones', 'insumos', 'ordenes', 'proveedores', 'cumplimiento', 'cotizador'],
   tesoreria:      ['resumen', 'finanzas', 'compromisos', 'fondoGarantia', 'ordenes', 'contrato', 'impuestos', 'proveedores', 'cumplimiento', 'dashboardEjecutivo'],
@@ -1043,6 +1043,11 @@ function puedeAprobarOrdenCambio() { return isAdmin(); }
 // sola función de gate: ver/crear/editar comparten el mismo alcance de rol
 // en esta fase inicial (sin un rol "solo consulta" todavía).
 function puedeVerLotes() { return !!state.user && (isAdmin() || effectivePuesto() === 'residente'); }
+// prompt-implementacion-catalogo-comercial.md (Fase 3): mismo gate de rol que
+// Lotes para ver la pestaña; editar/crear/eliminar modelos es admin/
+// desarrollador exclusivo (isAdmin()) — el backend ya lo bloquea con 403 real,
+// esto solo evita mostrar botones que fallarían.
+function puedeVerModelosVivienda() { return !!state.user && (isAdmin() || effectivePuesto() === 'residente'); }
 
 function applySession(user, tabs, needsTotpReminder = false, avisoNovedades = null) {
   state.user = user;
@@ -1246,7 +1251,7 @@ const SECTION_DEFS = {
   // (prompt-costos-mapeo-y-mover-tiles.md), pero esa sección se disolvió
   // (prompt-seccion-costos-implementacion.md, ver 'costos' más abajo) —
   // ordenesCambio regresa aquí, de donde salió.
-  obra:          { label: 'Obra',           icon: 'obra',           emoji: '🏗️',  tabs: ['programa', 'avance', 'destajo', 'estimaciones', 'ordenesCambio', 'lotes', 'infraVivienda'], proximamente: [] },
+  obra:          { label: 'Obra',           icon: 'obra',           emoji: '🏗️',  tabs: ['programa', 'avance', 'destajo', 'estimaciones', 'ordenesCambio', 'lotes', 'modelosVivienda', 'infraVivienda'], proximamente: [] },
   compras:       { label: 'Compras',        icon: 'compras',        emoji: '🛒',   tabs: ['requisiciones', 'insumos', 'proveedores', 'cumplimiento', 'ordenes', 'cotizador'], proximamente: ['Subcontratos'] },
   tesoreria:     { label: 'Tesorería',      icon: 'tesoreria',      emoji: '💰',   tabs: ['finanzas', 'compromisos', 'fondoGarantia', 'estadoResultados', 'estadoResultadosGlobal', 'impuestos', 'controlFinanciero'], proximamente: [] },
   // 'mapeo' vivió un tiempo aquí, luego en Presupuestos, ahora en la nueva
@@ -1298,7 +1303,7 @@ const SECTION_DEFS = {
 const TAB_ICONS = {
   resumen: '📊', contrato: '📄', impuestos: '🧾', insumos: '📦', requisiciones: '🧾',
   proveedores: '🏭', cumplimiento: '✅', ordenes: '🛒', programa: '🗓️', avance: '📈', destajo: '👷',
-  finanzas: '💰', compromisos: '📌', fondoGarantia: '🔒', mapeo: '🔗', usuarios: '👤', trabajadores: '👷', nominas: '💵', estimaciones: '🧮', ordenesCambio: '📝', lotes: '🏘️', infraVivienda: '🏙️',
+  finanzas: '💰', compromisos: '📌', fondoGarantia: '🔒', mapeo: '🔗', usuarios: '👤', trabajadores: '👷', nominas: '💵', estimaciones: '🧮', ordenesCambio: '📝', lotes: '🏘️', modelosVivienda: '🏡', infraVivienda: '🏙️',
   maquinaria_catalogo: '🛠️', maquinaria_horas: '⏱️', maquinaria_bitacora: '🔧', maquinaria_estado_unidad: '🚦',
   maquinaria_consumibles: '⛽', maquinaria_reportes_cliente: '📊',
   nominas_global: '💵', trabajadores_global: '👷', cotizador: '🔍',
@@ -1310,7 +1315,7 @@ const TAB_ICONS = {
 const TAB_LABELS = {
   resumen: 'Resumen', contrato: 'Contrato', impuestos: 'Impuestos', insumos: 'Insumos', requisiciones: 'Requisiciones',
   proveedores: 'Proveedores', cumplimiento: 'Cumplimiento', ordenes: 'Órdenes de Compra', programa: 'Programa', avance: 'Avance', destajo: 'Destajo',
-  finanzas: 'Finanzas', compromisos: 'Compromisos Abiertos', fondoGarantia: 'Fondo de Garantía', mapeo: 'Mapeo', usuarios: 'Usuarios', trabajadores: 'Trabajadores', nominas: 'Nóminas', estimaciones: 'Estimaciones', ordenesCambio: 'Órdenes de Cambio', lotes: 'Lotes', infraVivienda: 'Infraestructura vs. Vivienda',
+  finanzas: 'Finanzas', compromisos: 'Compromisos Abiertos', fondoGarantia: 'Fondo de Garantía', mapeo: 'Mapeo', usuarios: 'Usuarios', trabajadores: 'Trabajadores', nominas: 'Nóminas', estimaciones: 'Estimaciones', ordenesCambio: 'Órdenes de Cambio', lotes: 'Lotes', modelosVivienda: 'Modelos de Vivienda', infraVivienda: 'Infraestructura vs. Vivienda',
   maquinaria_catalogo: 'Catálogo de equipos', maquinaria_horas: 'Horas / Pendientes de autorizar',
   maquinaria_bitacora: 'Bitácora de taller', maquinaria_estado_unidad: 'Estado de las unidades',
   maquinaria_consumibles: 'Consumibles', maquinaria_reportes_cliente: 'Reportes por cliente',
@@ -3042,7 +3047,17 @@ const AYUDA_CONTENIDO = {
       'La importación siempre te muestra un preview (nuevos vs. ya existentes) antes de guardar nada — nada se persiste hasta que confirmas explícitamente.',
       'Si reimportas un Excel con un lote que ya existe (misma manzana + número de lote), se actualizan sus datos descriptivos (modelo, superficie) pero el estatus que ya capturaste manualmente NUNCA se pierde ni se sobreescribe.',
       'Al marcar un lote como "entregado" se captura automáticamente la fecha de entrega real (puedes ajustarla a mano si fue en otra fecha).',
-      '"modelo_vivienda" es texto libre por ahora — un catálogo formal de modelos de casa es una fase futura del roadmap.',
+      'El modelo de vivienda se elige del catálogo de esta obra (pestaña "Modelos de Vivienda") — cada lote también puede llevar un precio de lista propio (override del precio del modelo, útil para esquinas o ubicaciones premium) y un estatus de venta (disponible/apartado/vendido) independiente del estatus de construcción.',
+    ],
+  },
+  modelosVivienda: {
+    titulo: 'Modelos de Vivienda',
+    pasos: [
+      'Catálogo comercial de los modelos de casa que se venden en esta obra — nombre, superficie, recámaras/baños/niveles y precio de lista. Es información comercial (para vender), independiente del presupuesto de construcción del contratista.',
+      'Cada obra tiene su propio catálogo — el mismo nombre de modelo en dos obras distintas no comparte datos.',
+      'Solo admin/desarrollador puede dar de alta, editar o desactivar modelos (precio de lista es información sensible). Cualquier rol con acceso a esta obra puede consultarlo.',
+      'Desactivar un modelo no lo borra ni afecta a los lotes que ya lo tienen asignado — solo deja de aparecer como opción al asignar modelo a un lote nuevo.',
+      'El precio de lista de cada lote (pestaña Lotes) usa el precio del modelo por default, salvo que ese lote tenga un precio propio capturado (override).',
     ],
   },
   infraVivienda: {
@@ -4378,6 +4393,7 @@ async function renderView() {
       case 'estimaciones': await renderEstimaciones(view); break;
       case 'ordenesCambio': await renderOrdenesCambio(view); break;
       case 'lotes': await renderLotes(view); break;
+      case 'modelosVivienda': await renderModelosVivienda(view); break;
       case 'infraVivienda': await renderInfraVivienda(view); break;
       case 'matrices': await renderMatrices(view); break;
       default: view.innerHTML = '';
@@ -8516,6 +8532,11 @@ const PERMISOS_SECCION_LABELS = {
   estado_resultados_global: 'Estado de Resultados (Todas las Obras)',
   ordenes_cambio: 'Órdenes de Cambio',
   lotes: 'Lotes',
+  // prompt-implementacion-catalogo-comercial.md (Fase 3): catálogo comercial
+  // de modelos de vivienda — puede_ver real para admin/desarrollador/
+  // residente; puede_crear/puede_editar/puede_eliminar solo alcanzables por
+  // admin/desarrollador (gate de ruta, ver ACCIONES_CON_ENFORCEMENT abajo).
+  modelos_vivienda: 'Modelos de Vivienda',
 };
 // Secciones que NUNCA son por-obra — no existe (ni tiene sentido) una versión
 // "para la obra X" de una vista que ya de por sí es cross-obra/cross-cliente.
@@ -8623,13 +8644,20 @@ const ACCIONES_CON_ENFORCEMENT = {
   // antes de abrirse a otro rol.
   ordenes_cambio: ['puede_ver', 'puede_crear', 'puede_editar'],
   lotes: ['puede_ver', 'puede_crear', 'puede_editar'],
+  // Las 4 acciones tienen checkPermiso real cableado. puede_crear/puede_
+  // editar/puede_eliminar solo son alcanzables por admin/desarrollador
+  // (auth.allow() sin argumentos a nivel de ruta, ver server/app.js) que de
+  // todos modos bypasean checkPermiso siempre — mismo estado que
+  // ordenes_cambio.puede_editar arriba (infraestructura preparada, no
+  // delegable hoy — información comercial sensible).
+  modelos_vivienda: ['puede_ver', 'puede_crear', 'puede_editar', 'puede_eliminar'],
 };
 // Agrupa las secciones de permisos igual que SECTION_DEFS agrupa las pestañas
 // en la pantalla de inicio (Obra / Compras / Tesorería / Administración) —
 // mismo criterio de negocio, para que la matriz se lea en el mismo orden que
 // el resto de la app en vez de un orden alfabético/insertado sin relación.
 const PERMISOS_GRUPOS = [
-  { label: 'Obra',           secciones: ['presupuestos', 'programa', 'avance', 'destajo', 'estimaciones', 'ordenes_cambio', 'lotes'] },
+  { label: 'Obra',           secciones: ['presupuestos', 'programa', 'avance', 'destajo', 'estimaciones', 'ordenes_cambio', 'lotes', 'modelos_vivienda'] },
   { label: 'Compras',        secciones: ['requisiciones', 'insumos', 'proveedores', 'ordenes_compra', 'cotizador'] },
   { label: 'Tesorería',      secciones: ['finanzas', 'estado_resultados', 'estado_resultados_global', 'impuestos'] },
   { label: 'Administración', secciones: ['mapeo', 'contrato', 'nominas', 'usuarios', 'trabajadores', 'trabajadores_docs', 'trabajadores_contrato', 'trabajadores_bancarios', 'trabajadores_global', 'nominas_global', 'costos'] },
@@ -8675,6 +8703,9 @@ const TAB_A_SECCION = {
   // prompt-lotes-fase1.md: sección propia por-obra, mirror de
   // server/auth.js TAB_A_SECCION.
   lotes: 'lotes',
+  // prompt-implementacion-catalogo-comercial.md (Fase 3): sección propia
+  // por-obra, mirror de server/auth.js TAB_A_SECCION.
+  modelosVivienda: 'modelos_vivienda',
   // prompt-fase2-infraestructura-implementacion.md: reusa la sección 'avance'
   // tal cual (mismo checkPermiso que los endpoints hermanos de Avance en
   // server/app.js) — NO es una sección de permiso nueva, a propósito.
@@ -19719,6 +19750,11 @@ async function openOrdenCambioFormModal(onSave) {
 const LOTE_ESTATUS_LIST = ['sin_iniciar', 'en_proceso', 'terminado', 'entregado'];
 const LOTE_ESTATUS_LABELS = { sin_iniciar: 'Sin iniciar', en_proceso: 'En proceso', terminado: 'Terminado', entregado: 'Entregado' };
 const LOTE_ESTATUS_BADGE = { sin_iniciar: 'muted', en_proceso: 'yellow', terminado: 'purple', entregado: 'green' };
+// Fase 3 (prompt-implementacion-catalogo-comercial.md): estatus de venta,
+// deliberadamente independiente de LOTE_ESTATUS_LIST (construcción, arriba).
+const ESTATUS_VENTA_LIST = ['no_disponible', 'disponible', 'apartado', 'vendido'];
+const ESTATUS_VENTA_LABELS = { no_disponible: 'No disponible', disponible: 'Disponible', apartado: 'Apartado', vendido: 'Vendido' };
+const ESTATUS_VENTA_BADGE = { no_disponible: 'muted', disponible: 'green', apartado: 'yellow', vendido: 'purple' };
 let lotesRaw = [];
 let lotesFiltro = { estatus: '', manzana: '' };
 
@@ -19778,15 +19814,17 @@ function paintLotesList() {
   el.innerHTML = `
     <div class="table-scroll">
       <table>
-        <thead><tr><th>Manzana</th><th>Lote</th><th>Modelo</th><th class="num">Superficie (m²)</th><th>Estatus</th><th>Entrega estimada</th><th>Entrega real</th><th></th></tr></thead>
+        <thead><tr><th>Manzana</th><th>Lote</th><th>Modelo</th><th class="num">Superficie (m²)</th><th>Estatus</th><th class="num">Precio</th><th>Venta</th><th>Entrega estimada</th><th>Entrega real</th><th></th></tr></thead>
         <tbody>
           ${lotesRaw.map((l) => `
             <tr>
               <td>${esc(l.manzana || '—')}</td>
               <td>${esc(l.numero_lote)}</td>
-              <td>${esc(l.modelo_vivienda || '—')}</td>
+              <td>${esc(l.modelo_nombre || l.modelo_vivienda || '—')}</td>
               <td class="num">${l.superficie_m2 != null ? fmtNum(l.superficie_m2) : '—'}</td>
               <td><span class="badge ${LOTE_ESTATUS_BADGE[l.estatus] || 'muted'}">${esc(LOTE_ESTATUS_LABELS[l.estatus] || l.estatus)}</span></td>
+              <td class="num">${l.precio_efectivo != null ? fmtMoney(l.precio_efectivo) : '—'}</td>
+              <td><span class="badge ${ESTATUS_VENTA_BADGE[l.estatus_venta] || 'muted'}">${esc(ESTATUS_VENTA_LABELS[l.estatus_venta] || l.estatus_venta)}</span></td>
               <td>${l.fecha_entrega_estimada ? fmtDate(l.fecha_entrega_estimada) : '—'}</td>
               <td>${l.fecha_entrega_real ? fmtDate(l.fecha_entrega_real) : '—'}</td>
               <td><button class="btn small" data-editar-lote="${l.id}">Editar</button></td>
@@ -19804,20 +19842,56 @@ function paintLotesList() {
   });
 }
 
-function openLoteFormModal(lote, onSave) {
+// Fase 3: el selector de modelo se puebla con el catálogo activo de esta
+// obra (fetch fresco en cada apertura del modal — lista corta, no amerita
+// cache). Un <select> normal — el observer global de enhanceSelect() (ver
+// más arriba en este archivo) lo convierte en el custom-select de la app
+// automáticamente, no hace falta llamar nada especial aquí.
+async function openLoteFormModal(lote, onSave) {
   const esEdicion = !!lote;
+  let modelos = [];
+  try {
+    modelos = await api(`/projects/${state.projectId}/modelos-vivienda`);
+  } catch (err) {
+    toast(err.message, 'danger');
+  }
+  const modelosActivos = modelos.filter((m) => m.activo);
+  // Si el lote ya tenía asignado un modelo hoy desactivado, se sigue
+  // mostrando como opción seleccionada (no lo saca del formulario) para no
+  // perder la asignación existente al abrir/guardar sin tocar ese campo.
+  const modeloActualInactivo = lote?.modelo_vivienda_id && !modelosActivos.some((m) => m.id === lote.modelo_vivienda_id)
+    ? modelos.find((m) => m.id === lote.modelo_vivienda_id) : null;
+  const opcionesModelo = [...modelosActivos, ...(modeloActualInactivo ? [modeloActualInactivo] : [])];
+
   openModal(`
     <h3>${esEdicion ? 'Editar lote' : 'Nuevo lote'}</h3>
     <div class="row">
       <div class="field"><label>Manzana</label><input id="loteManzana" value="${esc(lote?.manzana || '')}" /></div>
       <div class="field"><label>Número de lote *</label><input id="loteNumero" value="${esc(lote?.numero_lote || '')}" /></div>
     </div>
-    <div class="field"><label>Modelo de vivienda</label><input id="loteModelo" value="${esc(lote?.modelo_vivienda || '')}" /></div>
-    <div class="field"><label>Superficie (m²)</label><input id="loteSuperficie" type="number" step="any" value="${lote?.superficie_m2 != null ? lote.superficie_m2 : ''}" /></div>
-    <div class="field"><label>Estatus</label>
-      <select id="loteEstatus">
-        ${LOTE_ESTATUS_LIST.map((e) => `<option value="${e}" ${(lote?.estatus || 'sin_iniciar') === e ? 'selected' : ''}>${esc(LOTE_ESTATUS_LABELS[e])}</option>`).join('')}
+    <div class="field"><label>Modelo de vivienda</label>
+      <select id="loteModeloId">
+        <option value="">Sin modelo asignado</option>
+        ${opcionesModelo.map((m) => `<option value="${m.id}" ${lote?.modelo_vivienda_id === m.id ? 'selected' : ''}>${esc(m.nombre)}${m.activo ? '' : ' (inactivo)'}</option>`).join('')}
       </select>
+      ${!opcionesModelo.length ? '<span class="muted fs-07">Esta obra todavía no tiene modelos en su catálogo — puedes darlos de alta en la pestaña "Modelos de Vivienda".</span>' : ''}
+    </div>
+    <div class="field"><label>Superficie (m²)</label><input id="loteSuperficie" type="number" step="any" value="${lote?.superficie_m2 != null ? lote.superficie_m2 : ''}" /></div>
+    <div class="row">
+      <div class="field"><label>Estatus (construcción)</label>
+        <select id="loteEstatus">
+          ${LOTE_ESTATUS_LIST.map((e) => `<option value="${e}" ${(lote?.estatus || 'sin_iniciar') === e ? 'selected' : ''}>${esc(LOTE_ESTATUS_LABELS[e])}</option>`).join('')}
+        </select>
+      </div>
+      <div class="field"><label>Estatus (venta)</label>
+        <select id="loteEstatusVenta">
+          ${ESTATUS_VENTA_LIST.map((e) => `<option value="${e}" ${(lote?.estatus_venta || 'no_disponible') === e ? 'selected' : ''}>${esc(ESTATUS_VENTA_LABELS[e])}</option>`).join('')}
+        </select>
+        <span class="muted fs-07">Independiente del estatus de construcción — un lote puede estar en preventa antes de terminarse.</span>
+      </div>
+    </div>
+    <div class="field"><label>Precio de lista override</label><input id="lotePrecioOverride" type="number" step="any" value="${lote?.precio_lista_override != null ? lote.precio_lista_override : ''}" />
+      <span class="muted fs-07">Déjalo vacío para usar el precio de lista del modelo. Captura un valor solo si este lote específico tiene un precio distinto (esquina, vista, ubicación premium).</span>
     </div>
     <div class="row">
       <div class="field"><label>Entrega estimada</label><input id="loteFechaEstimada" type="date" value="${lote?.fecha_entrega_estimada ? String(lote.fecha_entrega_estimada).slice(0, 10) : ''}" /></div>
@@ -19838,9 +19912,11 @@ function openLoteFormModal(lote, onSave) {
     const body = {
       manzana: $('#loteManzana').value.trim(),
       numero_lote,
-      modelo_vivienda: $('#loteModelo').value.trim() || null,
+      modelo_vivienda_id: $('#loteModeloId').value ? Number($('#loteModeloId').value) : null,
       superficie_m2: $('#loteSuperficie').value ? Number($('#loteSuperficie').value) : null,
       estatus: $('#loteEstatus').value,
+      estatus_venta: $('#loteEstatusVenta').value,
+      precio_lista_override: $('#lotePrecioOverride').value ? Number($('#lotePrecioOverride').value) : null,
       fecha_entrega_estimada: $('#loteFechaEstimada').value || null,
       fecha_entrega_real: $('#loteFechaReal').value || null,
     };
@@ -19953,6 +20029,158 @@ function pintarPreviewImportacionLotes(preview, archivoUrl, onImportado) {
     } catch (err) {
       toast(err.message, 'danger');
       btn.disabled = false; btn.textContent = 'Confirmar importación';
+    }
+  });
+}
+
+// ---------------------------------------------------------------------------
+// VISTA: Modelos de Vivienda (prompt-implementacion-catalogo-comercial.md,
+// diagnóstico previo en prompt-diagnostico-catalogo-comercial.md) — Fase 3
+// del roadmap "Desarrollador de Vivienda". Catálogo comercial por-obra:
+// nombre, características, precio de lista. CRUD simple (tabla + modal),
+// sin importador de Excel en esta fase (volumen bajo, alta manual razonable
+// — a diferencia de Lotes). Solo admin/desarrollador puede crear/editar/
+// desactivar (isAdmin()) — el backend ya lo bloquea con 403 real vía
+// auth.allow() sin argumentos, esto solo evita mostrar botones que fallarían.
+// ---------------------------------------------------------------------------
+let modelosViviendaRaw = [];
+
+async function renderModelosVivienda(view) {
+  if (!puedeVerModelosVivienda()) {
+    view.innerHTML = `<div class="alert-box danger">⚠️ No tienes permiso para ver esta sección.</div>`;
+    return;
+  }
+  view.innerHTML = `
+    <h2 class="section-title">Modelos de Vivienda ${renderHelpBtn('modelosVivienda')}</h2>
+    <p class="muted">Catálogo comercial de modelos de casa de esta obra — nombre, características y precio de lista.</p>
+    ${isAdmin() ? `
+      <div class="section-actions mt-12 row">
+        <button class="btn btn-primary" id="btnNuevoModeloVivienda">+ Nuevo modelo</button>
+      </div>
+    ` : ''}
+    <div id="modelosViviendaList" class="mt-12"><div class="empty-state">Cargando…</div></div>
+  `;
+  if (isAdmin()) {
+    $('#btnNuevoModeloVivienda').addEventListener('click', () => openModeloViviendaFormModal(null, loadModelosVivienda));
+  }
+  await loadModelosVivienda();
+}
+
+async function loadModelosVivienda() {
+  const el = $('#modelosViviendaList');
+  if (!el) return;
+  try {
+    modelosViviendaRaw = await api(`/projects/${state.projectId}/modelos-vivienda`);
+    paintModelosViviendaList();
+  } catch (err) {
+    el.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+  }
+}
+
+function paintModelosViviendaList() {
+  const el = $('#modelosViviendaList');
+  if (!el) return;
+  if (!modelosViviendaRaw.length) { el.innerHTML = '<div class="empty-state">Esta obra todavía no tiene modelos de vivienda en su catálogo.</div>'; return; }
+  el.innerHTML = `
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>Nombre</th><th class="num">Superficie constr. (m²)</th><th class="num">Superficie terreno (m²)</th><th class="num">Recámaras</th><th class="num">Baños</th><th class="num">Niveles</th><th class="num">Precio de lista</th><th>Estatus</th><th></th></tr></thead>
+        <tbody>
+          ${modelosViviendaRaw.map((m) => `
+            <tr class="${m.activo ? '' : 'muted'}">
+              <td>${esc(m.nombre)}${m.descripcion ? `<div class="muted fs-078">${esc(m.descripcion)}</div>` : ''}</td>
+              <td class="num">${m.superficie_construida_m2 != null ? fmtNum(m.superficie_construida_m2) : '—'}</td>
+              <td class="num">${m.superficie_terreno_m2 != null ? fmtNum(m.superficie_terreno_m2) : '—'}</td>
+              <td class="num">${m.recamaras != null ? m.recamaras : '—'}</td>
+              <td class="num">${m.banos != null ? fmtNum(m.banos, 1) : '—'}</td>
+              <td class="num">${m.niveles != null ? m.niveles : '—'}</td>
+              <td class="num">${m.precio_lista != null ? fmtMoney(m.precio_lista) : '—'}</td>
+              <td><span class="badge ${m.activo ? 'green' : 'muted'}">${m.activo ? 'Activo' : 'Inactivo'}</span></td>
+              <td>
+                ${isAdmin() ? `
+                  <button class="btn small" data-editar-modelo="${m.id}">Editar</button>
+                  ${m.activo ? `<button class="btn small btn-danger" data-desactivar-modelo="${m.id}">Desactivar</button>` : ''}
+                ` : ''}
+              </td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+  $$('[data-editar-modelo]', el).forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const modelo = modelosViviendaRaw.find((m) => m.id === Number(btn.dataset.editarModelo));
+      if (modelo) openModeloViviendaFormModal(modelo, loadModelosVivienda);
+    });
+  });
+  $$('[data-desactivar-modelo]', el).forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const modelo = modelosViviendaRaw.find((m) => m.id === Number(btn.dataset.desactivarModelo));
+      if (!modelo) return;
+      if (!confirm(`¿Desactivar el modelo "${modelo.nombre}"? Los lotes que ya lo tienen asignado no se ven afectados — solo deja de aparecer como opción nueva.`)) return;
+      try {
+        await api(`/projects/${state.projectId}/modelos-vivienda/${modelo.id}`, { method: 'DELETE' });
+        toast('Modelo desactivado', 'success');
+        await loadModelosVivienda();
+      } catch (err) {
+        toast(err.message, 'danger');
+      }
+    });
+  });
+}
+
+function openModeloViviendaFormModal(modelo, onSave) {
+  const esEdicion = !!modelo;
+  openModal(`
+    <h3>${esEdicion ? 'Editar modelo de vivienda' : 'Nuevo modelo de vivienda'}</h3>
+    <div class="field"><label>Nombre *</label><input id="mvNombre" value="${esc(modelo?.nombre || '')}" /></div>
+    <div class="field"><label>Descripción</label><input id="mvDescripcion" value="${esc(modelo?.descripcion || '')}" /></div>
+    <div class="row">
+      <div class="field"><label>Superficie construida (m²)</label><input id="mvSupConstruida" type="number" step="any" value="${modelo?.superficie_construida_m2 != null ? modelo.superficie_construida_m2 : ''}" /></div>
+      <div class="field"><label>Superficie terreno (m²)</label><input id="mvSupTerreno" type="number" step="any" value="${modelo?.superficie_terreno_m2 != null ? modelo.superficie_terreno_m2 : ''}" /></div>
+    </div>
+    <div class="row">
+      <div class="field"><label>Recámaras</label><input id="mvRecamaras" type="number" step="1" value="${modelo?.recamaras != null ? modelo.recamaras : ''}" /></div>
+      <div class="field"><label>Baños</label><input id="mvBanos" type="number" step="0.5" value="${modelo?.banos != null ? modelo.banos : ''}" />
+        <span class="muted fs-07">Ej. 2.5 = dos baños completos + medio baño de visitas.</span>
+      </div>
+      <div class="field"><label>Niveles</label><input id="mvNiveles" type="number" step="1" value="${modelo?.niveles != null ? modelo.niveles : ''}" /></div>
+    </div>
+    <div class="field"><label>Precio de lista</label><input id="mvPrecioLista" type="number" step="any" value="${modelo?.precio_lista != null ? modelo.precio_lista : ''}" /></div>
+    <div class="modal-actions">
+      <button class="btn" id="btnCancelModeloForm">Cancelar</button>
+      <button class="btn btn-primary" id="btnSaveModeloForm">Guardar</button>
+    </div>
+  `);
+  $('#btnCancelModeloForm').addEventListener('click', closeModal);
+  $('#btnSaveModeloForm').addEventListener('click', async () => {
+    const btn = $('#btnSaveModeloForm');
+    const nombre = $('#mvNombre').value.trim();
+    if (!nombre) { toast('El nombre es requerido', 'danger'); return; }
+    const body = {
+      nombre,
+      descripcion: $('#mvDescripcion').value.trim() || null,
+      superficie_construida_m2: $('#mvSupConstruida').value ? Number($('#mvSupConstruida').value) : null,
+      superficie_terreno_m2: $('#mvSupTerreno').value ? Number($('#mvSupTerreno').value) : null,
+      recamaras: $('#mvRecamaras').value ? Number($('#mvRecamaras').value) : null,
+      banos: $('#mvBanos').value ? Number($('#mvBanos').value) : null,
+      niveles: $('#mvNiveles').value ? Number($('#mvNiveles').value) : null,
+      precio_lista: $('#mvPrecioLista').value ? Number($('#mvPrecioLista').value) : null,
+    };
+    btn.disabled = true; btn.textContent = 'Guardando…';
+    try {
+      if (esEdicion) {
+        await api(`/projects/${state.projectId}/modelos-vivienda/${modelo.id}`, { method: 'PUT', body });
+      } else {
+        await api(`/projects/${state.projectId}/modelos-vivienda`, { method: 'POST', body });
+      }
+      toast(esEdicion ? 'Modelo actualizado' : 'Modelo creado', 'success');
+      closeModal();
+      if (onSave) await onSave();
+    } catch (err) {
+      toast(err.message, 'danger');
+      btn.disabled = false; btn.textContent = 'Guardar';
     }
   });
 }

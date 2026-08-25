@@ -920,6 +920,52 @@ const SCHEMA = `
   );
   CREATE INDEX IF NOT EXISTS idx_lotes_project ON lotes(project_id);
 
+  -- Fase 3 del roadmap "Desarrollador de Vivienda" (prompt-implementacion-
+  -- catalogo-comercial.md, diagnóstico previo en prompt-diagnostico-catalogo-
+  -- comercial.md): catálogo comercial de modelos de vivienda. Scoped por
+  -- project_id (no global) — el mismo nombre de modelo en dos obras distintas
+  -- no es necesariamente la misma casa (mismo criterio que
+  -- conceptos_grupo_categoria en Fase 2: el mismo texto puede significar
+  -- cosas distintas en obras distintas). 'banos' es DOUBLE PRECISION (no
+  -- INTEGER) porque "2.5 baños" es nomenclatura estándar del sector (medio
+  -- baño de visitas) — un entero forzaría redondear o guardar como texto.
+  -- Soft-delete vía 'activo', nunca DELETE físico (Forbidden Action explícita
+  -- del prompt) — mismo criterio que estimaciones.activo.
+  CREATE TABLE IF NOT EXISTS modelos_vivienda (
+    id SERIAL PRIMARY KEY,
+    project_id INTEGER NOT NULL REFERENCES proyectos(id) ON DELETE CASCADE,
+    nombre TEXT NOT NULL,
+    descripcion TEXT,
+    superficie_construida_m2 DOUBLE PRECISION,
+    superficie_terreno_m2 DOUBLE PRECISION,
+    recamaras INTEGER,
+    banos DOUBLE PRECISION,
+    niveles INTEGER,
+    precio_lista DOUBLE PRECISION,
+    activo BOOLEAN NOT NULL DEFAULT true,
+    creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    actualizado_en TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (project_id, nombre)
+  );
+  CREATE INDEX IF NOT EXISTS idx_modelos_vivienda_project ON modelos_vivienda(project_id);
+
+  -- lotes.modelo_vivienda (TEXT libre, arriba) se mantiene sin eliminar a
+  -- propósito (Forbidden Action explícita) — el importador de Excel
+  -- (server/lotes.js) sigue escribiéndola sin cambios hasta que se decida su
+  -- futuro en una fase posterior. modelo_vivienda_id convive con ella: el
+  -- diagnóstico confirmó 'lotes' vacía en Preview, así que no hace falta
+  -- backfill/mapeo — cualquier lote nuevo captura el FK directamente.
+  ALTER TABLE lotes ADD COLUMN IF NOT EXISTS modelo_vivienda_id INTEGER REFERENCES modelos_vivienda(id);
+  -- Override de precio a nivel lote individual (ubicación, vista, esquina) —
+  -- precio efectivo = COALESCE(precio_lista_override, modelos_vivienda.precio_lista),
+  -- calculado en server/lotes.js listLotes, nunca replicado en el frontend.
+  ALTER TABLE lotes ADD COLUMN IF NOT EXISTS precio_lista_override DOUBLE PRECISION;
+  -- Estatus de venta, deliberadamente independiente de 'estatus' (construcción,
+  -- arriba) — preventa (disponible antes de 'terminado') y "terminado pero no
+  -- listo para vender" son casos reales del negocio, no hipotéticos.
+  ALTER TABLE lotes ADD COLUMN IF NOT EXISTS estatus_venta TEXT NOT NULL DEFAULT 'no_disponible'
+    CHECK (estatus_venta IN ('no_disponible','disponible','apartado','vendido'));
+
   -- Portal de sugerencias — cualquier usuario autenticado puede enviar; solo
   -- admin puede revisar y gestionar. prompt_generado almacena el prompt
   -- técnico formateado por IA (claude-sonnet-4-6) bajo demanda desde el
@@ -1118,7 +1164,7 @@ const SCHEMA = `
       'trabajadores_global','nominas_global','trabajadores','estado_resultados','maquinaria_captura','maquinaria_combustible',
       'costos','trabajadores_docs','trabajadores_contrato','trabajadores_bancarios',
       'cotizador','estado_resultados_global','estado_unidad','maquinaria_consumibles',
-      'ordenes_cambio','lotes'
+      'ordenes_cambio','lotes','modelos_vivienda'
     )),
     puede_ver BOOLEAN NOT NULL DEFAULT false,
     puede_crear BOOLEAN NOT NULL DEFAULT false,
@@ -1159,6 +1205,8 @@ const SCHEMA = `
   -- 'lotes' agregado en prompt-lotes-fase1.md — sección propia con
   -- enforcement real (checkPermiso en server/app.js), mismo criterio que
   -- 'ordenes_cambio' arriba.
+  -- 'modelos_vivienda' agregado en prompt-implementacion-catalogo-comercial.md
+  -- (Fase 3) — sección propia con enforcement real, mismo criterio que 'lotes'.
   ALTER TABLE permisos_usuario DROP CONSTRAINT IF EXISTS permisos_usuario_seccion_check;
   ALTER TABLE permisos_usuario ADD CONSTRAINT permisos_usuario_seccion_check CHECK (seccion IN (
     'presupuestos','requisiciones','proveedores','ordenes_compra','avance',
@@ -1167,7 +1215,7 @@ const SCHEMA = `
     'trabajadores_global','nominas_global','trabajadores','estado_resultados','maquinaria_captura','maquinaria_combustible',
     'costos','trabajadores_docs','trabajadores_contrato','trabajadores_bancarios',
     'cotizador','estado_resultados_global','estado_unidad','maquinaria_consumibles',
-    'ordenes_cambio','lotes'
+    'ordenes_cambio','lotes','modelos_vivienda'
   ));
 
   -- Contador de folios por obra + tipo de documento. INSERT...ON CONFLICT DO

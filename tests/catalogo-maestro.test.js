@@ -14,6 +14,7 @@ import ExcelJS from 'exceljs';
 import { put, del } from '@vercel/blob';
 import app from '../server/app.js';
 import db from '../server/db.js';
+import { construirUrbanizacionDemo } from './fixtures/catalogo-maestro/construirAjalSintetico.js';
 
 const ADMIN_USER = process.env.ADMIN_USER || 'admin';
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
@@ -30,7 +31,9 @@ const tempPassword = 'QaCatMaestroTemp123!';
 
 let archivoUrlValido;
 let archivoUrlInvalido;
+let archivoUrlAjal;
 let archivoIdCreado; // para el flujo feliz + DELETE
+let archivoIdAjal; // para el flujo preview/confirm de AJAL
 const blobsSubidos = [];
 
 // Headers EXACTOS de ENCABEZADOS_PRESUPUESTO/DESTAJO/INSUMOS/MATRICES en
@@ -126,6 +129,13 @@ beforeAll(async () => {
   });
   archivoUrlInvalido = blobInvalido.url;
   blobsSubidos.push(archivoUrlInvalido);
+
+  const bufferAjal = await construirUrbanizacionDemo().buffer();
+  const blobAjal = await put(`catalogo-maestro/vitest-ajal-${sufijo}.xlsx`, bufferAjal, {
+    access: 'private', contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  });
+  archivoUrlAjal = blobAjal.url;
+  blobsSubidos.push(archivoUrlAjal);
 });
 
 afterAll(async () => {
@@ -228,6 +238,105 @@ describe('POST /api/costos/catalogo-maestro/upload', () => {
 
     const { rows: conceptoRows } = await db.pool.query('SELECT id FROM catalogo_conceptos WHERE archivo_id = $1', [archivoId]);
     expect(conceptoRows).toHaveLength(0);
+  });
+});
+
+// prompt-normalizador-universal-ajal.md (fase adicional): el camino AJAL
+// NO persiste nada en el POST /upload -- solo devuelve un preview y dejа el
+// archivo en estado='pendiente_confirmacion'. Solo POST /upload/:id/confirmar
+// escribe de verdad, y siempre re-descarga/re-parsea desde cero (nunca
+// confía en el preview ya mostrado).
+describe('POST /api/costos/catalogo-maestro/upload (camino AJAL: preview antes de persistir)', () => {
+  it('archivo AJAL: NO persiste nada, devuelve preview y queda pendiente_confirmacion', async () => {
+    const res = await request(app)
+      .post('/api/costos/catalogo-maestro/upload')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ archivo_url: archivoUrlAjal, nombre_archivo: `QA_CATMAESTRO_ajal_${sufijo}.xlsx` });
+
+    expect(res.status).toBe(200);
+    expect(res.body.estado).toBe('pendiente_confirmacion');
+    expect(res.body.formato_detectado).toBe('ajal');
+    expect(res.body.preview.num_conceptos).toBe(3);
+    expect(res.body.preview.conceptos).toHaveLength(3);
+    expect(res.body.preview.conceptos[0]).toMatchObject({ codigo: expect.any(String), concepto: expect.any(String) });
+    archivoIdAjal = res.body.id;
+
+    const { rows: archivoRows } = await db.pool.query('SELECT estado, formato_detectado FROM catalogo_archivos WHERE id = $1', [archivoIdAjal]);
+    expect(archivoRows[0].estado).toBe('pendiente_confirmacion');
+    expect(archivoRows[0].formato_detectado).toBe('ajal');
+
+    // Nada persistido todavía -- el preview no escribe en ninguna tabla hija.
+    const { rows: conceptoRows } = await db.pool.query('SELECT id FROM catalogo_conceptos WHERE archivo_id = $1', [archivoIdAjal]);
+    expect(conceptoRows).toHaveLength(0);
+  });
+
+  it('el archivo pendiente aparece en la lista con 0 conceptos activos (nada persistido)', async () => {
+    const res = await request(app).get('/api/costos/catalogo-maestro/archivos').set('Authorization', `Bearer ${adminToken}`);
+    const fila = res.body.archivos.find((a) => a.id === archivoIdAjal);
+    expect(fila).toBeTruthy();
+    expect(fila.estado).toBe('pendiente_confirmacion');
+    expect(fila.formato_detectado).toBe('ajal');
+    expect(Number(fila.conteo_conceptos)).toBe(0);
+  });
+});
+
+describe('POST /api/costos/catalogo-maestro/upload/:id/confirmar', () => {
+  it('rechaza a un usuario sin puesto admin/desarrollador (403)', async () => {
+    const res = await request(app)
+      .post(`/api/costos/catalogo-maestro/upload/${archivoIdAjal}/confirmar`)
+      .set('Authorization', `Bearer ${tempToken}`)
+      .send({ confirmado: true });
+    expect(res.status).toBe(403);
+  });
+
+  it('400 si falta confirmado:true explícito', async () => {
+    const res = await request(app)
+      .post(`/api/costos/catalogo-maestro/upload/${archivoIdAjal}/confirmar`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({});
+    expect(res.status).toBe(400);
+
+    // Confirma que de verdad no persistió nada por el intento fallido.
+    const { rows } = await db.pool.query('SELECT id FROM catalogo_conceptos WHERE archivo_id = $1', [archivoIdAjal]);
+    expect(rows).toHaveLength(0);
+  });
+
+  it('404 si el archivo no existe', async () => {
+    const res = await request(app)
+      .post('/api/costos/catalogo-maestro/upload/999999999/confirmar')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ confirmado: true });
+    expect(res.status).toBe(404);
+  });
+
+  it('confirma correctamente: re-descarga/re-parsea y persiste las 3 partidas, estado pasa a procesado', async () => {
+    const res = await request(app)
+      .post(`/api/costos/catalogo-maestro/upload/${archivoIdAjal}/confirmar`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ confirmado: true });
+
+    expect(res.status).toBe(201);
+    expect(res.body.estado).toBe('procesado');
+    expect(res.body.numConceptos).toBe(3);
+    expect(res.body.numDestajo).toBe(0);
+    expect(res.body.numInsumos).toBe(0);
+    expect(res.body.numMatrices).toBe(0);
+
+    const { rows: archivoRows } = await db.pool.query('SELECT estado, formato_detectado FROM catalogo_archivos WHERE id = $1', [archivoIdAjal]);
+    expect(archivoRows[0].estado).toBe('procesado');
+    expect(archivoRows[0].formato_detectado).toBe('ajal');
+
+    const { rows: conceptoRows } = await db.pool.query('SELECT codigo, activo FROM catalogo_conceptos WHERE archivo_id = $1 ORDER BY codigo', [archivoIdAjal]);
+    expect(conceptoRows).toHaveLength(3);
+    expect(conceptoRows.every((c) => c.activo)).toBe(true);
+  });
+
+  it('409 si se intenta confirmar de nuevo un archivo ya procesado', async () => {
+    const res = await request(app)
+      .post(`/api/costos/catalogo-maestro/upload/${archivoIdAjal}/confirmar`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ confirmado: true });
+    expect(res.status).toBe(409);
   });
 });
 

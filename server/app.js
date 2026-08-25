@@ -3529,14 +3529,22 @@ app.post('/api/costos/catalogo-maestro/upload-token', h(auth.allow()), h(async (
   }
 }));
 
+// prompt-normalizador-universal-ajal.md (fase adicional): para el camino
+// AJAL específicamente se agrega una pausa de preview/confirm antes de
+// persistir -- mismo criterio que /crear-presupuesto/import-completo
+// (preview/confirm, server/app.js ~3354): el usuario ve los conceptos
+// detectados y confirma explícitamente antes de que se escriba nada en
+// catalogo_conceptos/destajo/insumos/matrices. El formato ESTÁNDAR sigue
+// comprometiendo en un solo paso, sin este freno (decisión explícita: ese
+// camino ya es de bajo riesgo y no se toca).
+// La fila de catalogo_archivos se sigue creando ANTES de parsear, igual que
+// antes, para los dos formatos -- preserva el registro de auditoría aunque
+// el parseo reviente, sea cual sea el formato detectado.
 app.post('/api/costos/catalogo-maestro/upload', h(auth.allow()), h(async (req, res) => {
   const { archivo_url, nombre_archivo } = req.body || {};
   if (!archivo_url) return res.status(400).json({ error: 'Falta archivo_url (sube el archivo primero vía upload-token)' });
   if (!nombre_archivo?.trim()) return res.status(400).json({ error: 'Falta nombre_archivo' });
 
-  // La fila de catalogo_archivos se crea en su PROPIA transacción/statement,
-  // ANTES de intentar parsear -- así siempre queda un registro (estado
-  // 'procesando' -> 'procesado'/'error'), incluso si el parseo revienta.
   const { rows: archivoRows } = await db.pool.query(
     `INSERT INTO catalogo_archivos (nombre_archivo, blob_url, cargado_por, estado)
      VALUES ($1,$2,$3,'procesando') RETURNING id`,
@@ -3547,7 +3555,60 @@ app.post('/api/costos/catalogo-maestro/upload', h(auth.allow()), h(async (req, r
   const tmpPath = path.join(os.tmpdir(), `catalogo-maestro-${Date.now()}-${Math.round(Math.random() * 1e9)}.xlsx`);
   try {
     await descargarBlobXlsxATmp(archivo_url, tmpPath);
-    const resumen = await db.withTransaction((client) => catalogoMaestro.procesarArchivoCatalogo(client, archivoId, tmpPath));
+    const { parsed, formatoDetectado } = await catalogoMaestro.parseArchivoConFallbackAjal(tmpPath);
+
+    if (formatoDetectado === 'ajal') {
+      await db.pool.query(
+        `UPDATE catalogo_archivos SET estado = 'pendiente_confirmacion', formato_detectado = $1 WHERE id = $2`,
+        [formatoDetectado, archivoId]
+      );
+      return res.status(200).json({
+        id: archivoId,
+        estado: 'pendiente_confirmacion',
+        formato_detectado: formatoDetectado,
+        preview: {
+          num_conceptos: parsed.conceptos.length,
+          conceptos: parsed.conceptos.map((c) => ({
+            codigo: c.codigo, concepto: c.concepto, unidad: c.unidad, cantidad: c.cantidad, precio_unitario: c.precio_unitario,
+          })),
+        },
+      });
+    }
+
+    const resumen = await db.withTransaction((client) => catalogoMaestro.persistirArchivoParseado(client, archivoId, parsed, formatoDetectado));
+    await db.pool.query(`UPDATE catalogo_archivos SET estado = 'procesado' WHERE id = $1`, [archivoId]);
+    res.status(201).json({ id: archivoId, estado: 'procesado', ...resumen });
+  } catch (err) {
+    await db.pool.query(`UPDATE catalogo_archivos SET estado = 'error', notas_error = $1 WHERE id = $2`, [err.message, archivoId]);
+    res.status(err.status || 400).json({ id: archivoId, estado: 'error', error: err.message });
+  } finally {
+    fs.promises.unlink(tmpPath).catch(() => {});
+  }
+}));
+
+// Confirmación explícita del camino AJAL (ver comentario arriba). Nunca
+// confía en el preview ya mostrado: vuelve a descargar el blob y a parsear
+// desde cero (mismo criterio que import-completo/confirm, server/app.js
+// ~3377) -- si el archivo cambió entre el preview y la confirmación, o si el
+// parseo ahora falla por cualquier razón, se refleja tal cual, nunca se usa
+// el resultado cacheado del preview para persistir.
+app.post('/api/costos/catalogo-maestro/upload/:id/confirmar', h(auth.allow()), h(async (req, res) => {
+  const archivoId = Number(req.params.id);
+  if (!Number.isFinite(archivoId)) return res.status(400).json({ error: 'id inválido' });
+  if (req.body?.confirmado !== true) return res.status(400).json({ error: 'Falta confirmar explícitamente la importación' });
+
+  const { rows } = await db.pool.query('SELECT * FROM catalogo_archivos WHERE id = $1', [archivoId]);
+  const archivo = rows[0];
+  if (!archivo) return res.status(404).json({ error: 'Archivo no encontrado' });
+  if (archivo.estado !== 'pendiente_confirmacion') {
+    return res.status(409).json({ error: `Este archivo no está pendiente de confirmación (estado actual: ${archivo.estado})` });
+  }
+
+  const tmpPath = path.join(os.tmpdir(), `catalogo-maestro-confirmar-${Date.now()}-${Math.round(Math.random() * 1e9)}.xlsx`);
+  try {
+    await descargarBlobXlsxATmp(archivo.blob_url, tmpPath);
+    const { parsed, formatoDetectado } = await catalogoMaestro.parseArchivoConFallbackAjal(tmpPath);
+    const resumen = await db.withTransaction((client) => catalogoMaestro.persistirArchivoParseado(client, archivoId, parsed, formatoDetectado));
     await db.pool.query(`UPDATE catalogo_archivos SET estado = 'procesado' WHERE id = $1`, [archivoId]);
     res.status(201).json({ id: archivoId, estado: 'procesado', ...resumen });
   } catch (err) {

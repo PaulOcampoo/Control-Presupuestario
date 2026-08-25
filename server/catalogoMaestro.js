@@ -6,7 +6,35 @@
 // parser compartido de 4 hojas exacto por nombre de encabezado, no hace
 // falta "refactorizar a función compartida" como sugiere el texto original
 // del plan, ya está separado de server/parser.js a propósito.
+const ExcelJS = require('exceljs');
 const { parseArchivo4Hojas } = require('./crearPresupuestoImport');
+// prompt-normalizador-universal-ajal.md: fallback para el formato real
+// "AJAL" (letterhead + header variable, ver comentario de alcance en el
+// propio módulo) — solo se intenta cuando parseArchivo4Hojas ya falló en
+// encontrar una hoja "Presupuesto" estándar, nunca antes.
+const { normalizarArchivoAjal } = require('./normalizadorAjal');
+
+// Intenta primero el parser estándar (comportamiento actual, sin cambios —
+// archivos que ya funcionan con hoja "Presupuesto"/"Destajo" en fila 1 no
+// deben pasar por el normalizador nuevo). Si ese falla específicamente por
+// no encontrar la hoja de Presupuesto, intenta el formato AJAL antes de
+// rendirse. Cualquier otro error del parser estándar (ej. archivo
+// inconsistente Hoja 2 vs Hoja 1) se propaga tal cual — ese tipo de error no
+// tiene relación con el nombre/formato de hoja y no debe silenciarse.
+const MENSAJE_SIN_HOJA_PRESUPUESTO_ESTANDAR = 'El archivo no tiene una hoja "Presupuesto" con al menos 1 concepto.';
+async function parseArchivoConFallbackAjal(tmpPath) {
+  try {
+    const parsed = await parseArchivo4Hojas(tmpPath);
+    return { parsed, formatoDetectado: 'estandar' };
+  } catch (errEstandar) {
+    if (errEstandar.message !== MENSAJE_SIN_HOJA_PRESUPUESTO_ESTANDAR) throw errEstandar;
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.readFile(tmpPath);
+    const nombresHoja = wb.worksheets.map((s) => s.name);
+    const parsed = await normalizarArchivoAjal(tmpPath, nombresHoja);
+    return { parsed, formatoDetectado: 'ajal' };
+  }
+}
 
 // Mapeo de parseArchivo4Hojas -> las 5 tablas globales:
 //
@@ -37,8 +65,16 @@ const { parseArchivo4Hojas } = require('./crearPresupuestoImport');
 //   insumo correspondiente en la obra destino; guardarlo mezclado con la
 //   descripción en un solo campo de texto lo hacía irrecuperable cuando
 //   ambos existían (bug real, corregido antes de escribir Task 3).
-async function procesarArchivoCatalogo(client, archivoId, tmpPath) {
-  const parsed = await parseArchivo4Hojas(tmpPath);
+// prompt-normalizador-universal-ajal.md (Fase adicional: preview/confirm
+// para el camino AJAL): separada de procesarArchivoCatalogo para que el
+// endpoint de upload pueda parsear+decidir el formato ANTES de comprometerse
+// a persistir, y el endpoint de confirmación pueda reusar exactamente la
+// misma lógica de inserción sin duplicarla. formatoDetectado se recibe como
+// parámetro (no se vuelve a resolver aquí) porque el caller ya lo obtuvo de
+// parseArchivoConFallbackAjal como parte del mismo parseo cuyo resultado
+// (`parsed`) se le pasa a esta función.
+async function persistirArchivoParseado(client, archivoId, parsed, formatoDetectado) {
+  await client.query('UPDATE catalogo_archivos SET formato_detectado = $1 WHERE id = $2', [formatoDetectado, archivoId]);
 
   const precioPorCodigoInsumo = new Map(parsed.insumos.map((i) => [i.codigo_insumo, i.precio_presupuesto]));
   const conceptoIdPorCodigo = new Map();
@@ -90,14 +126,24 @@ async function procesarArchivoCatalogo(client, archivoId, tmpPath) {
     }
   }
 
-  return { numConceptos, numDestajo, numInsumos, numMatrices };
+  return { numConceptos, numDestajo, numInsumos, numMatrices, formatoDetectado };
+}
+
+// Wrapper usado por el camino de formato ESTÁNDAR (sin cambios de
+// comportamiento: parsea y persiste en el mismo paso, tal como funcionaba
+// antes de agregar el preview/confirm de AJAL). El camino AJAL en
+// server/app.js llama parseArchivoConFallbackAjal y persistirArchivoParseado
+// por separado, con la confirmación explícita del usuario en medio.
+async function procesarArchivoCatalogo(client, archivoId, tmpPath) {
+  const { parsed, formatoDetectado } = await parseArchivoConFallbackAjal(tmpPath);
+  return persistirArchivoParseado(client, archivoId, parsed, formatoDetectado);
 }
 
 // Metadata + conteo de conceptos activos por archivo (GET .../archivos).
 async function listarArchivos(pool) {
   const { rows } = await pool.query(`
     SELECT a.id, a.nombre_archivo, a.fecha_carga, a.cargado_por, u.nombre AS cargado_por_nombre,
-      a.estado, a.notas_error,
+      a.estado, a.notas_error, a.formato_detectado,
       COUNT(c.id) FILTER (WHERE c.activo) AS conteo_conceptos
     FROM catalogo_archivos a
     LEFT JOIN usuarios u ON u.id = a.cargado_por
@@ -296,4 +342,4 @@ async function importarAObra(client, proyectoId, catalogoConceptoIds) {
   return { importados, omitidos_duplicados: omitidosDuplicados };
 }
 
-module.exports = { procesarArchivoCatalogo, listarArchivos, eliminarArchivo, buscarConceptos, importarAObra };
+module.exports = { procesarArchivoCatalogo, persistirArchivoParseado, listarArchivos, eliminarArchivo, buscarConceptos, importarAObra, parseArchivoConFallbackAjal };

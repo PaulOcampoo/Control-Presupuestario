@@ -2136,10 +2136,32 @@ const SCHEMA = `
     blob_url TEXT NOT NULL,
     fecha_carga TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     cargado_por INTEGER REFERENCES usuarios(id),
-    estado TEXT NOT NULL DEFAULT 'procesando' CHECK (estado IN ('procesado', 'error', 'procesando')),
+    estado TEXT NOT NULL DEFAULT 'procesando' CHECK (estado IN ('procesado', 'error', 'procesando', 'pendiente_confirmacion')),
     notas_error TEXT
   );
   CREATE INDEX IF NOT EXISTS idx_catalogo_archivos_estado ON catalogo_archivos(estado);
+
+  -- prompt-normalizador-universal-ajal.md: traza qué ruta de parseo produjo
+  -- este archivo -- 'estandar' (hoja "Presupuesto" en fila 1, parseArchivo4Hojas
+  -- tal cual) o 'ajal' (fallback de server/normalizadorAjal.js: hoja "Directo
+  -- AJAL"/"Estimacion AJAL" con header variable). Útil para debugging futuro
+  -- y para que la UI pueda avisar que un archivo 'ajal' todavía no trae
+  -- Destajo/Insumos/Matrices (alcance de esta primera fase del normalizador).
+  ALTER TABLE catalogo_archivos ADD COLUMN IF NOT EXISTS formato_detectado TEXT NOT NULL DEFAULT 'estandar'
+    CHECK (formato_detectado IN ('estandar', 'ajal'));
+
+  -- Fase adicional del prompt-normalizador-universal-ajal.md: preview/confirm
+  -- para el camino AJAL (ver server/app.js, endpoints
+  -- /catalogo-maestro/upload y /catalogo-maestro/upload/:id/confirmar).
+  -- 'pendiente_confirmacion' = se detectó formato AJAL, se le mostró el
+  -- preview de conceptos al usuario, pero todavía no confirmó -- NO hay
+  -- ninguna fila en catalogo_conceptos/destajo/insumos/matrices para este
+  -- archivo_id todavía. DROP+ADD porque el CREATE TABLE de arriba no vuelve
+  -- a correr sobre esta tabla en Preview/producción (mismo patrón ya usado
+  -- en el resto de este archivo, ver permisos_usuario_seccion_check).
+  ALTER TABLE catalogo_archivos DROP CONSTRAINT IF EXISTS catalogo_archivos_estado_check;
+  ALTER TABLE catalogo_archivos ADD CONSTRAINT catalogo_archivos_estado_check
+    CHECK (estado IN ('procesado', 'error', 'procesando', 'pendiente_confirmacion'));
 
   -- activo BOOLEAN (no INTEGER 0/1 como conceptos.activo, ver comentario en
   -- esa columna más arriba): tabla nueva sin código legado que dependa del

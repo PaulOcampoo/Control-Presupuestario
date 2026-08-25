@@ -11315,7 +11315,11 @@ function paintEstadoUnidadMaq(list, { puedeSupervisarEstadoUnidad, esOperador })
 
 // Histórico completo de un equipo (no solo la última captura, a diferencia
 // de la tabla de arriba) — CP4 del prompt.
+// prompt-fix-scroll-lateral-tablas-desktop.md: .modal-wide — tabla de 5
+// columnas con "Checklist" (badges) y "Observaciones" (texto libre) que
+// pueden desbordar el .modal base de 520px en desktop.
 async function openHistoricoEstadoUnidadMaqModal(equipoId, equipoNombre) {
+  $('#modal').classList.add('modal-wide');
   openModal(`<h3>Histórico — ${esc(equipoNombre)}</h3><div id="euHistoricoBody"><p class="muted">Cargando…</p></div><div class="modal-actions"><button class="btn" id="btnCerrarEuHistorico">Cerrar</button></div>`);
   $('#btnCerrarEuHistorico').addEventListener('click', closeModal);
   try {
@@ -14095,6 +14099,10 @@ function pintarPreviewImportacionMovimientos(preview, archivoUrl, archivoNombre,
       <td class="fs-08">${esNuevo ? '<span class="badge green">Nuevo</span>' : 'Ya existe'}</td>
     </tr>
   `;
+  // prompt-fix-scroll-lateral-tablas-desktop.md: .modal-wide — "Descripción"
+  // trae el texto crudo del estado de cuenta, a veces largo, que desborda el
+  // .modal base de 520px en desktop.
+  $('#modal').classList.add('modal-wide');
   openModal(`
     <h3>Preview de importación</h3>
     <p class="muted">Nada se ha guardado todavía. Revisa antes de confirmar.</p>
@@ -15795,6 +15803,10 @@ function pintarPreviewImportacionMatrices(preview, archivoUrl, view) {
     if (b.diff_vs_excel === 0) return '<span class="badge green">Coincide exacto</span>';
     return `<span class="muted" title="Probable cambio de precio de insumo desde que se generó este Excel">Δ ${fmtMoney(b.diff_vs_excel)}</span>`;
   };
+  // prompt-fix-scroll-lateral-tablas-desktop.md: .modal-wide — 5 columnas
+  // (2 de precio + diff + estado/motivo) que pueden desbordar el .modal base
+  // de 520px en desktop.
+  $('#modal').classList.add('modal-wide');
   openModal(`
     <h3>Preview de importación de Matrices</h3>
     <p class="muted">Nada se ha guardado todavía. Revisa antes de confirmar.</p>
@@ -18782,7 +18794,15 @@ async function openNominaModal(nomina, onSave) {
   });
 }
 
+// prompt-fix-scroll-lateral-tablas-desktop.md: .modal-wide (Prompt 4,
+// prompts-cotizador-sidebar-permisos-estimaciones.md — mismo patrón que
+// openVerEstimacionModal) en vez de dejar la tabla de hasta 8 columnas
+// (Trabajador/Días/Tarifa/Jornal/Destajo/2 cuentas bancarias/Total) forzando
+// scroll horizontal dentro del .modal base de 520px en desktop. closeModal()
+// ya limpia la clase automáticamente al cerrar. Mobile/tablet sin cambios:
+// .modal-wide solo aplica dentro de @media (min-width: 861px).
 async function openVerNominaModal(nominaId) {
+  $('#modal').classList.add('modal-wide');
   openModal(`<h3>Detalle de nómina</h3><div id="verNominaBody"><div class="empty-state">Cargando…</div></div><div class="modal-actions"><button class="btn" id="btnCerrarVerNomina">Cerrar</button></div>`);
   $('#btnCerrarVerNomina').addEventListener('click', closeModal);
   try {

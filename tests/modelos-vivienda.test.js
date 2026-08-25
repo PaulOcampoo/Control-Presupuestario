@@ -308,7 +308,7 @@ describe('Lotes: modelo_vivienda_id, precio_lista_override, estatus_venta, preci
     const res = await request(app)
       .post(`/api/projects/${testProjectId}/lotes`)
       .set('Authorization', `Bearer ${adminToken}`)
-      .send({ numero_lote: `QA-OV-${Date.now()}`, modelo_vivienda_id: modeloId, precio_lista_override: precioOverride, estatus_venta: 'disponible' });
+      .send({ numero_lote: `QA-OV-${Date.now()}`, modelo_vivienda_id: modeloId, precio_lista_override: precioOverride });
     expect(res.status).toBe(201);
     loteIdsCreados.push(res.body.id);
 
@@ -317,7 +317,6 @@ describe('Lotes: modelo_vivienda_id, precio_lista_override, estatus_venta, preci
       .set('Authorization', `Bearer ${adminToken}`);
     const lote = listRes.body.find((l) => l.id === res.body.id);
     expect(lote.precio_efectivo).toBe(precioOverride);
-    expect(lote.estatus_venta).toBe('disponible');
   });
 
   it('actualizar el lote quitando el override regresa el precio_efectivo al del modelo', async () => {
@@ -340,12 +339,21 @@ describe('Lotes: modelo_vivienda_id, precio_lista_override, estatus_venta, preci
     expect(lote.precio_efectivo).toBe(precioModelo);
   });
 
-  it('rechaza estatus_venta inválido con 400', async () => {
+  // Fase 4 (prompt-implementacion-pr-a-compradores-apartado.md):
+  // estatus_venta pasó de campo editable a campo 100% derivado — el POST/PUT
+  // de lotes ya ni siquiera lo lee del body, así que un valor inválido (o
+  // cualquier valor) se ignora en silencio en vez de validarse/rechazarse
+  // aquí. La escritura real ahora vive solo en server/ventas.js
+  // (crearApartado/cancelarApartado), cubierta en
+  // tests/ventas-compradores-apartado.test.js.
+  it('ignora estatus_venta si el cliente lo manda en el POST — nunca lo escribe, el lote nace no_disponible', async () => {
     const res = await request(app)
       .post(`/api/projects/${testProjectId}/lotes`)
       .set('Authorization', `Bearer ${adminToken}`)
       .send({ numero_lote: `QA-BAD-${Date.now()}`, estatus_venta: 'reservado_ilegal' });
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(201);
+    loteIdsCreados.push(res.body.id);
+    expect(res.body.estatus_venta).toBe('no_disponible');
   });
 
   it('rechaza un modelo_vivienda_id que pertenece a OTRA obra con 400 (sin mezclar modelos entre proyectos)', async () => {

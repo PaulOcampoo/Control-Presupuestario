@@ -966,6 +966,64 @@ const SCHEMA = `
   ALTER TABLE lotes ADD COLUMN IF NOT EXISTS estatus_venta TEXT NOT NULL DEFAULT 'no_disponible'
     CHECK (estatus_venta IN ('no_disponible','disponible','apartado','vendido'));
 
+  -- Fase 4 del roadmap "Desarrollador de Vivienda", PR A (prompt-
+  -- implementacion-pr-a-compradores-apartado.md, diagnóstico previo en
+  -- prompt-diagnostico-compradores-venta.md): entidad Compradores. Scoped
+  -- por project_id (NOT NULL), mismo criterio que lotes/modelos_vivienda —
+  -- mismo shape que proveedores (nombre/contacto/telefono/email/rfc/activo),
+  -- confirmado en diagnóstico como el analog correcto (misma clase de
+  -- entidad: persona/entidad de contacto externa). rfc nullable a propósito
+  -- — no se necesita para CFDI (cfdi.rfc_receptor es texto libre copiado del
+  -- XML al momento de subirlo, sin FK a ninguna entidad interna, ver
+  -- diagnóstico). Soft-delete vía 'activo', nunca DELETE físico (Forbidden
+  -- Action explícita del prompt) — mismo criterio que modelos_vivienda.
+  -- Deliberadamente SIN entrada en permisos_usuario/SECCIONES_PERMISOS
+  -- (Forbidden Action explícita) — el único gate es auth.allow() sin
+  -- argumentos a nivel de ruta (server/app.js), mismo criterio que Contrato:
+  -- dato de comprador es información personal de un tercero, no solo
+  -- comercialmente sensible.
+  CREATE TABLE IF NOT EXISTS compradores (
+    id SERIAL PRIMARY KEY,
+    project_id INTEGER NOT NULL REFERENCES proyectos(id) ON DELETE CASCADE,
+    nombre TEXT NOT NULL,
+    contacto TEXT,
+    telefono TEXT,
+    email TEXT,
+    rfc TEXT,
+    activo BOOLEAN NOT NULL DEFAULT true,
+    creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    actualizado_en TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
+  CREATE INDEX IF NOT EXISTS idx_compradores_project ON compradores(project_id);
+
+  -- Apartados: primer eslabón del proceso de venta. Confirmado en
+  -- diagnóstico que amerita tabla propia (monto + vigencia, no solo un
+  -- cambio de estatus) pero SIN lógica automática de vencimiento en esta
+  -- fase (Forbidden Action explícita) — 'vencido' existe en el CHECK para
+  -- uso futuro, nada lo activa todavía. vigencia_hasta nullable: capturar
+  -- una fecha límite es opcional, no obligatorio, en el primer PR.
+  CREATE TABLE IF NOT EXISTS apartados (
+    id SERIAL PRIMARY KEY,
+    lote_id INTEGER NOT NULL REFERENCES lotes(id),
+    comprador_id INTEGER NOT NULL REFERENCES compradores(id),
+    monto DOUBLE PRECISION NOT NULL,
+    fecha DATE NOT NULL DEFAULT CURRENT_DATE,
+    vigencia_hasta DATE,
+    estado TEXT NOT NULL DEFAULT 'activo'
+      CHECK (estado IN ('activo','convertido_a_contrato','cancelado','vencido')),
+    creado_por INTEGER REFERENCES usuarios(id),
+    creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
+  CREATE INDEX IF NOT EXISTS idx_apartados_lote ON apartados(lote_id);
+  CREATE INDEX IF NOT EXISTS idx_apartados_comprador ON apartados(comprador_id);
+  -- Un lote no puede tener más de un apartado activo a la vez — la propia DB
+  -- lo garantiza (índice único parcial), no solo la lógica de aplicación en
+  -- server/ventas.js. Confirmado antes de aplicar: 0 lotes y 0 apartados en
+  -- Preview al momento de esta migración, sin riesgo de conflicto con datos
+  -- ya existentes.
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_apartados_lote_activo_unico
+    ON apartados(lote_id) WHERE estado = 'activo';
+
   -- Portal de sugerencias — cualquier usuario autenticado puede enviar; solo
   -- admin puede revisar y gestionar. prompt_generado almacena el prompt
   -- técnico formateado por IA (claude-sonnet-4-6) bajo demanda desde el

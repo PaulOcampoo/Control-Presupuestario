@@ -41,8 +41,8 @@ const ROLE_TABS = {
   // simulación de rol no puede simular "soy el usuario 8", solo "soy rol X"
   // (prompt-fix-role-tabs-contabilidad.md) — limitación conocida y
   // aceptada para esos tres, no un bug.
-  admin:          ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'cumplimiento', 'finanzas', 'compromisos', 'fondoGarantia', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', 'ordenesCambio', 'lotes', 'modelosVivienda', 'infraVivienda', ...MAQUINARIA_TABS_ADMIN, 'cotizador', 'costos', 'costosDashboard', 'matrices', 'avance_clientes', 'composicion_costos', 'dashboardEjecutivo', 'catalogoBasicos', ...CONTABILIDAD_TABS],
-  desarrollador:  ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'cumplimiento', 'finanzas', 'compromisos', 'fondoGarantia', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', 'ordenesCambio', 'lotes', 'modelosVivienda', 'infraVivienda', ...MAQUINARIA_TABS_ADMIN, 'cotizador', 'costos', 'costosDashboard', 'matrices', 'avance_clientes', 'composicion_costos', 'dashboardEjecutivo', 'catalogoBasicos', ...CONTABILIDAD_TABS],
+  admin:          ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'cumplimiento', 'finanzas', 'compromisos', 'fondoGarantia', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', 'ordenesCambio', 'lotes', 'modelosVivienda', 'compradores', 'apartados', 'infraVivienda', ...MAQUINARIA_TABS_ADMIN, 'cotizador', 'costos', 'costosDashboard', 'matrices', 'avance_clientes', 'composicion_costos', 'dashboardEjecutivo', 'catalogoBasicos', ...CONTABILIDAD_TABS],
+  desarrollador:  ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'cumplimiento', 'finanzas', 'compromisos', 'fondoGarantia', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', 'ordenesCambio', 'lotes', 'modelosVivienda', 'compradores', 'apartados', 'infraVivienda', ...MAQUINARIA_TABS_ADMIN, 'cotizador', 'costos', 'costosDashboard', 'matrices', 'avance_clientes', 'composicion_costos', 'dashboardEjecutivo', 'catalogoBasicos', ...CONTABILIDAD_TABS],
   residente:      ['programa', 'avance', 'destajo', 'requisiciones', 'insumos', 'ordenes', 'nominas', 'trabajadores', 'estimaciones', 'ordenesCambio', 'lotes', 'modelosVivienda', 'infraVivienda', 'matrices'],
   cabo:           ['destajo', 'insumos', 'avance', 'requisiciones', ...MAQUINARIA_TABS_CABO, 'trabajadores', 'nominas', 'ordenesCambio', 'infraVivienda'],
   compras:        ['programa', 'requisiciones', 'insumos', 'ordenes', 'proveedores', 'cumplimiento', 'cotizador'],
@@ -1048,6 +1048,13 @@ function puedeVerLotes() { return !!state.user && (isAdmin() || effectivePuesto(
 // desarrollador exclusivo (isAdmin()) — el backend ya lo bloquea con 403 real,
 // esto solo evita mostrar botones que fallarían.
 function puedeVerModelosVivienda() { return !!state.user && (isAdmin() || effectivePuesto() === 'residente'); }
+// prompt-implementacion-pr-a-compradores-apartado.md (Fase 4): admin/
+// desarrollador exclusivo — ni siquiera residente, a diferencia de Lotes/
+// Modelos de Vivienda (dato de comprador es información personal de un
+// tercero, no solo comercialmente sensible). El backend ya lo bloquea con
+// 403 real vía auth.allow() sin argumentos; esto solo evita mostrar la
+// pantalla/botones a quien de todos modos recibiría 403.
+function puedeVerVentas() { return isAdmin(); }
 
 function applySession(user, tabs, needsTotpReminder = false, avisoNovedades = null) {
   state.user = user;
@@ -1252,6 +1259,18 @@ const SECTION_DEFS = {
   // (prompt-seccion-costos-implementacion.md, ver 'costos' más abajo) —
   // ordenesCambio regresa aquí, de donde salió.
   obra:          { label: 'Obra',           icon: 'obra',           emoji: '🏗️',  tabs: ['programa', 'avance', 'destajo', 'estimaciones', 'ordenesCambio', 'lotes', 'modelosVivienda', 'infraVivienda'], proximamente: [] },
+  // Fase 4 del roadmap "Desarrollador de Vivienda", PR A (prompt-
+  // implementacion-pr-a-compradores-apartado.md, diagnóstico previo en
+  // prompt-diagnostico-compradores-venta.md) — sección de nivel superior
+  // nueva a propósito (a diferencia de Fases 1-3, que se quedaron como tabs
+  // dentro de Obra): volumen/complejidad de CRM real, decisión confirmada
+  // por Paul en el diagnóstico. Solo 'compradores'/'apartados' en este PR —
+  // 'proximamente' deja la galería preparada para 'Contrato de venta'
+  // (PR B), 'Cobranza' (PR C) y 'Entregas' (PR D) sin necesitar refactor,
+  // mismo patrón que 'compras.proximamente: ["Subcontratos"]'. Icono 'home'
+  // reusado (misma forma de casa que ya existe en ICON_SVG, temáticamente
+  // correcta para venta de vivienda — no requiere un path SVG nuevo).
+  ventas:        { label: 'Ventas',         icon: 'home',           emoji: '🏠',   tabs: ['compradores', 'apartados'], proximamente: ['Contrato de venta', 'Cobranza', 'Entregas'] },
   compras:       { label: 'Compras',        icon: 'compras',        emoji: '🛒',   tabs: ['requisiciones', 'insumos', 'proveedores', 'cumplimiento', 'ordenes', 'cotizador'], proximamente: ['Subcontratos'] },
   tesoreria:     { label: 'Tesorería',      icon: 'tesoreria',      emoji: '💰',   tabs: ['finanzas', 'compromisos', 'fondoGarantia', 'estadoResultados', 'estadoResultadosGlobal', 'impuestos', 'controlFinanciero'], proximamente: [] },
   // 'mapeo' vivió un tiempo aquí, luego en Presupuestos, ahora en la nueva
@@ -1303,7 +1322,7 @@ const SECTION_DEFS = {
 const TAB_ICONS = {
   resumen: '📊', contrato: '📄', impuestos: '🧾', insumos: '📦', requisiciones: '🧾',
   proveedores: '🏭', cumplimiento: '✅', ordenes: '🛒', programa: '🗓️', avance: '📈', destajo: '👷',
-  finanzas: '💰', compromisos: '📌', fondoGarantia: '🔒', mapeo: '🔗', usuarios: '👤', trabajadores: '👷', nominas: '💵', estimaciones: '🧮', ordenesCambio: '📝', lotes: '🏘️', modelosVivienda: '🏡', infraVivienda: '🏙️',
+  finanzas: '💰', compromisos: '📌', fondoGarantia: '🔒', mapeo: '🔗', usuarios: '👤', trabajadores: '👷', nominas: '💵', estimaciones: '🧮', ordenesCambio: '📝', lotes: '🏘️', modelosVivienda: '🏡', compradores: '🧑‍🤝‍🧑', apartados: '🔖', infraVivienda: '🏙️',
   maquinaria_catalogo: '🛠️', maquinaria_horas: '⏱️', maquinaria_bitacora: '🔧', maquinaria_estado_unidad: '🚦',
   maquinaria_consumibles: '⛽', maquinaria_reportes_cliente: '📊',
   nominas_global: '💵', trabajadores_global: '👷', cotizador: '🔍',
@@ -1315,7 +1334,7 @@ const TAB_ICONS = {
 const TAB_LABELS = {
   resumen: 'Resumen', contrato: 'Contrato', impuestos: 'Impuestos', insumos: 'Insumos', requisiciones: 'Requisiciones',
   proveedores: 'Proveedores', cumplimiento: 'Cumplimiento', ordenes: 'Órdenes de Compra', programa: 'Programa', avance: 'Avance', destajo: 'Destajo',
-  finanzas: 'Finanzas', compromisos: 'Compromisos Abiertos', fondoGarantia: 'Fondo de Garantía', mapeo: 'Mapeo', usuarios: 'Usuarios', trabajadores: 'Trabajadores', nominas: 'Nóminas', estimaciones: 'Estimaciones', ordenesCambio: 'Órdenes de Cambio', lotes: 'Lotes', modelosVivienda: 'Modelos de Vivienda', infraVivienda: 'Infraestructura vs. Vivienda',
+  finanzas: 'Finanzas', compromisos: 'Compromisos Abiertos', fondoGarantia: 'Fondo de Garantía', mapeo: 'Mapeo', usuarios: 'Usuarios', trabajadores: 'Trabajadores', nominas: 'Nóminas', estimaciones: 'Estimaciones', ordenesCambio: 'Órdenes de Cambio', lotes: 'Lotes', modelosVivienda: 'Modelos de Vivienda', compradores: 'Compradores', apartados: 'Apartados', infraVivienda: 'Infraestructura vs. Vivienda',
   maquinaria_catalogo: 'Catálogo de equipos', maquinaria_horas: 'Horas / Pendientes de autorizar',
   maquinaria_bitacora: 'Bitácora de taller', maquinaria_estado_unidad: 'Estado de las unidades',
   maquinaria_consumibles: 'Consumibles', maquinaria_reportes_cliente: 'Reportes por cliente',
@@ -1344,7 +1363,7 @@ Object.entries(SECTION_DEFS).forEach(([sectionId, def]) => {
 // en prompt-39-maquinaria-galeria-subsecciones.md (antes tenía tabs:
 // ['maquinaria'], una sola pestaña que el guard de goToSection()
 // (tabsPermitidos.length > 1) saltaba directo sin mostrar galería).
-const SECTIONS_WITH_GALLERY = new Set(['obra', 'compras', 'tesoreria', 'administracion', 'maquinaria', 'costos', 'contabilidad']);
+const SECTIONS_WITH_GALLERY = new Set(['obra', 'compras', 'tesoreria', 'administracion', 'maquinaria', 'costos', 'contabilidad', 'ventas']);
 SECTIONS_WITH_GALLERY.forEach((sectionId) => { VIEW_TO_SECTION[`${sectionId}_gallery`] = sectionId; });
 
 // Historial de navegación (botón atrás del navegador / gesto equivalente en
@@ -3047,7 +3066,8 @@ const AYUDA_CONTENIDO = {
       'La importación siempre te muestra un preview (nuevos vs. ya existentes) antes de guardar nada — nada se persiste hasta que confirmas explícitamente.',
       'Si reimportas un Excel con un lote que ya existe (misma manzana + número de lote), se actualizan sus datos descriptivos (modelo, superficie) pero el estatus que ya capturaste manualmente NUNCA se pierde ni se sobreescribe.',
       'Al marcar un lote como "entregado" se captura automáticamente la fecha de entrega real (puedes ajustarla a mano si fue en otra fecha).',
-      'El modelo de vivienda se elige del catálogo de esta obra (pestaña "Modelos de Vivienda") — cada lote también puede llevar un precio de lista propio (override del precio del modelo, útil para esquinas o ubicaciones premium) y un estatus de venta (disponible/apartado/vendido) independiente del estatus de construcción.',
+      'El modelo de vivienda se elige del catálogo de esta obra (pestaña "Modelos de Vivienda") — cada lote también puede llevar un precio de lista propio (override del precio del modelo, útil para esquinas o ubicaciones premium).',
+      'El estatus de venta (no disponible/disponible/apartado/vendido) ya NO se edita a mano — se deriva automáticamente del proceso de venta real (pestaña "Apartados" en la sección Ventas). Aquí solo se muestra como badge de solo lectura.',
     ],
   },
   modelosVivienda: {
@@ -3058,6 +3078,23 @@ const AYUDA_CONTENIDO = {
       'Solo admin/desarrollador puede dar de alta, editar o desactivar modelos (precio de lista es información sensible). Cualquier rol con acceso a esta obra puede consultarlo.',
       'Desactivar un modelo no lo borra ni afecta a los lotes que ya lo tienen asignado — solo deja de aparecer como opción al asignar modelo a un lote nuevo.',
       'El precio de lista de cada lote (pestaña Lotes) usa el precio del modelo por default, salvo que ese lote tenga un precio propio capturado (override).',
+    ],
+  },
+  compradores: {
+    titulo: 'Compradores',
+    pasos: [
+      'Catálogo de personas/entidades que compran vivienda en esta obra — nombre, contacto, teléfono, email y RFC opcional. Distinto de "Clientes" (VINTE/Kalia/Comvive, quién es dueño del fraccionamiento) — un comprador es el usuario final de una casa.',
+      'Sección exclusiva de admin/desarrollador — incluye información personal de un tercero, no solo datos comerciales.',
+      'Desactivar un comprador no lo borra ni afecta apartados ya registrados a su nombre — solo deja de aparecer como opción al apartar un lote nuevo.',
+    ],
+  },
+  apartados: {
+    titulo: 'Apartados',
+    pasos: [
+      'Primer paso del proceso de venta: un comprador aparta un lote con un monto y, opcionalmente, una vigencia. Al apartar, el estatus de venta del lote cambia automáticamente a "Apartado" — no se edita a mano en ningún lado.',
+      'Un lote solo puede tener un apartado activo a la vez — la propia base de datos lo impide, no solo la app.',
+      'Cancelar un apartado regresa el lote a "Disponible" automáticamente, siempre que no tenga otro apartado activo.',
+      '"Convertido a contrato" y "Vencido" son estados preparados para fases futuras del roadmap (Contrato de compraventa) — todavía no se activan desde ningún flujo de esta pantalla.',
     ],
   },
   infraVivienda: {
@@ -4394,6 +4431,8 @@ async function renderView() {
       case 'ordenesCambio': await renderOrdenesCambio(view); break;
       case 'lotes': await renderLotes(view); break;
       case 'modelosVivienda': await renderModelosVivienda(view); break;
+      case 'compradores': await renderCompradores(view); break;
+      case 'apartados': await renderApartados(view); break;
       case 'infraVivienda': await renderInfraVivienda(view); break;
       case 'matrices': await renderMatrices(view); break;
       default: view.innerHTML = '';
@@ -19884,10 +19923,8 @@ async function openLoteFormModal(lote, onSave) {
         </select>
       </div>
       <div class="field"><label>Estatus (venta)</label>
-        <select id="loteEstatusVenta">
-          ${ESTATUS_VENTA_LIST.map((e) => `<option value="${e}" ${(lote?.estatus_venta || 'no_disponible') === e ? 'selected' : ''}>${esc(ESTATUS_VENTA_LABELS[e])}</option>`).join('')}
-        </select>
-        <span class="muted fs-07">Independiente del estatus de construcción — un lote puede estar en preventa antes de terminarse.</span>
+        <div><span class="badge ${ESTATUS_VENTA_BADGE[lote?.estatus_venta || 'no_disponible']}">${esc(ESTATUS_VENTA_LABELS[lote?.estatus_venta || 'no_disponible'])}</span></div>
+        <span class="muted fs-07">Fase 4: ya no se edita aquí — se deriva automáticamente del proceso de venta (ver "Apartados" en la sección Ventas).</span>
       </div>
     </div>
     <div class="field"><label>Precio de lista override</label><input id="lotePrecioOverride" type="number" step="any" value="${lote?.precio_lista_override != null ? lote.precio_lista_override : ''}" />
@@ -19915,7 +19952,8 @@ async function openLoteFormModal(lote, onSave) {
       modelo_vivienda_id: $('#loteModeloId').value ? Number($('#loteModeloId').value) : null,
       superficie_m2: $('#loteSuperficie').value ? Number($('#loteSuperficie').value) : null,
       estatus: $('#loteEstatus').value,
-      estatus_venta: $('#loteEstatusVenta').value,
+      // estatus_venta NUNCA se manda desde este formulario (Fase 4) — el
+      // backend lo ignora si llegara de todos modos (server/lotes.js).
       precio_lista_override: $('#lotePrecioOverride').value ? Number($('#lotePrecioOverride').value) : null,
       fecha_entrega_estimada: $('#loteFechaEstimada').value || null,
       fecha_entrega_real: $('#loteFechaReal').value || null,
@@ -20176,6 +20214,289 @@ function openModeloViviendaFormModal(modelo, onSave) {
         await api(`/projects/${state.projectId}/modelos-vivienda`, { method: 'POST', body });
       }
       toast(esEdicion ? 'Modelo actualizado' : 'Modelo creado', 'success');
+      closeModal();
+      if (onSave) await onSave();
+    } catch (err) {
+      toast(err.message, 'danger');
+      btn.disabled = false; btn.textContent = 'Guardar';
+    }
+  });
+}
+
+// ---------------------------------------------------------------------------
+// VISTA: Compradores (prompt-implementacion-pr-a-compradores-apartado.md,
+// diagnóstico previo en prompt-diagnostico-compradores-venta.md) — Fase 4,
+// PR A del roadmap "Desarrollador de Vivienda". Sección de nivel superior
+// "Ventas", admin/desarrollador exclusivo. CRUD simple, mismo patrón que
+// Modelos de Vivienda (tabla + modal, soft-delete vía activo).
+// ---------------------------------------------------------------------------
+let compradoresRaw = [];
+
+async function renderCompradores(view) {
+  if (!puedeVerVentas()) {
+    view.innerHTML = `<div class="alert-box danger">⚠️ No tienes permiso para ver esta sección.</div>`;
+    return;
+  }
+  view.innerHTML = `
+    <h2 class="section-title">Compradores ${renderHelpBtn('compradores')}</h2>
+    <p class="muted">Catálogo de compradores de vivienda de esta obra.</p>
+    <div class="section-actions mt-12 row">
+      <button class="btn btn-primary" id="btnNuevoComprador">+ Nuevo comprador</button>
+    </div>
+    <div id="compradoresList" class="mt-12"><div class="empty-state">Cargando…</div></div>
+  `;
+  $('#btnNuevoComprador').addEventListener('click', () => openCompradorFormModal(null, loadCompradores));
+  await loadCompradores();
+}
+
+async function loadCompradores() {
+  const el = $('#compradoresList');
+  if (!el) return;
+  try {
+    compradoresRaw = await api(`/projects/${state.projectId}/compradores`);
+    paintCompradoresList();
+  } catch (err) {
+    el.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+  }
+}
+
+function paintCompradoresList() {
+  const el = $('#compradoresList');
+  if (!el) return;
+  if (!compradoresRaw.length) { el.innerHTML = '<div class="empty-state">Esta obra todavía no tiene compradores registrados.</div>'; return; }
+  el.innerHTML = `
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>Nombre</th><th>Contacto</th><th>Teléfono</th><th>Email</th><th>RFC</th><th>Estatus</th><th></th></tr></thead>
+        <tbody>
+          ${compradoresRaw.map((c) => `
+            <tr class="${c.activo ? '' : 'muted'}">
+              <td>${esc(c.nombre)}</td>
+              <td>${esc(c.contacto || '—')}</td>
+              <td>${esc(c.telefono || '—')}</td>
+              <td>${esc(c.email || '—')}</td>
+              <td>${esc(c.rfc || '—')}</td>
+              <td><span class="badge ${c.activo ? 'green' : 'muted'}">${c.activo ? 'Activo' : 'Inactivo'}</span></td>
+              <td>
+                <button class="btn small" data-editar-comprador="${c.id}">Editar</button>
+                ${c.activo ? `<button class="btn small btn-danger" data-desactivar-comprador="${c.id}">Desactivar</button>` : ''}
+              </td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+  $$('[data-editar-comprador]', el).forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const comprador = compradoresRaw.find((c) => c.id === Number(btn.dataset.editarComprador));
+      if (comprador) openCompradorFormModal(comprador, loadCompradores);
+    });
+  });
+  $$('[data-desactivar-comprador]', el).forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const comprador = compradoresRaw.find((c) => c.id === Number(btn.dataset.desactivarComprador));
+      if (!comprador) return;
+      if (!confirm(`¿Desactivar a "${comprador.nombre}"? Los apartados ya registrados a su nombre no se ven afectados.`)) return;
+      try {
+        await api(`/projects/${state.projectId}/compradores/${comprador.id}`, { method: 'DELETE' });
+        toast('Comprador desactivado', 'success');
+        await loadCompradores();
+      } catch (err) {
+        toast(err.message, 'danger');
+      }
+    });
+  });
+}
+
+function openCompradorFormModal(comprador, onSave) {
+  const esEdicion = !!comprador;
+  openModal(`
+    <h3>${esEdicion ? 'Editar comprador' : 'Nuevo comprador'}</h3>
+    <div class="field"><label>Nombre *</label><input id="cpNombre" value="${esc(comprador?.nombre || '')}" /></div>
+    <div class="field"><label>Contacto</label><input id="cpContacto" placeholder="Ej. esposo de..." value="${esc(comprador?.contacto || '')}" /></div>
+    <div class="row">
+      <div class="field"><label>Teléfono</label><input id="cpTelefono" value="${esc(comprador?.telefono || '')}" /></div>
+      <div class="field"><label>Email</label><input id="cpEmail" type="email" value="${esc(comprador?.email || '')}" /></div>
+    </div>
+    <div class="field"><label>RFC</label><input id="cpRfc" value="${esc(comprador?.rfc || '')}" /></div>
+    <div class="modal-actions">
+      <button class="btn" id="btnCancelCompradorForm">Cancelar</button>
+      <button class="btn btn-primary" id="btnSaveCompradorForm">Guardar</button>
+    </div>
+  `);
+  $('#btnCancelCompradorForm').addEventListener('click', closeModal);
+  $('#btnSaveCompradorForm').addEventListener('click', async () => {
+    const btn = $('#btnSaveCompradorForm');
+    const nombre = $('#cpNombre').value.trim();
+    if (!nombre) { toast('El nombre es requerido', 'danger'); return; }
+    const body = {
+      nombre,
+      contacto: $('#cpContacto').value.trim() || null,
+      telefono: $('#cpTelefono').value.trim() || null,
+      email: $('#cpEmail').value.trim() || null,
+      rfc: $('#cpRfc').value.trim() || null,
+    };
+    btn.disabled = true; btn.textContent = 'Guardando…';
+    try {
+      if (esEdicion) {
+        await api(`/projects/${state.projectId}/compradores/${comprador.id}`, { method: 'PUT', body });
+      } else {
+        await api(`/projects/${state.projectId}/compradores`, { method: 'POST', body });
+      }
+      toast(esEdicion ? 'Comprador actualizado' : 'Comprador creado', 'success');
+      closeModal();
+      if (onSave) await onSave();
+    } catch (err) {
+      toast(err.message, 'danger');
+      btn.disabled = false; btn.textContent = 'Guardar';
+    }
+  });
+}
+
+// ---------------------------------------------------------------------------
+// VISTA: Apartados (prompt-implementacion-pr-a-compradores-apartado.md) —
+// Fase 4, PR A. Alta (lote + comprador + monto + fecha/vigencia), listado
+// con badge de estado, cancelar. estatus_venta del lote se deriva 100% en
+// el backend (server/ventas.js) — esta vista nunca lo toca directamente.
+// ---------------------------------------------------------------------------
+const ESTADO_APARTADO_LIST = ['activo', 'convertido_a_contrato', 'cancelado', 'vencido'];
+const ESTADO_APARTADO_LABELS = { activo: 'Activo', convertido_a_contrato: 'Convertido a contrato', cancelado: 'Cancelado', vencido: 'Vencido' };
+const ESTADO_APARTADO_BADGE = { activo: 'green', convertido_a_contrato: 'purple', cancelado: 'muted', vencido: 'yellow' };
+let apartadosRaw = [];
+
+async function renderApartados(view) {
+  if (!puedeVerVentas()) {
+    view.innerHTML = `<div class="alert-box danger">⚠️ No tienes permiso para ver esta sección.</div>`;
+    return;
+  }
+  view.innerHTML = `
+    <h2 class="section-title">Apartados ${renderHelpBtn('apartados')}</h2>
+    <p class="muted">Apartados de lotes por comprador — el estatus de venta del lote se deriva automáticamente de aquí.</p>
+    <div class="section-actions mt-12 row">
+      <button class="btn btn-primary" id="btnNuevoApartado">+ Nuevo apartado</button>
+    </div>
+    <div id="apartadosList" class="mt-12"><div class="empty-state">Cargando…</div></div>
+  `;
+  $('#btnNuevoApartado').addEventListener('click', () => openApartadoFormModal(loadApartados));
+  await loadApartados();
+}
+
+async function loadApartados() {
+  const el = $('#apartadosList');
+  if (!el) return;
+  try {
+    apartadosRaw = await api(`/projects/${state.projectId}/apartados`);
+    paintApartadosList();
+  } catch (err) {
+    el.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+  }
+}
+
+function paintApartadosList() {
+  const el = $('#apartadosList');
+  if (!el) return;
+  if (!apartadosRaw.length) { el.innerHTML = '<div class="empty-state">Esta obra todavía no tiene apartados registrados.</div>'; return; }
+  el.innerHTML = `
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>Lote</th><th>Comprador</th><th class="num">Monto</th><th>Fecha</th><th>Vigencia</th><th>Estado</th><th></th></tr></thead>
+        <tbody>
+          ${apartadosRaw.map((a) => `
+            <tr>
+              <td>${esc(a.manzana || '—')} / ${esc(a.numero_lote)}</td>
+              <td>${esc(a.comprador_nombre)}</td>
+              <td class="num">${fmtMoney(a.monto)}</td>
+              <td>${fmtDate(a.fecha)}</td>
+              <td>${a.vigencia_hasta ? fmtDate(a.vigencia_hasta) : '—'}</td>
+              <td><span class="badge ${ESTADO_APARTADO_BADGE[a.estado] || 'muted'}">${esc(ESTADO_APARTADO_LABELS[a.estado] || a.estado)}</span></td>
+              <td>${a.estado === 'activo' ? `<button class="btn small btn-danger" data-cancelar-apartado="${a.id}">Cancelar</button>` : ''}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+  $$('[data-cancelar-apartado]', el).forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const apartado = apartadosRaw.find((a) => a.id === Number(btn.dataset.cancelarApartado));
+      if (!apartado) return;
+      if (!confirm(`¿Cancelar el apartado del lote ${apartado.manzana || ''}/${apartado.numero_lote}? El lote regresará a "Disponible" si no tiene otro apartado activo.`)) return;
+      try {
+        await api(`/projects/${state.projectId}/apartados/${apartado.id}/cancelar`, { method: 'PUT' });
+        toast('Apartado cancelado', 'success');
+        await loadApartados();
+      } catch (err) {
+        toast(err.message, 'danger');
+      }
+    });
+  });
+}
+
+// El selector de lote solo ofrece lotes SIN apartado activo (estatus_venta
+// distinto de 'apartado'/'vendido') — mismo criterio que valida el backend
+// (crearApartado en server/ventas.js), para no dejar elegir en la UI algo
+// que el servidor de todos modos rechazaría.
+async function openApartadoFormModal(onSave) {
+  let lotes = [];
+  let compradores = [];
+  try {
+    [lotes, compradores] = await Promise.all([
+      api(`/projects/${state.projectId}/lotes`),
+      api(`/projects/${state.projectId}/compradores`),
+    ]);
+  } catch (err) {
+    toast(err.message, 'danger');
+  }
+  const lotesDisponibles = lotes.filter((l) => l.estatus_venta !== 'apartado' && l.estatus_venta !== 'vendido');
+  const compradoresActivos = compradores.filter((c) => c.activo);
+
+  openModal(`
+    <h3>Nuevo apartado</h3>
+    <div class="field"><label>Lote *</label>
+      <select id="apLoteId">
+        <option value="">Selecciona un lote</option>
+        ${lotesDisponibles.map((l) => `<option value="${l.id}">${esc(l.manzana || '—')} / ${esc(l.numero_lote)}${l.modelo_nombre ? ` — ${esc(l.modelo_nombre)}` : ''}</option>`).join('')}
+      </select>
+      ${!lotesDisponibles.length ? '<span class="muted fs-07">No hay lotes disponibles para apartar en esta obra (todos ya tienen apartado activo o están vendidos).</span>' : ''}
+    </div>
+    <div class="field"><label>Comprador *</label>
+      <select id="apCompradorId">
+        <option value="">Selecciona un comprador</option>
+        ${compradoresActivos.map((c) => `<option value="${c.id}">${esc(c.nombre)}</option>`).join('')}
+      </select>
+      ${!compradoresActivos.length ? '<span class="muted fs-07">Esta obra todavía no tiene compradores activos — da de alta uno primero en la pestaña "Compradores".</span>' : ''}
+    </div>
+    <div class="row">
+      <div class="field"><label>Monto *</label><input id="apMonto" type="number" step="any" /></div>
+      <div class="field"><label>Fecha</label><input id="apFecha" type="date" value="${new Date().toISOString().slice(0, 10)}" /></div>
+    </div>
+    <div class="field"><label>Vigencia hasta</label><input id="apVigencia" type="date" />
+      <span class="muted fs-07">Opcional — sin lógica automática de vencimiento en esta fase.</span>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" id="btnCancelApartadoForm">Cancelar</button>
+      <button class="btn btn-primary" id="btnSaveApartadoForm">Guardar</button>
+    </div>
+  `);
+  $('#btnCancelApartadoForm').addEventListener('click', closeModal);
+  $('#btnSaveApartadoForm').addEventListener('click', async () => {
+    const btn = $('#btnSaveApartadoForm');
+    const lote_id = $('#apLoteId').value ? Number($('#apLoteId').value) : null;
+    const comprador_id = $('#apCompradorId').value ? Number($('#apCompradorId').value) : null;
+    const monto = $('#apMonto').value ? Number($('#apMonto').value) : null;
+    if (!lote_id) { toast('Selecciona un lote', 'danger'); return; }
+    if (!comprador_id) { toast('Selecciona un comprador', 'danger'); return; }
+    if (!monto || monto <= 0) { toast('Captura un monto válido', 'danger'); return; }
+    const body = {
+      lote_id, comprador_id, monto,
+      fecha: $('#apFecha').value || null,
+      vigencia_hasta: $('#apVigencia').value || null,
+    };
+    btn.disabled = true; btn.textContent = 'Guardando…';
+    try {
+      await api(`/projects/${state.projectId}/apartados`, { method: 'POST', body });
+      toast('Apartado creado — el lote ahora está "Apartado"', 'success');
       closeModal();
       if (onSave) await onSave();
     } catch (err) {

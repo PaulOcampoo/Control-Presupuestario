@@ -71,6 +71,7 @@ const { emparejarConceptos, calcularCambios, aplicarCambiosConceptos } = require
 const ordenesCambio = require('./ordenesCambio');
 const lotes = require('./lotes');
 const modelosVivienda = require('./modelosVivienda');
+const ventas = require('./ventas');
 
 // CN-007: nombre_archivo/pdf_filename vienen del cliente (upload); una comilla
 // doble en el valor rompe fuera del filename="..." y permite inyectar
@@ -6705,6 +6706,69 @@ app.delete('/api/projects/:id/modelos-vivienda/:modeloId', h(auth.allow()), h(re
   try {
     const eliminado = await modelosVivienda.softDeleteModelo(Number(req.params.modeloId), req.project.id);
     res.json(eliminado);
+  } catch (err) {
+    res.status(err.status || 400).json({ error: err.message });
+  }
+}));
+
+// ---------------------------------------------------------------------------
+// Ventas — Compradores + Apartado (prompt-implementacion-pr-a-compradores-
+// apartado.md, diagnóstico previo en prompt-diagnostico-compradores-venta.md)
+// — PR A de 4 de la Fase 4 del roadmap "Desarrollador de Vivienda". Todo
+// admin/desarrollador EXCLUSIVO vía auth.allow() SIN argumentos — a
+// propósito SIN checkPermiso ni entrada en permisos_usuario/
+// SECCIONES_PERMISOS (Forbidden Action explícita del prompt), mismo criterio
+// que Contrato de construcción: dato de comprador es información personal
+// de un tercero, no solo comercialmente sensible.
+// ---------------------------------------------------------------------------
+app.get('/api/projects/:id/compradores', h(auth.allow()), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  res.json(await ventas.listCompradores(req.project.id));
+}));
+
+app.post('/api/projects/:id/compradores', h(auth.allow()), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  try {
+    const nuevo = await ventas.createComprador(req.project.id, req.body || {});
+    res.status(201).json(nuevo);
+  } catch (err) {
+    res.status(err.status || 400).json({ error: err.message });
+  }
+}));
+
+app.put('/api/projects/:id/compradores/:compradorId', h(auth.allow()), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  try {
+    const actualizado = await ventas.updateComprador(Number(req.params.compradorId), req.project.id, req.body || {});
+    res.json(actualizado);
+  } catch (err) {
+    res.status(err.status || 400).json({ error: err.message });
+  }
+}));
+
+app.delete('/api/projects/:id/compradores/:compradorId', h(auth.allow()), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  try {
+    const eliminado = await ventas.softDeleteComprador(Number(req.params.compradorId), req.project.id);
+    res.json(eliminado);
+  } catch (err) {
+    res.status(err.status || 400).json({ error: err.message });
+  }
+}));
+
+app.get('/api/projects/:id/apartados', h(auth.allow()), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  res.json(await ventas.listApartados(req.project.id));
+}));
+
+app.post('/api/projects/:id/apartados', h(auth.allow()), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  try {
+    const nuevo = await ventas.crearApartado(req.project.id, req.body || {}, req.user.id);
+    res.status(201).json(nuevo);
+  } catch (err) {
+    res.status(err.status || 400).json({ error: err.message });
+  }
+}));
+
+app.put('/api/projects/:id/apartados/:apartadoId/cancelar', h(auth.allow()), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  try {
+    const cancelado = await ventas.cancelarApartado(Number(req.params.apartadoId), req.project.id);
+    res.json(cancelado);
   } catch (err) {
     res.status(err.status || 400).json({ error: err.message });
   }

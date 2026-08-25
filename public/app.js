@@ -14753,6 +14753,7 @@ async function renderCostos(view) {
     function cmEstadoBadgeHtml(a) {
       if (a.estado === 'procesado') return `<span class="badge green">Procesado</span>`;
       if (a.estado === 'procesando') return `<span class="badge yellow">Procesando…</span>`;
+      if (a.estado === 'pendiente_confirmacion') return `<span class="badge yellow">Pendiente de confirmar</span>`;
       return `<span class="badge red" title="${esc(a.notas_error || '')}">Error</span>`;
     }
 
@@ -14765,7 +14766,7 @@ async function renderCostos(view) {
             <tbody>
               ${archivos.map((a) => `
                 <tr>
-                  <td>${esc(a.nombre_archivo)}</td>
+                  <td>${esc(a.nombre_archivo)}${a.formato_detectado === 'ajal' ? ` <span class="badge muted" title="Formato AJAL detectado automáticamente — por ahora solo importa Presupuesto (conceptos/precios), Destajo/Insumos/Matrices quedan fuera de este archivo.">AJAL</span>` : ''}</td>
                   <td>${esc(a.cargado_por_nombre || '—')}</td>
                   <td>${fmtDate(a.fecha_carga)}</td>
                   <td>${cmEstadoBadgeHtml(a)}</td>
@@ -14810,6 +14811,57 @@ async function renderCostos(view) {
       } catch (err) {
         result.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
       }
+    }
+
+    // prompt-normalizador-universal-ajal.md (fase adicional): preview de
+    // conceptos detectados para el camino AJAL antes de comprometerse a
+    // guardar nada -- mismo criterio de pausa que "Crear presupuesto desde
+    // catálogo" (preview/confirm), aplicado solo aquí (el formato estándar
+    // sigue subiendo en un solo paso, sin este modal).
+    function mostrarPreviewAjal(resultado) {
+      const conceptos = resultado.preview.conceptos;
+      const filasHtml = conceptos.map((c) => `
+        <tr>
+          <td>${esc(c.codigo)}</td>
+          <td>${esc(c.concepto)}</td>
+          <td>${esc(c.unidad || '—')}</td>
+          <td class="num">${c.cantidad}</td>
+          <td class="num">${fmtMoney(c.precio_unitario)}</td>
+        </tr>
+      `).join('');
+      openModal(`
+        <h3>Revisar antes de importar — formato AJAL detectado</h3>
+        <p class="muted">Este archivo no usa el formato estándar de columnas. Se reconocieron ${resultado.preview.num_conceptos} concepto${resultado.preview.num_conceptos === 1 ? '' : 's'} de forma automática — nada se ha guardado todavía. Revisa que se vean correctos antes de confirmar.</p>
+        <div class="table-scroll" style="max-height:50vh;overflow-y:auto;">
+          <table>
+            <thead><tr><th>Código</th><th>Concepto</th><th>Unidad</th><th class="num">Cantidad</th><th class="num">P. Unitario</th></tr></thead>
+            <tbody>${filasHtml}</tbody>
+          </table>
+        </div>
+        <div class="modal-actions">
+          <button class="btn" id="btnCmCancelarPreview">Cancelar</button>
+          <button class="btn btn-primary" id="btnCmConfirmarPreview">Confirmar e importar</button>
+        </div>
+      `);
+      $('#btnCmCancelarPreview').addEventListener('click', () => {
+        closeModal();
+        toast('Importación cancelada — no se guardó nada', '');
+      });
+      $('#btnCmConfirmarPreview').addEventListener('click', async () => {
+        const confBtn = $('#btnCmConfirmarPreview');
+        confBtn.disabled = true; confBtn.textContent = 'Confirmando…';
+        try {
+          const confirmado = await api(`/costos/catalogo-maestro/upload/${resultado.id}/confirmar`, {
+            method: 'POST', body: { confirmado: true },
+          });
+          closeModal();
+          toast(`Importado — ${confirmado.numConceptos} conceptos, ${confirmado.numDestajo} destajos, ${confirmado.numInsumos} insumos, ${confirmado.numMatrices} matrices`, 'success');
+          await cargarArchivos();
+        } catch (err) {
+          toast(err.message, 'danger');
+          confBtn.disabled = false; confBtn.textContent = 'Confirmar e importar';
+        }
+      });
     }
 
     function actualizarBarraImportar() {
@@ -14938,8 +14990,12 @@ async function renderCostos(view) {
             method: 'POST',
             body: { archivo_url: blob.url, nombre_archivo: file.name },
           });
-          toast(`"${file.name}" procesado — ${resultado.numConceptos} conceptos, ${resultado.numDestajo} destajos, ${resultado.numInsumos} insumos, ${resultado.numMatrices} matrices`, 'success');
           await cargarArchivos();
+          if (resultado.estado === 'pendiente_confirmacion') {
+            mostrarPreviewAjal(resultado);
+          } else {
+            toast(`"${file.name}" procesado — ${resultado.numConceptos} conceptos, ${resultado.numDestajo} destajos, ${resultado.numInsumos} insumos, ${resultado.numMatrices} matrices`, 'success');
+          }
         } catch (err) {
           toast(err.message, 'danger');
         } finally {

@@ -57,8 +57,8 @@ const PERMISSIONS = {
   // whitelist — mismo candado ahora, vía tabsParaUsuario() +
   // requireEstadoResultadosAccess (0 usuarios reales con puesto 'tesoreria'
   // en Producción, confirmado antes de este cambio).
-  admin:          { label: 'Administrador', tabs: ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'cumplimiento', 'finanzas', 'compromisos', 'fondoGarantia', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', 'ordenesCambio', 'lotes', ...MAQUINARIA_TABS_ADMIN, 'cotizador', 'costos', 'costosDashboard', 'matrices', 'avance_clientes', 'composicion_costos', 'dashboardEjecutivo', 'catalogoBasicos'] },
-  desarrollador:  { label: 'Desarrollador', tabs: ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'cumplimiento', 'finanzas', 'compromisos', 'fondoGarantia', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', 'ordenesCambio', 'lotes', ...MAQUINARIA_TABS_ADMIN, 'cotizador', 'costos', 'costosDashboard', 'matrices', 'avance_clientes', 'composicion_costos', 'dashboardEjecutivo', 'catalogoBasicos'] },
+  admin:          { label: 'Administrador', tabs: ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'cumplimiento', 'finanzas', 'compromisos', 'fondoGarantia', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', 'ordenesCambio', 'lotes', 'modelosVivienda', ...MAQUINARIA_TABS_ADMIN, 'cotizador', 'costos', 'costosDashboard', 'matrices', 'avance_clientes', 'composicion_costos', 'dashboardEjecutivo', 'catalogoBasicos'] },
+  desarrollador:  { label: 'Desarrollador', tabs: ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'cumplimiento', 'finanzas', 'compromisos', 'fondoGarantia', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', 'ordenesCambio', 'lotes', 'modelosVivienda', ...MAQUINARIA_TABS_ADMIN, 'cotizador', 'costos', 'costosDashboard', 'matrices', 'avance_clientes', 'composicion_costos', 'dashboardEjecutivo', 'catalogoBasicos'] },
   // 'trabajadores' agregado aquí (prompts-cotizador-sidebar-permisos-
   // estimaciones.md, Prompt 3) para que el residente reciba la pestaña al
   // hacer login — el acceso REAL a los datos de cada obra lo sigue
@@ -79,7 +79,7 @@ const PERMISSIONS = {
   // otorga el permiso por sí solo, checkPermiso('costos', ...) sigue siendo
   // el gate real vía permisos_usuario (sin fila = 403, default-deny de
   // 'costos', ver SECCIONES_PERMISOS más abajo).
-  residente:      { label: 'Residente',     tabs: ['programa', 'avance', 'destajo', 'requisiciones', 'insumos', 'ordenes', 'nominas', 'trabajadores', 'estimaciones', 'ordenesCambio', 'lotes', ...MAQUINARIA_TABS_RESIDENTE, 'matrices'] },
+  residente:      { label: 'Residente',     tabs: ['programa', 'avance', 'destajo', 'requisiciones', 'insumos', 'ordenes', 'nominas', 'trabajadores', 'estimaciones', 'ordenesCambio', 'lotes', 'modelosVivienda', ...MAQUINARIA_TABS_RESIDENTE, 'matrices'] },
   // 'trabajadores' agregado aquí (prompt-c-checkpermiso-trabajadores.md,
   // fix de visibilidad en nav): mismo gap ya documentado para 'costos' más
   // abajo — el permiso puede_ver otorgado vía la matriz a UN cabo específico
@@ -277,6 +277,14 @@ const SECCIONES_PERMISOS = [
   // individuales dentro de una obra — sección propia con enforcement real,
   // mismo criterio que 'ordenes_cambio' arriba.
   'lotes',
+  // prompt-implementacion-catalogo-comercial.md (Fase 3): catálogo comercial
+  // de modelos de vivienda — sección propia con enforcement real, mismo
+  // criterio que 'lotes' arriba. Consulta (puede_ver) para
+  // admin/desarrollador/residente; crear/editar/eliminar solo admin/
+  // desarrollador, gateado a nivel de ruta (auth.allow() sin argumentos en
+  // server/app.js, no vía checkPermiso) — mismo patrón que aprobar/rechazar
+  // en ordenes_cambio.
+  'modelos_vivienda',
 ];
 const ACCIONES_PERMISOS = ['puede_ver', 'puede_crear', 'puede_editar', 'puede_editar_precios', 'puede_eliminar'];
 
@@ -339,6 +347,9 @@ const TAB_A_SECCION = {
   // prompt-lotes-fase1.md: sección propia por-obra, mismo criterio que
   // 'ordenesCambio' arriba.
   lotes: 'lotes',
+  // prompt-implementacion-catalogo-comercial.md (Fase 3): sección propia
+  // por-obra, mismo criterio que 'lotes' arriba.
+  modelosVivienda: 'modelos_vivienda',
   // 'cumplimiento' (prompt-cumplimiento-subcontratistas.md) reusa la MISMA
   // sección 'proveedores' — mismo criterio y misma justificación que
   // 'compromisos'/'fondoGarantia' arriba (reusa el permiso ya existente, no

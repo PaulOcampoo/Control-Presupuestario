@@ -11,6 +11,10 @@ const ExcelJS = require('exceljs');
 const db = require('./db');
 
 const ESTATUS_LOTE = ['sin_iniciar', 'en_proceso', 'terminado', 'entregado'];
+// Fase 3 (prompt-implementacion-catalogo-comercial.md): estatus de venta,
+// deliberadamente independiente de ESTATUS_LOTE (construcción) — ver
+// comentario del CHECK constraint en server/db.js.
+const ESTATUS_VENTA = ['no_disponible', 'disponible', 'apartado', 'vendido'];
 
 function norm(text) {
   return String(text == null ? '' : text)
@@ -173,28 +177,64 @@ async function confirmarImportacionLotes(pid, lotesParsed, importadoPor) {
   });
 }
 
+// JOIN con modelos_vivienda (LEFT — un lote puede no tener modelo asignado) +
+// precio_efectivo calculado aquí (Fase 3, prompt-implementacion-catalogo-
+// comercial.md) para que el frontend nunca tenga que replicar la fórmula
+// COALESCE(override, precio del modelo).
 async function listLotes(pid, { estatus, manzana } = {}) {
   const params = [pid];
-  let where = 'project_id = $1';
-  if (estatus) { params.push(estatus); where += ` AND estatus = $${params.length}`; }
-  if (manzana) { params.push(manzana); where += ` AND manzana = $${params.length}`; }
+  let where = 'l.project_id = $1';
+  if (estatus) { params.push(estatus); where += ` AND l.estatus = $${params.length}`; }
+  if (manzana) { params.push(manzana); where += ` AND l.manzana = $${params.length}`; }
   const { rows } = await db.pool.query(
-    `SELECT * FROM lotes WHERE ${where} ORDER BY manzana, numero_lote`, params
+    `SELECT l.*,
+       mv.nombre AS modelo_nombre, mv.precio_lista AS modelo_precio_lista,
+       mv.superficie_construida_m2 AS modelo_superficie_construida_m2,
+       COALESCE(l.precio_lista_override, mv.precio_lista) AS precio_efectivo
+     FROM lotes l
+     LEFT JOIN modelos_vivienda mv ON mv.id = l.modelo_vivienda_id
+     WHERE ${where} ORDER BY l.manzana, l.numero_lote`, params
   );
   return rows;
 }
 
-async function createLote(pid, { manzana, numero_lote, modelo_vivienda, superficie_m2, fecha_entrega_estimada }) {
+// Fase 3: modelo_vivienda_id, si se envía, debe pertenecer a la misma obra
+// que el lote — evita mezclar modelos entre proyectos.
+async function validarModeloDeLaObra(pid, modeloId) {
+  if (modeloId == null) return;
+  const { rows } = await db.pool.query(
+    'SELECT 1 FROM modelos_vivienda WHERE id = $1 AND project_id = $2', [modeloId, pid]
+  );
+  if (!rows[0]) {
+    const err = new Error('El modelo de vivienda no pertenece a esta obra');
+    err.status = 400;
+    throw err;
+  }
+}
+
+async function createLote(pid, {
+  manzana, numero_lote, modelo_vivienda, superficie_m2, fecha_entrega_estimada,
+  modelo_vivienda_id, precio_lista_override, estatus_venta,
+}) {
   if (!numero_lote || !String(numero_lote).trim()) {
     const err = new Error('numero_lote es requerido');
     err.status = 400;
     throw err;
   }
+  const estatusVentaFinal = estatus_venta || 'no_disponible';
+  if (!ESTATUS_VENTA.includes(estatusVentaFinal)) {
+    const err = new Error(`estatus_venta inválido: "${estatusVentaFinal}"`);
+    err.status = 400;
+    throw err;
+  }
+  await validarModeloDeLaObra(pid, modelo_vivienda_id ?? null);
   const { rows } = await db.pool.query(
-    `INSERT INTO lotes (project_id, manzana, numero_lote, modelo_vivienda, superficie_m2, fecha_entrega_estimada)
-     VALUES ($1,$2,$3,$4,$5,$6)
+    `INSERT INTO lotes (project_id, manzana, numero_lote, modelo_vivienda, superficie_m2, fecha_entrega_estimada,
+       modelo_vivienda_id, precio_lista_override, estatus_venta)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
      RETURNING *`,
-    [pid, (manzana || '').trim(), String(numero_lote).trim(), modelo_vivienda || null, superficie_m2 ?? null, fecha_entrega_estimada || null]
+    [pid, (manzana || '').trim(), String(numero_lote).trim(), modelo_vivienda || null, superficie_m2 ?? null,
+      fecha_entrega_estimada || null, modelo_vivienda_id ?? null, precio_lista_override ?? null, estatusVentaFinal]
   );
   return rows[0];
 }
@@ -222,6 +262,9 @@ async function updateLote(id, pid, data) {
     estatus: data.estatus !== undefined ? data.estatus : actual.estatus,
     fecha_entrega_estimada: data.fecha_entrega_estimada !== undefined ? data.fecha_entrega_estimada : actual.fecha_entrega_estimada,
     fecha_entrega_real: data.fecha_entrega_real !== undefined ? data.fecha_entrega_real : actual.fecha_entrega_real,
+    modelo_vivienda_id: data.modelo_vivienda_id !== undefined ? data.modelo_vivienda_id : actual.modelo_vivienda_id,
+    precio_lista_override: data.precio_lista_override !== undefined ? data.precio_lista_override : actual.precio_lista_override,
+    estatus_venta: data.estatus_venta !== undefined ? data.estatus_venta : actual.estatus_venta,
   };
 
   if (!campos.numero_lote) {
@@ -234,23 +277,32 @@ async function updateLote(id, pid, data) {
     err.status = 400;
     throw err;
   }
+  if (!ESTATUS_VENTA.includes(campos.estatus_venta)) {
+    const err = new Error(`estatus_venta inválido: "${campos.estatus_venta}"`);
+    err.status = 400;
+    throw err;
+  }
+  await validarModeloDeLaObra(pid, campos.modelo_vivienda_id);
   if (campos.estatus === 'entregado' && data.fecha_entrega_real === undefined && !actual.fecha_entrega_real) {
     campos.fecha_entrega_real = new Date().toISOString().slice(0, 10);
   }
 
   const { rows } = await db.pool.query(
     `UPDATE lotes SET manzana=$1, numero_lote=$2, modelo_vivienda=$3, superficie_m2=$4,
-       estatus=$5, fecha_entrega_estimada=$6, fecha_entrega_real=$7, actualizado_en=NOW()
-     WHERE id = $8 AND project_id = $9
+       estatus=$5, fecha_entrega_estimada=$6, fecha_entrega_real=$7,
+       modelo_vivienda_id=$8, precio_lista_override=$9, estatus_venta=$10, actualizado_en=NOW()
+     WHERE id = $11 AND project_id = $12
      RETURNING *`,
     [campos.manzana, campos.numero_lote, campos.modelo_vivienda, campos.superficie_m2,
-      campos.estatus, campos.fecha_entrega_estimada, campos.fecha_entrega_real, id, pid]
+      campos.estatus, campos.fecha_entrega_estimada, campos.fecha_entrega_real,
+      campos.modelo_vivienda_id, campos.precio_lista_override, campos.estatus_venta, id, pid]
   );
   return rows[0];
 }
 
 module.exports = {
   ESTATUS_LOTE,
+  ESTATUS_VENTA,
   parseLotesExcel,
   diffLotesImportacion,
   confirmarImportacionLotes,

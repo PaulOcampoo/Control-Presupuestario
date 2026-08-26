@@ -1272,9 +1272,11 @@ const SECTION_DEFS = {
   // 'contratosVenta' agregado en PR B (prompt-implementacion-pr-b-contrato-
   // venta.md) — sale de 'proximamente', ya tiene tab real.
   // 'cobranza' agregado en PR C (prompt-implementacion-pr-c-cobranza.md) —
-  // sale de 'proximamente', ya tiene tab real. 'Entregas' (PR D) sigue
-  // pendiente.
-  ventas:        { label: 'Ventas',         icon: 'home',           emoji: '🏠',   tabs: ['compradores', 'apartados', 'contratosVenta', 'cobranza'], proximamente: ['Entregas'] },
+  // sale de 'proximamente', ya tiene tab real. 'entregas' agregado en PR D
+  // (prompt-implementacion-pr-d-entregas.md) — sale de 'proximamente', ya
+  // tiene tab real. Con esto se cierra el roadmap completo de Fase 4
+  // "Desarrollador de Vivienda" — 'proximamente' queda vacío.
+  ventas:        { label: 'Ventas',         icon: 'home',           emoji: '🏠',   tabs: ['compradores', 'apartados', 'contratosVenta', 'cobranza', 'entregas'], proximamente: [] },
   compras:       { label: 'Compras',        icon: 'compras',        emoji: '🛒',   tabs: ['requisiciones', 'insumos', 'proveedores', 'cumplimiento', 'ordenes', 'cotizador'], proximamente: ['Subcontratos'] },
   tesoreria:     { label: 'Tesorería',      icon: 'tesoreria',      emoji: '💰',   tabs: ['finanzas', 'compromisos', 'fondoGarantia', 'estadoResultados', 'estadoResultadosGlobal', 'impuestos', 'controlFinanciero'], proximamente: [] },
   // 'mapeo' vivió un tiempo aquí, luego en Presupuestos, ahora en la nueva
@@ -1326,7 +1328,7 @@ const SECTION_DEFS = {
 const TAB_ICONS = {
   resumen: '📊', contrato: '📄', impuestos: '🧾', insumos: '📦', requisiciones: '🧾',
   proveedores: '🏭', cumplimiento: '✅', ordenes: '🛒', programa: '🗓️', avance: '📈', destajo: '👷',
-  finanzas: '💰', compromisos: '📌', fondoGarantia: '🔒', mapeo: '🔗', usuarios: '👤', trabajadores: '👷', nominas: '💵', estimaciones: '🧮', ordenesCambio: '📝', lotes: '🏘️', modelosVivienda: '🏡', compradores: '🧑‍🤝‍🧑', apartados: '🔖', contratosVenta: '📜', cobranza: '💵', infraVivienda: '🏙️',
+  finanzas: '💰', compromisos: '📌', fondoGarantia: '🔒', mapeo: '🔗', usuarios: '👤', trabajadores: '👷', nominas: '💵', estimaciones: '🧮', ordenesCambio: '📝', lotes: '🏘️', modelosVivienda: '🏡', compradores: '🧑‍🤝‍🧑', apartados: '🔖', contratosVenta: '📜', cobranza: '💵', entregas: '📦', infraVivienda: '🏙️',
   maquinaria_catalogo: '🛠️', maquinaria_horas: '⏱️', maquinaria_bitacora: '🔧', maquinaria_estado_unidad: '🚦',
   maquinaria_consumibles: '⛽', maquinaria_reportes_cliente: '📊',
   nominas_global: '💵', trabajadores_global: '👷', cotizador: '🔍',
@@ -1338,7 +1340,7 @@ const TAB_ICONS = {
 const TAB_LABELS = {
   resumen: 'Resumen', contrato: 'Contrato', impuestos: 'Impuestos', insumos: 'Insumos', requisiciones: 'Requisiciones',
   proveedores: 'Proveedores', cumplimiento: 'Cumplimiento', ordenes: 'Órdenes de Compra', programa: 'Programa', avance: 'Avance', destajo: 'Destajo',
-  finanzas: 'Finanzas', compromisos: 'Compromisos Abiertos', fondoGarantia: 'Fondo de Garantía', mapeo: 'Mapeo', usuarios: 'Usuarios', trabajadores: 'Trabajadores', nominas: 'Nóminas', estimaciones: 'Estimaciones', ordenesCambio: 'Órdenes de Cambio', lotes: 'Lotes', modelosVivienda: 'Modelos de Vivienda', compradores: 'Compradores', apartados: 'Apartados', contratosVenta: 'Contrato de Venta', cobranza: 'Cobranza', infraVivienda: 'Infraestructura vs. Vivienda',
+  finanzas: 'Finanzas', compromisos: 'Compromisos Abiertos', fondoGarantia: 'Fondo de Garantía', mapeo: 'Mapeo', usuarios: 'Usuarios', trabajadores: 'Trabajadores', nominas: 'Nóminas', estimaciones: 'Estimaciones', ordenesCambio: 'Órdenes de Cambio', lotes: 'Lotes', modelosVivienda: 'Modelos de Vivienda', compradores: 'Compradores', apartados: 'Apartados', contratosVenta: 'Contrato de Venta', cobranza: 'Cobranza', entregas: 'Entregas', infraVivienda: 'Infraestructura vs. Vivienda',
   maquinaria_catalogo: 'Catálogo de equipos', maquinaria_horas: 'Horas / Pendientes de autorizar',
   maquinaria_bitacora: 'Bitácora de taller', maquinaria_estado_unidad: 'Estado de las unidades',
   maquinaria_consumibles: 'Consumibles', maquinaria_reportes_cliente: 'Reportes por cliente',
@@ -3121,6 +3123,16 @@ const AYUDA_CONTENIDO = {
       'Cancelar un contrato con pagos ya registrados no los borra ni los reembolsa automáticamente — solo se advierte al cancelar, para revisar aparte si hace falta reconciliar.',
     ],
   },
+  entregas: {
+    titulo: 'Entregas',
+    pasos: [
+      'Último paso del proceso de venta: registra la entrega formal de un lote a su comprador. Solo se puede entregar un lote que tenga un contrato de venta vigente — no se puede entregar sin venta.',
+      'Al registrar la entrega captura quién recibe el lote y su firma digital (dibujada en el recuadro) — igual que el acuse de recibo de EPP a un trabajador.',
+      'Si el contrato todavía tiene saldo pendiente, se muestra una advertencia visible antes de guardar — no bloquea la entrega, solo avisa para dar seguimiento en "Cobranza".',
+      'Una vez entregado, el lote pasa automáticamente a estatus "Entregado" (visible en la pestaña Lotes) y aquí puedes consultar en cualquier momento la fecha, quién recibió, su firma y las observaciones capturadas.',
+      'Un lote solo se puede entregar una vez — no hay forma de registrar una segunda entrega para el mismo lote.',
+    ],
+  },
   infraVivienda: {
     titulo: 'Infraestructura vs. Vivienda',
     pasos: [
@@ -4459,6 +4471,7 @@ async function renderView() {
       case 'apartados': await renderApartados(view); break;
       case 'contratosVenta': await renderContratosVenta(view); break;
       case 'cobranza': await renderCobranza(view); break;
+      case 'entregas': await renderEntregas(view); break;
       case 'infraVivienda': await renderInfraVivienda(view); break;
       case 'matrices': await renderMatrices(view); break;
       default: view.innerHTML = '';
@@ -21195,6 +21208,219 @@ function openRegistrarPagoModal(contratoResumen, planItems) {
     } catch (err) {
       toast(err.message, 'danger');
       btn.disabled = false; btn.textContent = 'Registrar pago';
+    }
+  });
+}
+
+// ---------------------------------------------------------------------------
+// VISTA: Entregas (prompt-implementacion-pr-d-entregas.md) — Fase 4, PR D,
+// último del roadmap "Desarrollador de Vivienda". Registro formal de entrega
+// de un lote vendido a su comprador, con firma digital — cierra el ciclo
+// Lotes -> Infraestructura -> Catálogo comercial -> Compradores/Apartado ->
+// Contrato -> Cobranza -> Entrega. GET /lotes-entregas trae TODOS los
+// contratos vigentes (pendientes y ya entregados) en una sola llamada — la
+// distinción es la NULL-ness de entrega_id (y el resto de campos entrega_*/
+// recibido_por/firma_digital/observaciones), nunca un campo de estatus
+// aparte. Mismo criterio "avisar sin bloquear" que Cobranza: saldo pendiente
+// NUNCA bloquea el POST — solo llega `advertencia` (string) en la respuesta,
+// que se muestra ANTES de confirmar (dentro del propio modal) y de nuevo
+// como toast tras guardar. lotes.estatus='entregado' lo deriva el backend
+// solo — el badge de estatus de construcción en la vista Lotes (Fase 1,
+// LOTE_ESTATUS_LABELS/BADGE) ya lo cubre sin cambios aquí (Forbidden Action:
+// no crear un badge paralelo de estatus).
+// ---------------------------------------------------------------------------
+const ENTREGA_ESTADO_LABELS = { pendiente: 'Pendiente', entregado: 'Entregado' };
+const ENTREGA_ESTADO_BADGE = { pendiente: 'muted', entregado: 'green' };
+let entregasVentaRaw = [];
+
+async function renderEntregas(view) {
+  if (!puedeVerVentas()) {
+    view.innerHTML = `<div class="alert-box danger">⚠️ No tienes permiso para ver esta sección.</div>`;
+    return;
+  }
+  view.innerHTML = `
+    <h2 class="section-title">Entregas ${renderHelpBtn('entregas')}</h2>
+    <p class="muted">Registro formal de entrega de lotes vendidos, con firma digital de quien recibe.</p>
+    <div id="entregasList" class="mt-12"><div class="empty-state">Cargando…</div></div>
+  `;
+  await loadEntregasList();
+}
+
+async function loadEntregasList() {
+  const el = $('#entregasList');
+  if (!el) return;
+  try {
+    entregasVentaRaw = await api(`/projects/${state.projectId}/lotes-entregas`);
+    paintEntregasList();
+  } catch (err) {
+    el.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+  }
+}
+
+function paintEntregasList() {
+  const el = $('#entregasList');
+  if (!el) return;
+  if (!entregasVentaRaw.length) { el.innerHTML = '<div class="empty-state">Esta obra todavía no tiene contratos de venta vigentes — da de alta uno en la pestaña "Contrato de Venta".</div>'; return; }
+  el.innerHTML = `
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>Lote</th><th>Comprador</th><th class="num">Monto</th><th class="num">Saldo</th><th>Estado de pago</th><th>Entrega</th><th></th></tr></thead>
+        <tbody>
+          ${entregasVentaRaw.map((r) => {
+            const entregado = r.entrega_id != null;
+            const estadoEntrega = entregado ? 'entregado' : 'pendiente';
+            return `
+            <tr>
+              <td>${esc(r.manzana || '—')} / ${esc(r.numero_lote)}</td>
+              <td>${esc(r.comprador_nombre)}</td>
+              <td class="num">${fmtMoney(r.monto_total)}</td>
+              <td class="num">${fmtMoney(r.saldo_pendiente)}</td>
+              <td><span class="badge ${ESTADO_PAGO_BADGE[r.estado_pago] || 'muted'}">${esc(ESTADO_PAGO_LABELS[r.estado_pago] || r.estado_pago)}</span></td>
+              <td><span class="badge ${ENTREGA_ESTADO_BADGE[estadoEntrega]}">${esc(ENTREGA_ESTADO_LABELS[estadoEntrega])}</span></td>
+              <td>${entregado
+                ? `<button class="btn small" data-ver-entrega="${r.id}">Ver entrega</button>`
+                : `<button class="btn small btn-primary" data-registrar-entrega="${r.id}">Registrar entrega</button>`}</td>
+            </tr>
+          `;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+  $$('[data-registrar-entrega]', el).forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const row = entregasVentaRaw.find((r) => r.id === Number(btn.dataset.registrarEntrega));
+      if (row) openRegistrarEntregaModal(row);
+    });
+  });
+  $$('[data-ver-entrega]', el).forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const row = entregasVentaRaw.find((r) => r.id === Number(btn.dataset.verEntrega));
+      if (row) openVerEntregaModal(row);
+    });
+  });
+}
+
+// Modal de solo lectura, mismo espíritu que el visor de firma de EPP (línea
+// ~17514) — muestra la firma en tamaño completo al hacer click.
+function openVerEntregaModal(row) {
+  openModal(`
+    <div class="modal-header-row">
+      <h3 class="modal-title">Entrega — ${esc(row.manzana || '—')} / ${esc(row.numero_lote)}</h3>
+      <button class="icon-btn modal-close-btn" id="btnCerrarVerEntrega">✕</button>
+    </div>
+    <p class="muted">Comprador: ${esc(row.comprador_nombre)}</p>
+    <div class="kpi-grid mt-12">
+      <div class="kpi"><div class="label">Fecha de entrega</div><div class="value">${row.entrega_fecha ? fmtDate(row.entrega_fecha) : '—'}</div></div>
+      <div class="kpi"><div class="label">Recibió</div><div class="value">${esc(row.recibido_por || '—')}</div></div>
+    </div>
+    ${row.observaciones ? `<p class="mt-12"><strong>Observaciones:</strong> ${esc(row.observaciones)}</p>` : ''}
+    <div class="field field-full mt-12">
+      <label>Firma digital de quien recibe</label>
+      ${row.firma_digital ? `<img src="${row.firma_digital}" alt="firma" class="epp-firma-thumb" id="entregaFirmaThumb" />` : '<span class="muted fs-075">Sin firma capturada.</span>'}
+    </div>
+    <div class="modal-actions">
+      <button class="btn" id="btnCerrarVerEntrega2">Cerrar</button>
+    </div>
+  `);
+  $('#btnCerrarVerEntrega').addEventListener('click', closeModal);
+  $('#btnCerrarVerEntrega2').addEventListener('click', closeModal);
+  $('#entregaFirmaThumb')?.addEventListener('click', () => {
+    const src = $('#entregaFirmaThumb').src;
+    openModal(`
+      <div class="modal-header-row">
+        <h3 class="modal-title">Firma digital</h3>
+        <button class="icon-btn modal-close-btn" id="btnCerrarFirmaGrandeEntrega">✕</button>
+      </div>
+      <img src="${src}" alt="firma" class="firma-full-img" />
+    `);
+    $('#btnCerrarFirmaGrandeEntrega').addEventListener('click', closeModal);
+  });
+}
+
+// Formulario de registro de entrega — nunca bloquea por saldo pendiente
+// (Forbidden Action explícita del prompt): si saldo_pendiente > 0 se muestra
+// una advertencia visible DENTRO del modal, antes de que el usuario pueda
+// confirmar, y otra vez como toast tras guardar con la `advertencia` exacta
+// que regresa el backend (crearEntrega, server/ventas.js).
+function openRegistrarEntregaModal(row) {
+  const tieneSaldo = Number(row.saldo_pendiente) > 0.01;
+  openModal(`
+    <div class="modal-header-row">
+      <h3 class="modal-title">Registrar entrega — ${esc(row.manzana || '—')} / ${esc(row.numero_lote)}</h3>
+      <button class="icon-btn modal-close-btn" id="btnCerrarRegEntrega">✕</button>
+    </div>
+    <p class="muted">Comprador: ${esc(row.comprador_nombre)}</p>
+    ${tieneSaldo ? `<div class="alert-box warning mt-8">⚠️ Este lote todavía tiene un saldo pendiente de ${fmtMoney(row.saldo_pendiente)} en su contrato de venta. Puedes registrar la entrega de todas formas — no se bloquea — pero da seguimiento en "Cobranza".</div>` : ''}
+    <div class="row mt-8">
+      <div class="field"><label>Fecha de entrega</label><input id="entFecha" type="date" value="${new Date().toISOString().slice(0,10)}" /></div>
+      <div class="field"><label>Recibido por *</label><input id="entRecibidoPor" placeholder="Nombre de quien recibe" /></div>
+    </div>
+    <div class="field field-full">
+      <label>Observaciones</label>
+      <input id="entObservaciones" placeholder="Opcional" />
+    </div>
+    <div class="field field-full">
+      <label>Firma digital de quien recibe</label>
+      <div class="firma-canvas-wrap">
+        <canvas id="firmaCanvasEntrega" width="500" height="160" class="firma-canvas"></canvas>
+      </div>
+      <button class="btn small mt-4" id="btnLimpiarFirmaEntrega">Limpiar firma</button>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" id="btnCancelRegEntrega">Cancelar</button>
+      <button class="btn btn-primary" id="btnSaveRegEntrega">Guardar entrega</button>
+    </div>
+  `);
+  $('#btnCerrarRegEntrega').addEventListener('click', closeModal);
+  $('#btnCancelRegEntrega').addEventListener('click', closeModal);
+
+  const canvas = $('#firmaCanvasEntrega');
+  const ctx = canvas?.getContext('2d');
+  let drawing = false;
+  const getPos = (ev) => {
+    const r = canvas.getBoundingClientRect();
+    const src = ev.touches ? ev.touches[0] : ev;
+    return [(src.clientX - r.left) * (canvas.width / r.width), (src.clientY - r.top) * (canvas.height / r.height)];
+  };
+  canvas?.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    drawing = true;
+    canvas.setPointerCapture(e.pointerId);
+    ctx.beginPath();
+    ctx.moveTo(...getPos(e));
+  });
+  canvas?.addEventListener('pointermove', (e) => {
+    if (!drawing) return;
+    ctx.lineTo(...getPos(e));
+    ctx.strokeStyle = '#1a1a1a'; ctx.lineWidth = 2; ctx.lineCap = 'round';
+    ctx.stroke();
+  });
+  canvas?.addEventListener('pointerup', () => { drawing = false; });
+  canvas?.addEventListener('pointercancel', () => { drawing = false; });
+  $('#btnLimpiarFirmaEntrega')?.addEventListener('click', () => { ctx?.clearRect(0, 0, canvas.width, canvas.height); });
+
+  $('#btnSaveRegEntrega').addEventListener('click', async () => {
+    const btn = $('#btnSaveRegEntrega');
+    const recibido_por = $('#entRecibidoPor').value.trim();
+    if (!recibido_por) { toast('Captura quién recibe el lote', 'danger'); return; }
+    const firma_digital = canvas ? canvas.toDataURL('image/png') : null;
+    const body = {
+      fecha: $('#entFecha').value || null,
+      recibido_por,
+      observaciones: $('#entObservaciones').value.trim() || null,
+      firma_digital: firma_digital || null,
+    };
+    btn.disabled = true; btn.textContent = 'Guardando…';
+    try {
+      const res = await api(`/projects/${state.projectId}/lotes/${row.lote_id}/entrega`, { method: 'POST', body });
+      toast('Entrega registrada', 'success');
+      if (res.advertencia) toast(res.advertencia, 'warning');
+      closeModal();
+      await loadEntregasList();
+    } catch (err) {
+      toast(err.message, 'danger');
+      btn.disabled = false; btn.textContent = 'Guardar entrega';
     }
   });
 }

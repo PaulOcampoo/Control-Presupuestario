@@ -770,6 +770,20 @@ async function getCobranzaContrato(contratoVentaId, pid) {
 // Mismo criterio "avisar sin bloquear" que el resto de la Fase 4: saldo
 // pendiente en el contrato NUNCA bloquea la entrega (decisión confirmada
 // por Paul) — solo se refleja como `advertencia` en la respuesta.
+//
+// Orden de locks lotes -> contrato (ver el FOR UPDATE de la query del
+// contrato más abajo): cancelarContratoVenta (PR B) bloquea en el orden
+// CONTRARIO — contrato primero (FOR UPDATE OF cv), lotes después (su UPDATE
+// final). Con órdenes de lock opuestos entre dos funciones que pueden
+// correr concurrentemente sobre el mismo lote/contrato, Postgres puede
+// detectar deadlock (SQLSTATE 40P01) y abortar una de las dos transacciones
+// — no corrompe nada (la que pierde simplemente hace rollback), pero sin
+// manejarlo explícitamente el error crudo de Postgres se propagaría tal
+// cual al cliente HTTP. Eliminar el deadlock de raíz requeriría invertir el
+// orden de locks en cancelarContratoVenta (código de PR B, fuera de alcance
+// aquí) — en vez de eso, esta función atrapa 40P01 y responde con un 409
+// claro pidiendo reintentar, igual que ya atrapa 23505 para la carrera de
+// doble entrega.
 // ---------------------------------------------------------------------------
 async function crearEntrega(loteId, pid, { fecha, firma_digital, recibido_por, observaciones }, entregadoPor) {
   const recibidoPorTrim = String(recibido_por || '').trim();
@@ -779,75 +793,88 @@ async function crearEntrega(loteId, pid, { fecha, firma_digital, recibido_por, o
     throw err;
   }
 
-  return db.withTransaction(async (client) => {
-    const { rows: loteRows } = await client.query(
-      'SELECT id FROM lotes WHERE id = $1 AND project_id = $2 FOR UPDATE', [loteId, pid]
-    );
-    if (!loteRows[0]) {
-      const err = new Error('El lote no pertenece a esta obra');
-      err.status = 400;
-      throw err;
-    }
-
-    // FOR UPDATE aquí (no solo en lotes) — sin este lock, cancelarContratoVenta
-    // puede colarse entre este SELECT y el INSERT de abajo (bloqueada en SU
-    // UPDATE a lotes, detrás del FOR UPDATE de arriba, pero eso no evita que
-    // ESTE SELECT lea 'vigente' justo antes de que el otro lo cancele): esta
-    // transacción terminaría insertando una entrega contra un contrato que
-    // quedó cancelado, violando el invariante "no se entrega sin contrato
-    // vigente" sin que ninguna advertencia lo refleje. Mismo criterio que el
-    // FOR UPDATE OF a sobre el apartado en crearContratoVenta (~línea 337).
-    const { rows: contratoRows } = await client.query(
-      "SELECT * FROM contratos_venta WHERE lote_id = $1 AND estado = 'vigente' FOR UPDATE", [loteId]
-    );
-    const contrato = contratoRows[0];
-    if (!contrato) {
-      const err = new Error('No se puede entregar un lote sin un contrato de venta vigente');
-      err.status = 400;
-      throw err;
-    }
-
-    const { rows: entregaExistente } = await client.query(
-      'SELECT id FROM entregas_lote WHERE lote_id = $1', [loteId]
-    );
-    if (entregaExistente[0]) {
-      const err = new Error('Este lote ya tiene una entrega registrada');
-      err.status = 400;
-      throw err;
-    }
-
-    const fechaEntrega = fecha || new Date().toISOString().slice(0, 10);
-
-    let nueva;
-    try {
-      const { rows } = await client.query(
-        `INSERT INTO entregas_lote (lote_id, contrato_venta_id, fecha, firma_digital, recibido_por, entregado_por, observaciones)
-         VALUES ($1,$2,$3,$4,$5,$6,$7)
-         RETURNING *`,
-        [loteId, contrato.id, fechaEntrega, firma_digital || null, recibidoPorTrim, entregadoPor, observaciones || null]
+  try {
+    return await db.withTransaction(async (client) => {
+      const { rows: loteRows } = await client.query(
+        'SELECT id FROM lotes WHERE id = $1 AND project_id = $2 FOR UPDATE', [loteId, pid]
       );
-      nueva = rows[0];
-    } catch (err) {
-      if (err.code === '23505') {
-        const e = new Error('Este lote ya tiene una entrega registrada');
-        e.status = 400;
-        throw e;
+      if (!loteRows[0]) {
+        const err = new Error('El lote no pertenece a esta obra');
+        err.status = 400;
+        throw err;
       }
-      throw err;
+
+      // FOR UPDATE aquí (no solo en lotes) — sin este lock, cancelarContratoVenta
+      // puede colarse entre este SELECT y el INSERT de abajo (bloqueada en SU
+      // UPDATE a lotes, detrás del FOR UPDATE de arriba, pero eso no evita que
+      // ESTE SELECT lea 'vigente' justo antes de que el otro lo cancele): esta
+      // transacción terminaría insertando una entrega contra un contrato que
+      // quedó cancelado, violando el invariante "no se entrega sin contrato
+      // vigente" sin que ninguna advertencia lo refleje. Mismo criterio que el
+      // FOR UPDATE OF a sobre el apartado en crearContratoVenta (~línea 337).
+      const { rows: contratoRows } = await client.query(
+        "SELECT * FROM contratos_venta WHERE lote_id = $1 AND estado = 'vigente' FOR UPDATE", [loteId]
+      );
+      const contrato = contratoRows[0];
+      if (!contrato) {
+        const err = new Error('No se puede entregar un lote sin un contrato de venta vigente');
+        err.status = 400;
+        throw err;
+      }
+
+      const { rows: entregaExistente } = await client.query(
+        'SELECT id FROM entregas_lote WHERE lote_id = $1', [loteId]
+      );
+      if (entregaExistente[0]) {
+        const err = new Error('Este lote ya tiene una entrega registrada');
+        err.status = 400;
+        throw err;
+      }
+
+      const fechaEntrega = fecha || new Date().toISOString().slice(0, 10);
+
+      let nueva;
+      try {
+        const { rows } = await client.query(
+          `INSERT INTO entregas_lote (lote_id, contrato_venta_id, fecha, firma_digital, recibido_por, entregado_por, observaciones)
+           VALUES ($1,$2,$3,$4,$5,$6,$7)
+           RETURNING *`,
+          [loteId, contrato.id, fechaEntrega, firma_digital || null, recibidoPorTrim, entregadoPor, observaciones || null]
+        );
+        nueva = rows[0];
+      } catch (err) {
+        if (err.code === '23505') {
+          const e = new Error('Este lote ya tiene una entrega registrada');
+          e.status = 400;
+          throw e;
+        }
+        throw err;
+      }
+
+      await client.query(
+        "UPDATE lotes SET estatus = 'entregado', fecha_entrega_real = $1, actualizado_en = NOW() WHERE id = $2",
+        [fechaEntrega, loteId]
+      );
+
+      const saldo = await calcularSaldo(client, contrato.id, Number(contrato.monto_total));
+      const advertencia = saldo.saldo_pendiente > EPSILON_MONTO
+        ? `Este lote se entrega con saldo pendiente de ${saldo.saldo_pendiente.toFixed(2)} en su contrato de venta — no se bloquea la entrega, revisa "Cobranza" si hace falta dar seguimiento.`
+        : null;
+
+      return { ...nueva, ...saldo, advertencia };
+    });
+  } catch (err) {
+    // 40P01 (deadlock_detected) puede llegar desde CUALQUIER query con lock
+    // dentro de la transacción de arriba (el FOR UPDATE del contrato, el del
+    // lote, o incluso el INSERT esperando un lock de fila) — por eso este
+    // catch envuelve toda la transacción y no solo un query puntual.
+    if (err.code === '40P01') {
+      const e = new Error('Otra operación está en curso sobre este lote — intenta de nuevo.');
+      e.status = 409;
+      throw e;
     }
-
-    await client.query(
-      "UPDATE lotes SET estatus = 'entregado', fecha_entrega_real = $1, actualizado_en = NOW() WHERE id = $2",
-      [fechaEntrega, loteId]
-    );
-
-    const saldo = await calcularSaldo(client, contrato.id, Number(contrato.monto_total));
-    const advertencia = saldo.saldo_pendiente > EPSILON_MONTO
-      ? `Este lote se entrega con saldo pendiente de ${saldo.saldo_pendiente.toFixed(2)} en su contrato de venta — no se bloquea la entrega, revisa "Cobranza" si hace falta dar seguimiento.`
-      : null;
-
-    return { ...nueva, ...saldo, advertencia };
-  });
+    throw err;
+  }
 }
 
 // Lista todos los contratos vigentes (pendientes de entregar y ya

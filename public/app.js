@@ -3123,6 +3123,16 @@ const AYUDA_CONTENIDO = {
       'Cancelar un contrato con pagos ya registrados no los borra ni los reembolsa automáticamente — solo se advierte al cancelar, para revisar aparte si hace falta reconciliar.',
     ],
   },
+  entregas: {
+    titulo: 'Entregas',
+    pasos: [
+      'Último paso del proceso de venta: registra la entrega formal de un lote a su comprador. Solo se puede entregar un lote que tenga un contrato de venta vigente — no se puede entregar sin venta.',
+      'Al registrar la entrega captura quién recibe el lote y su firma digital (dibujada en el recuadro) — igual que el acuse de recibo de EPP a un trabajador.',
+      'Si el contrato todavía tiene saldo pendiente, se muestra una advertencia visible antes de guardar — no bloquea la entrega, solo avisa para dar seguimiento en "Cobranza".',
+      'Una vez entregado, el lote pasa automáticamente a estatus "Entregado" (visible en la pestaña Lotes) y aquí puedes consultar en cualquier momento la fecha, quién recibió, su firma y las observaciones capturadas.',
+      'Un lote solo se puede entregar una vez — no hay forma de registrar una segunda entrega para el mismo lote.',
+    ],
+  },
   infraVivienda: {
     titulo: 'Infraestructura vs. Vivienda',
     pasos: [

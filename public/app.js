@@ -41,8 +41,8 @@ const ROLE_TABS = {
   // simulación de rol no puede simular "soy el usuario 8", solo "soy rol X"
   // (prompt-fix-role-tabs-contabilidad.md) — limitación conocida y
   // aceptada para esos tres, no un bug.
-  admin:          ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'cumplimiento', 'finanzas', 'compromisos', 'fondoGarantia', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', 'ordenesCambio', 'lotes', 'modelosVivienda', 'compradores', 'apartados', 'infraVivienda', ...MAQUINARIA_TABS_ADMIN, 'cotizador', 'costos', 'costosDashboard', 'matrices', 'avance_clientes', 'composicion_costos', 'dashboardEjecutivo', 'catalogoBasicos', ...CONTABILIDAD_TABS],
-  desarrollador:  ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'cumplimiento', 'finanzas', 'compromisos', 'fondoGarantia', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', 'ordenesCambio', 'lotes', 'modelosVivienda', 'compradores', 'apartados', 'infraVivienda', ...MAQUINARIA_TABS_ADMIN, 'cotizador', 'costos', 'costosDashboard', 'matrices', 'avance_clientes', 'composicion_costos', 'dashboardEjecutivo', 'catalogoBasicos', ...CONTABILIDAD_TABS],
+  admin:          ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'cumplimiento', 'finanzas', 'compromisos', 'fondoGarantia', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', 'ordenesCambio', 'lotes', 'modelosVivienda', 'compradores', 'apartados', 'contratosVenta', 'infraVivienda', ...MAQUINARIA_TABS_ADMIN, 'cotizador', 'costos', 'costosDashboard', 'matrices', 'avance_clientes', 'composicion_costos', 'dashboardEjecutivo', 'catalogoBasicos', ...CONTABILIDAD_TABS],
+  desarrollador:  ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'cumplimiento', 'finanzas', 'compromisos', 'fondoGarantia', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', 'ordenesCambio', 'lotes', 'modelosVivienda', 'compradores', 'apartados', 'contratosVenta', 'infraVivienda', ...MAQUINARIA_TABS_ADMIN, 'cotizador', 'costos', 'costosDashboard', 'matrices', 'avance_clientes', 'composicion_costos', 'dashboardEjecutivo', 'catalogoBasicos', ...CONTABILIDAD_TABS],
   residente:      ['programa', 'avance', 'destajo', 'requisiciones', 'insumos', 'ordenes', 'nominas', 'trabajadores', 'estimaciones', 'ordenesCambio', 'lotes', 'modelosVivienda', 'infraVivienda', 'matrices'],
   cabo:           ['destajo', 'insumos', 'avance', 'requisiciones', ...MAQUINARIA_TABS_CABO, 'trabajadores', 'nominas', 'ordenesCambio', 'infraVivienda'],
   compras:        ['programa', 'requisiciones', 'insumos', 'ordenes', 'proveedores', 'cumplimiento', 'cotizador'],
@@ -1264,13 +1264,14 @@ const SECTION_DEFS = {
   // prompt-diagnostico-compradores-venta.md) — sección de nivel superior
   // nueva a propósito (a diferencia de Fases 1-3, que se quedaron como tabs
   // dentro de Obra): volumen/complejidad de CRM real, decisión confirmada
-  // por Paul en el diagnóstico. Solo 'compradores'/'apartados' en este PR —
-  // 'proximamente' deja la galería preparada para 'Contrato de venta'
-  // (PR B), 'Cobranza' (PR C) y 'Entregas' (PR D) sin necesitar refactor,
+  // por Paul en el diagnóstico. 'proximamente' deja la galería preparada
+  // para 'Cobranza' (PR C) y 'Entregas' (PR D) sin necesitar refactor,
   // mismo patrón que 'compras.proximamente: ["Subcontratos"]'. Icono 'home'
   // reusado (misma forma de casa que ya existe en ICON_SVG, temáticamente
   // correcta para venta de vivienda — no requiere un path SVG nuevo).
-  ventas:        { label: 'Ventas',         icon: 'home',           emoji: '🏠',   tabs: ['compradores', 'apartados'], proximamente: ['Contrato de venta', 'Cobranza', 'Entregas'] },
+  // 'contratosVenta' agregado en PR B (prompt-implementacion-pr-b-contrato-
+  // venta.md) — sale de 'proximamente', ya tiene tab real.
+  ventas:        { label: 'Ventas',         icon: 'home',           emoji: '🏠',   tabs: ['compradores', 'apartados', 'contratosVenta'], proximamente: ['Cobranza', 'Entregas'] },
   compras:       { label: 'Compras',        icon: 'compras',        emoji: '🛒',   tabs: ['requisiciones', 'insumos', 'proveedores', 'cumplimiento', 'ordenes', 'cotizador'], proximamente: ['Subcontratos'] },
   tesoreria:     { label: 'Tesorería',      icon: 'tesoreria',      emoji: '💰',   tabs: ['finanzas', 'compromisos', 'fondoGarantia', 'estadoResultados', 'estadoResultadosGlobal', 'impuestos', 'controlFinanciero'], proximamente: [] },
   // 'mapeo' vivió un tiempo aquí, luego en Presupuestos, ahora en la nueva
@@ -1322,7 +1323,7 @@ const SECTION_DEFS = {
 const TAB_ICONS = {
   resumen: '📊', contrato: '📄', impuestos: '🧾', insumos: '📦', requisiciones: '🧾',
   proveedores: '🏭', cumplimiento: '✅', ordenes: '🛒', programa: '🗓️', avance: '📈', destajo: '👷',
-  finanzas: '💰', compromisos: '📌', fondoGarantia: '🔒', mapeo: '🔗', usuarios: '👤', trabajadores: '👷', nominas: '💵', estimaciones: '🧮', ordenesCambio: '📝', lotes: '🏘️', modelosVivienda: '🏡', compradores: '🧑‍🤝‍🧑', apartados: '🔖', infraVivienda: '🏙️',
+  finanzas: '💰', compromisos: '📌', fondoGarantia: '🔒', mapeo: '🔗', usuarios: '👤', trabajadores: '👷', nominas: '💵', estimaciones: '🧮', ordenesCambio: '📝', lotes: '🏘️', modelosVivienda: '🏡', compradores: '🧑‍🤝‍🧑', apartados: '🔖', contratosVenta: '📜', infraVivienda: '🏙️',
   maquinaria_catalogo: '🛠️', maquinaria_horas: '⏱️', maquinaria_bitacora: '🔧', maquinaria_estado_unidad: '🚦',
   maquinaria_consumibles: '⛽', maquinaria_reportes_cliente: '📊',
   nominas_global: '💵', trabajadores_global: '👷', cotizador: '🔍',
@@ -1334,7 +1335,7 @@ const TAB_ICONS = {
 const TAB_LABELS = {
   resumen: 'Resumen', contrato: 'Contrato', impuestos: 'Impuestos', insumos: 'Insumos', requisiciones: 'Requisiciones',
   proveedores: 'Proveedores', cumplimiento: 'Cumplimiento', ordenes: 'Órdenes de Compra', programa: 'Programa', avance: 'Avance', destajo: 'Destajo',
-  finanzas: 'Finanzas', compromisos: 'Compromisos Abiertos', fondoGarantia: 'Fondo de Garantía', mapeo: 'Mapeo', usuarios: 'Usuarios', trabajadores: 'Trabajadores', nominas: 'Nóminas', estimaciones: 'Estimaciones', ordenesCambio: 'Órdenes de Cambio', lotes: 'Lotes', modelosVivienda: 'Modelos de Vivienda', compradores: 'Compradores', apartados: 'Apartados', infraVivienda: 'Infraestructura vs. Vivienda',
+  finanzas: 'Finanzas', compromisos: 'Compromisos Abiertos', fondoGarantia: 'Fondo de Garantía', mapeo: 'Mapeo', usuarios: 'Usuarios', trabajadores: 'Trabajadores', nominas: 'Nóminas', estimaciones: 'Estimaciones', ordenesCambio: 'Órdenes de Cambio', lotes: 'Lotes', modelosVivienda: 'Modelos de Vivienda', compradores: 'Compradores', apartados: 'Apartados', contratosVenta: 'Contrato de Venta', infraVivienda: 'Infraestructura vs. Vivienda',
   maquinaria_catalogo: 'Catálogo de equipos', maquinaria_horas: 'Horas / Pendientes de autorizar',
   maquinaria_bitacora: 'Bitácora de taller', maquinaria_estado_unidad: 'Estado de las unidades',
   maquinaria_consumibles: 'Consumibles', maquinaria_reportes_cliente: 'Reportes por cliente',
@@ -3094,7 +3095,17 @@ const AYUDA_CONTENIDO = {
       'Primer paso del proceso de venta: un comprador aparta un lote con un monto y, opcionalmente, una vigencia. Al apartar, el estatus de venta del lote cambia automáticamente a "Apartado" — no se edita a mano en ningún lado.',
       'Un lote solo puede tener un apartado activo a la vez — la propia base de datos lo impide, no solo la app.',
       'Cancelar un apartado regresa el lote a "Disponible" automáticamente, siempre que no tenga otro apartado activo.',
-      '"Convertido a contrato" y "Vencido" son estados preparados para fases futuras del roadmap (Contrato de compraventa) — todavía no se activan desde ningún flujo de esta pantalla.',
+      '"Convertido a contrato" se activa al crear un contrato de compraventa desde este apartado (pestaña "Contrato de Venta") — el apartado deja de estar activo, pero el registro no se borra. "Vencido" sigue siendo un estado preparado para una fase futura, todavía sin lógica automática.',
+    ],
+  },
+  contratosVenta: {
+    titulo: 'Contrato de Venta',
+    pasos: [
+      'Formaliza la venta de un lote — desde un apartado activo, o directo (sin apartado previo) si el lote está "Disponible". Al crear el contrato, el lote pasa automáticamente a "Vendido" y (si venía de un apartado) ese apartado pasa a "Convertido a contrato".',
+      'El monto del contrato es el precio final negociado — se sugiere el monto del apartado si eliges uno, pero siempre puedes ajustarlo; no tiene que coincidir con el precio de lista del modelo ni con el monto apartado.',
+      'El PDF es un adjunto simple (la copia firmada) — no se extrae ningún dato de él automáticamente, a diferencia del Contrato de obra con el cliente contratante.',
+      'Un contrato ya vigente no se edita en montos — si el monto fue mal capturado, se cancela y se crea uno nuevo. Solo la fecha de firma y el PDF adjunto se pueden corregir después.',
+      'Cancelar un contrato regresa el lote a "Disponible" — pero el apartado original (si existió) NO se reactiva automáticamente; queda como "Convertido a contrato" para siempre, salvo que alguien lo gestione aparte.',
     ],
   },
   infraVivienda: {
@@ -4433,6 +4444,7 @@ async function renderView() {
       case 'modelosVivienda': await renderModelosVivienda(view); break;
       case 'compradores': await renderCompradores(view); break;
       case 'apartados': await renderApartados(view); break;
+      case 'contratosVenta': await renderContratosVenta(view); break;
       case 'infraVivienda': await renderInfraVivienda(view); break;
       case 'matrices': await renderMatrices(view); break;
       default: view.innerHTML = '';
@@ -19863,7 +19875,10 @@ function paintLotesList() {
               <td class="num">${l.superficie_m2 != null ? fmtNum(l.superficie_m2) : '—'}</td>
               <td><span class="badge ${LOTE_ESTATUS_BADGE[l.estatus] || 'muted'}">${esc(LOTE_ESTATUS_LABELS[l.estatus] || l.estatus)}</span></td>
               <td class="num">${l.precio_efectivo != null ? fmtMoney(l.precio_efectivo) : '—'}</td>
-              <td><span class="badge ${ESTATUS_VENTA_BADGE[l.estatus_venta] || 'muted'}">${esc(ESTATUS_VENTA_LABELS[l.estatus_venta] || l.estatus_venta)}</span></td>
+              <td>
+                <span class="badge ${ESTATUS_VENTA_BADGE[l.estatus_venta] || 'muted'}">${esc(ESTATUS_VENTA_LABELS[l.estatus_venta] || l.estatus_venta)}</span>
+                ${l.estatus_venta === 'no_disponible' && isAdmin() ? `<button class="btn small mt-4" data-marcar-disponible="${l.id}">Marcar disponible</button>` : ''}
+              </td>
               <td>${l.fecha_entrega_estimada ? fmtDate(l.fecha_entrega_estimada) : '—'}</td>
               <td>${l.fecha_entrega_real ? fmtDate(l.fecha_entrega_real) : '—'}</td>
               <td><button class="btn small" data-editar-lote="${l.id}">Editar</button></td>
@@ -19877,6 +19892,24 @@ function paintLotesList() {
     btn.addEventListener('click', () => {
       const lote = lotesRaw.find((l) => l.id === Number(btn.dataset.editarLote));
       if (lote) openLoteFormModal(lote, loadLotes);
+    });
+  });
+  $$('[data-marcar-disponible]', el).forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const lote = lotesRaw.find((l) => l.id === Number(btn.dataset.marcarDisponible));
+      if (!lote) return;
+      const ok = await confirmDialog(
+        `¿Marcar el lote ${lote.manzana || ''}/${lote.numero_lote} como "Disponible"? Úsalo solo si este lote nunca tuvo un apartado o contrato y debe habilitarse para venta.`,
+        { titulo: 'Marcar disponible', textoAceptar: 'Marcar disponible' }
+      );
+      if (!ok) return;
+      try {
+        await api(`/projects/${state.projectId}/lotes/${lote.id}/marcar-disponible`, { method: 'PUT' });
+        toast('Lote marcado como disponible', 'success');
+        await loadLotes();
+      } catch (err) {
+        toast(err.message, 'danger');
+      }
     });
   });
 }
@@ -19940,8 +19973,16 @@ async function openLoteFormModal(lote, onSave) {
       <button class="btn" id="btnCancelLoteForm">Cancelar</button>
       <button class="btn btn-primary" id="btnSaveLoteForm">Guardar</button>
     </div>
+    ${esEdicion && isAdmin() ? `
+      <hr class="mt-16">
+      <div class="mt-12">
+        <button type="button" class="btn small btn-danger" id="btnAccionesAvanzadasLote">⚠️ Acciones avanzadas (emergencia)</button>
+        <p class="muted fs-07 mt-4">Override de estatus_venta fuera del flujo normal — solo para casos excepcionales, queda auditado.</p>
+      </div>
+    ` : ''}
   `);
   $('#btnCancelLoteForm').addEventListener('click', closeModal);
+  $('#btnAccionesAvanzadasLote')?.addEventListener('click', () => openLoteForzarEstatusModal(lote, onSave));
   $('#btnSaveLoteForm').addEventListener('click', async () => {
     const btn = $('#btnSaveLoteForm');
     const numero_lote = $('#loteNumero').value.trim();
@@ -19971,6 +20012,70 @@ async function openLoteFormModal(lote, onSave) {
     } catch (err) {
       toast(err.message, 'danger');
       btn.disabled = false; btn.textContent = 'Guardar';
+    }
+  });
+}
+
+// Override de emergencia de estatus_venta (prompt-override-emergencia-
+// estatus-venta.md) — escape auditado, NO reemplaza apartar/cancelar/
+// contratar/marcar-disponible. A propósito separado visualmente del form de
+// edición normal (ver "Acciones avanzadas" en openLoteFormModal): exige
+// motivo antes de habilitar el submit, y advierte si hay un apartado activo
+// o contrato vigente relacionado (que esta acción NO cancela).
+async function openLoteForzarEstatusModal(lote, onSave) {
+  let apartadoActivo = null;
+  let contratoVigente = null;
+  try {
+    const [apartadosData, contratosData] = await Promise.all([
+      api(`/projects/${state.projectId}/apartados`),
+      api(`/projects/${state.projectId}/contratos-venta`),
+    ]);
+    apartadoActivo = apartadosData.find((a) => a.lote_id === lote.id && a.estado === 'activo') || null;
+    contratoVigente = contratosData.find((c) => c.lote_id === lote.id && c.estado === 'vigente') || null;
+  } catch (err) {
+    toast(err.message, 'danger');
+  }
+
+  openModal(`
+    <h3>⚠️ Forzar estatus de venta (emergencia)</h3>
+    <p class="muted">Lote ${esc(lote.manzana || '—')} / ${esc(lote.numero_lote)} — estatus actual:
+      <span class="badge ${ESTATUS_VENTA_BADGE[lote.estatus_venta] || 'muted'}">${esc(ESTATUS_VENTA_LABELS[lote.estatus_venta] || lote.estatus_venta)}</span>
+    </p>
+    <div class="alert-box danger fs-08">Esta acción es un escape para casos que el flujo normal (apartar, cancelar apartado, contratar, cancelar contrato, marcar disponible) no cubre. NO reemplaza esos flujos — úsala solo si sabes exactamente por qué. Queda registrada con tu usuario y el motivo.</div>
+    ${apartadoActivo ? `<div class="alert-box warn fs-08">Este lote tiene un apartado ACTIVO (#${apartadoActivo.id}, comprador: ${esc(apartadoActivo.comprador_nombre || '—')}). Esta acción NO lo cancela — si ya no aplica, cancélalo aparte en "Apartados".</div>` : ''}
+    ${contratoVigente ? `<div class="alert-box warn fs-08">Este lote tiene un contrato VIGENTE (#${contratoVigente.id}, comprador: ${esc(contratoVigente.comprador_nombre || '—')}). Esta acción NO lo cancela — si ya no aplica, cancélalo aparte en "Contrato de Venta".</div>` : ''}
+    <div class="field"><label>Nuevo estatus *</label>
+      <select id="forzarNuevoEstatus">
+        ${ESTATUS_VENTA_LIST.map((e) => `<option value="${e}" ${lote.estatus_venta === e ? 'selected' : ''}>${esc(ESTATUS_VENTA_LABELS[e])}</option>`).join('')}
+      </select>
+    </div>
+    <div class="field"><label>Motivo *</label><textarea id="forzarMotivo" rows="3" placeholder="Explica por qué es necesario este override..."></textarea></div>
+    <div class="modal-actions">
+      <button class="btn" id="btnCancelForzarEstatus">Cancelar</button>
+      <button class="btn btn-danger" id="btnConfirmForzarEstatus" disabled>Forzar estatus</button>
+    </div>
+  `);
+  $('#btnCancelForzarEstatus').addEventListener('click', closeModal);
+  const btnConfirm = $('#btnConfirmForzarEstatus');
+  $('#forzarMotivo').addEventListener('input', () => {
+    btnConfirm.disabled = !$('#forzarMotivo').value.trim();
+  });
+  btnConfirm.addEventListener('click', async () => {
+    const motivo = $('#forzarMotivo').value.trim();
+    if (!motivo) return;
+    const nuevo_estatus = $('#forzarNuevoEstatus').value;
+    btnConfirm.disabled = true; btnConfirm.textContent = 'Aplicando…';
+    try {
+      await api(`/projects/${state.projectId}/lotes/${lote.id}/forzar-estatus-venta`, {
+        method: 'PUT',
+        body: { nuevo_estatus, motivo },
+      });
+      toast(`Estatus forzado a "${ESTATUS_VENTA_LABELS[nuevo_estatus] || nuevo_estatus}"`, 'success');
+      closeModal();
+      if (onSave) await onSave();
+    } catch (err) {
+      toast(err.message, 'danger');
+      btnConfirm.disabled = false; btnConfirm.textContent = 'Forzar estatus';
     }
   });
 }
@@ -20421,7 +20526,11 @@ function paintApartadosList() {
     btn.addEventListener('click', async () => {
       const apartado = apartadosRaw.find((a) => a.id === Number(btn.dataset.cancelarApartado));
       if (!apartado) return;
-      if (!confirm(`¿Cancelar el apartado del lote ${apartado.manzana || ''}/${apartado.numero_lote}? El lote regresará a "Disponible" si no tiene otro apartado activo.`)) return;
+      const ok = await confirmDialog(
+        `¿Cancelar el apartado del lote ${apartado.manzana || ''}/${apartado.numero_lote}? El lote regresará a "Disponible" si no tiene otro apartado activo.`,
+        { titulo: 'Cancelar apartado', textoAceptar: 'Cancelar apartado', claseAceptar: 'btn-danger' }
+      );
+      if (!ok) return;
       try {
         await api(`/projects/${state.projectId}/apartados/${apartado.id}/cancelar`, { method: 'PUT' });
         toast('Apartado cancelado', 'success');
@@ -20497,6 +20606,269 @@ async function openApartadoFormModal(onSave) {
     try {
       await api(`/projects/${state.projectId}/apartados`, { method: 'POST', body });
       toast('Apartado creado — el lote ahora está "Apartado"', 'success');
+      closeModal();
+      if (onSave) await onSave();
+    } catch (err) {
+      toast(err.message, 'danger');
+      btn.disabled = false; btn.textContent = 'Guardar';
+    }
+  });
+}
+
+// ---------------------------------------------------------------------------
+// VISTA: Contrato de Venta (prompt-implementacion-pr-b-contrato-venta.md) —
+// Fase 4, PR B. Adjunto simple de PDF (mismo patrón que Contratos laborales
+// de Trabajadores) — SIN extracción vía IA. Activa lotes.estatus_venta =
+// 'vendido'. estado 'vigente'/'cancelado' con badge, edición limitada a
+// pdf/fecha_firma (nunca monto_total — ver openContratoVentaFormModal).
+// ---------------------------------------------------------------------------
+const ESTADO_CONTRATO_VENTA_LIST = ['vigente', 'cancelado'];
+const ESTADO_CONTRATO_VENTA_LABELS = { vigente: 'Vigente', cancelado: 'Cancelado' };
+const ESTADO_CONTRATO_VENTA_BADGE = { vigente: 'green', cancelado: 'muted' };
+let contratosVentaRaw = [];
+
+async function renderContratosVenta(view) {
+  if (!puedeVerVentas()) {
+    view.innerHTML = `<div class="alert-box danger">⚠️ No tienes permiso para ver esta sección.</div>`;
+    return;
+  }
+  view.innerHTML = `
+    <h2 class="section-title">Contrato de Venta ${renderHelpBtn('contratosVenta')}</h2>
+    <p class="muted">Formaliza la venta de un lote — desde un apartado activo, o venta directa si el lote está disponible.</p>
+    <div class="section-actions mt-12 row">
+      <button class="btn btn-primary" id="btnNuevoContratoVenta">+ Nuevo contrato</button>
+    </div>
+    <div id="contratosVentaList" class="mt-12"><div class="empty-state">Cargando…</div></div>
+  `;
+  $('#btnNuevoContratoVenta').addEventListener('click', () => openContratoVentaFormModal(loadContratosVenta));
+  await loadContratosVenta();
+}
+
+async function loadContratosVenta() {
+  const el = $('#contratosVentaList');
+  if (!el) return;
+  try {
+    contratosVentaRaw = await api(`/projects/${state.projectId}/contratos-venta`);
+    paintContratosVentaList();
+  } catch (err) {
+    el.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+  }
+}
+
+function paintContratosVentaList() {
+  const el = $('#contratosVentaList');
+  if (!el) return;
+  if (!contratosVentaRaw.length) { el.innerHTML = '<div class="empty-state">Esta obra todavía no tiene contratos de venta registrados.</div>'; return; }
+  el.innerHTML = `
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>Lote</th><th>Comprador</th><th class="num">Monto</th><th>Fecha firma</th><th>Estado</th><th>PDF</th><th></th></tr></thead>
+        <tbody>
+          ${contratosVentaRaw.map((c) => `
+            <tr>
+              <td>${esc(c.manzana || '—')} / ${esc(c.numero_lote)}</td>
+              <td>${esc(c.comprador_nombre)}</td>
+              <td class="num">${fmtMoney(c.monto_total)}</td>
+              <td>${c.fecha_firma ? fmtDate(c.fecha_firma) : '—'}</td>
+              <td><span class="badge ${ESTADO_CONTRATO_VENTA_BADGE[c.estado] || 'muted'}">${esc(ESTADO_CONTRATO_VENTA_LABELS[c.estado] || c.estado)}</span></td>
+              <td>${c.pdf_url ? `<button class="btn small" data-dl-contrato-venta="${c.id}" data-dl-nombre="${esc(c.pdf_filename || 'contrato-venta.pdf')}">Ver PDF</button>` : '—'}</td>
+              <td>
+                <button class="btn small" data-editar-contrato-venta="${c.id}">Editar</button>
+                ${c.estado === 'vigente' ? `<button class="btn small btn-danger" data-cancelar-contrato-venta="${c.id}">Cancelar</button>` : ''}
+              </td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+  $$('[data-dl-contrato-venta]', el).forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      try {
+        await apiDownload(`/projects/${state.projectId}/contratos-venta/${btn.dataset.dlContratoVenta}/download`, btn.dataset.dlNombre);
+      } catch (err) { toast(err.message, 'danger'); }
+    });
+  });
+  $$('[data-editar-contrato-venta]', el).forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const contrato = contratosVentaRaw.find((c) => c.id === Number(btn.dataset.editarContratoVenta));
+      if (contrato) openContratoVentaEditModal(contrato, loadContratosVenta);
+    });
+  });
+  $$('[data-cancelar-contrato-venta]', el).forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const contrato = contratosVentaRaw.find((c) => c.id === Number(btn.dataset.cancelarContratoVenta));
+      if (!contrato) return;
+      const ok = await confirmDialog(
+        `¿Cancelar el contrato del lote ${contrato.manzana || ''}/${contrato.numero_lote}? El lote regresará a "Disponible". El apartado original (si existió) NO se reactiva automáticamente.`,
+        { titulo: 'Cancelar contrato', textoAceptar: 'Cancelar contrato', claseAceptar: 'btn-danger' }
+      );
+      if (!ok) return;
+      try {
+        await api(`/projects/${state.projectId}/contratos-venta/${contrato.id}/cancelar`, { method: 'PUT' });
+        toast('Contrato cancelado', 'success');
+        await loadContratosVenta();
+      } catch (err) {
+        toast(err.message, 'danger');
+      }
+    });
+  });
+}
+
+// Alta de contrato — un solo selector de lote decide el flujo: si el lote
+// elegido tiene un apartado activo, el comprador se autocompleta y se
+// bloquea (el contrato debe corresponder a ESE apartado, el backend lo
+// valida de todos modos) y el monto se sugiere desde el apartado (siempre
+// editable); si el lote está "disponible" sin apartado, el comprador se
+// elige libre entre los compradores activos (venta directa).
+async function openContratoVentaFormModal(onSave) {
+  let lotes = [];
+  let apartados = [];
+  let compradores = [];
+  try {
+    [lotes, apartados, compradores] = await Promise.all([
+      api(`/projects/${state.projectId}/lotes`),
+      api(`/projects/${state.projectId}/apartados`),
+      api(`/projects/${state.projectId}/compradores`),
+    ]);
+  } catch (err) {
+    toast(err.message, 'danger');
+  }
+  const lotesElegibles = lotes.filter((l) => l.estatus_venta === 'disponible' || l.estatus_venta === 'apartado');
+  const compradoresActivos = compradores.filter((c) => c.activo);
+  const apartadoActivoPorLote = {};
+  apartados.filter((a) => a.estado === 'activo').forEach((a) => { apartadoActivoPorLote[a.lote_id] = a; });
+
+  openModal(`
+    <h3>Nuevo contrato de venta</h3>
+    <div class="field"><label>Lote *</label>
+      <select id="cvLoteId">
+        <option value="">Selecciona un lote</option>
+        ${lotesElegibles.map((l) => {
+          const ap = apartadoActivoPorLote[l.id];
+          const etiqueta = `${l.manzana || '—'} / ${l.numero_lote}${l.modelo_nombre ? ` — ${l.modelo_nombre}` : ''}${ap ? ` (apartado por ${ap.comprador_nombre})` : ' (disponible, venta directa)'}`;
+          return `<option value="${l.id}">${esc(etiqueta)}</option>`;
+        }).join('')}
+      </select>
+      ${!lotesElegibles.length ? '<span class="muted fs-07">No hay lotes disponibles ni apartados en esta obra para vender.</span>' : ''}
+    </div>
+    <div class="field"><label>Comprador *</label>
+      <select id="cvCompradorId">
+        <option value="">Selecciona un comprador</option>
+        ${compradoresActivos.map((c) => `<option value="${c.id}">${esc(c.nombre)}</option>`).join('')}
+      </select>
+      <span class="muted fs-07" id="cvCompradorHint"></span>
+    </div>
+    <div class="row">
+      <div class="field"><label>Monto total *</label><input id="cvMonto" type="number" step="any" /></div>
+      <div class="field"><label>Fecha de firma</label><input id="cvFechaFirma" type="date" value="${new Date().toISOString().slice(0, 10)}" /></div>
+    </div>
+    <div class="field"><label>PDF del contrato (opcional)</label><input id="cvPdfFile" type="file" accept=".pdf" /></div>
+    <div class="modal-actions">
+      <button class="btn" id="btnCancelContratoVentaForm">Cancelar</button>
+      <button class="btn btn-primary" id="btnSaveContratoVentaForm">Guardar</button>
+    </div>
+  `);
+
+  let apartadoIdSeleccionado = null;
+
+  $('#cvLoteId').addEventListener('change', () => {
+    const loteId = $('#cvLoteId').value ? Number($('#cvLoteId').value) : null;
+    const ap = loteId ? apartadoActivoPorLote[loteId] : null;
+    const compradorSelect = $('#cvCompradorId');
+    const hint = $('#cvCompradorHint');
+    if (ap) {
+      apartadoIdSeleccionado = ap.id;
+      compradorSelect.value = String(ap.comprador_id);
+      compradorSelect.disabled = true;
+      compradorSelect.dispatchEvent(new Event('change', { bubbles: true }));
+      $('#cvMonto').value = ap.monto;
+      hint.textContent = `Comprador tomado del apartado activo de este lote (monto apartado: ${fmtMoney(ap.monto)}, editable arriba).`;
+    } else {
+      apartadoIdSeleccionado = null;
+      compradorSelect.disabled = false;
+      compradorSelect.value = '';
+      compradorSelect.dispatchEvent(new Event('change', { bubbles: true }));
+      $('#cvMonto').value = '';
+      hint.textContent = loteId ? 'Venta directa — elige el comprador.' : '';
+    }
+  });
+
+  $('#btnCancelContratoVentaForm').addEventListener('click', closeModal);
+  $('#btnSaveContratoVentaForm').addEventListener('click', async () => {
+    const btn = $('#btnSaveContratoVentaForm');
+    const lote_id = $('#cvLoteId').value ? Number($('#cvLoteId').value) : null;
+    const comprador_id = $('#cvCompradorId').value ? Number($('#cvCompradorId').value) : null;
+    const monto_total = $('#cvMonto').value ? Number($('#cvMonto').value) : null;
+    if (!lote_id) { toast('Selecciona un lote', 'danger'); return; }
+    if (!comprador_id) { toast('Selecciona un comprador', 'danger'); return; }
+    if (!monto_total || monto_total <= 0) { toast('Captura un monto total válido', 'danger'); return; }
+    btn.disabled = true; btn.textContent = 'Guardando…';
+    try {
+      let pdf_url = null; let pdf_filename = null;
+      const pdfFile = $('#cvPdfFile')?.files?.[0];
+      if (pdfFile) {
+        btn.textContent = 'Subiendo PDF…';
+        const blob = await VercelBlobClient.upload(pdfFile.name, pdfFile, {
+          access: 'private',
+          handleUploadUrl: `/api/projects/${state.projectId}/contratos-venta/upload-token`,
+          headers: state.token ? { Authorization: `Bearer ${state.token}` } : {},
+        });
+        pdf_url = blob.url; pdf_filename = pdfFile.name;
+      }
+      btn.textContent = 'Guardando…';
+      const body = {
+        lote_id, comprador_id, apartado_id: apartadoIdSeleccionado, monto_total,
+        fecha_firma: $('#cvFechaFirma').value || null,
+        pdf_url, pdf_filename,
+      };
+      await api(`/projects/${state.projectId}/contratos-venta`, { method: 'POST', body });
+      toast('Contrato creado — el lote ahora está "Vendido"', 'success');
+      closeModal();
+      if (onSave) await onSave();
+    } catch (err) {
+      toast(err.message, 'danger');
+      btn.disabled = false; btn.textContent = 'Guardar';
+    }
+  });
+}
+
+// Edición limitada — SOLO fecha de firma y PDF adjunto. El monto y el
+// lote/comprador/apartado nunca se muestran como editables aquí (backend
+// los ignora de todos modos si se mandaran) — si el monto está mal, se
+// cancela el contrato y se crea uno nuevo (ver ayuda de esta pestaña).
+function openContratoVentaEditModal(contrato, onSave) {
+  openModal(`
+    <h3>Editar contrato — ${esc(contrato.manzana || '—')} / ${esc(contrato.numero_lote)}</h3>
+    <p class="muted fs-08">El monto total (${fmtMoney(contrato.monto_total)}) no se puede editar aquí — cancela este contrato y crea uno nuevo si el monto está mal capturado.</p>
+    <div class="field"><label>Fecha de firma</label><input id="cveFechaFirma" type="date" value="${contrato.fecha_firma ? String(contrato.fecha_firma).slice(0, 10) : ''}" /></div>
+    <div class="field"><label>Reemplazar PDF (opcional)</label><input id="cveNuevoPdf" type="file" accept=".pdf" />
+      ${contrato.pdf_url ? `<span class="muted fs-07">Ya tiene un PDF adjunto — solo súbelo si quieres reemplazarlo.</span>` : ''}
+    </div>
+    <div class="modal-actions">
+      <button class="btn" id="btnCancelContratoVentaEdit">Cancelar</button>
+      <button class="btn btn-primary" id="btnSaveContratoVentaEdit">Guardar</button>
+    </div>
+  `);
+  $('#btnCancelContratoVentaEdit').addEventListener('click', closeModal);
+  $('#btnSaveContratoVentaEdit').addEventListener('click', async () => {
+    const btn = $('#btnSaveContratoVentaEdit');
+    btn.disabled = true; btn.textContent = 'Guardando…';
+    try {
+      const body = { fecha_firma: $('#cveFechaFirma').value || null };
+      const nuevoPdf = $('#cveNuevoPdf')?.files?.[0];
+      if (nuevoPdf) {
+        btn.textContent = 'Subiendo PDF…';
+        const blob = await VercelBlobClient.upload(nuevoPdf.name, nuevoPdf, {
+          access: 'private',
+          handleUploadUrl: `/api/projects/${state.projectId}/contratos-venta/upload-token`,
+          headers: state.token ? { Authorization: `Bearer ${state.token}` } : {},
+        });
+        body.pdf_url = blob.url; body.pdf_filename = nuevoPdf.name;
+      }
+      btn.textContent = 'Guardando…';
+      await api(`/projects/${state.projectId}/contratos-venta/${contrato.id}`, { method: 'PUT', body });
+      toast('Contrato actualizado', 'success');
       closeModal();
       if (onSave) await onSave();
     } catch (err) {

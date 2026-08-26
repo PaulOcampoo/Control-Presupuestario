@@ -6774,6 +6774,113 @@ app.put('/api/projects/:id/apartados/:apartadoId/cancelar', h(auth.allow()), h(r
   }
 }));
 
+// Cierra el hueco detectado en PR B: único camino para sacar un lote de
+// 'no_disponible' sin pasar por un apartado creado-y-cancelado. Mismo
+// gateo que el resto de Ventas — auth.allow() sin argumentos.
+app.put('/api/projects/:id/lotes/:loteId/marcar-disponible', h(auth.allow()), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  try {
+    const actualizado = await ventas.marcarLoteDisponible(Number(req.params.loteId), req.project.id);
+    res.json(actualizado);
+  } catch (err) {
+    res.status(err.status || 400).json({ error: err.message });
+  }
+}));
+
+// Override de emergencia (prompt-override-emergencia-estatus-venta.md) —
+// escape auditado, exclusivo admin/desarrollador, para casos que los flujos
+// normales (apartar/cancelar/contratar/marcar-disponible) no cubren. NO
+// cancela apartados/contratos relacionados, solo los reporta en la respuesta.
+app.put('/api/projects/:id/lotes/:loteId/forzar-estatus-venta', h(auth.allow()), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  try {
+    const resultado = await ventas.forzarEstatusVenta(
+      Number(req.params.loteId), req.project.id, req.body || {}, req.user, auth.getIp(req)
+    );
+    res.json(resultado);
+  } catch (err) {
+    res.status(err.status || 400).json({ error: err.message });
+  }
+}));
+
+// Historial de overrides de emergencia sobre estatus_venta — mismo patrón
+// que /api/projects/:id/requisiciones-historial (audit_log filtrado por
+// accion + project_id), consultable para que el escape quede visible, no
+// oculto en la bitácora general.
+app.get('/api/projects/:id/lotes/estatus-venta-historial', h(auth.allow()), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  res.json(await ventas.listEstatusVentaHistorial(req.project.id));
+}));
+
+// ---------------------------------------------------------------------------
+// Contrato de compraventa (prompt-implementacion-pr-b-contrato-venta.md) —
+// Fase 4, PR B. Adjunto simple (Vercel Blob), mismo patrón exacto que
+// contratos_trabajador (POST .../upload-token → POST .../contratos-venta con
+// el pdf_url ya subido → GET .../download hace proxy del blob) — SIN
+// extracción vía IA (Forbidden Action explícita). Mismo criterio de permisos
+// que Compradores/Apartados: admin/desarrollador exclusivo, sin checkPermiso.
+// ---------------------------------------------------------------------------
+app.get('/api/projects/:id/contratos-venta', h(auth.allow()), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  res.json(await ventas.listContratosVenta(req.project.id));
+}));
+
+app.post('/api/projects/:id/contratos-venta/upload-token', h(auth.allow()), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  try {
+    const jsonResponse = await handleUpload({
+      body: req.body,
+      request: req,
+      onBeforeGenerateToken: async (pathname) => {
+        const ext = (pathname.split('.').pop() || '').toLowerCase();
+        if (ext !== 'pdf') throw new Error('Solo se admiten archivos PDF');
+        return { access: 'private', addRandomSuffix: true, maximumSizeInBytes: 20 * 1024 * 1024 };
+      },
+    });
+    res.json(jsonResponse);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+}));
+
+app.post('/api/projects/:id/contratos-venta', h(auth.allow()), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  try {
+    const nuevo = await ventas.crearContratoVenta(req.project.id, req.body || {}, req.user.id);
+    res.status(201).json(nuevo);
+  } catch (err) {
+    res.status(err.status || 400).json({ error: err.message });
+  }
+}));
+
+app.put('/api/projects/:id/contratos-venta/:contratoId', h(auth.allow()), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  try {
+    const actualizado = await ventas.updateContratoVenta(Number(req.params.contratoId), req.project.id, req.body || {});
+    res.json(actualizado);
+  } catch (err) {
+    res.status(err.status || 400).json({ error: err.message });
+  }
+}));
+
+app.put('/api/projects/:id/contratos-venta/:contratoId/cancelar', h(auth.allow()), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  try {
+    const cancelado = await ventas.cancelarContratoVenta(Number(req.params.contratoId), req.project.id);
+    res.json(cancelado);
+  } catch (err) {
+    res.status(err.status || 400).json({ error: err.message });
+  }
+}));
+
+app.get('/api/projects/:id/contratos-venta/:contratoId/download', h(auth.allow()), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  const { rows } = await db.pool.query(
+    `SELECT cv.pdf_url, cv.pdf_filename FROM contratos_venta cv
+     JOIN lotes l ON l.id = cv.lote_id
+     WHERE cv.id = $1 AND l.project_id = $2`,
+    [Number(req.params.contratoId), req.project.id]
+  );
+  if (!rows[0]) return res.status(404).json({ error: 'Contrato no encontrado' });
+  if (!rows[0].pdf_url) return res.status(404).json({ error: 'Este contrato no tiene PDF adjunto' });
+  const blobResult = await get(rows[0].pdf_url, { access: 'private' });
+  if (!blobResult) return res.status(404).json({ error: 'Archivo no encontrado en almacenamiento' });
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', safeContentDisposition('inline', rows[0].pdf_filename || 'contrato-venta.pdf'));
+  await pipeline(Readable.fromWeb(blobResult.stream), res);
+}));
+
 // ---------------------------------------------------------------------------
 // Mapeo concepto ↔ insumos (solo admin) — infraestructura de captura para un
 // futuro bloqueo de avance; todavía no se usa para bloquear nada.

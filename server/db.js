@@ -1024,6 +1024,45 @@ const SCHEMA = `
   CREATE UNIQUE INDEX IF NOT EXISTS idx_apartados_lote_activo_unico
     ON apartados(lote_id) WHERE estado = 'activo';
 
+  -- Fase 4 del roadmap "Desarrollador de Vivienda", PR B (prompt-
+  -- implementacion-pr-b-contrato-venta.md) — contrato de compraventa.
+  -- Diagnóstico confirmó 'contratos' (contrato de obra con VINTE/Kalia/
+  -- Comvive) estructuralmente incompatible (UNIQUE(project_id), 1 por obra
+  -- completa) — análogo elegido: contratos_trabajador (histórico N:1,
+  -- pdf_url/pdf_filename como adjunto simple SIN extracción IA, ver
+  -- server/extraccionContrato.js — Forbidden Action explícita de este
+  -- prompt: nunca usarlo aquí). apartado_id nullable a propósito: un
+  -- contrato puede originarse de un apartado previo o venderse directo sin
+  -- pasar por apartado. monto_total es el precio final negociado — NO
+  -- necesariamente igual a lotes.precio_efectivo ni al monto del apartado
+  -- (server/ventas.js nunca lo deriva de ninguno de los dos, siempre
+  -- capturado). 'cancelado' nunca reactiva el apartado original
+  -- automáticamente (simplificación explícita del prompt) — si el negocio
+  -- necesita reabrirlo, es una acción manual aparte, fuera de este PR.
+  CREATE TABLE IF NOT EXISTS contratos_venta (
+    id SERIAL PRIMARY KEY,
+    lote_id INTEGER NOT NULL REFERENCES lotes(id),
+    comprador_id INTEGER NOT NULL REFERENCES compradores(id),
+    apartado_id INTEGER REFERENCES apartados(id),
+    monto_total DOUBLE PRECISION NOT NULL,
+    fecha_firma DATE,
+    pdf_url TEXT,
+    pdf_filename TEXT,
+    estado TEXT NOT NULL DEFAULT 'vigente' CHECK (estado IN ('vigente','cancelado')),
+    creado_por INTEGER REFERENCES usuarios(id),
+    creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
+  CREATE INDEX IF NOT EXISTS idx_contratos_venta_lote ON contratos_venta(lote_id);
+  CREATE INDEX IF NOT EXISTS idx_contratos_venta_comprador ON contratos_venta(comprador_id);
+  -- Un lote no puede tener más de un contrato vigente a la vez — misma
+  -- técnica que idx_apartados_lote_activo_unico arriba (la propia DB lo
+  -- garantiza, no solo server/ventas.js). Confirmado antes de aplicar: 0
+  -- filas en apartados/lotes con estatus_venta='vendido' en Preview al
+  -- momento de esta migración (PR A ya en producción sin datos reales
+  -- capturados todavía), sin riesgo de conflicto.
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_contratos_venta_lote_vigente_unico
+    ON contratos_venta(lote_id) WHERE estado = 'vigente';
+
   -- Portal de sugerencias — cualquier usuario autenticado puede enviar; solo
   -- admin puede revisar y gestionar. prompt_generado almacena el prompt
   -- técnico formateado por IA (claude-sonnet-4-6) bajo demanda desde el

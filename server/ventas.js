@@ -758,6 +758,126 @@ async function getCobranzaContrato(contratoVentaId, pid) {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Entrega de lote — Fase 4, PR D (prompt-implementacion-pr-d-entregas.md),
+// último del roadmap Desarrollador de Vivienda. Cierra el ciclo formal:
+// requiere un contrato_venta vigente (no se entrega sin venta) y reusa
+// lotes.estatus (Fase 1, construcción: sin_iniciar/en_proceso/terminado/
+// entregado) — NO crea un estatus de entrega paralelo (Forbidden Action
+// explícita). Ojo: esto es DISTINTO de lotes.estatus_venta (ya 'vendido'
+// desde crearContratoVenta) — esta función nunca toca estatus_venta.
+//
+// Mismo criterio "avisar sin bloquear" que el resto de la Fase 4: saldo
+// pendiente en el contrato NUNCA bloquea la entrega (decisión confirmada
+// por Paul) — solo se refleja como `advertencia` en la respuesta.
+// ---------------------------------------------------------------------------
+async function crearEntrega(loteId, pid, { fecha, firma_digital, recibido_por, observaciones }, entregadoPor) {
+  const recibidoPorTrim = String(recibido_por || '').trim();
+  if (!recibidoPorTrim) {
+    const err = new Error('recibido_por es requerido');
+    err.status = 400;
+    throw err;
+  }
+
+  return db.withTransaction(async (client) => {
+    const { rows: loteRows } = await client.query(
+      'SELECT id FROM lotes WHERE id = $1 AND project_id = $2 FOR UPDATE', [loteId, pid]
+    );
+    if (!loteRows[0]) {
+      const err = new Error('El lote no pertenece a esta obra');
+      err.status = 400;
+      throw err;
+    }
+
+    const { rows: contratoRows } = await client.query(
+      "SELECT * FROM contratos_venta WHERE lote_id = $1 AND estado = 'vigente'", [loteId]
+    );
+    const contrato = contratoRows[0];
+    if (!contrato) {
+      const err = new Error('No se puede entregar un lote sin un contrato de venta vigente');
+      err.status = 400;
+      throw err;
+    }
+
+    const { rows: entregaExistente } = await client.query(
+      'SELECT id FROM entregas_lote WHERE lote_id = $1', [loteId]
+    );
+    if (entregaExistente[0]) {
+      const err = new Error('Este lote ya tiene una entrega registrada');
+      err.status = 400;
+      throw err;
+    }
+
+    const fechaEntrega = fecha || new Date().toISOString().slice(0, 10);
+
+    let nueva;
+    try {
+      const { rows } = await client.query(
+        `INSERT INTO entregas_lote (lote_id, contrato_venta_id, fecha, firma_digital, recibido_por, entregado_por, observaciones)
+         VALUES ($1,$2,$3,$4,$5,$6,$7)
+         RETURNING *`,
+        [loteId, contrato.id, fechaEntrega, firma_digital || null, recibidoPorTrim, entregadoPor, observaciones || null]
+      );
+      nueva = rows[0];
+    } catch (err) {
+      if (err.code === '23505') {
+        const e = new Error('Este lote ya tiene una entrega registrada');
+        e.status = 400;
+        throw e;
+      }
+      throw err;
+    }
+
+    await client.query(
+      "UPDATE lotes SET estatus = 'entregado', fecha_entrega_real = $1, actualizado_en = NOW() WHERE id = $2",
+      [fechaEntrega, loteId]
+    );
+
+    const saldo = await calcularSaldo(client, contrato.id, Number(contrato.monto_total));
+    const advertencia = saldo.saldo_pendiente > EPSILON_MONTO
+      ? `Este lote se entrega con saldo pendiente de ${saldo.saldo_pendiente.toFixed(2)} en su contrato de venta — no se bloquea la entrega, revisa "Cobranza" si hace falta dar seguimiento.`
+      : null;
+
+    return { ...nueva, ...saldo, advertencia };
+  });
+}
+
+// Lista todos los contratos vigentes (pendientes de entregar y ya
+// entregados) en una sola llamada — mismo shape que listContratosVenta
+// (reusa exactamente ese SELECT/JOIN) más el LEFT JOIN a entregas_lote: los
+// campos el.* llegan NULL cuando aún no hay entrega, que es justo cómo el
+// frontend distingue "pendiente de entregar" de "ya entregado" sin tener
+// que interpretar lotes.estatus por separado.
+async function listEntregasVenta(pid) {
+  const { rows } = await db.pool.query(
+    `SELECT cv.*, l.manzana, l.numero_lote, c.nombre AS comprador_nombre,
+            COALESCE(pv.total_pagado, 0) AS total_pagado,
+            el.id AS entrega_id, el.fecha AS entrega_fecha, el.recibido_por,
+            el.firma_digital, el.observaciones
+     FROM contratos_venta cv
+     JOIN lotes l ON l.id = cv.lote_id
+     JOIN compradores c ON c.id = cv.comprador_id
+     LEFT JOIN (
+       SELECT contrato_venta_id, SUM(monto) AS total_pagado
+       FROM pagos_venta GROUP BY contrato_venta_id
+     ) pv ON pv.contrato_venta_id = cv.id
+     LEFT JOIN entregas_lote el ON el.contrato_venta_id = cv.id
+     WHERE l.project_id = $1 AND cv.estado = 'vigente'
+     ORDER BY cv.creado_en DESC`,
+    [pid]
+  );
+  return rows.map((r) => {
+    const totalPagado = Number(r.total_pagado);
+    const montoTotal = Number(r.monto_total);
+    return {
+      ...r,
+      total_pagado: totalPagado,
+      saldo_pendiente: montoTotal - totalPagado,
+      estado_pago: estadoPagoDe(totalPagado, montoTotal),
+    };
+  });
+}
+
 module.exports = {
   ESTADO_APARTADO,
   ESTADO_CONTRATO_VENTA,
@@ -780,4 +900,6 @@ module.exports = {
   guardarPlanPago,
   registrarPagoVenta,
   getCobranzaContrato,
+  crearEntrega,
+  listEntregasVenta,
 };

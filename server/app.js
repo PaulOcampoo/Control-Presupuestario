@@ -6919,6 +6919,26 @@ app.post('/api/projects/:id/contratos-venta/:contratoId/pagos', h(auth.allow()),
 }));
 
 // ---------------------------------------------------------------------------
+// Entrega de lote (prompt-implementacion-pr-d-entregas.md) — Fase 4, PR D,
+// último del roadmap Desarrollador de Vivienda. Registro formal de entrega
+// con firma digital, exige contrato de venta vigente. Mismo criterio de
+// permisos que el resto de Ventas: admin/desarrollador exclusivo,
+// auth.allow() sin argumentos, sin checkPermiso.
+// ---------------------------------------------------------------------------
+app.get('/api/projects/:id/lotes-entregas', h(auth.allow()), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  res.json(await ventas.listEntregasVenta(req.project.id));
+}));
+
+app.post('/api/projects/:id/lotes/:loteId/entrega', h(auth.allow()), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  try {
+    const nueva = await ventas.crearEntrega(Number(req.params.loteId), req.project.id, req.body || {}, req.user.id);
+    res.status(201).json(nueva);
+  } catch (err) {
+    res.status(err.status || 400).json({ error: err.message });
+  }
+}));
+
+// ---------------------------------------------------------------------------
 // Mapeo concepto ↔ insumos (solo admin) — infraestructura de captura para un
 // futuro bloqueo de avance; todavía no se usa para bloquear nada.
 // ---------------------------------------------------------------------------

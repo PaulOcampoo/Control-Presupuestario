@@ -1116,6 +1116,31 @@ const SCHEMA = `
   CREATE INDEX IF NOT EXISTS idx_pagos_venta_contrato ON pagos_venta(contrato_venta_id);
   CREATE INDEX IF NOT EXISTS idx_pagos_venta_plan_item ON pagos_venta(plan_pago_item_id);
 
+  -- Entrega formal del lote al comprador (prompt-implementacion-pr-d-
+  -- entregas.md) — Fase 4, PR D, último del roadmap Desarrollador de
+  -- Vivienda. lote_id UNIQUE es la garantía real de "un lote se entrega una
+  -- sola vez" (sin reentregas en esta fase, ver Forbidden Action del
+  -- prompt) — a diferencia de apartados/contratos_venta no hace falta un
+  -- índice único PARCIAL porque entregas_lote no tiene estado cancelable:
+  -- una vez entregado, la fila vive para siempre. firma_digital reusa el
+  -- mismo patrón que epp_entregas.firma_digital (TEXT, base64 PNG, sin
+  -- límite de tamaño, nullable) — mecanismo de firma ya probado en
+  -- producción con Nómina/EPP, no se reinventa aquí. recibido_por es TEXT
+  -- libre (no FK a compradores) porque quien recibe físicamente el lote
+  -- puede no ser el comprador registrado (cónyuge, apoderado, etc.).
+  CREATE TABLE IF NOT EXISTS entregas_lote (
+    id SERIAL PRIMARY KEY,
+    lote_id INTEGER NOT NULL UNIQUE REFERENCES lotes(id),
+    contrato_venta_id INTEGER NOT NULL REFERENCES contratos_venta(id),
+    fecha DATE NOT NULL DEFAULT CURRENT_DATE,
+    firma_digital TEXT,
+    recibido_por TEXT NOT NULL,
+    entregado_por INTEGER NOT NULL REFERENCES usuarios(id),
+    observaciones TEXT,
+    creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
+  CREATE INDEX IF NOT EXISTS idx_entregas_lote_contrato ON entregas_lote(contrato_venta_id);
+
   -- Portal de sugerencias — cualquier usuario autenticado puede enviar; solo
   -- admin puede revisar y gestionar. prompt_generado almacena el prompt
   -- técnico formateado por IA (claude-sonnet-4-6) bajo demanda desde el

@@ -252,17 +252,37 @@ async function marcarLoteDisponible(loteId, pid) {
 // ---------------------------------------------------------------------------
 const ESTADO_CONTRATO_VENTA = ['vigente', 'cancelado'];
 
+// total_pagado/saldo_pendiente/estado_pago (PR C, cobranza) van aquí
+// también — no solo en getCobranzaContrato — para que la tabla de "Contrato
+// de Venta" Y la de "Cobranza" puedan mostrar el badge de estado a simple
+// vista sin una llamada extra por contrato (N+1). Se calculan en JS, no en
+// SQL, para reusar exactamente el mismo criterio (estadoPagoDe) que el
+// resto de este módulo — LEFT JOIN solo trae la suma ya agregada.
 async function listContratosVenta(pid) {
   const { rows } = await db.pool.query(
-    `SELECT cv.*, l.manzana, l.numero_lote, c.nombre AS comprador_nombre
+    `SELECT cv.*, l.manzana, l.numero_lote, c.nombre AS comprador_nombre,
+            COALESCE(pv.total_pagado, 0) AS total_pagado
      FROM contratos_venta cv
      JOIN lotes l ON l.id = cv.lote_id
      JOIN compradores c ON c.id = cv.comprador_id
+     LEFT JOIN (
+       SELECT contrato_venta_id, SUM(monto) AS total_pagado
+       FROM pagos_venta GROUP BY contrato_venta_id
+     ) pv ON pv.contrato_venta_id = cv.id
      WHERE l.project_id = $1
      ORDER BY cv.creado_en DESC`,
     [pid]
   );
-  return rows;
+  return rows.map((r) => {
+    const totalPagado = Number(r.total_pagado);
+    const montoTotal = Number(r.monto_total);
+    return {
+      ...r,
+      total_pagado: totalPagado,
+      saldo_pendiente: montoTotal - totalPagado,
+      estado_pago: estadoPagoDe(totalPagado, montoTotal),
+    };
+  });
 }
 
 // Crea el contrato y deriva lotes.estatus_venta='vendido' en la MISMA
@@ -398,6 +418,13 @@ async function updateContratoVenta(id, pid, data) {
 // automáticamente (simplificación explícita del prompt, ver comentario del
 // CHECK en server/db.js): queda 'convertido_a_contrato' para siempre, salvo
 // una acción manual aparte fuera de este PR.
+//
+// PR C (cobranza): si el contrato ya tiene pagos_venta registrados, la
+// cancelación NO se bloquea ni los pagos se tocan (decisión confirmada
+// explícitamente — mismo criterio "avisar sin bloquear" del resto de este
+// PR) — la respuesta incluye total_pagado/saldo_pendiente y una
+// `advertencia` explícita para que el admin lo vea en el momento y decida
+// aparte si hace falta reconciliar/reembolsar.
 async function cancelarContratoVenta(id, pid) {
   return db.withTransaction(async (client) => {
     const { rows: contratoRows } = await client.query(
@@ -423,7 +450,13 @@ async function cancelarContratoVenta(id, pid) {
       "UPDATE contratos_venta SET estado = 'cancelado' WHERE id = $1 RETURNING *", [id]
     );
     await client.query("UPDATE lotes SET estatus_venta = 'disponible', actualizado_en = NOW() WHERE id = $1", [contrato.lote_id]);
-    return rows[0];
+
+    const saldo = await calcularSaldo(client, id, Number(contrato.monto_total));
+    const advertencia = saldo.total_pagado > EPSILON_MONTO
+      ? `Este contrato ya tenía ${saldo.total_pagado.toFixed(2)} pagado(s) (saldo previo: ${saldo.saldo_pendiente.toFixed(2)}) — los pagos NO se cancelan ni se reembolsan automáticamente, revisa "Cobranza" si hace falta reconciliar.`
+      : null;
+
+    return { ...rows[0], ...saldo, advertencia };
   });
 }
 
@@ -510,6 +543,221 @@ async function listEstatusVentaHistorial(pid) {
   return rows;
 }
 
+// ---------------------------------------------------------------------------
+// Cobranza — Fase 4, PR C (prompt-implementacion-pr-c-cobranza.md). Plan de
+// pagos (opcional, encabezado+líneas, mismo patrón DELETE+re-INSERT que
+// estimacion_conceptos en server/app.js) y registro de pagos recibidos de
+// compradores. Diagnóstico confirmó que `pagos` (compras) NO es reusable —
+// `orden_compra_id NOT NULL` lo hace incompatible: ese dinero SALE de
+// Roforb, este ENTRA. estado_pago NUNCA se persiste — se calcula al vuelo
+// (total_pagado/saldo_pendiente) para no sincronizar un campo derivado más.
+//
+// Criterio "avisar sin bloquear" (mismo que alerta_destajo en Nómina):
+// descuadre del plan vs monto_total y sobrepago NUNCA rechazan la
+// operación — devuelven `advertencia` explícita en la respuesta para que
+// el admin decida. EPSILON_MONTO absorbe solo el ruido de punto flotante,
+// no discrepancias reales.
+// ---------------------------------------------------------------------------
+const EPSILON_MONTO = 0.01;
+
+function estadoPagoDe(totalPagado, montoTotal) {
+  if (totalPagado <= EPSILON_MONTO) return 'pendiente';
+  if (totalPagado + EPSILON_MONTO < montoTotal) return 'parcial';
+  return 'liquidado';
+}
+
+// Valida que el contrato pertenezca a la obra y devuelve su monto_total —
+// mismo criterio de integridad cross-obra que el resto de Ventas (JOIN a
+// lotes para filtrar por project_id, ver crearContratoVenta).
+async function getContratoVentaDeLaObra(client, contratoVentaId, pid) {
+  const { rows } = await client.query(
+    `SELECT cv.* FROM contratos_venta cv
+     JOIN lotes l ON l.id = cv.lote_id
+     WHERE cv.id = $1 AND l.project_id = $2`,
+    [contratoVentaId, pid]
+  );
+  if (!rows[0]) {
+    const err = new Error('El contrato de venta no pertenece a esta obra');
+    err.status = 400;
+    throw err;
+  }
+  return rows[0];
+}
+
+async function calcularSaldo(client, contratoVentaId, montoTotal) {
+  const { rows } = await client.query(
+    'SELECT COALESCE(SUM(monto), 0) AS total FROM pagos_venta WHERE contrato_venta_id = $1', [contratoVentaId]
+  );
+  const totalPagado = Number(rows[0].total);
+  const saldoPendiente = montoTotal - totalPagado;
+  return { total_pagado: totalPagado, saldo_pendiente: saldoPendiente, estado_pago: estadoPagoDe(totalPagado, montoTotal) };
+}
+
+async function getPlanPago(contratoVentaId, pid) {
+  const { rows: contratoRows } = await db.pool.query(
+    `SELECT cv.id FROM contratos_venta cv JOIN lotes l ON l.id = cv.lote_id
+     WHERE cv.id = $1 AND l.project_id = $2`,
+    [contratoVentaId, pid]
+  );
+  if (!contratoRows[0]) {
+    const err = new Error('El contrato de venta no pertenece a esta obra');
+    err.status = 400;
+    throw err;
+  }
+  const { rows: planRows } = await db.pool.query(
+    'SELECT * FROM planes_pago WHERE contrato_venta_id = $1', [contratoVentaId]
+  );
+  if (!planRows[0]) return { plan: null, items: [] };
+  const { rows: items } = await db.pool.query(
+    'SELECT * FROM plan_pago_items WHERE plan_pago_id = $1 ORDER BY orden, id', [planRows[0].id]
+  );
+  return { plan: planRows[0], items };
+}
+
+// Crea o reemplaza el plan de pagos completo de un contrato en una sola
+// operación (encabezado+líneas) — mismo patrón DELETE+re-INSERT que
+// estimacion_conceptos, no hay historial de versiones del plan, solo el
+// vigente. NO bloquea si SUM(items) no cuadra con monto_total — Forbidden
+// Action explícita del prompt — solo devuelve `advertencia`.
+async function guardarPlanPago(contratoVentaId, pid, items, creadoPor) {
+  if (!Array.isArray(items) || !items.length) {
+    const err = new Error('El plan debe tener al menos un concepto');
+    err.status = 400;
+    throw err;
+  }
+  const itemsLimpios = items.map((it, idx) => {
+    const concepto = String(it?.concepto || '').trim();
+    const monto = Number(it?.monto_programado);
+    if (!concepto) {
+      const err = new Error(`El concepto del renglón ${idx + 1} es requerido`);
+      err.status = 400;
+      throw err;
+    }
+    if (!Number.isFinite(monto) || monto <= 0) {
+      const err = new Error(`monto_programado del renglón ${idx + 1} debe ser un número mayor a 0`);
+      err.status = 400;
+      throw err;
+    }
+    return {
+      concepto,
+      monto,
+      fecha_programada: it?.fecha_programada || null,
+      orden: it?.orden != null ? Number(it.orden) : idx,
+    };
+  });
+
+  return db.withTransaction(async (client) => {
+    const contrato = await getContratoVentaDeLaObra(client, contratoVentaId, pid);
+
+    let planId;
+    const { rows: existente } = await client.query(
+      'SELECT id FROM planes_pago WHERE contrato_venta_id = $1', [contratoVentaId]
+    );
+    if (existente[0]) {
+      planId = existente[0].id;
+    } else {
+      const { rows: nuevo } = await client.query(
+        'INSERT INTO planes_pago (contrato_venta_id, creado_por) VALUES ($1,$2) RETURNING id',
+        [contratoVentaId, creadoPor]
+      );
+      planId = nuevo[0].id;
+    }
+
+    await client.query('DELETE FROM plan_pago_items WHERE plan_pago_id = $1', [planId]);
+    for (const it of itemsLimpios) {
+      await client.query(
+        `INSERT INTO plan_pago_items (plan_pago_id, concepto, fecha_programada, monto_programado, orden)
+         VALUES ($1,$2,$3,$4,$5)`,
+        [planId, it.concepto, it.fecha_programada, it.monto, it.orden]
+      );
+    }
+
+    const { rows: planRows } = await client.query('SELECT * FROM planes_pago WHERE id = $1', [planId]);
+    const { rows: itemRows } = await client.query(
+      'SELECT * FROM plan_pago_items WHERE plan_pago_id = $1 ORDER BY orden, id', [planId]
+    );
+
+    const sumaPlan = itemsLimpios.reduce((s, it) => s + it.monto, 0);
+    const advertencia = Math.abs(sumaPlan - contrato.monto_total) > EPSILON_MONTO
+      ? `La suma del plan (${sumaPlan.toFixed(2)}) no coincide con el monto del contrato (${Number(contrato.monto_total).toFixed(2)})`
+      : null;
+
+    return { plan: planRows[0], items: itemRows, advertencia };
+  });
+}
+
+// Registra un pago recibido. Si trae plan_pago_item_id, valida que ese ítem
+// pertenezca al plan de ESTE contrato (evita registrar un pago "contra" el
+// ítem del plan de otro contrato). NO bloquea sobrepago — solo advierte.
+async function registrarPagoVenta(contratoVentaId, pid, {
+  monto, fecha_pago, metodo_pago, referencia, plan_pago_item_id,
+}, registradoPor) {
+  const montoNum = Number(monto);
+  if (!Number.isFinite(montoNum) || montoNum <= 0) {
+    const err = new Error('monto debe ser un número mayor a 0');
+    err.status = 400;
+    throw err;
+  }
+
+  return db.withTransaction(async (client) => {
+    const contrato = await getContratoVentaDeLaObra(client, contratoVentaId, pid);
+
+    if (plan_pago_item_id != null) {
+      const { rows: itemRows } = await client.query(
+        `SELECT ppi.id FROM plan_pago_items ppi
+         JOIN planes_pago pp ON pp.id = ppi.plan_pago_id
+         WHERE ppi.id = $1 AND pp.contrato_venta_id = $2`,
+        [plan_pago_item_id, contratoVentaId]
+      );
+      if (!itemRows[0]) {
+        const err = new Error('El ítem del plan no corresponde a este contrato');
+        err.status = 400;
+        throw err;
+      }
+    }
+
+    const { rows } = await client.query(
+      `INSERT INTO pagos_venta (contrato_venta_id, plan_pago_item_id, monto, fecha_pago, metodo_pago, referencia, registrado_por)
+       VALUES ($1,$2,$3,$4,$5,$6,$7)
+       RETURNING *`,
+      [contratoVentaId, plan_pago_item_id ?? null, montoNum, fecha_pago || new Date().toISOString().slice(0, 10),
+        metodo_pago || null, referencia || null, registradoPor]
+    );
+
+    const saldo = await calcularSaldo(client, contratoVentaId, Number(contrato.monto_total));
+    const advertencia = saldo.saldo_pendiente < -EPSILON_MONTO
+      ? `Sobrepago: el total pagado (${saldo.total_pagado.toFixed(2)}) supera el monto del contrato (${Number(contrato.monto_total).toFixed(2)})`
+      : null;
+
+    return { pago: rows[0], ...saldo, advertencia };
+  });
+}
+
+// Detalle de cobranza de un contrato: saldo/estado calculados al vuelo +
+// historial de pagos — pensado para pintar la vista completa del tab
+// Cobranza de un contrato en una sola llamada.
+async function getCobranzaContrato(contratoVentaId, pid) {
+  const contrato = await getContratoVentaDeLaObra(db.pool, contratoVentaId, pid);
+  const saldo = await calcularSaldo(db.pool, contratoVentaId, Number(contrato.monto_total));
+  const { rows: pagos } = await db.pool.query(
+    `SELECT pv.*, COALESCE(u.nombre, '—') AS registrado_por_nombre
+     FROM pagos_venta pv
+     LEFT JOIN usuarios u ON u.id = pv.registrado_por
+     WHERE pv.contrato_venta_id = $1
+     ORDER BY pv.fecha_pago DESC, pv.creado_en DESC`,
+    [contratoVentaId]
+  );
+  const planPago = await getPlanPago(contratoVentaId, pid);
+  return {
+    contrato_venta_id: contratoVentaId,
+    monto_total: Number(contrato.monto_total),
+    ...saldo,
+    pagos,
+    plan: planPago.plan,
+    plan_items: planPago.items,
+  };
+}
+
 module.exports = {
   ESTADO_APARTADO,
   ESTADO_CONTRATO_VENTA,
@@ -528,4 +776,8 @@ module.exports = {
   ESTATUS_VENTA_LOTE,
   forzarEstatusVenta,
   listEstatusVentaHistorial,
+  getPlanPago,
+  guardarPlanPago,
+  registrarPagoVenta,
+  getCobranzaContrato,
 };

@@ -1271,7 +1271,10 @@ const SECTION_DEFS = {
   // correcta para venta de vivienda — no requiere un path SVG nuevo).
   // 'contratosVenta' agregado en PR B (prompt-implementacion-pr-b-contrato-
   // venta.md) — sale de 'proximamente', ya tiene tab real.
-  ventas:        { label: 'Ventas',         icon: 'home',           emoji: '🏠',   tabs: ['compradores', 'apartados', 'contratosVenta'], proximamente: ['Cobranza', 'Entregas'] },
+  // 'cobranza' agregado en PR C (prompt-implementacion-pr-c-cobranza.md) —
+  // sale de 'proximamente', ya tiene tab real. 'Entregas' (PR D) sigue
+  // pendiente.
+  ventas:        { label: 'Ventas',         icon: 'home',           emoji: '🏠',   tabs: ['compradores', 'apartados', 'contratosVenta', 'cobranza'], proximamente: ['Entregas'] },
   compras:       { label: 'Compras',        icon: 'compras',        emoji: '🛒',   tabs: ['requisiciones', 'insumos', 'proveedores', 'cumplimiento', 'ordenes', 'cotizador'], proximamente: ['Subcontratos'] },
   tesoreria:     { label: 'Tesorería',      icon: 'tesoreria',      emoji: '💰',   tabs: ['finanzas', 'compromisos', 'fondoGarantia', 'estadoResultados', 'estadoResultadosGlobal', 'impuestos', 'controlFinanciero'], proximamente: [] },
   // 'mapeo' vivió un tiempo aquí, luego en Presupuestos, ahora en la nueva
@@ -1323,7 +1326,7 @@ const SECTION_DEFS = {
 const TAB_ICONS = {
   resumen: '📊', contrato: '📄', impuestos: '🧾', insumos: '📦', requisiciones: '🧾',
   proveedores: '🏭', cumplimiento: '✅', ordenes: '🛒', programa: '🗓️', avance: '📈', destajo: '👷',
-  finanzas: '💰', compromisos: '📌', fondoGarantia: '🔒', mapeo: '🔗', usuarios: '👤', trabajadores: '👷', nominas: '💵', estimaciones: '🧮', ordenesCambio: '📝', lotes: '🏘️', modelosVivienda: '🏡', compradores: '🧑‍🤝‍🧑', apartados: '🔖', contratosVenta: '📜', infraVivienda: '🏙️',
+  finanzas: '💰', compromisos: '📌', fondoGarantia: '🔒', mapeo: '🔗', usuarios: '👤', trabajadores: '👷', nominas: '💵', estimaciones: '🧮', ordenesCambio: '📝', lotes: '🏘️', modelosVivienda: '🏡', compradores: '🧑‍🤝‍🧑', apartados: '🔖', contratosVenta: '📜', cobranza: '💵', infraVivienda: '🏙️',
   maquinaria_catalogo: '🛠️', maquinaria_horas: '⏱️', maquinaria_bitacora: '🔧', maquinaria_estado_unidad: '🚦',
   maquinaria_consumibles: '⛽', maquinaria_reportes_cliente: '📊',
   nominas_global: '💵', trabajadores_global: '👷', cotizador: '🔍',
@@ -1335,7 +1338,7 @@ const TAB_ICONS = {
 const TAB_LABELS = {
   resumen: 'Resumen', contrato: 'Contrato', impuestos: 'Impuestos', insumos: 'Insumos', requisiciones: 'Requisiciones',
   proveedores: 'Proveedores', cumplimiento: 'Cumplimiento', ordenes: 'Órdenes de Compra', programa: 'Programa', avance: 'Avance', destajo: 'Destajo',
-  finanzas: 'Finanzas', compromisos: 'Compromisos Abiertos', fondoGarantia: 'Fondo de Garantía', mapeo: 'Mapeo', usuarios: 'Usuarios', trabajadores: 'Trabajadores', nominas: 'Nóminas', estimaciones: 'Estimaciones', ordenesCambio: 'Órdenes de Cambio', lotes: 'Lotes', modelosVivienda: 'Modelos de Vivienda', compradores: 'Compradores', apartados: 'Apartados', contratosVenta: 'Contrato de Venta', infraVivienda: 'Infraestructura vs. Vivienda',
+  finanzas: 'Finanzas', compromisos: 'Compromisos Abiertos', fondoGarantia: 'Fondo de Garantía', mapeo: 'Mapeo', usuarios: 'Usuarios', trabajadores: 'Trabajadores', nominas: 'Nóminas', estimaciones: 'Estimaciones', ordenesCambio: 'Órdenes de Cambio', lotes: 'Lotes', modelosVivienda: 'Modelos de Vivienda', compradores: 'Compradores', apartados: 'Apartados', contratosVenta: 'Contrato de Venta', cobranza: 'Cobranza', infraVivienda: 'Infraestructura vs. Vivienda',
   maquinaria_catalogo: 'Catálogo de equipos', maquinaria_horas: 'Horas / Pendientes de autorizar',
   maquinaria_bitacora: 'Bitácora de taller', maquinaria_estado_unidad: 'Estado de las unidades',
   maquinaria_consumibles: 'Consumibles', maquinaria_reportes_cliente: 'Reportes por cliente',
@@ -3108,6 +3111,16 @@ const AYUDA_CONTENIDO = {
       'Cancelar un contrato regresa el lote a "Disponible" — pero el apartado original (si existió) NO se reactiva automáticamente; queda como "Convertido a contrato" para siempre, salvo que alguien lo gestione aparte.',
     ],
   },
+  cobranza: {
+    titulo: 'Cobranza',
+    pasos: [
+      'Sobre un contrato de venta ya firmado: un plan de pagos opcional (conceptos programados con fecha y monto) y el registro real de pagos recibidos.',
+      'El plan de pagos es informativo — si la suma de sus conceptos no coincide con el monto del contrato, se muestra una advertencia pero se puede guardar igual.',
+      'El saldo pendiente y el estatus (Pendiente/Parcial/Liquidado) se calculan siempre al momento, nunca se guardan — cambian automáticamente según los pagos registrados.',
+      'Un pago puede o no ligarse a un concepto del plan (ej. un pago anticipado o fuera de calendario no tiene que corresponder a ningún renglón). Un sobrepago no se bloquea, solo se advierte.',
+      'Cancelar un contrato con pagos ya registrados no los borra ni los reembolsa automáticamente — solo se advierte al cancelar, para revisar aparte si hace falta reconciliar.',
+    ],
+  },
   infraVivienda: {
     titulo: 'Infraestructura vs. Vivienda',
     pasos: [
@@ -4445,6 +4458,7 @@ async function renderView() {
       case 'compradores': await renderCompradores(view); break;
       case 'apartados': await renderApartados(view); break;
       case 'contratosVenta': await renderContratosVenta(view); break;
+      case 'cobranza': await renderCobranza(view); break;
       case 'infraVivienda': await renderInfraVivienda(view); break;
       case 'matrices': await renderMatrices(view); break;
       default: view.innerHTML = '';
@@ -20705,8 +20719,12 @@ function paintContratosVentaList() {
       );
       if (!ok) return;
       try {
-        await api(`/projects/${state.projectId}/contratos-venta/${contrato.id}/cancelar`, { method: 'PUT' });
+        const res = await api(`/projects/${state.projectId}/contratos-venta/${contrato.id}/cancelar`, { method: 'PUT' });
         toast('Contrato cancelado', 'success');
+        // PR C: cancelarContratoVenta NO bloquea si el contrato ya tenía
+        // pagos registrados, pero avisa explícitamente aquí (no se cancelan
+        // ni reembolsan solos — ver server/ventas.js).
+        if (res.advertencia) toast(res.advertencia, 'warning');
         await loadContratosVenta();
       } catch (err) {
         toast(err.message, 'danger');
@@ -20874,6 +20892,309 @@ function openContratoVentaEditModal(contrato, onSave) {
     } catch (err) {
       toast(err.message, 'danger');
       btn.disabled = false; btn.textContent = 'Guardar';
+    }
+  });
+}
+
+// ---------------------------------------------------------------------------
+// VISTA: Cobranza (prompt-implementacion-pr-c-cobranza.md) — Fase 4, PR C.
+// Plan de pagos OPCIONAL (encabezado+líneas) + registro de pagos recibidos
+// sobre un contrato de venta ya firmado. total_pagado/saldo_pendiente/
+// estado_pago SIEMPRE se calculan al vuelo en el backend (server/ventas.js)
+// — nunca se guardan aquí, así que el badge puede cambiar apenas se registra
+// un pago sin que exista ningún campo que sincronizar. Descuadre del plan
+// vs. monto_total y sobrepago NUNCA bloquean el guardado — solo se avisa
+// (toast 'warning'), Forbidden Action explícita del prompt.
+// ---------------------------------------------------------------------------
+const METODO_PAGO_OPCIONES = ['Transferencia', 'Efectivo', 'Cheque', 'Otro'];
+const ESTADO_PAGO_LABELS = { pendiente: 'Pendiente', parcial: 'Parcial', liquidado: 'Liquidado' };
+const ESTADO_PAGO_BADGE = { pendiente: 'muted', parcial: 'yellow', liquidado: 'green' };
+let cobranzaContratosRaw = [];
+
+async function renderCobranza(view) {
+  if (!puedeVerVentas()) {
+    view.innerHTML = `<div class="alert-box danger">⚠️ No tienes permiso para ver esta sección.</div>`;
+    return;
+  }
+  view.innerHTML = `
+    <h2 class="section-title">Cobranza ${renderHelpBtn('cobranza')}</h2>
+    <p class="muted">Plan de pagos y pagos recibidos por contrato de venta.</p>
+    <div id="cobranzaList" class="mt-12"><div class="empty-state">Cargando…</div></div>
+  `;
+  await loadCobranzaList();
+}
+
+async function loadCobranzaList() {
+  const el = $('#cobranzaList');
+  if (!el) return;
+  try {
+    cobranzaContratosRaw = await api(`/projects/${state.projectId}/contratos-venta`);
+    paintCobranzaList();
+  } catch (err) {
+    el.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+  }
+}
+
+// Reusa GET /contratos-venta (ya trae total_pagado/saldo_pendiente/
+// estado_pago calculados, ver listContratosVenta en server/ventas.js) para
+// mostrar el estado de cobranza de TODOS los contratos de un vistazo, sin
+// una llamada extra por contrato.
+function paintCobranzaList() {
+  const el = $('#cobranzaList');
+  if (!el) return;
+  if (!cobranzaContratosRaw.length) { el.innerHTML = '<div class="empty-state">Esta obra todavía no tiene contratos de venta registrados — da de alta uno en la pestaña "Contrato de Venta".</div>'; return; }
+  el.innerHTML = `
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>Lote</th><th>Comprador</th><th class="num">Monto</th><th class="num">Pagado</th><th class="num">Saldo</th><th>Estado</th><th></th></tr></thead>
+        <tbody>
+          ${cobranzaContratosRaw.map((c) => `
+            <tr>
+              <td>${esc(c.manzana || '—')} / ${esc(c.numero_lote)}</td>
+              <td>${esc(c.comprador_nombre)}</td>
+              <td class="num">${fmtMoney(c.monto_total)}</td>
+              <td class="num">${fmtMoney(c.total_pagado)}</td>
+              <td class="num">${fmtMoney(c.saldo_pendiente)}</td>
+              <td><span class="badge ${ESTADO_PAGO_BADGE[c.estado_pago] || 'muted'}">${esc(ESTADO_PAGO_LABELS[c.estado_pago] || c.estado_pago)}</span></td>
+              <td><button class="btn small" data-ver-cobranza="${c.id}">Ver cobranza</button></td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+  $$('[data-ver-cobranza]', el).forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const contrato = cobranzaContratosRaw.find((c) => c.id === Number(btn.dataset.verCobranza));
+      if (contrato) openCobranzaDetalleModal(contrato);
+    });
+  });
+}
+
+async function openCobranzaDetalleModal(contratoResumen) {
+  let detalle;
+  try {
+    detalle = await api(`/projects/${state.projectId}/contratos-venta/${contratoResumen.id}/cobranza`);
+  } catch (err) {
+    toast(err.message, 'danger');
+    return;
+  }
+  pintarCobranzaDetalleModal(contratoResumen, detalle);
+}
+
+function pintarCobranzaDetalleModal(contratoResumen, detalle) {
+  const { monto_total, total_pagado, saldo_pendiente, estado_pago, pagos, plan, plan_items } = detalle;
+  openModal(`
+    <h3>Cobranza — ${esc(contratoResumen.manzana || '—')} / ${esc(contratoResumen.numero_lote)}</h3>
+    <p class="muted">Comprador: ${esc(contratoResumen.comprador_nombre)}</p>
+    <div class="kpi-grid mt-12">
+      <div class="kpi"><div class="label">Monto del contrato</div><div class="value">${fmtMoney(monto_total)}</div></div>
+      <div class="kpi green"><div class="label">Total pagado</div><div class="value">${fmtMoney(total_pagado)}</div></div>
+      <div class="kpi accent"><div class="label">Saldo pendiente</div><div class="value">${fmtMoney(saldo_pendiente)}</div></div>
+      <div class="kpi"><div class="label">Estado</div><div class="value"><span class="badge ${ESTADO_PAGO_BADGE[estado_pago] || 'muted'}">${esc(ESTADO_PAGO_LABELS[estado_pago] || estado_pago)}</span></div></div>
+    </div>
+
+    <h4 class="mt-16">Plan de pagos</h4>
+    ${plan ? `
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Concepto</th><th>Fecha programada</th><th class="num">Monto</th></tr></thead>
+          <tbody>
+            ${plan_items.map((it) => `<tr><td>${esc(it.concepto)}</td><td>${it.fecha_programada ? fmtDate(it.fecha_programada) : '—'}</td><td class="num">${fmtMoney(it.monto_programado)}</td></tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
+    ` : '<p class="muted fs-08">Este contrato todavía no tiene un plan de pagos capturado (opcional).</p>'}
+    <button type="button" class="btn small mt-8" id="btnEditarPlanPago">${plan ? 'Editar plan de pagos' : '+ Crear plan de pagos'}</button>
+
+    <h4 class="mt-16">Pagos registrados</h4>
+    ${pagos.length ? `
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Fecha</th><th class="num">Monto</th><th>Método</th><th>Referencia</th><th>Concepto (plan)</th><th>Registró</th></tr></thead>
+          <tbody>
+            ${pagos.map((p) => {
+              const item = plan_items.find((it) => it.id === p.plan_pago_item_id);
+              return `<tr>
+                <td>${fmtDate(p.fecha_pago)}</td>
+                <td class="num">${fmtMoney(p.monto)}</td>
+                <td>${esc(p.metodo_pago || '—')}</td>
+                <td>${esc(p.referencia || '—')}</td>
+                <td>${item ? esc(item.concepto) : '—'}</td>
+                <td>${esc(p.registrado_por_nombre)}</td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+    ` : '<div class="empty-state">Sin pagos registrados todavía.</div>'}
+
+    <div class="modal-actions">
+      <button class="btn" id="btnCerrarCobranzaDetalle">Cerrar</button>
+      <button class="btn btn-primary" id="btnRegistrarPago">+ Registrar pago</button>
+    </div>
+  `);
+  $('#btnCerrarCobranzaDetalle').addEventListener('click', closeModal);
+  $('#btnEditarPlanPago').addEventListener('click', () => openPlanPagoFormModal(contratoResumen, plan, plan_items));
+  $('#btnRegistrarPago').addEventListener('click', () => openRegistrarPagoModal(contratoResumen, plan_items));
+}
+
+// Reabre el detalle de cobranza ya refrescado — usado tras guardar un plan
+// o registrar un pago, para que el modal refleje el saldo/estado nuevo sin
+// que el usuario tenga que cerrarlo y volver a abrirlo a mano.
+async function refrescarYReabrirCobranza(contratoResumen) {
+  await loadCobranzaList();
+  const actualizado = cobranzaContratosRaw.find((c) => c.id === contratoResumen.id) || contratoResumen;
+  await openCobranzaDetalleModal(actualizado);
+}
+
+function planPagoRowHtml(it, idx) {
+  return `
+    <div class="row plan-pago-row" data-row-idx="${idx}">
+      <div class="field"><label>Concepto</label><input class="ppConcepto" value="${esc(it?.concepto || '')}" placeholder="Ej. Enganche" /></div>
+      <div class="field"><label>Fecha programada</label><input class="ppFecha" type="date" value="${it?.fecha_programada ? String(it.fecha_programada).slice(0, 10) : ''}" /></div>
+      <div class="field"><label>Monto</label><input class="ppMonto" type="number" step="any" value="${it?.monto_programado != null ? it.monto_programado : ''}" /></div>
+      <button type="button" class="btn small btn-danger" data-quitar-renglon title="Quitar concepto">✕</button>
+    </div>
+  `;
+}
+
+function leerRenglonesPlanPago() {
+  return $$('.plan-pago-row', $('#planPagoRows')).map((rowEl) => ({
+    concepto: rowEl.querySelector('.ppConcepto').value,
+    fecha_programada: rowEl.querySelector('.ppFecha').value,
+    monto_programado: rowEl.querySelector('.ppMonto').value,
+  }));
+}
+
+function actualizarSumaHintPlanPago(montoContrato) {
+  const hint = $('#planPagoSumaHint');
+  if (!hint) return;
+  const suma = leerRenglonesPlanPago().reduce((s, it) => s + (Number(it.monto_programado) || 0), 0);
+  const diff = Math.abs(suma - montoContrato);
+  hint.textContent = `Suma del plan: ${fmtMoney(suma)} (monto del contrato: ${fmtMoney(montoContrato)})`;
+  hint.className = diff > 0.01 ? 'fs-07 mt-8' : 'muted fs-07 mt-8';
+  hint.style.color = diff > 0.01 ? 'var(--yellow)' : '';
+}
+
+function repintarRenglonesPlanPago(renglones, montoContrato) {
+  const cont = $('#planPagoRows');
+  cont.innerHTML = renglones.map((it, idx) => planPagoRowHtml(it, idx)).join('');
+  $$('[data-quitar-renglon]', cont).forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const actuales = leerRenglonesPlanPago();
+      const idx = Number(btn.closest('.plan-pago-row').dataset.rowIdx);
+      actuales.splice(idx, 1);
+      repintarRenglonesPlanPago(actuales.length ? actuales : [{}], montoContrato);
+    });
+  });
+  $$('.ppMonto', cont).forEach((inp) => inp.addEventListener('input', () => actualizarSumaHintPlanPago(montoContrato)));
+  actualizarSumaHintPlanPago(montoContrato);
+}
+
+// Guarda el plan COMPLETO (encabezado+líneas) en una sola operación — el
+// backend hace DELETE+re-INSERT de todos los renglones (mismo patrón que
+// Estimaciones). NO bloquea si la suma no cuadra con monto_total — solo
+// muestra la `advertencia` que regresa el backend en un toast 'warning'.
+function openPlanPagoFormModal(contratoResumen, plan, planItems) {
+  const itemsIniciales = planItems.length ? planItems : [{}];
+  openModal(`
+    <h3>${plan ? 'Editar' : 'Crear'} plan de pagos — ${esc(contratoResumen.manzana || '—')} / ${esc(contratoResumen.numero_lote)}</h3>
+    <p class="muted fs-08">Monto del contrato: ${fmtMoney(contratoResumen.monto_total)}. La suma de los renglones no tiene que coincidir exacto — si difiere, se avisa pero se puede guardar igual.</p>
+    <div id="planPagoRows">${itemsIniciales.map((it, idx) => planPagoRowHtml(it, idx)).join('')}</div>
+    <button type="button" class="btn small mt-8" id="btnAgregarRenglonPlan">+ Agregar concepto</button>
+    <div id="planPagoSumaHint" class="muted fs-07 mt-8"></div>
+    <div class="modal-actions">
+      <button class="btn" id="btnCancelPlanPago">Cancelar</button>
+      <button class="btn btn-primary" id="btnSavePlanPago">Guardar plan</button>
+    </div>
+  `);
+  repintarRenglonesPlanPago(itemsIniciales, Number(contratoResumen.monto_total));
+  $('#btnCancelPlanPago').addEventListener('click', closeModal);
+  $('#btnAgregarRenglonPlan').addEventListener('click', () => {
+    repintarRenglonesPlanPago([...leerRenglonesPlanPago(), {}], Number(contratoResumen.monto_total));
+  });
+  $('#btnSavePlanPago').addEventListener('click', async () => {
+    const btn = $('#btnSavePlanPago');
+    const renglones = leerRenglonesPlanPago().filter((it) => it.concepto.trim() || it.monto_programado);
+    if (!renglones.length) { toast('Agrega al menos un concepto', 'danger'); return; }
+    for (const it of renglones) {
+      if (!it.concepto.trim()) { toast('Todos los renglones necesitan un concepto', 'danger'); return; }
+      if (!it.monto_programado || Number(it.monto_programado) <= 0) { toast(`El monto de "${it.concepto}" debe ser mayor a 0`, 'danger'); return; }
+    }
+    const body = {
+      items: renglones.map((it, idx) => ({
+        concepto: it.concepto.trim(),
+        fecha_programada: it.fecha_programada || null,
+        monto_programado: Number(it.monto_programado),
+        orden: idx,
+      })),
+    };
+    btn.disabled = true; btn.textContent = 'Guardando…';
+    try {
+      const res = await api(`/projects/${state.projectId}/contratos-venta/${contratoResumen.id}/plan-pago`, { method: 'PUT', body });
+      toast('Plan de pagos guardado', 'success');
+      if (res.advertencia) toast(res.advertencia, 'warning');
+      await refrescarYReabrirCobranza(contratoResumen);
+    } catch (err) {
+      toast(err.message, 'danger');
+      btn.disabled = false; btn.textContent = 'Guardar plan';
+    }
+  });
+}
+
+// Un pago puede o no ligarse a un ítem del plan (pago anticipado o fuera de
+// calendario no tiene por qué corresponder a ningún renglón programado).
+// NO bloquea sobrepago — solo muestra la `advertencia` del backend.
+function openRegistrarPagoModal(contratoResumen, planItems) {
+  openModal(`
+    <h3>Registrar pago — ${esc(contratoResumen.manzana || '—')} / ${esc(contratoResumen.numero_lote)}</h3>
+    <div class="row">
+      <div class="field"><label>Monto *</label><input id="pvMonto" type="number" step="any" /></div>
+      <div class="field"><label>Fecha *</label><input id="pvFecha" type="date" value="${new Date().toISOString().slice(0, 10)}" /></div>
+    </div>
+    <div class="row">
+      <div class="field"><label>Método de pago</label>
+        <select id="pvMetodo">
+          <option value="">Sin especificar</option>
+          ${METODO_PAGO_OPCIONES.map((m) => `<option value="${esc(m)}">${esc(m)}</option>`).join('')}
+        </select>
+      </div>
+      <div class="field"><label>Referencia</label><input id="pvReferencia" placeholder="Folio, cheque, etc." /></div>
+    </div>
+    <div class="field"><label>Concepto del plan (opcional)</label>
+      <select id="pvPlanItem">
+        <option value="">Sin ítem asociado</option>
+        ${planItems.map((it) => `<option value="${it.id}">${esc(it.concepto)} — ${fmtMoney(it.monto_programado)}</option>`).join('')}
+      </select>
+      ${!planItems.length ? '<span class="muted fs-07">Este contrato todavía no tiene un plan de pagos capturado.</span>' : ''}
+    </div>
+    <div class="modal-actions">
+      <button class="btn" id="btnCancelRegistrarPago">Cancelar</button>
+      <button class="btn btn-primary" id="btnSaveRegistrarPago">Registrar pago</button>
+    </div>
+  `);
+  $('#btnCancelRegistrarPago').addEventListener('click', closeModal);
+  $('#btnSaveRegistrarPago').addEventListener('click', async () => {
+    const btn = $('#btnSaveRegistrarPago');
+    const monto = $('#pvMonto').value ? Number($('#pvMonto').value) : null;
+    if (!monto || monto <= 0) { toast('Captura un monto válido', 'danger'); return; }
+    const body = {
+      monto,
+      fecha_pago: $('#pvFecha').value || null,
+      metodo_pago: $('#pvMetodo').value || null,
+      referencia: $('#pvReferencia').value.trim() || null,
+      plan_pago_item_id: $('#pvPlanItem').value ? Number($('#pvPlanItem').value) : null,
+    };
+    btn.disabled = true; btn.textContent = 'Guardando…';
+    try {
+      const res = await api(`/projects/${state.projectId}/contratos-venta/${contratoResumen.id}/pagos`, { method: 'POST', body });
+      toast('Pago registrado', 'success');
+      if (res.advertencia) toast(res.advertencia, 'warning');
+      await refrescarYReabrirCobranza(contratoResumen);
+    } catch (err) {
+      toast(err.message, 'danger');
+      btn.disabled = false; btn.textContent = 'Registrar pago';
     }
   });
 }

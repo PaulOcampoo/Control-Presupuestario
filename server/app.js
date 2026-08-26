@@ -6882,6 +6882,43 @@ app.get('/api/projects/:id/contratos-venta/:contratoId/download', h(auth.allow()
 }));
 
 // ---------------------------------------------------------------------------
+// Cobranza (prompt-implementacion-pr-c-cobranza.md) — Fase 4, PR C. Plan de
+// pagos opcional + registro de pagos sobre un contrato de venta ya firmado.
+// Mismo criterio de permisos que el resto de Ventas: admin/desarrollador
+// exclusivo, auth.allow() sin argumentos, sin checkPermiso.
+// ---------------------------------------------------------------------------
+app.get('/api/projects/:id/contratos-venta/:contratoId/cobranza', h(auth.allow()), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  try {
+    const cobranza = await ventas.getCobranzaContrato(Number(req.params.contratoId), req.project.id);
+    res.json(cobranza);
+  } catch (err) {
+    res.status(err.status || 400).json({ error: err.message });
+  }
+}));
+
+app.put('/api/projects/:id/contratos-venta/:contratoId/plan-pago', h(auth.allow()), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  try {
+    const resultado = await ventas.guardarPlanPago(
+      Number(req.params.contratoId), req.project.id, (req.body || {}).items, req.user.id
+    );
+    res.json(resultado);
+  } catch (err) {
+    res.status(err.status || 400).json({ error: err.message });
+  }
+}));
+
+app.post('/api/projects/:id/contratos-venta/:contratoId/pagos', h(auth.allow()), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  try {
+    const resultado = await ventas.registrarPagoVenta(
+      Number(req.params.contratoId), req.project.id, req.body || {}, req.user.id
+    );
+    res.status(201).json(resultado);
+  } catch (err) {
+    res.status(err.status || 400).json({ error: err.message });
+  }
+}));
+
+// ---------------------------------------------------------------------------
 // Mapeo concepto ↔ insumos (solo admin) — infraestructura de captura para un
 // futuro bloqueo de avance; todavía no se usa para bloquear nada.
 // ---------------------------------------------------------------------------

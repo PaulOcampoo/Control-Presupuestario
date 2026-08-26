@@ -1063,6 +1063,59 @@ const SCHEMA = `
   CREATE UNIQUE INDEX IF NOT EXISTS idx_contratos_venta_lote_vigente_unico
     ON contratos_venta(lote_id) WHERE estado = 'vigente';
 
+  -- Fase 4 del roadmap "Desarrollador de Vivienda", PR C (prompt-
+  -- implementacion-pr-c-cobranza.md) — plan de pagos y registro de cobranza
+  -- sobre un contrato de venta ya firmado. Diagnóstico confirmó 'pagos'
+  -- (compras) NO reusable — 'orden_compra_id NOT NULL' lo hace 100%
+  -- incompatible estructuralmente (ese dinero sale de Roforb, este entra).
+  -- Precedente de encabezado+líneas reusado: estimaciones/estimacion_conceptos
+  -- (ver server/app.js, patrón DELETE+re-INSERT de todas las líneas al
+  -- guardar el plan completo).
+  --
+  -- planes_pago es OPCIONAL por contrato — un contrato puede recibir pagos
+  -- sin tener un plan formal capturado antes (UNIQUE en contrato_venta_id:
+  -- a lo más un plan por contrato, no historial de planes).
+  CREATE TABLE IF NOT EXISTS planes_pago (
+    id SERIAL PRIMARY KEY,
+    contrato_venta_id INTEGER NOT NULL UNIQUE REFERENCES contratos_venta(id),
+    creado_por INTEGER REFERENCES usuarios(id),
+    creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
+
+  CREATE TABLE IF NOT EXISTS plan_pago_items (
+    id SERIAL PRIMARY KEY,
+    plan_pago_id INTEGER NOT NULL REFERENCES planes_pago(id) ON DELETE CASCADE,
+    concepto TEXT NOT NULL,
+    fecha_programada DATE,
+    monto_programado DOUBLE PRECISION NOT NULL,
+    orden INTEGER NOT NULL DEFAULT 0,
+    creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
+  CREATE INDEX IF NOT EXISTS idx_plan_pago_items_plan ON plan_pago_items(plan_pago_id);
+
+  -- contrato_venta_id denormalizado (además de plan_pago_item_id) para poder
+  -- calcular total_pagado/saldo_pendiente con un solo WHERE, sin JOIN extra
+  -- a través de plan_pago_items — necesario porque plan_pago_item_id es
+  -- NULLABLE (un pago puede no corresponder a ningún ítem programado, ej.
+  -- pago anticipado o fuera de calendario). estado_pago NUNCA se persiste
+  -- aquí ni en contratos_venta — se calcula al vuelo en cada consulta
+  -- (evita un campo derivado más que sincronizar, mismo criterio que
+  -- lotes.estatus_venta es derivado pero ese si se persiste porque muchas
+  -- vistas lo filtran; aquí el cálculo es barato y no se filtra por él).
+  CREATE TABLE IF NOT EXISTS pagos_venta (
+    id SERIAL PRIMARY KEY,
+    contrato_venta_id INTEGER NOT NULL REFERENCES contratos_venta(id),
+    plan_pago_item_id INTEGER REFERENCES plan_pago_items(id),
+    monto DOUBLE PRECISION NOT NULL,
+    fecha_pago DATE NOT NULL DEFAULT CURRENT_DATE,
+    metodo_pago TEXT,
+    referencia TEXT,
+    registrado_por INTEGER REFERENCES usuarios(id),
+    creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
+  CREATE INDEX IF NOT EXISTS idx_pagos_venta_contrato ON pagos_venta(contrato_venta_id);
+  CREATE INDEX IF NOT EXISTS idx_pagos_venta_plan_item ON pagos_venta(plan_pago_item_id);
+
   -- Portal de sugerencias — cualquier usuario autenticado puede enviar; solo
   -- admin puede revisar y gestionar. prompt_generado almacena el prompt
   -- técnico formateado por IA (claude-sonnet-4-6) bajo demanda desde el

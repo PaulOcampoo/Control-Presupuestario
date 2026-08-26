@@ -789,8 +789,16 @@ async function crearEntrega(loteId, pid, { fecha, firma_digital, recibido_por, o
       throw err;
     }
 
+    // FOR UPDATE aquí (no solo en lotes) — sin este lock, cancelarContratoVenta
+    // puede colarse entre este SELECT y el INSERT de abajo (bloqueada en SU
+    // UPDATE a lotes, detrás del FOR UPDATE de arriba, pero eso no evita que
+    // ESTE SELECT lea 'vigente' justo antes de que el otro lo cancele): esta
+    // transacción terminaría insertando una entrega contra un contrato que
+    // quedó cancelado, violando el invariante "no se entrega sin contrato
+    // vigente" sin que ninguna advertencia lo refleje. Mismo criterio que el
+    // FOR UPDATE OF a sobre el apartado en crearContratoVenta (~línea 337).
     const { rows: contratoRows } = await client.query(
-      "SELECT * FROM contratos_venta WHERE lote_id = $1 AND estado = 'vigente'", [loteId]
+      "SELECT * FROM contratos_venta WHERE lote_id = $1 AND estado = 'vigente' FOR UPDATE", [loteId]
     );
     const contrato = contratoRows[0];
     if (!contrato) {

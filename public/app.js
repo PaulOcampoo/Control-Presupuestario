@@ -2312,6 +2312,19 @@ async function navigateFromNotif(notif) {
     switchToView('cumplimiento');
     return;
   }
+  // Sugerencias (prompt-notificacion-sugerencias.md): catálogo global sin obra
+  // asociada, igual que Cumplimiento arriba — no encaja en el flujo genérico
+  // de abajo (que espera project_id + tab dentro de state.allowedTabs).
+  if (notif.tipo === 'sugerencia_nueva') {
+    if (!isAdmin()) return;
+    closeNotifDropdown();
+    closeDrawer();
+    closeModal();
+    showApp();
+    switchToView('sugerencias');
+    resaltarTarjetaSugerencia(notif.referencia_id);
+    return;
+  }
   const tab = TAB_POR_TIPO_NOTIF[notif.tipo];
   if (!tab || !notif.project_id || !state.allowedTabs.includes(tab)) return;
   const proj = state.projects.find((p) => p.id === notif.project_id);
@@ -2352,6 +2365,18 @@ function scrollAndFlash(el) {
 
 function resaltarFilaAvance(semana) {
   scrollAndFlash(document.querySelector(`#avanceTbody tr[data-semana="${semana}"]`));
+}
+
+// renderSugerencias() es async y switchToView() no espera su promesa —
+// best-effort: reintenta unas cuantas veces mientras el panel admin termina
+// de pintarse antes de resaltar la tarjeta (o desistir en silencio, igual
+// que el resto de los deep-links de abrirRegistroDesdeNotif()).
+function resaltarTarjetaSugerencia(sugId, intentos = 15) {
+  if (sugId == null) return;
+  const card = document.querySelector(`[data-sug-id="${sugId}"]`);
+  if (card) { scrollAndFlash(card); return; }
+  if (intentos <= 0) return;
+  setTimeout(() => resaltarTarjetaSugerencia(sugId, intentos - 1), 150);
 }
 
 // avance_pendiente trae la semana como referencia_id (preciso). destajo_pendiente

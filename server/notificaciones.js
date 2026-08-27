@@ -31,6 +31,7 @@ const CATEGORIAS_NOTIFICACION = {
     label: 'Otras',
     tipos: {
       estimacion_rechazada: 'Estimación rechazada',
+      sugerencia_nueva: 'Nueva sugerencia enviada',
     },
   },
 };
@@ -60,6 +61,7 @@ const ROLES_POR_TIPO = {
   recordatorio_impuestos: ['admin'],
   contrato_por_vencer: ['admin', 'residente'],
   estimacion_rechazada: ['residente'],
+  sugerencia_nueva: ['admin', 'desarrollador'],
 };
 
 // Sin fila en notificacion_preferencias para (usuarioId, tipo) = activado por

@@ -12118,6 +12118,18 @@ app.post('/api/sugerencias', h(async (req, res) => {
     `INSERT INTO api_rate_limits (usuario_id, endpoint) VALUES ($1, 'sugerencias')`,
     [req.user.id]
   );
+
+  // Notifica a admin/desarrollador (mismo mecanismo genérico de notificaciones
+  // que el resto de la app, ver server/notificaciones.js). Sin project_id:
+  // Sugerencias es un catálogo global, no está atado a una obra.
+  const extracto = texto.trim().length > 80 ? `${texto.trim().slice(0, 80)}…` : texto.trim();
+  const { rows: destinatarios } = await db.pool.query(
+    "SELECT id FROM usuarios WHERE puesto IN ('admin', 'desarrollador') AND activo = true"
+  );
+  await Promise.all(destinatarios.map((d) => crearNotificacion(
+    d.id, null, 'sugerencia_nueva', rows[0].id, `${req.user.nombre} envió una sugerencia: "${extracto}"`
+  )));
+
   res.status(201).json(rows[0]);
 }));
 

@@ -1400,15 +1400,18 @@ Object.entries(SECTION_DEFS).forEach(([sectionId, def]) => {
 // accesible (ROLE_TABS.cabo sin cambios), solo deja de "contar" para
 // pintar el tile/grupo de 'costos'; en su lugar aparece como ítem suelto
 // en el sidebar (mismo patrón que "Resumen", ver renderSidebar()), y
-// renderTabsBar() le sigue mostrando Avance/Destajo/Órdenes de Cambio/
-// Infraestructura como hermanos entre sí (grupo de 'obra', su sección de
-// origen), exactamente como antes de este movimiento.
+// renderTabsBar() le sigue mostrando Avance/Destajo/Órdenes de Cambio
+// como hermanos entre sí (grupo de 'obra', su sección de origen),
+// exactamente como antes de este movimiento. ('Infraestructura vs.
+// Vivienda' salió de ROLE_TABS.cabo por completo en prompt-mover-ordenes-
+// cambio-a-costos.md — hallazgo de QA, sección aparte — así que ya no es
+// uno de los hermanos; ver commit 2b29100.)
 const EXCEPCIONES_TILE_SECCION = {
   cabo: [{ tab: 'ordenesCambio', seccionOrigen: 'obra' }], // prompt-mover-
   // ordenes-cambio-a-costos.md: cabo conserva acceso directo a Órdenes de
   // Cambio pero no tiene ningún otro tab en 'costos', así que no debe ganar
-  // ese tile/grupo completo — y sigue viéndolo agrupado con Avance/Destajo/
-  // Infraestructura en la barra de tabs, como si aún viviera en 'obra'.
+  // ese tile/grupo completo — y sigue viéndolo agrupado con Avance/Destajo
+  // en la barra de tabs, como si aún viviera en 'obra'.
 };
 function excepcionesDelRol() {
   return EXCEPCIONES_TILE_SECCION[effectivePuesto()] || [];
@@ -1555,9 +1558,11 @@ function renderTabsBar() {
     // actual, la barra se arma desde esa seccionOrigen (con el tab
     // exceptuado agregado a mano si no está ya) en vez de la sección real
     // — restaura el salto rápido entre hermanos que el rol tenía antes del
-    // movimiento (ej. cabo sigue viendo Avance/Destajo/Órdenes de Cambio/
-    // Infraestructura como un solo grupo), sin afectar el tile/breadcrumb
-    // real de nadie más ni el de este rol en ningún otro lugar.
+    // movimiento (ej. cabo sigue viendo Avance/Destajo/Órdenes de Cambio
+    // como un solo grupo — 'infraVivienda' salió de ROLE_TABS.cabo por
+    // completo, commit 2b29100, así que ya no es uno de los hermanos), sin
+    // afectar el tile/breadcrumb real de nadie más ni el de este rol en
+    // ningún otro lugar.
     const excepciones = excepcionesDelRol();
     const exVista = excepciones.find((ex) => ex.tab === state.view || ex.seccionOrigen === state.section);
     const sectionIdBar = exVista ? exVista.seccionOrigen : state.section;

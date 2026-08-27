@@ -9212,7 +9212,7 @@ app.put('/api/projects/:id/avances/:semana/conceptos', h(auth.allow('residente',
 // para que la UI pueda avisar que el % no está completo hasta clasificarlos
 // todos.
 // ---------------------------------------------------------------------------
-app.get('/api/projects/:id/grupos-categoria', h(auth.allow('residente', 'cabo', 'logistica')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('avance', 'puede_ver')), h(async (req, res) => {
+app.get('/api/projects/:id/grupos-categoria', h(auth.allow('residente', 'logistica')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('avance', 'puede_ver')), h(async (req, res) => {
   const pid = req.project.id;
   const { rows } = await db.pool.query(`
     SELECT g.grupo, cgc.categoria
@@ -9228,7 +9228,7 @@ app.get('/api/projects/:id/grupos-categoria', h(auth.allow('residente', 'cabo', 
 
 const CATEGORIAS_GRUPO_VALIDAS = ['infraestructura', 'vivienda', 'sin_clasificar'];
 
-app.post('/api/projects/:id/grupos-categoria', h(auth.allow('residente', 'cabo')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('avance', 'puede_crear')), h(async (req, res) => {
+app.post('/api/projects/:id/grupos-categoria', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('avance', 'puede_crear')), h(async (req, res) => {
   const pid = req.project.id;
   const { clasificaciones } = req.body || {};
   if (!Array.isArray(clasificaciones) || clasificaciones.length === 0) {
@@ -9286,7 +9286,7 @@ app.post('/api/projects/:id/grupos-categoria', h(auth.allow('residente', 'cabo')
   res.json({ grupos: rows.map((r) => ({ grupo: r.grupo, categoria: r.categoria || null })) });
 }));
 
-app.get('/api/projects/:id/avance-por-categoria', h(auth.allow('residente', 'cabo', 'logistica')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('avance', 'puede_ver')), h(async (req, res) => {
+app.get('/api/projects/:id/avance-por-categoria', h(auth.allow('residente', 'logistica')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('avance', 'puede_ver')), h(async (req, res) => {
   const pid = req.project.id;
 
   // Denominador: MISMA fuente de verdad que el motor de avance ya existente

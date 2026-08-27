@@ -97,3 +97,46 @@ describe('POST /api/sugerencias — notificación a admin/desarrollador', () => 
     expect(notif2.leida).toBe(true);
   });
 });
+
+// prompt-badge-sugerencias-menu.md: /api/notificaciones también expone
+// sugerencias_pendientes (badge del sidebar), piggybackeado en el mismo
+// polling — solo para admin/desarrollador, y se actualiza al cambiar el
+// estado de una sugerencia.
+describe('GET /api/notificaciones — sugerencias_pendientes (badge sidebar)', () => {
+  it('incluye sugerencias_pendientes para admin y NO para un puesto sin ese permiso', async () => {
+    const adminRes = await request(app).get('/api/notificaciones').set('Authorization', `Bearer ${adminToken}`);
+    expect(adminRes.status).toBe(200);
+    // La sugerencia creada en el describe anterior sigue en estado 'pendiente'
+    // (el test previo solo marcó su NOTIFICACIÓN como leída, no tocó `estado`).
+    expect(adminRes.body.sugerencias_pendientes).toBeGreaterThanOrEqual(1);
+
+    const residenteRes = await request(app).get('/api/notificaciones').set('Authorization', `Bearer ${residenteToken}`);
+    expect(residenteRes.status).toBe(200);
+    expect(residenteRes.body.sugerencias_pendientes).toBeUndefined();
+  });
+
+  it('el conteo baja al marcar la sugerencia como revisada y sube de nuevo al volverla a pendiente', async () => {
+    const before = await request(app).get('/api/notificaciones').set('Authorization', `Bearer ${adminToken}`);
+    const countBefore = before.body.sugerencias_pendientes;
+
+    const patchRevisada = await request(app)
+      .patch(`/api/sugerencias/${sugerenciaId}`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ estado: 'revisada' });
+    expect(patchRevisada.status).toBe(200);
+
+    const afterRevisada = await request(app).get('/api/notificaciones').set('Authorization', `Bearer ${adminToken}`);
+    expect(afterRevisada.body.sugerencias_pendientes).toBe(countBefore - 1);
+
+    // Se deja tal cual estaba (pendiente) para no interferir con el afterAll
+    // (que de todos modos borra esta sugerencia de prueba).
+    const patchPendiente = await request(app)
+      .patch(`/api/sugerencias/${sugerenciaId}`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ estado: 'pendiente' });
+    expect(patchPendiente.status).toBe(200);
+
+    const afterPendiente = await request(app).get('/api/notificaciones').set('Authorization', `Bearer ${adminToken}`);
+    expect(afterPendiente.body.sugerencias_pendientes).toBe(countBefore);
+  });
+});

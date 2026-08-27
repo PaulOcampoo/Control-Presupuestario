@@ -1291,9 +1291,11 @@ const SECTION_DEFS = {
   maquinaria:    { label: 'Maquinaria',     icon: 'maquinaria',     emoji: '🚜',   tabs: MAQUINARIA_TABS_ADMIN,                                 proximamente: [] },
   // prompt-seccion-costos-implementacion.md: sección "Costos" nueva,
   // reemplaza a "Presupuestos" (disuelta — su único tab restante,
-  // ordenesCambio, regresó a Obra arriba). admin/desarrollador/residente
-  // conservan acceso a Matrices/Composición de Costos sin cambios, solo
-  // agrupadas aquí en vez de en "Presupuestos".
+  // ordenesCambio, regresó a Obra arriba en ese momento; ver más abajo,
+  // prompt-mover-ordenes-cambio-a-costos.md, donde vuelve a salir de Obra
+  // y esta vez aterriza aquí de forma definitiva). admin/desarrollador/
+  // residente conservan acceso a Matrices/Composición de Costos sin
+  // cambios, solo agrupadas aquí en vez de en "Presupuestos".
   // 'programa' DELIBERADAMENTE no está en esta lista, pese a que costos gana
   // acceso a Programa (PERMISSIONS.costos.tabs en server/auth.js) — decisión
   // consultada con Paul durante la implementación: VIEW_TO_SECTION es un mapa
@@ -1375,8 +1377,15 @@ Object.entries(SECTION_DEFS).forEach(([sectionId, def]) => {
 // Tabs que cuentan para ROLE_TABS/permisos normal, pero que NO deben
 // disparar la visibilidad del tile/grupo de su sección padre para roles
 // que solo tienen ESE tab ahí (evita "ganar" una sección completa como
-// efecto colateral de que un tab suyo se reubicó a otra sección). Mapa
-// extensible: si mañana otro rol cae en el mismo caso, se agrega aquí.
+// efecto colateral de que un tab suyo se reubicó a otra sección). Cada
+// entrada también registra 'seccionOrigen' — la sección de la que salió el
+// tab — que renderTabsBar() usa para reconstruir el grupo de navegación
+// rápida "como si" el tab nunca se hubiera movido para ese rol (ver más
+// abajo): el tile/breadcrumb ya vive en la sección nueva en todos los demás
+// lugares, pero el salto rápido entre pantallas relacionadas que el rol
+// tenía antes del movimiento no se pierde. Mapa extensible (lista de
+// {tab, seccionOrigen} por rol): si mañana otro rol/tab cae en el mismo
+// caso, se agrega aquí sin tocar la lógica que lo consume.
 // Caso de origen (prompt-mover-ordenes-cambio-a-costos.md): 'ordenesCambio'
 // se mudó de 'obra' a 'costos' (ver SECTION_DEFS arriba). Todos los roles
 // con acceso a 'ordenesCambio' ya tenían al menos otro tab de 'costos'
@@ -1390,14 +1399,22 @@ Object.entries(SECTION_DEFS).forEach(([sectionId, def]) => {
 // renderSidebar() — para 'cabo', 'ordenesCambio' sigue siendo 100%
 // accesible (ROLE_TABS.cabo sin cambios), solo deja de "contar" para
 // pintar el tile/grupo de 'costos'; en su lugar aparece como ítem suelto
-// en el sidebar (mismo patrón que "Resumen", ver renderSidebar()).
+// en el sidebar (mismo patrón que "Resumen", ver renderSidebar()), y
+// renderTabsBar() le sigue mostrando Avance/Destajo/Órdenes de Cambio/
+// Infraestructura como hermanos entre sí (grupo de 'obra', su sección de
+// origen), exactamente como antes de este movimiento.
 const EXCEPCIONES_TILE_SECCION = {
-  cabo: ['ordenesCambio'], // prompt-mover-ordenes-cambio-a-costos.md: cabo
-  // conserva acceso directo a Órdenes de Cambio pero no tiene ningún otro
-  // tab en 'costos', así que no debe ganar ese tile/grupo completo.
+  cabo: [{ tab: 'ordenesCambio', seccionOrigen: 'obra' }], // prompt-mover-
+  // ordenes-cambio-a-costos.md: cabo conserva acceso directo a Órdenes de
+  // Cambio pero no tiene ningún otro tab en 'costos', así que no debe ganar
+  // ese tile/grupo completo — y sigue viéndolo agrupado con Avance/Destajo/
+  // Infraestructura en la barra de tabs, como si aún viviera en 'obra'.
 };
+function excepcionesDelRol() {
+  return EXCEPCIONES_TILE_SECCION[effectivePuesto()] || [];
+}
 function tabCuentaParaTileDeSeccion(tab) {
-  return !(EXCEPCIONES_TILE_SECCION[effectivePuesto()] || []).includes(tab);
+  return !excepcionesDelRol().some((ex) => ex.tab === tab);
 }
 
 // Secciones que muestran primero una galería de subsecciones (mismo patrón
@@ -1532,9 +1549,23 @@ function renderTabsBar() {
   nav.style.display = '';
   let html = '';
   if (state.section) {
-    const def = SECTION_DEFS[state.section];
+    // prompt-mover-ordenes-cambio-a-costos.md: si el rol activo tiene una
+    // excepción (EXCEPCIONES_TILE_SECCION) cuyo tab exceptuado es la vista
+    // actual, o cuya seccionOrigen coincide con la sección real de la vista
+    // actual, la barra se arma desde esa seccionOrigen (con el tab
+    // exceptuado agregado a mano si no está ya) en vez de la sección real
+    // — restaura el salto rápido entre hermanos que el rol tenía antes del
+    // movimiento (ej. cabo sigue viendo Avance/Destajo/Órdenes de Cambio/
+    // Infraestructura como un solo grupo), sin afectar el tile/breadcrumb
+    // real de nadie más ni el de este rol en ningún otro lugar.
+    const excepciones = excepcionesDelRol();
+    const exVista = excepciones.find((ex) => ex.tab === state.view || ex.seccionOrigen === state.section);
+    const sectionIdBar = exVista ? exVista.seccionOrigen : state.section;
+    const def = SECTION_DEFS[sectionIdBar];
+    const tabsExtra = excepciones.filter((ex) => ex.seccionOrigen === sectionIdBar).map((ex) => ex.tab);
+    const tabsBar = [...def.tabs, ...tabsExtra.filter((t) => !def.tabs.includes(t))];
     html += `<button class="tab tab-back" data-goto="inicio">←</button>`;
-    def.tabs.filter((t) => state.allowedTabs.includes(t)).forEach((t) => {
+    tabsBar.filter((t) => state.allowedTabs.includes(t)).forEach((t) => {
       html += `<button class="tab ${state.view === t ? 'active' : ''}" data-goto="${t}"><span class="tab-icon">${TAB_ICONS[t]}</span><span class="tab-label">${TAB_LABELS[t]}</span></button>`;
     });
     def.proximamente.forEach((nombre) => {
@@ -1714,7 +1745,7 @@ function renderSidebar() {
   // patrón/markup que "Resumen" arriba. Genérico a propósito: cualquier tab
   // que caiga en el mapa de excepciones para el rol activo aparece aquí
   // automáticamente, sin hardcodear 'cabo'/'ordenesCambio' en este bloque.
-  (EXCEPCIONES_TILE_SECCION[effectivePuesto()] || []).forEach((t) => {
+  excepcionesDelRol().forEach(({ tab: t }) => {
     if (!renderableTabs.includes(t)) return;
     const active = state.view === t ? 'active' : '';
     html += `<button class="sbar-item ${active}" data-sbar-goto="${t}" title="${esc(TAB_LABELS[t])}">

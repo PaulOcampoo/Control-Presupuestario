@@ -1235,7 +1235,7 @@ function renderNotifBadge() {
 function renderSugerenciasBadge() {
   const el = $('#sbarSugerenciasBadge');
   if (!el) return;
-  const esAdminODev = ['admin', 'desarrollador'].includes(state.user?.puesto);
+  const esAdminODev = isAdminRealSinSimular();
   const count = Number(state.sugerenciasPendientes) || 0;
   if (!esAdminODev || count <= 0) { el.style.display = 'none'; return; }
   el.textContent = count > 9 ? '9+' : String(count);

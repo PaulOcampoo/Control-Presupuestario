@@ -8670,7 +8670,12 @@ const PERMISOS_SECCION_LABELS = {
   insumos: 'Insumos', mapeo: 'Mapeo', usuarios: 'Usuarios', contrato: 'Contrato', impuestos: 'Impuestos',
   nominas: 'Nóminas', sugerencias: 'Sugerencias', programa: 'Programa', estimaciones: 'Estimaciones',
   maquinaria: 'Maquinaria (equipos)', maquinaria_captura: 'Maquinaria (horas: captura/autorización)',
-  maquinaria_combustible: 'Maquinaria (combustible/mantenimiento)', trabajadores: 'Trabajadores',
+  // prompt-limpieza-permisos-cabo.md: separada de 'maquinaria_mantenimiento'
+  // (antes CN-002 las fusionaba bajo un solo permiso) — el label ya no dice
+  // "combustible/mantenimiento".
+  maquinaria_combustible: 'Maquinaria (combustible)',
+  maquinaria_mantenimiento: 'Maquinaria (mantenimiento — bitácora de taller)',
+  trabajadores: 'Trabajadores',
   trabajadores_global: 'Trabajadores (Todas las Obras)', nominas_global: 'Nóminas (Todas las Obras)',
   // prompt-14-matrices-precio-unitario.md: 'costos' ahora también gatea
   // Matrices de precio unitario (puede_editar/puede_editar_precios/
@@ -8724,7 +8729,22 @@ const PERMISOS_SECCION_LABELS = {
 // (prompt-25-auditoria-permisos-completa.md): mismo patrón cross-obra que
 // trabajadores_global/nominas_global (endpoint /api/estado-resultados/
 // consolidado, sin :id de obra).
-const SECCIONES_SIEMPRE_GLOBAL = ['trabajadores_global', 'nominas_global', 'costos', 'estado_resultados_global'];
+// prompt-limpieza-permisos-cabo.md: 'maquinaria', 'maquinaria_captura',
+// 'maquinaria_combustible', 'maquinaria_consumibles', 'estado_unidad' y
+// 'maquinaria_mantenimiento' agregadas — gap preexistente encontrado durante
+// verificación visual en vivo (ninguna de las 6 estaba aquí, desde que
+// existen). Los 6 endpoints reales (GET /api/maquinaria/equipos,
+// /combustible, /mantenimientos, /consumibles, /estado-unidad, etc.) NO
+// cuelgan de /api/projects/:id — son catálogo/registro cross-obra, igual que
+// 'costos' — así que si el admin tenía una obra específica seleccionada en
+// el dropdown al otorgar cualquiera de estas, la fila se guardaba con
+// proyecto_id = esa obra en vez de NULL, y tienePermiso() nunca la
+// encontraba (su query solo matchea proyecto_id IS NULL cuando el endpoint
+// no tiene req.project) — el toggle se veía marcado en la UI pero el
+// permiso real nunca aplicaba. Confirmado en vivo con un cabo de prueba:
+// 'maquinaria_combustible' quedó guardada con proyecto_id de una obra
+// específica y el usuario seguía en 403 real en GET /maquinaria/combustible.
+const SECCIONES_SIEMPRE_GLOBAL = ['trabajadores_global', 'nominas_global', 'costos', 'estado_resultados_global', 'maquinaria', 'maquinaria_captura', 'maquinaria_combustible', 'maquinaria_consumibles', 'estado_unidad', 'maquinaria_mantenimiento'];
 const PERMISOS_SECCIONES = Object.keys(PERMISOS_SECCION_LABELS);
 const PERMISOS_ACCIONES = [
   { key: 'puede_ver', label: 'Ver' },
@@ -8797,8 +8817,14 @@ const ACCIONES_CON_ENFORCEMENT = {
   // maquinaria_combustible.puede_eliminar: el DELETE real usa checkPermiso
   // ('maquinaria','puede_eliminar'), no esta sección — cruzado, documentado
   // acá para no repetir la confusión. No existe endpoint de editar registro
-  // de combustible/mantenimiento (se registra y ya).
+  // de combustible.
   maquinaria_combustible: ['puede_ver', 'puede_crear'],
+  // prompt-limpieza-permisos-cabo.md: separada de 'maquinaria_combustible'.
+  // maquinaria_mantenimiento.puede_eliminar: mismo cruce que combustible
+  // arriba — el DELETE real de /mantenimientos/:id sigue usando checkPermiso
+  // ('maquinaria','puede_eliminar'), no se tocó (fuera de alcance). No existe
+  // endpoint de editar registro de mantenimiento.
+  maquinaria_mantenimiento: ['puede_ver', 'puede_crear'],
   trabajadores_global: ['puede_ver'],
   nominas_global: ['puede_ver'],
   trabajadores: ['puede_ver', 'puede_crear', 'puede_editar', 'puede_eliminar'],
@@ -8838,7 +8864,7 @@ const PERMISOS_GRUPOS = [
   { label: 'Compras',        secciones: ['requisiciones', 'insumos', 'proveedores', 'ordenes_compra', 'cotizador'] },
   { label: 'Tesorería',      secciones: ['finanzas', 'estado_resultados', 'estado_resultados_global', 'impuestos'] },
   { label: 'Administración', secciones: ['mapeo', 'contrato', 'nominas', 'usuarios', 'trabajadores', 'trabajadores_docs', 'trabajadores_contrato', 'trabajadores_bancarios', 'trabajadores_global', 'nominas_global', 'costos'] },
-  { label: 'Maquinaria',     secciones: ['maquinaria', 'maquinaria_captura', 'maquinaria_combustible', 'estado_unidad', 'maquinaria_consumibles'] },
+  { label: 'Maquinaria',     secciones: ['maquinaria', 'maquinaria_captura', 'maquinaria_combustible', 'maquinaria_mantenimiento', 'estado_unidad', 'maquinaria_consumibles'] },
   { label: 'General',        secciones: ['sugerencias'] },
 ];
 // Mirror de TAB_A_SECCION/defaultPermisosParaRol en server/auth.js — solo se
@@ -8906,6 +8932,17 @@ function defaultPermisosParaRolFrontend(puesto) {
     if (porSeccion.requisiciones) porSeccion.requisiciones.puede_crear = true;
     if (porSeccion.ordenes_cambio) porSeccion.ordenes_cambio.puede_crear = true;
     if (porSeccion.lotes) { porSeccion.lotes.puede_crear = true; porSeccion.lotes.puede_editar = true; }
+    // prompt-limpieza-permisos-cabo.md: mirror de los defaults nuevos de
+    // residente en server/auth.js — solo lectura, residente no captura
+    // combustible/mantenimiento (eso sigue siendo jefe_maquinaria).
+    porSeccion.maquinaria_combustible = {
+      seccion: 'maquinaria_combustible', puede_ver: true, puede_crear: false,
+      puede_editar: false, puede_editar_precios: false, puede_eliminar: false,
+    };
+    porSeccion.maquinaria_mantenimiento = {
+      seccion: 'maquinaria_mantenimiento', puede_ver: true, puede_crear: false,
+      puede_editar: false, puede_editar_precios: false, puede_eliminar: false,
+    };
   }
   if (puesto === 'cabo') {
     if (porSeccion.destajo) porSeccion.destajo.puede_editar = true;
@@ -8926,6 +8963,13 @@ function defaultPermisosParaRolFrontend(puesto) {
   if (puesto === 'jefe_maquinaria') {
     porSeccion.maquinaria_combustible = {
       seccion: 'maquinaria_combustible', puede_ver: true, puede_crear: true,
+      puede_editar: false, puede_editar_precios: false, puede_eliminar: false,
+    };
+    // prompt-limpieza-permisos-cabo.md: 'maquinaria_mantenimiento' separada
+    // de 'maquinaria_combustible' — jefe_maquinaria sigue con ambas (su rol
+    // cubre las dos), mismo criterio ver+crear que combustible arriba.
+    porSeccion.maquinaria_mantenimiento = {
+      seccion: 'maquinaria_mantenimiento', puede_ver: true, puede_crear: true,
       puede_editar: false, puede_editar_precios: false, puede_eliminar: false,
     };
   }
@@ -10504,17 +10548,28 @@ async function renderMaquinariaHoras(view) {
 }
 
 async function renderMaquinariaBitacora(view) {
-  const [bitacoraTaller, misPermisosCombustible, equipos] = await Promise.all([
-    // 403 esperado para operador/cabo (sin fila en 'maquinaria_combustible').
+  const [bitacoraTaller, misPermisosCombustible, misPermisosMantenimiento, equipos] = await Promise.all([
+    // 403 esperado para operador/cabo/residente-sin-permiso (sin fila en
+    // 'maquinaria_mantenimiento' — bitacora-taller es literalmente
+    // maquinaria.listMantenimientos(), mismo dato que GET /mantenimientos).
     api('/maquinaria/bitacora-taller').catch(() => []),
     api('/mis-permisos/maquinaria_combustible'),
+    // prompt-limpieza-permisos-cabo.md: 'mantenimiento' (bitácora de taller)
+    // se separó de 'maquinaria_combustible' — antes compartían el mismo
+    // permiso (CN-002), lo que hacía que otorgar solo combustible a alguien
+    // (ej. cabo) le heredara también acceso a mantenimientos sin que eso
+    // fuera una decisión explícita.
+    api('/mis-permisos/maquinaria_mantenimiento'),
     api('/maquinaria/equipos'),
   ]);
   maquinariaEquiposCache = equipos;
   // CN-002: combustible/mantenimiento no comparte el permiso de 'maquinaria'.
+  // Desde prompt-limpieza-permisos-cabo.md, combustible y mantenimiento
+  // tampoco comparten el permiso ENTRE ELLOS — cada botón/vista se gatea con
+  // su propia sección.
   const puedeCrearCombustible = !!misPermisosCombustible.puede_crear;
-  const puedeCrearBitacora = !!misPermisosCombustible.puede_crear;
-  const puedeVerBitacora = !!misPermisosCombustible.puede_ver;
+  const puedeCrearBitacora = !!misPermisosMantenimiento.puede_crear;
+  const puedeVerBitacora = !!misPermisosMantenimiento.puede_ver;
   view.innerHTML = `
     <h2 class="section-title">🔧 Bitácora de taller</h2>
     <p class="muted">Combustible, mantenimiento (con refacciones), consumibles y herramientas.</p>
@@ -11063,9 +11118,16 @@ async function toggleHistorialMaq(btn) {
   body.dataset.loaded = '1';
   body.innerHTML = '<div class="spinner"></div>';
   try {
+    // prompt-limpieza-permisos-cabo.md (Fase 2): combustible/mantenimientos
+    // ahora gatean con 'maquinaria_combustible' (antes compartían 'maquinaria'
+    // con catálogo/horas) — un rol con acceso a Catálogo pero no a Bitácora
+    // de taller (ej. cabo) recibe 403 esperado en esos dos. .catch(() => [])
+    // en vez de dejar que el try/catch externo pinte un error box: así el
+    // panel simplemente omite esas filas y sigue mostrando Horas, mismo
+    // criterio que ya usa renderMaquinariaBitacora() con bitacora-taller.
     const [combustible, mantenimientos, horas] = await Promise.all([
-      api(`/maquinaria/combustible?equipo_id=${equipoId}`),
-      api(`/maquinaria/mantenimientos?equipo_id=${equipoId}`),
+      api(`/maquinaria/combustible?equipo_id=${equipoId}`).catch(() => []),
+      api(`/maquinaria/mantenimientos?equipo_id=${equipoId}`).catch(() => []),
       api(`/maquinaria/horas?equipo_id=${equipoId}`),
     ]);
     const filas = [

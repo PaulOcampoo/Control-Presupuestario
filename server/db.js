@@ -1339,7 +1339,7 @@ const SCHEMA = `
       'trabajadores_global','nominas_global','trabajadores','estado_resultados','maquinaria_captura','maquinaria_combustible',
       'costos','trabajadores_docs','trabajadores_contrato','trabajadores_bancarios',
       'cotizador','estado_resultados_global','estado_unidad','maquinaria_consumibles',
-      'ordenes_cambio','lotes','modelos_vivienda'
+      'ordenes_cambio','lotes','modelos_vivienda','maquinaria_mantenimiento'
     )),
     puede_ver BOOLEAN NOT NULL DEFAULT false,
     puede_crear BOOLEAN NOT NULL DEFAULT false,
@@ -1382,6 +1382,10 @@ const SCHEMA = `
   -- 'ordenes_cambio' arriba.
   -- 'modelos_vivienda' agregado en prompt-implementacion-catalogo-comercial.md
   -- (Fase 3) — sección propia con enforcement real, mismo criterio que 'lotes'.
+  -- 'maquinaria_mantenimiento' agregado en prompt-limpieza-permisos-cabo.md —
+  -- separada de 'maquinaria_combustible' (antes CN-002 fusionaba combustible
+  -- y bitácora de mantenimiento bajo un solo permiso, ver comentario en
+  -- SECCIONES_PERMISOS de server/auth.js).
   ALTER TABLE permisos_usuario DROP CONSTRAINT IF EXISTS permisos_usuario_seccion_check;
   ALTER TABLE permisos_usuario ADD CONSTRAINT permisos_usuario_seccion_check CHECK (seccion IN (
     'presupuestos','requisiciones','proveedores','ordenes_compra','avance',
@@ -1390,7 +1394,7 @@ const SCHEMA = `
     'trabajadores_global','nominas_global','trabajadores','estado_resultados','maquinaria_captura','maquinaria_combustible',
     'costos','trabajadores_docs','trabajadores_contrato','trabajadores_bancarios',
     'cotizador','estado_resultados_global','estado_unidad','maquinaria_consumibles',
-    'ordenes_cambio','lotes','modelos_vivienda'
+    'ordenes_cambio','lotes','modelos_vivienda','maquinaria_mantenimiento'
   ));
 
   -- Contador de folios por obra + tipo de documento. INSERT...ON CONFLICT DO
@@ -2160,6 +2164,43 @@ const SCHEMA = `
     AND NOT EXISTS (
       SELECT 1 FROM permisos_usuario pu
       WHERE pu.usuario_id = u.id AND pu.proyecto_id IS NULL AND pu.seccion = 'maquinaria_combustible'
+    );
+
+  -- prompt-limpieza-permisos-cabo.md: 'maquinaria_combustible' para residente
+  -- (solo lectura) — defaultPermisosParaRol (server/auth.js) ya la da a
+  -- altas NUEVAS desde este mismo prompt, preservando lo que residente ya
+  -- veía vía el panel "Historial" de Catálogo; sin backfill, cualquier
+  -- residente ya existente se habría quedado bloqueado en cuanto GET
+  -- /maquinaria/combustible dejó de aceptar la sección genérica 'maquinaria'
+  -- — mismo patrón que el backfill de jefe_maquinaria arriba.
+  INSERT INTO permisos_usuario (usuario_id, proyecto_id, seccion, puede_ver, puede_crear, puede_editar, puede_editar_precios, puede_eliminar)
+  SELECT u.id, NULL, 'maquinaria_combustible', true, false, false, false, false
+  FROM usuarios u
+  WHERE u.puesto = 'residente'
+    AND NOT EXISTS (
+      SELECT 1 FROM permisos_usuario pu
+      WHERE pu.usuario_id = u.id AND pu.proyecto_id IS NULL AND pu.seccion = 'maquinaria_combustible'
+    );
+
+  -- prompt-limpieza-permisos-cabo.md: 'maquinaria_mantenimiento', sección
+  -- nueva separada de 'maquinaria_combustible' (antes CN-002 las fusionaba
+  -- bajo un solo permiso — ver SECCIONES_PERMISOS en server/auth.js).
+  -- Backfill deliberado SOLO para jefe_maquinaria y residente (mismos roles
+  -- que ya recibían lectura/escritura de mantenimiento por compartir
+  -- 'maquinaria_combustible') — a propósito NO se backfillea para ningún
+  -- cabo existente (ej. Emonico, que ya tiene 'maquinaria_combustible'
+  -- concedido en producción): el punto de esta separación es que ese
+  -- permiso ya NO implique mantenimiento automáticamente, así que replicarlo
+  -- aquí vía backfill recrearía exactamente la herencia implícita que se
+  -- está eliminando. Si algún cabo específico sí necesita mantenimiento, se
+  -- concede aparte y a propósito desde la matriz.
+  INSERT INTO permisos_usuario (usuario_id, proyecto_id, seccion, puede_ver, puede_crear, puede_editar, puede_editar_precios, puede_eliminar)
+  SELECT u.id, NULL, 'maquinaria_mantenimiento', true, (u.puesto = 'jefe_maquinaria'), false, false, false
+  FROM usuarios u
+  WHERE u.puesto IN ('jefe_maquinaria', 'residente')
+    AND NOT EXISTS (
+      SELECT 1 FROM permisos_usuario pu
+      WHERE pu.usuario_id = u.id AND pu.proyecto_id IS NULL AND pu.seccion = 'maquinaria_mantenimiento'
     );
 
   -- prompt-fondo-garantia-editable-panel.md: defaultPermisosParaRol

@@ -9212,7 +9212,16 @@ app.put('/api/projects/:id/avances/:semana/conceptos', h(auth.allow('residente',
 // para que la UI pueda avisar que el % no está completo hasta clasificarlos
 // todos.
 // ---------------------------------------------------------------------------
-app.get('/api/projects/:id/grupos-categoria', h(auth.allow('residente', 'cabo', 'logistica')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('avance', 'puede_ver')), h(async (req, res) => {
+// 'cabo' EXCLUIDO A PROPÓSITO de los 3 auth.allow() de abajo (GET/POST
+// grupos-categoria, GET avance-por-categoria) — confirmado por el negocio
+// (QA, commit 2b29100): cabo no debe tener acceso a Infraestructura vs.
+// Vivienda por ninguna vía. Sí conserva 'cabo' en checkPermiso('avance', ...)
+// y en los endpoints hermanos de Avance (/avances, /avances/:semana/
+// conceptos, etc.) — esa sección de permiso es compartida a propósito (ver
+// TAB_A_SECCION.infraVivienda en public/app.js), pero el acceso real a ESTA
+// feature específica se resuelve aquí, no ahí. Si se agrega un endpoint
+// nuevo para esta feature, replicar la misma exclusión.
+app.get('/api/projects/:id/grupos-categoria', h(auth.allow('residente', 'logistica')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('avance', 'puede_ver')), h(async (req, res) => {
   const pid = req.project.id;
   const { rows } = await db.pool.query(`
     SELECT g.grupo, cgc.categoria
@@ -9228,7 +9237,8 @@ app.get('/api/projects/:id/grupos-categoria', h(auth.allow('residente', 'cabo', 
 
 const CATEGORIAS_GRUPO_VALIDAS = ['infraestructura', 'vivienda', 'sin_clasificar'];
 
-app.post('/api/projects/:id/grupos-categoria', h(auth.allow('residente', 'cabo')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('avance', 'puede_crear')), h(async (req, res) => {
+// 'cabo' excluido a propósito — ver comentario arriba de GET /grupos-categoria.
+app.post('/api/projects/:id/grupos-categoria', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('avance', 'puede_crear')), h(async (req, res) => {
   const pid = req.project.id;
   const { clasificaciones } = req.body || {};
   if (!Array.isArray(clasificaciones) || clasificaciones.length === 0) {
@@ -9286,7 +9296,8 @@ app.post('/api/projects/:id/grupos-categoria', h(auth.allow('residente', 'cabo')
   res.json({ grupos: rows.map((r) => ({ grupo: r.grupo, categoria: r.categoria || null })) });
 }));
 
-app.get('/api/projects/:id/avance-por-categoria', h(auth.allow('residente', 'cabo', 'logistica')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('avance', 'puede_ver')), h(async (req, res) => {
+// 'cabo' excluido a propósito — ver comentario arriba de GET /grupos-categoria.
+app.get('/api/projects/:id/avance-por-categoria', h(auth.allow('residente', 'logistica')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('avance', 'puede_ver')), h(async (req, res) => {
   const pid = req.project.id;
 
   // Denominador: MISMA fuente de verdad que el motor de avance ya existente

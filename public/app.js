@@ -44,7 +44,7 @@ const ROLE_TABS = {
   admin:          ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'cumplimiento', 'finanzas', 'compromisos', 'fondoGarantia', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', 'ordenesCambio', 'lotes', 'modelosVivienda', 'compradores', 'apartados', 'contratosVenta', 'infraVivienda', ...MAQUINARIA_TABS_ADMIN, 'cotizador', 'costos', 'costosDashboard', 'matrices', 'avance_clientes', 'composicion_costos', 'dashboardEjecutivo', 'catalogoBasicos', ...CONTABILIDAD_TABS],
   desarrollador:  ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'cumplimiento', 'finanzas', 'compromisos', 'fondoGarantia', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', 'ordenesCambio', 'lotes', 'modelosVivienda', 'compradores', 'apartados', 'contratosVenta', 'infraVivienda', ...MAQUINARIA_TABS_ADMIN, 'cotizador', 'costos', 'costosDashboard', 'matrices', 'avance_clientes', 'composicion_costos', 'dashboardEjecutivo', 'catalogoBasicos', ...CONTABILIDAD_TABS],
   residente:      ['programa', 'avance', 'destajo', 'requisiciones', 'insumos', 'ordenes', 'nominas', 'trabajadores', 'estimaciones', 'ordenesCambio', 'lotes', 'modelosVivienda', 'infraVivienda', 'matrices'],
-  cabo:           ['destajo', 'insumos', 'avance', 'requisiciones', ...MAQUINARIA_TABS_CABO, 'trabajadores', 'nominas', 'ordenesCambio', 'infraVivienda'],
+  cabo:           ['destajo', 'insumos', 'avance', 'requisiciones', ...MAQUINARIA_TABS_CABO, 'trabajadores', 'nominas', 'ordenesCambio'],
   compras:        ['programa', 'requisiciones', 'insumos', 'ordenes', 'proveedores', 'cumplimiento', 'cotizador'],
   tesoreria:      ['resumen', 'finanzas', 'compromisos', 'fondoGarantia', 'ordenes', 'contrato', 'impuestos', 'proveedores', 'cumplimiento', 'dashboardEjecutivo'],
   administracion: ['resumen', 'programa', 'destajo', 'ordenes', 'proveedores', 'cumplimiento', 'contrato', 'impuestos', 'mapeo'],
@@ -1255,10 +1255,15 @@ const TAB_POR_TIPO_NOTIF = {
 // ---------------------------------------------------------------------------
 const SECTION_DEFS = {
   // 'ordenesCambio' (prompt-ordenes-cambio.md) vivió un tiempo en Presupuestos
-  // (prompt-costos-mapeo-y-mover-tiles.md), pero esa sección se disolvió
-  // (prompt-seccion-costos-implementacion.md, ver 'costos' más abajo) —
-  // ordenesCambio regresa aquí, de donde salió.
-  obra:          { label: 'Obra',           icon: 'obra',           emoji: '🏗️',  tabs: ['programa', 'avance', 'destajo', 'estimaciones', 'ordenesCambio', 'lotes', 'modelosVivienda', 'infraVivienda'], proximamente: [] },
+  // (prompt-costos-mapeo-y-mover-tiles.md), luego regresó aquí cuando esa
+  // sección se disolvió (prompt-seccion-costos-implementacion.md) — y ahora
+  // sale de Obra otra vez, esta vez hacia 'costos' de forma definitiva
+  // (prompt-mover-ordenes-cambio-a-costos.md): temáticamente encaja mejor
+  // junto a Matrices/Composición de Costos que junto a Programa/Avance, y
+  // así lo pidió el negocio. Ver 'costos' más abajo — sección de destino —
+  // y EXCEPCIONES_TILE_SECCION (justo después de VIEW_TO_SECTION) para el
+  // manejo especial que este movimiento requirió para el rol 'cabo'.
+  obra:          { label: 'Obra',           icon: 'obra',           emoji: '🏗️',  tabs: ['programa', 'avance', 'destajo', 'estimaciones', 'lotes', 'modelosVivienda', 'infraVivienda'], proximamente: [] },
   // Fase 4 del roadmap "Desarrollador de Vivienda", PR A (prompt-
   // implementacion-pr-a-compradores-apartado.md, diagnóstico previo en
   // prompt-diagnostico-compradores-venta.md) — sección de nivel superior
@@ -1286,9 +1291,11 @@ const SECTION_DEFS = {
   maquinaria:    { label: 'Maquinaria',     icon: 'maquinaria',     emoji: '🚜',   tabs: MAQUINARIA_TABS_ADMIN,                                 proximamente: [] },
   // prompt-seccion-costos-implementacion.md: sección "Costos" nueva,
   // reemplaza a "Presupuestos" (disuelta — su único tab restante,
-  // ordenesCambio, regresó a Obra arriba). admin/desarrollador/residente
-  // conservan acceso a Matrices/Composición de Costos sin cambios, solo
-  // agrupadas aquí en vez de en "Presupuestos".
+  // ordenesCambio, regresó a Obra arriba en ese momento; ver más abajo,
+  // prompt-mover-ordenes-cambio-a-costos.md, donde vuelve a salir de Obra
+  // y esta vez aterriza aquí de forma definitiva). admin/desarrollador/
+  // residente conservan acceso a Matrices/Composición de Costos sin
+  // cambios, solo agrupadas aquí en vez de en "Presupuestos".
   // 'programa' DELIBERADAMENTE no está en esta lista, pese a que costos gana
   // acceso a Programa (PERMISSIONS.costos.tabs en server/auth.js) — decisión
   // consultada con Paul durante la implementación: VIEW_TO_SECTION es un mapa
@@ -1315,7 +1322,15 @@ const SECTION_DEFS = {
   // catálogo global de básicos (código único cross-obra, costo directo vía
   // resolverBasico(), veces reusado). Mismo criterio: GLOBAL, sin entrada en
   // TAB_A_SECCION, checkPermiso('costos', 'puede_ver') real en el endpoint.
-  costos:        { label: 'Costos',         icon: 'costos',         emoji: '📑',   tabs: ['costosDashboard', 'matrices', 'costos', 'composicion_costos', 'mapeo', 'catalogoBasicos'], proximamente: [] },
+  // prompt-mover-ordenes-cambio-a-costos.md: 'ordenesCambio' se muda aquí
+  // desde 'obra' (ver comentario en obra.tabs arriba) — mismo componente/
+  // lógica interna, solo cambia de galería. Su permiso granular
+  // ('ordenes_cambio' en TAB_A_SECCION/checkPermiso) es independiente del
+  // permiso 'costos' de esta sección, así que el movimiento no toca a quién
+  // puede ver/editar Órdenes de Cambio — solo dónde vive en el menú. El
+  // único efecto colateral fue el rol 'cabo' (tenía ordenesCambio pero
+  // ningún otro tab de 'costos'): ver EXCEPCIONES_TILE_SECCION más abajo.
+  costos:        { label: 'Costos',         icon: 'costos',         emoji: '📑',   tabs: ['costosDashboard', 'matrices', 'ordenesCambio', 'costos', 'composicion_costos', 'mapeo', 'catalogoBasicos'], proximamente: [] },
   // prompt-contabilidad-fase1/2/3/4 + prompt-contabilidad-galeria-tiles.md:
   // 5 subsecciones reales (antes: un solo tab 'contabilidad' con subnav
   // interno propio, mismo patrón que 'controlFinanciero' — reemplazado por
@@ -1358,6 +1373,52 @@ const VIEW_TO_SECTION = {};
 Object.entries(SECTION_DEFS).forEach(([sectionId, def]) => {
   def.tabs.forEach((t) => { VIEW_TO_SECTION[t] = sectionId; });
 });
+
+// Tabs que cuentan para ROLE_TABS/permisos normal, pero que NO deben
+// disparar la visibilidad del tile/grupo de su sección padre para roles
+// que solo tienen ESE tab ahí (evita "ganar" una sección completa como
+// efecto colateral de que un tab suyo se reubicó a otra sección). Cada
+// entrada también registra 'seccionOrigen' — la sección de la que salió el
+// tab — que renderTabsBar() usa para reconstruir el grupo de navegación
+// rápida "como si" el tab nunca se hubiera movido para ese rol (ver más
+// abajo): el tile/breadcrumb ya vive en la sección nueva en todos los demás
+// lugares, pero el salto rápido entre pantallas relacionadas que el rol
+// tenía antes del movimiento no se pierde. Mapa extensible (lista de
+// {tab, seccionOrigen} por rol): si mañana otro rol/tab cae en el mismo
+// caso, se agrega aquí sin tocar la lógica que lo consume.
+// Caso de origen (prompt-mover-ordenes-cambio-a-costos.md): 'ordenesCambio'
+// se mudó de 'obra' a 'costos' (ver SECTION_DEFS arriba). Todos los roles
+// con acceso a 'ordenesCambio' ya tenían al menos otro tab de 'costos'
+// (admin/desarrollador/residente vía 'matrices', costos vía el resto de
+// sus propios tabs) EXCEPTO 'cabo', cuyo único tab en ROLE_TABS.cabo que
+// cae dentro de 'costos.tabs' es justo 'ordenesCambio' — sin esta
+// excepción, cabo vería aparecer de la nada un tile/grupo "Costos" nuevo
+// que solo contiene Órdenes de Cambio, cosa que nunca tuvo y que este
+// movimiento no debe regalarle como efecto colateral. Ver
+// tabCuentaParaTileDeSeccion() y su uso en seccionesGridHtml()/
+// renderSidebar() — para 'cabo', 'ordenesCambio' sigue siendo 100%
+// accesible (ROLE_TABS.cabo sin cambios), solo deja de "contar" para
+// pintar el tile/grupo de 'costos'; en su lugar aparece como ítem suelto
+// en el sidebar (mismo patrón que "Resumen", ver renderSidebar()), y
+// renderTabsBar() le sigue mostrando Avance/Destajo/Órdenes de Cambio
+// como hermanos entre sí (grupo de 'obra', su sección de origen),
+// exactamente como antes de este movimiento. ('Infraestructura vs.
+// Vivienda' salió de ROLE_TABS.cabo por completo en prompt-mover-ordenes-
+// cambio-a-costos.md — hallazgo de QA, sección aparte — así que ya no es
+// uno de los hermanos; ver commit 2b29100.)
+const EXCEPCIONES_TILE_SECCION = {
+  cabo: [{ tab: 'ordenesCambio', seccionOrigen: 'obra' }], // prompt-mover-
+  // ordenes-cambio-a-costos.md: cabo conserva acceso directo a Órdenes de
+  // Cambio pero no tiene ningún otro tab en 'costos', así que no debe ganar
+  // ese tile/grupo completo — y sigue viéndolo agrupado con Avance/Destajo
+  // en la barra de tabs, como si aún viviera en 'obra'.
+};
+function excepcionesDelRol() {
+  return EXCEPCIONES_TILE_SECCION[effectivePuesto()] || [];
+}
+function tabCuentaParaTileDeSeccion(tab) {
+  return !excepcionesDelRol().some((ex) => ex.tab === tab);
+}
 
 // Secciones que muestran primero una galería de subsecciones (mismo patrón
 // visual que .section-grid) en vez de saltar directo a la primera pestaña
@@ -1491,9 +1552,25 @@ function renderTabsBar() {
   nav.style.display = '';
   let html = '';
   if (state.section) {
-    const def = SECTION_DEFS[state.section];
+    // prompt-mover-ordenes-cambio-a-costos.md: si el rol activo tiene una
+    // excepción (EXCEPCIONES_TILE_SECCION) cuyo tab exceptuado es la vista
+    // actual, o cuya seccionOrigen coincide con la sección real de la vista
+    // actual, la barra se arma desde esa seccionOrigen (con el tab
+    // exceptuado agregado a mano si no está ya) en vez de la sección real
+    // — restaura el salto rápido entre hermanos que el rol tenía antes del
+    // movimiento (ej. cabo sigue viendo Avance/Destajo/Órdenes de Cambio
+    // como un solo grupo — 'infraVivienda' salió de ROLE_TABS.cabo por
+    // completo, commit 2b29100, así que ya no es uno de los hermanos), sin
+    // afectar el tile/breadcrumb real de nadie más ni el de este rol en
+    // ningún otro lugar.
+    const excepciones = excepcionesDelRol();
+    const exVista = excepciones.find((ex) => ex.tab === state.view || ex.seccionOrigen === state.section);
+    const sectionIdBar = exVista ? exVista.seccionOrigen : state.section;
+    const def = SECTION_DEFS[sectionIdBar];
+    const tabsExtra = excepciones.filter((ex) => ex.seccionOrigen === sectionIdBar).map((ex) => ex.tab);
+    const tabsBar = [...def.tabs, ...tabsExtra.filter((t) => !def.tabs.includes(t))];
     html += `<button class="tab tab-back" data-goto="inicio">←</button>`;
-    def.tabs.filter((t) => state.allowedTabs.includes(t)).forEach((t) => {
+    tabsBar.filter((t) => state.allowedTabs.includes(t)).forEach((t) => {
       html += `<button class="tab ${state.view === t ? 'active' : ''}" data-goto="${t}"><span class="tab-icon">${TAB_ICONS[t]}</span><span class="tab-label">${TAB_LABELS[t]}</span></button>`;
     });
     def.proximamente.forEach((nombre) => {
@@ -1667,6 +1744,21 @@ function renderSidebar() {
     </button>`;
   }
 
+  // Tabs excluidos del tile/grupo de su sección para este rol
+  // (EXCEPCIONES_TILE_SECCION, ver junto a VIEW_TO_SECTION) pero igual
+  // permitidos — se listan como ítem suelto en vez de perderse, mismo
+  // patrón/markup que "Resumen" arriba. Genérico a propósito: cualquier tab
+  // que caiga en el mapa de excepciones para el rol activo aparece aquí
+  // automáticamente, sin hardcodear 'cabo'/'ordenesCambio' en este bloque.
+  excepcionesDelRol().forEach(({ tab: t }) => {
+    if (!renderableTabs.includes(t)) return;
+    const active = state.view === t ? 'active' : '';
+    html += `<button class="sbar-item ${active}" data-sbar-goto="${t}" title="${esc(TAB_LABELS[t])}">
+      <span class="sbar-icon">${TAB_ICONS[t] || ''}</span>
+      <span class="sbar-label">${esc(TAB_LABELS[t])}</span>
+    </button>`;
+  });
+
   // Grupos de sección
   Object.entries(SECTION_DEFS).forEach(([sectionId, def]) => {
     if (def.tabs.length === 0) {
@@ -1678,7 +1770,11 @@ function renderSidebar() {
       </button>`;
       return;
     }
-    const sectionRenderableTabs = def.tabs.filter((t) => renderableTabs.includes(t));
+    // tabCuentaParaTileDeSeccion(): mismo filtro adicional que
+    // seccionesGridHtml() — un tab en EXCEPCIONES_TILE_SECCION para el rol
+    // activo no cuenta para decidir si este grupo se pinta (ya se listó
+    // arriba como ítem suelto en su lugar).
+    const sectionRenderableTabs = def.tabs.filter((t) => renderableTabs.includes(t) && tabCuentaParaTileDeSeccion(t));
     if (!sectionRenderableTabs.length) return;
 
     const isActive = state.section === sectionId;
@@ -4594,8 +4690,11 @@ function seccionesGridHtml() {
     <div class="section-grid">
       ${Object.entries(SECTION_DEFS).map(([id, def]) => {
         const esFutura = def.tabs.length === 0;
-        // Solo mostrar si el usuario tiene acceso a al menos un tab, o si es sección futura
-        const tieneAcceso = esFutura || def.tabs.some((t) => state.allowedTabs.includes(t));
+        // Solo mostrar si el usuario tiene acceso a al menos un tab que
+        // además "cuenta" para el tile de esta sección (tabCuentaParaTileDeSeccion,
+        // ver EXCEPCIONES_TILE_SECCION junto a VIEW_TO_SECTION) — o si es
+        // sección futura.
+        const tieneAcceso = esFutura || def.tabs.some((t) => state.allowedTabs.includes(t) && tabCuentaParaTileDeSeccion(t));
         if (!tieneAcceso) return '';
         return `
         <div class="section-card ${esFutura ? 'disabled' : ''}" data-section="${id}">

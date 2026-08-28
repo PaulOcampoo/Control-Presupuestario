@@ -1610,7 +1610,19 @@ app.get('/api/maquinaria/operadores', h(auth.checkPermiso('maquinaria', 'puede_e
   res.json(rows);
 }));
 
-app.get('/api/maquinaria/combustible', h(auth.checkPermiso('maquinaria', 'puede_ver')), h(async (req, res) => {
+// prompt-limpieza-permisos-cabo.md (Fase 2): antes gateado con la sección
+// compartida 'maquinaria' (misma que catálogo/horas), así que cualquier rol
+// con solo puede_ver en 'maquinaria' (ej. cabo, residente — ambos con
+// acceso legítimo al catálogo de equipos, sin acceso a la bitácora de
+// taller) podía leer combustible vía API directa, y también a través del
+// panel "Historial" de cada equipo en Catálogo (ver toggleHistorialMaq en
+// public/app.js) aunque su UI nunca expone el tab de Bitácora. Ahora usa la
+// misma sección granular 'maquinaria_combustible' que ya gatea el POST de
+// este mismo endpoint y GET /bitacora-taller — jefe_maquinaria/admin/
+// desarrollador no pierden nada (ya tenían fila propia); residente gana un
+// default explícito nuevo para no perder lo que ya veía (ver
+// defaultPermisosParaRol en server/auth.js).
+app.get('/api/maquinaria/combustible', h(auth.checkPermiso('maquinaria_combustible', 'puede_ver')), h(async (req, res) => {
   res.json(await maquinaria.listCombustible(req.query.equipo_id ? Number(req.query.equipo_id) : null));
 }));
 
@@ -1631,7 +1643,13 @@ app.delete('/api/maquinaria/combustible/:id', h(auth.checkPermiso('maquinaria', 
   res.json({ ok: true });
 }));
 
-app.get('/api/maquinaria/mantenimientos', h(auth.checkPermiso('maquinaria', 'puede_ver')), h(async (req, res) => {
+// prompt-limpieza-permisos-cabo.md: gateado con su propia sección
+// 'maquinaria_mantenimiento', separada de 'maquinaria_combustible' (antes
+// CN-002 las compartía — ver comentario de esa sección en SECCIONES_PERMISOS,
+// server/auth.js). Sin esta separación, otorgar solo combustible a alguien
+// (ej. cabo) le heredaba también lectura de mantenimientos sin que fuera una
+// decisión explícita.
+app.get('/api/maquinaria/mantenimientos', h(auth.checkPermiso('maquinaria_mantenimiento', 'puede_ver')), h(async (req, res) => {
   res.json(await maquinaria.listMantenimientos(req.query.equipo_id ? Number(req.query.equipo_id) : null));
 }));
 
@@ -1643,7 +1661,10 @@ app.get('/api/maquinaria/mantenimientos', h(auth.checkPermiso('maquinaria', 'pue
 const TIPOS_MANTENIMIENTO = ['preventivo', 'correctivo', 'consumible', 'herramienta'];
 const TIPOS_MANTENIMIENTO_REQUIEREN_EQUIPO = ['preventivo', 'correctivo'];
 
-app.post('/api/maquinaria/mantenimientos', h(auth.checkPermiso('maquinaria_combustible', 'puede_crear')), h(async (req, res) => {
+// prompt-limpieza-permisos-cabo.md: mismo motivo que el GET de arriba —
+// separado de 'maquinaria_combustible' para que crear un registro de
+// combustible y crear uno de mantenimiento sean permisos independientes.
+app.post('/api/maquinaria/mantenimientos', h(auth.checkPermiso('maquinaria_mantenimiento', 'puede_crear')), h(async (req, res) => {
   const { equipo_id, fecha, tipo, descripcion, costo, proveedor, refaccion_descripcion, refaccion_costo } = req.body || {};
   if (!fecha || !TIPOS_MANTENIMIENTO.includes(tipo) || !(costo >= 0)) {
     return res.status(400).json({ error: `Indica fecha, tipo (${TIPOS_MANTENIMIENTO.join('/')}) y costo válidos` });
@@ -1678,11 +1699,15 @@ app.delete('/api/maquinaria/mantenimientos/:id', h(auth.checkPermiso('maquinaria
 // de GET /api/maquinaria/mantenimientos de arriba (que sigue abierto a
 // cualquier rol con acceso a Maquinaria vía 'maquinaria'/puede_ver, y
 // alimenta el historial combinado combustible+mantenimiento+horas que ya
-// existía por equipo) — checkPermiso('maquinaria_combustible', 'puede_ver')
-// aquí es más estricto a propósito: solo jefe_maquinaria (y admin/
+// existía por equipo) — checkPermiso('maquinaria_mantenimiento', 'puede_ver')
+// aquí es más estricto a propósito: solo jefe_maquinaria/residente (y admin/
 // desarrollador vía bypass) deben poder ver la bitácora dedicada, operador/
-// cabo no tienen fila en esa sección → 403.
-app.get('/api/maquinaria/bitacora-taller', h(auth.checkPermiso('maquinaria_combustible', 'puede_ver')), h(async (req, res) => {
+// cabo no tienen fila en esa sección → 403. prompt-limpieza-permisos-cabo.md:
+// antes usaba 'maquinaria_combustible' — mismo dato exacto que GET
+// /mantenimientos arriba (maquinaria.listMantenimientos), tenía que migrar
+// junto con ese endpoint para que la separación fuera real y no solo
+// cosmética.
+app.get('/api/maquinaria/bitacora-taller', h(auth.checkPermiso('maquinaria_mantenimiento', 'puede_ver')), h(async (req, res) => {
   res.json(await maquinaria.listMantenimientos(req.query.equipo_id ? Number(req.query.equipo_id) : null));
 }));
 
@@ -10270,7 +10295,16 @@ app.put('/api/projects/:id/trabajadores/:wId', h(auth.allow('residente', 'cabo',
 // (no por-obra) — dar de baja sigue sin tocar trabajador_obras a propósito
 // (mismo comportamiento que el modelo 1:1: project_id nunca se tocaba al
 // dar de baja).
-app.post('/api/projects/:id/trabajadores/:wId/baja', h(auth.allow('residente', 'cabo')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('trabajadores', 'puede_editar')), h(async (req, res) => {
+// prompt-limpieza-permisos-cabo.md: 'cabo' quitado de este allow() a
+// propósito — dar de baja a un trabajador queda bloqueada para cabo sin
+// importar qué le otorgue la matriz de permisos_usuario (puede_editar en
+// 'trabajadores' o cualquier otro). allow() corre ANTES que checkPermiso,
+// así que esto es un bloqueo duro a nivel de ruta, no delegable por
+// permisos_usuario — mismo patrón que 'aprobar'/'rechazar' en
+// ordenes_cambio (auth.allow() sin cabo, admin/desarrollador-only ahí;
+// aquí residente sigue pudiendo). reactivar (abajo) NO se tocó — sigue
+// permitido para cabo, esta restricción es específica de "dar de baja".
+app.post('/api/projects/:id/trabajadores/:wId/baja', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('trabajadores', 'puede_editar')), h(async (req, res) => {
   const wId = Number(req.params.wId);
   if (!(await trabajadorAsignadoAObra(wId, req.project.id))) return res.status(404).json({ error: 'Trabajador no encontrado' });
   const { motivo_baja, notas, fecha_baja } = req.body || {};

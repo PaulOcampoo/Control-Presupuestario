@@ -87,21 +87,18 @@ const PERMISSIONS = {
   // 'costos', ver SECCIONES_PERMISOS más abajo).
   residente:      { label: 'Residente',     tabs: ['programa', 'avance', 'destajo', 'requisiciones', 'insumos', 'ordenes', 'nominas', 'trabajadores', 'estimaciones', 'ordenesCambio', 'lotes', 'modelosVivienda', ...MAQUINARIA_TABS_RESIDENTE, 'matrices'] },
   // 'trabajadores' agregado aquí (prompt-c-checkpermiso-trabajadores.md,
-  // fix de visibilidad en nav): mismo gap ya documentado para 'costos' más
-  // abajo — el permiso puede_ver otorgado vía la matriz a UN cabo específico
-  // no bastaba, porque la visibilidad de la pestaña en nav es por ROL (esta
-  // lista), no por usuario individual. Agregar el tab lo hace visible para
-  // TODOS los cabo (no solo el que recibió el permiso) — cualquier cabo sin
-  // el puede_ver real ve la pestaña pero renderTrabajadores() ya maneja esto
-  // con gracia ("No tienes permiso para ver esta sección", mismo patrón que
-  // trabajadores_global/costos), sin exponer ningún dato — el backend sigue
-  // siendo la única barrera de seguridad real (checkPermiso, PR previo de
-  // este mismo branch).
-  // 'nominas' agregado aquí (prompt-fix-permisos-nomina-cabo.md, mismo patrón
-  // que 'trabajadores' arriba): el acceso real por-obra lo sigue decidiendo
-  // checkPermiso('nominas', ...) vía permisos_usuario — agregar el tab no
-  // otorga el permiso por sí solo, solo lo hace posible cuando un admin lo
-  // conceda explícitamente en la matriz.
+  // fix de visibilidad en nav). Desde prompt-limpieza-permisos-cabo.md
+  // (cambio de dirección), cabo nace con trabajadores.puede_ver=true por
+  // default (loop base de defaultPermisosParaRol, sin override) — ya NO es
+  // default-deny caso por caso. El scope real de qué trabajadores ve (solo
+  // los de sus obras asignadas) lo sigue dando verificarAccesoObra/
+  // usuario_proyectos, y "dar de baja" queda bloqueada para cabo aparte, a
+  // nivel de ruta (ver POST /trabajadores/:wId/baja en server/app.js),
+  // independiente de este puede_ver/puede_editar.
+  // 'nominas' agregado aquí (prompt-fix-permisos-nomina-cabo.md, PR #63/#64):
+  // decisión de negocio de que cabo PUEDE tener Nómina. Igual que
+  // 'trabajadores' arriba, cabo nace con nominas.puede_ver=true por default
+  // (loop base, sin override) desde prompt-limpieza-permisos-cabo.md.
   cabo:           { label: 'Cabo',          tabs: ['destajo', 'insumos', 'avance', 'requisiciones', ...MAQUINARIA_TABS_CABO, 'trabajadores', 'nominas', 'ordenesCambio'] },
   compras:        { label: 'Compras',       tabs: ['programa', 'requisiciones', 'insumos', 'ordenes', 'proveedores', 'cumplimiento', 'cotizador'] },
   tesoreria:      { label: 'Tesorería',     tabs: ['resumen', 'finanzas', 'compromisos', 'fondoGarantia', 'ordenes', 'contrato', 'impuestos', 'proveedores', 'cumplimiento', 'dashboardEjecutivo'] },
@@ -194,6 +191,16 @@ const SECCIONES_PERMISOS = [
   // (confirmado en vivo). Separadas para que cada rol solo tenga
   // puede_crear en la suya — ver defaultPermisosParaRol más abajo.
   'maquinaria_captura', 'maquinaria_combustible',
+  // prompt-limpieza-permisos-cabo.md: 'maquinaria_combustible' fusionaba
+  // combustible Y bitácora de mantenimiento bajo un solo permiso desde
+  // CN-002 (decisión original documentada arriba y en server/db.js) — eso
+  // hacía que otorgar solo combustible a alguien (ej. cabo) le heredara
+  // también lectura/creación de mantenimientos sin que fuera una decisión
+  // explícita. Separada en su propia sección — GET/POST /mantenimientos y
+  // GET /bitacora-taller (mismo dato) ahora gatean con esta, no con
+  // 'maquinaria_combustible'. DELETE /mantenimientos/:id sigue en la
+  // sección genérica 'maquinaria' (fuera de alcance, sin tocar).
+  'maquinaria_mantenimiento',
   // Secciones NUEVAS (prompts-cotizador-permisos.md, Prompt 2) — DISTINTAS de
   // 'nominas' a propósito: 'nominas' ya gatea el acceso por-obra (una obra a
   // la vez, ver checkPermiso en /api/projects/:id/nominas/...); estas dos
@@ -449,6 +456,28 @@ function defaultPermisosParaRol(puesto) {
       seccion: 'maquinaria_captura', puede_ver: true, puede_crear: false,
       puede_editar: true, puede_editar_precios: false, puede_eliminar: false,
     });
+    // prompt-limpieza-permisos-cabo.md (Fase 2): GET /maquinaria/combustible
+    // y /mantenimientos pasaron a gatear con la sección granular
+    // 'maquinaria_combustible' en vez de la genérica 'maquinaria' — residente
+    // ya podía leer ambos (vía el panel "Historial" de cada equipo en
+    // Catálogo, y por API directa) gracias a que sus tabs de maquinaria
+    // mapean a 'maquinaria'. Capacidad YA existente que se preserva
+    // explícitamente (no es nueva), mismo criterio que 'proveedores' arriba
+    // en este mismo bloque residente/cabo — solo lectura, sin puede_crear
+    // (eso sigue siendo exclusivo de jefe_maquinaria).
+    filas.push({
+      seccion: 'maquinaria_combustible', puede_ver: true, puede_crear: false,
+      puede_editar: false, puede_editar_precios: false, puede_eliminar: false,
+    });
+    // prompt-limpieza-permisos-cabo.md: 'maquinaria_mantenimiento' separada
+    // de 'maquinaria_combustible' arriba — mismo criterio y misma
+    // justificación exacta (residente ya podía leer mantenimientos vía el
+    // panel Historial/bitacora-taller, se preserva explícitamente, solo
+    // lectura).
+    filas.push({
+      seccion: 'maquinaria_mantenimiento', puede_ver: true, puede_crear: false,
+      puede_editar: false, puede_editar_precios: false, puede_eliminar: false,
+    });
   }
   if (puesto === 'cabo') {
     if (porSeccion.destajo) { porSeccion.destajo.puede_editar = true; }
@@ -481,19 +510,27 @@ function defaultPermisosParaRol(puesto) {
       filas.push(filaOrdenes);
       porSeccion.ordenes_compra = filaOrdenes;
     }
-    // prompt-c-checkpermiso-trabajadores.md (fix de nav): agregar
-    // 'trabajadores' a PERMISSIONS.cabo.tabs (arriba) hace que el loop base
-    // de esta función también le genere puede_ver=true por default — porque
-    // 'trabajadores' SÍ está en TAB_A_SECCION (a diferencia de 'costos', que
-    // se dejó fuera de ese mapeo a propósito para lograr default-deny real).
-    // Eso anularía por completo el punto de que Paul otorgue el permiso a UN
-    // cabo específico desde la matriz — CUALQUIER cabo nuevo lo tendría ya
-    // de entrada. Override explícito: cabo parte en puede_ver=false para
-    // 'trabajadores' (residente NO se toca, sigue con su default de
-    // puede_ver=true de siempre) — el tab aparece en su nav (para que sepan
-    // que la sección existe y pueden pedir acceso), pero sin el permiso
-    // real hasta que un admin se lo conceda explícitamente por la matriz.
-    if (porSeccion.trabajadores) { porSeccion.trabajadores.puede_ver = false; }
+    // prompt-limpieza-permisos-cabo.md (cambio de dirección, revierte el
+    // default-deny que tenía antes): cabo SÍ debe poder VER la lista de
+    // trabajadores por default, no solo cuando un admin lo active caso por
+    // caso — el scope real de qué trabajadores ve (solo los de sus obras
+    // asignadas) lo sigue dando verificarAccesoObra/usuario_proyectos, no
+    // este flag. puede_crear/editar/eliminar quedan en false por default
+    // (se conceden aparte si hacen falta) y "dar de baja" está además
+    // bloqueada para cabo a nivel de ruta sin importar este permiso (ver
+    // POST /trabajadores/:wId/baja en server/app.js). 'trabajadores' ya
+    // queda en puede_ver=true por el loop base (viene de TAB_A_SECCION), así
+    // que no hace falta ninguna línea aquí — este comentario documenta la
+    // ausencia a propósito, para que quien lea el código no piense que se
+    // perdió un override.
+    //
+    // prompt-limpieza-permisos-cabo.md (cambio de dirección, revierte el
+    // default-deny que se agregó para 'nominas' en una iteración anterior de
+    // este mismo prompt): 'nominas' vuelve a su default anterior
+    // (puede_ver=true, heredado del loop base) para cabo — decisión de
+    // negocio de PR #63/#64 sin el override adicional. Mismo criterio que
+    // 'trabajadores' arriba: no hace falta ninguna línea, el loop base ya lo
+    // deja en true.
     // prompt-6-estado-unidad-operador.md: cabo SOLO lee el checklist de
     // todas las unidades de la obra (supervisión), nunca captura por esta
     // vía — coherente con que no capture horas tampoco (ver arriba).
@@ -570,6 +607,14 @@ function defaultPermisosParaRol(puesto) {
     // implícito al compartir 'maquinaria' con cabo).
     filas.push({
       seccion: 'maquinaria_combustible', puede_ver: true, puede_crear: true,
+      puede_editar: false, puede_editar_precios: false, puede_eliminar: false,
+    });
+    // prompt-limpieza-permisos-cabo.md: 'maquinaria_mantenimiento' separada
+    // de 'maquinaria_combustible' arriba — jefe_maquinaria conserva ambas
+    // (su rol cubre las dos por diseño, ver comentario de CN-002 en
+    // server/db.js), mismo criterio ver+crear.
+    filas.push({
+      seccion: 'maquinaria_mantenimiento', puede_ver: true, puede_crear: true,
       puede_editar: false, puede_editar_precios: false, puede_eliminar: false,
     });
     // prompt-6-estado-unidad-operador.md: jefe_maquinaria lee el checklist

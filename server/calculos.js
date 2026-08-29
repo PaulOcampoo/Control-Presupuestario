@@ -149,13 +149,29 @@ function numeroALetra(monto) {
 // (no un segundo cálculo independiente) para que la suma de ambas partes
 // cuadre exacto con montoTotal sin diferencia de redondeo. Si el
 // trabajador no tiene cuenta_alterna capturada, el split se ignora
-// siempre — 100% va a cuenta_nomina_hsbc sin importar splitPct.
-function calcularSplitCuentas(montoTotal, splitPct, tieneCuentaAlterna) {
+// siempre — 100% va a cuenta_nomina_hsbc sin importar splitPct/importeFijo.
+//
+// importeFijo (prompt-importe-tarjeta-nomina-snapshot.md): 4° parámetro
+// OPCIONAL — omitido (undefined), el comportamiento es EXACTAMENTE el de
+// antes (split por %), usado sin cambios por el fallback de cálculo en
+// vivo de adjuntarDesgloseCuentas() para nóminas históricas sin snapshot.
+// Cuando el caller SÍ lo pasa (server/app.js, cálculo de una nómina nueva)
+// y hay cuenta_alterna, gana sobre splitPct: monto fijo a cuenta_nomina, el
+// resto por diferencia. Si excede montoTotal, NO se trunca ni se permite
+// diferencia negativa (decisión explícita del cliente, motivo de
+// cumplimiento IMSS) — se señala con excedeImporteFijo:true para que el
+// caller rechace el cálculo completo de esa nómina con un error explícito.
+function calcularSplitCuentas(montoTotal, splitPct, tieneCuentaAlterna, importeFijo) {
   const total = Number(montoTotal);
-  if (!tieneCuentaAlterna) return { montoCuentaNomina: total, montoCuentaAlterna: 0 };
+  if (!tieneCuentaAlterna) return { montoCuentaNomina: total, montoCuentaAlterna: 0, excedeImporteFijo: false };
+  if (importeFijo !== undefined && importeFijo !== null) {
+    const fijo = Number(importeFijo);
+    if (fijo > total) return { montoCuentaNomina: null, montoCuentaAlterna: null, excedeImporteFijo: true };
+    return { montoCuentaNomina: fijo, montoCuentaAlterna: Number((total - fijo).toFixed(2)), excedeImporteFijo: false };
+  }
   const montoCuentaNomina = Number((total * Number(splitPct) / 100).toFixed(2));
   const montoCuentaAlterna = Number((total - montoCuentaNomina).toFixed(2));
-  return { montoCuentaNomina, montoCuentaAlterna };
+  return { montoCuentaNomina, montoCuentaAlterna, excedeImporteFijo: false };
 }
 
 // Nómina/destajo: distribución del monto total de un destajista entre todos

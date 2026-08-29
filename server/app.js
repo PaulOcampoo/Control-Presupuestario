@@ -7353,9 +7353,13 @@ app.get('/api/materiales-disponibles/por-cliente/export', h(auth.allow('resident
   });
 }));
 
+// incluirManoObra: mismo query param opt-in que /insumos (prompt-toggle-mano-
+// obra-insumos.md) — sin él, las categorías exclusivas de insumos MO* no
+// aparecerían como chip aunque el toggle del catálogo ya los esté mostrando.
 app.get('/api/projects/:id/insumos/categorias', h(auth.allow('residente', 'cabo', 'compras', 'logistica')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('insumos', 'puede_ver')), h(async (req, res) => {
+  const filtroMO = req.query.incluirManoObra ? '' : "AND (codigo IS NULL OR codigo NOT ILIKE 'MO%')";
   const { rows } = await db.pool.query(
-    "SELECT DISTINCT categoria FROM insumos WHERE project_id = $1 AND categoria IS NOT NULL AND (codigo IS NULL OR codigo NOT ILIKE 'MO%') ORDER BY categoria",
+    `SELECT DISTINCT categoria FROM insumos WHERE project_id = $1 AND categoria IS NOT NULL ${filtroMO} ORDER BY categoria`,
     [req.project.id]
   );
   res.json(rows.map((r) => r.categoria));
@@ -10115,7 +10119,7 @@ async function trabajadorAsignadoAObra(wId, projectId) {
 async function stripDatosBancarios(req, trabajador) {
   if (!trabajador) return trabajador;
   if (await auth.tienePermiso(req, 'trabajadores_bancarios', 'puede_ver')) return trabajador;
-  const { cuenta_nomina_hsbc, cuenta_alterna, banco_nomina, banco_alterna, split_cuenta_nomina_pct, tarjeta_nomina, tarjeta_alterna, ...resto } = trabajador;
+  const { cuenta_nomina_hsbc, cuenta_alterna, banco_nomina, banco_alterna, split_cuenta_nomina_pct, tarjeta_nomina, tarjeta_alterna, importe_tarjeta_nomina, ...resto } = trabajador;
   return resto;
 }
 
@@ -10130,6 +10134,20 @@ function validarSplitPct(raw) {
   if (raw === undefined || raw === null || raw === '') return SPLIT_PCT_DEFAULT;
   const n = Number(raw);
   if (!Number.isFinite(n) || n < 0 || n > 100) return null;
+  return n;
+}
+
+// prompt-importe-tarjeta-nomina-snapshot.md: NULLABLE — a diferencia de
+// split_cuenta_nomina_pct (siempre tiene un default), un trabajador sin
+// importe fijo capturado sigue en el modelo de porcentaje (ver
+// calcularSplitCuentas). '' o no venir en el payload -> null explícito
+// (permite borrar un importe ya capturado, mismo criterio que
+// resolverTarjeta). Devuelve undefined si el valor recibido es inválido,
+// para que el caller responda 400.
+function validarImporteTarjetaNomina(raw) {
+  if (raw === undefined || raw === null || raw === '') return null;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 0) return undefined;
   return n;
 }
 
@@ -10203,7 +10221,7 @@ app.post('/api/projects/:id/trabajadores', h(auth.allow('residente', 'cabo', 'ad
           contacto_emergencia_telefono, fecha_ingreso, destajista_id,
           cuenta_nomina_hsbc, cuenta_alterna, banco_nomina, banco_alterna,
           tarjeta_nomina, tarjeta_alterna,
-          split_cuenta_nomina_pct, categoria_costo } = req.body || {};
+          split_cuenta_nomina_pct, importe_tarjeta_nomina, categoria_costo } = req.body || {};
   if (!nombre?.trim()) return res.status(400).json({ error: 'El nombre es requerido' });
   if (!TIPOS_PAGO.includes(tipo_pago)) return res.status(400).json({ error: 'tipo_pago inválido' });
   if (!PERIODICIDADES.includes(periodicidad)) return res.status(400).json({ error: 'periodicidad inválida' });
@@ -10223,6 +10241,7 @@ app.post('/api/projects/:id/trabajadores', h(auth.allow('residente', 'cabo', 'ad
   let splitPct = SPLIT_PCT_DEFAULT;
   let tarjetaNomina = null;
   let tarjetaAlterna = null;
+  let importeTarjetaNomina = null;
   if (puedeEditarBancarios) {
     nomina = resolverCuentaBanco(cuenta_nomina_hsbc, banco_nomina);
     if (nomina.error) return res.status(400).json({ error: nomina.error });
@@ -10230,6 +10249,8 @@ app.post('/api/projects/:id/trabajadores', h(auth.allow('residente', 'cabo', 'ad
     if (alterna.error) return res.status(400).json({ error: alterna.error });
     splitPct = validarSplitPct(split_cuenta_nomina_pct);
     if (splitPct === null) return res.status(400).json({ error: 'split_cuenta_nomina_pct debe ser un número entre 0 y 100' });
+    importeTarjetaNomina = validarImporteTarjetaNomina(importe_tarjeta_nomina);
+    if (importeTarjetaNomina === undefined) return res.status(400).json({ error: 'importe_tarjeta_nomina debe ser un número mayor o igual a 0' });
     tarjetaNomina = resolverTarjeta(tarjeta_nomina);
     tarjetaAlterna = resolverTarjeta(tarjeta_alterna);
   }
@@ -10249,8 +10270,8 @@ app.post('/api/projects/:id/trabajadores', h(auth.allow('residente', 'cabo', 'ad
            curp, rfc, nss, telefono, direccion, contacto_emergencia,
            contacto_emergencia_nombre, contacto_emergencia_telefono, fecha_ingreso,
            cuenta_nomina_hsbc, cuenta_alterna, banco_nomina, banco_alterna, split_cuenta_nomina_pct,
-           tarjeta_nomina, tarjeta_alterna, categoria_costo)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24) RETURNING *`,
+           tarjeta_nomina, tarjeta_alterna, categoria_costo, importe_tarjeta_nomina)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25) RETURNING *`,
         [req.project.id, destId, nombre.trim(), puesto?.trim()||null, tipo_pago,
          Math.max(0, Number(tarifa_jornal)||0), periodicidad,
          curpTrim, rfc?.trim()||null, nss?.trim()||null,
@@ -10258,7 +10279,7 @@ app.post('/api/projects/:id/trabajadores', h(auth.allow('residente', 'cabo', 'ad
          contacto_emergencia_nombre?.trim()||null, contacto_emergencia_telefono?.trim()||null,
          fecha_ingreso||null,
          nomina.cuenta, alterna.cuenta, nomina.banco, alterna.banco, splitPct,
-         tarjetaNomina, tarjetaAlterna, categoriaCosto]
+         tarjetaNomina, tarjetaAlterna, categoriaCosto, importeTarjetaNomina]
       );
       await client.query(
         `INSERT INTO trabajador_obras (trabajador_id, project_id, curp, activo, asignado_por)
@@ -10285,7 +10306,7 @@ app.put('/api/projects/:id/trabajadores/:wId', h(auth.allow('residente', 'cabo',
           contacto_emergencia_telefono, fecha_ingreso, destajista_id,
           cuenta_nomina_hsbc, cuenta_alterna, banco_nomina, banco_alterna,
           tarjeta_nomina, tarjeta_alterna,
-          split_cuenta_nomina_pct, categoria_costo } = req.body || {};
+          split_cuenta_nomina_pct, importe_tarjeta_nomina, categoria_costo } = req.body || {};
   if (!nombre?.trim()) return res.status(400).json({ error: 'El nombre es requerido' });
   if (!TIPOS_PAGO.includes(tipo_pago)) return res.status(400).json({ error: 'tipo_pago inválido' });
   if (!PERIODICIDADES.includes(periodicidad)) return res.status(400).json({ error: 'periodicidad inválida' });
@@ -10300,9 +10321,10 @@ app.put('/api/projects/:id/trabajadores/:wId', h(auth.allow('residente', 'cabo',
   // OMITEN por completo del UPDATE (no se ponen en null) — de lo contrario
   // un residente editando solo el puesto borraría el dato bancario real que
   // administración ya había capturado. Solo se tocan si el usuario sí puede.
-  // split_cuenta_nomina_pct/tarjeta_nomina/tarjeta_alterna entran en el mismo
-  // gate (prompt-29-split-pago-cuentas.md, prompt-35-numero-cuenta-export-
-  // nomina.md) — misma sección de información financiera sensible.
+  // split_cuenta_nomina_pct/tarjeta_nomina/tarjeta_alterna/importe_tarjeta_
+  // nomina entran en el mismo gate (prompt-29-split-pago-cuentas.md,
+  // prompt-35-numero-cuenta-export-nomina.md, prompt-importe-tarjeta-nomina-
+  // snapshot.md) — misma sección de información financiera sensible.
   const puedeEditarBancarios = await auth.tienePermiso(req, 'trabajadores_bancarios', 'puede_editar');
   const setClauses = [
     'destajista_id=$1', 'nombre=$2', 'puesto=$3', 'tipo_pago=$4', 'tarifa_jornal=$5',
@@ -10325,14 +10347,17 @@ app.put('/api/projects/:id/trabajadores/:wId', h(auth.allow('residente', 'cabo',
     if (alterna.error) return res.status(400).json({ error: alterna.error });
     const splitPct = validarSplitPct(split_cuenta_nomina_pct);
     if (splitPct === null) return res.status(400).json({ error: 'split_cuenta_nomina_pct debe ser un número entre 0 y 100' });
+    const importeTarjetaNomina = validarImporteTarjetaNomina(importe_tarjeta_nomina);
+    if (importeTarjetaNomina === undefined) return res.status(400).json({ error: 'importe_tarjeta_nomina debe ser un número mayor o igual a 0' });
     const tarjetaNomina = resolverTarjeta(tarjeta_nomina);
     const tarjetaAlterna = resolverTarjeta(tarjeta_alterna);
-    params.push(nomina.cuenta, alterna.cuenta, nomina.banco, alterna.banco, splitPct, tarjetaNomina, tarjetaAlterna);
+    params.push(nomina.cuenta, alterna.cuenta, nomina.banco, alterna.banco, splitPct, tarjetaNomina, tarjetaAlterna, importeTarjetaNomina);
     setClauses.push(
-      `cuenta_nomina_hsbc=$${params.length - 6}`, `cuenta_alterna=$${params.length - 5}`,
-      `banco_nomina=$${params.length - 4}`, `banco_alterna=$${params.length - 3}`,
-      `split_cuenta_nomina_pct=$${params.length - 2}`,
-      `tarjeta_nomina=$${params.length - 1}`, `tarjeta_alterna=$${params.length}`
+      `cuenta_nomina_hsbc=$${params.length - 7}`, `cuenta_alterna=$${params.length - 6}`,
+      `banco_nomina=$${params.length - 5}`, `banco_alterna=$${params.length - 4}`,
+      `split_cuenta_nomina_pct=$${params.length - 3}`,
+      `tarjeta_nomina=$${params.length - 2}`, `tarjeta_alterna=$${params.length - 1}`,
+      `importe_tarjeta_nomina=$${params.length}`
     );
   }
   params.push(wId);
@@ -11482,12 +11507,20 @@ async function adjuntarDesgloseCuentas(req, items) {
   const puedeVerBancarios = await auth.tienePermiso(req, 'trabajadores_bancarios', 'puede_ver');
   return items.map((it) => {
     const { cuenta_nomina_hsbc, cuenta_alterna, banco_nomina, banco_alterna,
-            tarjeta_nomina, tarjeta_alterna, split_cuenta_nomina_pct, ...resto } = it;
+            tarjeta_nomina, tarjeta_alterna, split_cuenta_nomina_pct,
+            importe_tarjeta_nomina_snapshot, importe_cuenta_alterna_snapshot, ...resto } = it;
     if (!puedeVerBancarios) return resto;
     const tieneAlterna = !!(cuenta_alterna && cuenta_alterna.trim());
-    const { montoCuentaNomina, montoCuentaAlterna } = calcularSplitCuentas(
-      Number(it.monto_total), split_cuenta_nomina_pct, tieneAlterna
-    );
+    // prompt-importe-tarjeta-nomina-snapshot.md: si esta nomina_items ya
+    // tiene snapshot (calculada después de este cambio), usarlo tal cual —
+    // NUNCA recalcular en vivo, es justo lo que el snapshot previene. Solo
+    // las nóminas históricas (snapshot NULL, calculadas antes de este
+    // cambio) caen al cálculo en vivo de siempre, sin importeFijo (4°
+    // parámetro omitido a propósito — comportamiento idéntico al de antes).
+    const tieneSnapshot = importe_tarjeta_nomina_snapshot !== null && importe_tarjeta_nomina_snapshot !== undefined;
+    const { montoCuentaNomina, montoCuentaAlterna } = tieneSnapshot
+      ? { montoCuentaNomina: Number(importe_tarjeta_nomina_snapshot), montoCuentaAlterna: Number(importe_cuenta_alterna_snapshot) }
+      : calcularSplitCuentas(Number(it.monto_total), split_cuenta_nomina_pct, tieneAlterna);
     return {
       ...resto,
       monto_cuenta_nomina: montoCuentaNomina,
@@ -11528,6 +11561,7 @@ app.get('/api/projects/:id/nominas/:nomId', h(auth.allow('residente', 'cabo')), 
     ORDER BY t.nombre`,
     [nomId]
   );
+  // ni.* ya trae importe_tarjeta_nomina_snapshot/importe_cuenta_alterna_snapshot
   res.json({ ...nomRows[0], items: await adjuntarDesgloseCuentas(req, items) });
 }));
 
@@ -11611,10 +11645,29 @@ app.post('/api/projects/:id/nominas/:nomId/calcular', h(auth.allow('residente', 
       const montoJornal = (t.tipo_pago === 'jornal' || t.tipo_pago === 'mixto') ? calcularJornal(dias, t.tarifa_jornal) : 0;
       const total = montoJornal + montoDest;
       const alertaDestajo = alertaDestPorTrabajador.get(t.id) || null;
+      // prompt-importe-tarjeta-nomina-snapshot.md: snapshot PERMANENTE del
+      // desglose por cuenta en el momento exacto del cálculo — mismo
+      // desglose que hoy se calculaba en vivo en adjuntarDesgloseCuentas(),
+      // ahora fijado aquí para que una corrección posterior al expediente
+      // del trabajador (importe fijo o %) nunca altere esta nómina. Si
+      // t.importe_tarjeta_nomina excede el total de ESTA corrida, se
+      // rechaza el cálculo completo (decisión explícita del cliente,
+      // motivo IMSS: nunca truncar ni permitir diferencia negativa) — el
+      // throw revierte la transacción completa vía withTransaction.
+      const tieneAlterna = !!(t.cuenta_alterna && String(t.cuenta_alterna).trim());
+      const split = calcularSplitCuentas(total, t.split_cuenta_nomina_pct, tieneAlterna, t.importe_tarjeta_nomina);
+      if (split.excedeImporteFijo) {
+        const err = new Error(
+          `El importe de tarjeta nómina de ${t.nombre} ($${Number(t.importe_tarjeta_nomina).toFixed(2)}) excede su monto total de esta corrida ($${total.toFixed(2)})`
+        );
+        err.status = 400;
+        throw err;
+      }
       await client.query(`
-        INSERT INTO nomina_items (nomina_id, trabajador_id, dias_trabajados, monto_jornal, monto_destajo, monto_total, alerta_destajo)
-        VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-        [nomId, t.id, dias, montoJornal, montoDest, total, alertaDestajo]
+        INSERT INTO nomina_items (nomina_id, trabajador_id, dias_trabajados, monto_jornal, monto_destajo, monto_total, alerta_destajo,
+                                   importe_tarjeta_nomina_snapshot, importe_cuenta_alterna_snapshot)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+        [nomId, t.id, dias, montoJornal, montoDest, total, alertaDestajo, split.montoCuentaNomina, split.montoCuentaAlterna]
       );
     }
   });
@@ -11719,6 +11772,7 @@ app.get('/api/projects/:id/nominas/:nomId/export', h(auth.allow('residente', 'ca
   const { rows: itemsRaw } = await db.pool.query(`
     SELECT t.nombre AS trabajador, t.puesto, t.tipo_pago, t.periodicidad,
            ni.dias_trabajados, ni.monto_jornal, ni.monto_destajo, ni.monto_total,
+           ni.importe_tarjeta_nomina_snapshot, ni.importe_cuenta_alterna_snapshot,
            t.cuenta_nomina_hsbc, t.cuenta_alterna, t.banco_nomina, t.banco_alterna,
            t.tarjeta_nomina, t.tarjeta_alterna, t.split_cuenta_nomina_pct
     FROM nomina_items ni JOIN trabajadores t ON t.id=ni.trabajador_id

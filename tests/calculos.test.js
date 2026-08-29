@@ -153,19 +153,19 @@ describe('numeroALetra (importe del Precio Unitario en letra, prompt-20-matrices
 
 describe('calcularSplitCuentas (prompt-29-split-pago-cuentas.md)', () => {
   it('caso normal: split 70/30 sobre $2,100 con cuenta_alterna capturada', () => {
-    expect(calcularSplitCuentas(2100, 70, true)).toEqual({ montoCuentaNomina: 1470, montoCuentaAlterna: 630 });
+    expect(calcularSplitCuentas(2100, 70, true)).toEqual({ montoCuentaNomina: 1470, montoCuentaAlterna: 630, excedeImporteFijo: false });
   });
 
   it('sin cuenta_alterna: 100% a cuenta_nomina sin importar el split capturado', () => {
-    expect(calcularSplitCuentas(2100, 30, false)).toEqual({ montoCuentaNomina: 2100, montoCuentaAlterna: 0 });
+    expect(calcularSplitCuentas(2100, 30, false)).toEqual({ montoCuentaNomina: 2100, montoCuentaAlterna: 0, excedeImporteFijo: false });
   });
 
   it('split 100 (default): todo a cuenta_nomina aunque sí haya cuenta_alterna', () => {
-    expect(calcularSplitCuentas(2100, 100, true)).toEqual({ montoCuentaNomina: 2100, montoCuentaAlterna: 0 });
+    expect(calcularSplitCuentas(2100, 100, true)).toEqual({ montoCuentaNomina: 2100, montoCuentaAlterna: 0, excedeImporteFijo: false });
   });
 
   it('split 0: todo a cuenta_alterna', () => {
-    expect(calcularSplitCuentas(2100, 0, true)).toEqual({ montoCuentaNomina: 0, montoCuentaAlterna: 2100 });
+    expect(calcularSplitCuentas(2100, 0, true)).toEqual({ montoCuentaNomina: 0, montoCuentaAlterna: 2100, excedeImporteFijo: false });
   });
 
   it('no hay diferencia de redondeo: la suma de ambas partes siempre cuadra exacto con el total, incluso con montos que no redondean limpio', () => {
@@ -174,7 +174,29 @@ describe('calcularSplitCuentas (prompt-29-split-pago-cuentas.md)', () => {
   });
 
   it('monto_total 0: ambas partes en 0', () => {
-    expect(calcularSplitCuentas(0, 70, true)).toEqual({ montoCuentaNomina: 0, montoCuentaAlterna: 0 });
+    expect(calcularSplitCuentas(0, 70, true)).toEqual({ montoCuentaNomina: 0, montoCuentaAlterna: 0, excedeImporteFijo: false });
+  });
+});
+
+describe('calcularSplitCuentas — importe fijo (prompt-importe-tarjeta-nomina-snapshot.md)', () => {
+  it('importe fijo dentro del total: gana sobre splitPct, resto por diferencia', () => {
+    expect(calcularSplitCuentas(2100, 70, true, 500)).toEqual({ montoCuentaNomina: 500, montoCuentaAlterna: 1600, excedeImporteFijo: false });
+  });
+
+  it('importe fijo excede el total: se señala excedeImporteFijo sin calcular montos', () => {
+    expect(calcularSplitCuentas(1000, 70, true, 1500)).toEqual({ montoCuentaNomina: null, montoCuentaAlterna: null, excedeImporteFijo: true });
+  });
+
+  it('importe fijo igual al total: válido, el resto es exactamente 0 (límite inclusive, no excede)', () => {
+    expect(calcularSplitCuentas(1000, 70, true, 1000)).toEqual({ montoCuentaNomina: 1000, montoCuentaAlterna: 0, excedeImporteFijo: false });
+  });
+
+  it('sin cuenta_alterna: ignora el importe fijo igual que ignora splitPct — 100% a cuenta_nomina', () => {
+    expect(calcularSplitCuentas(2100, 70, false, 500)).toEqual({ montoCuentaNomina: 2100, montoCuentaAlterna: 0, excedeImporteFijo: false });
+  });
+
+  it('importeFijo omitido (undefined): comportamiento idéntico a la firma de 3 argumentos de siempre — usado por el fallback de cálculo en vivo de nóminas históricas', () => {
+    expect(calcularSplitCuentas(2100, 70, true)).toEqual(calcularSplitCuentas(2100, 70, true, undefined));
   });
 });
 

@@ -5510,12 +5510,13 @@ function openImpuestoPeriodoModal(periodo) {
 // =========================================================================
 // VISTA: Catálogo de insumos
 // =========================================================================
-let insumosFilter = { categoria: '', q: '' };
+let insumosFilter = { categoria: '', q: '', incluirManoObra: false };
 
 async function renderInsumos(view) {
+  const catKey = insumosFilter.incluirManoObra ? 'categorias:conMO' : 'categorias:sinMO';
   const [insumos, categorias] = await Promise.all([
     api(`/projects/${state.projectId}/insumos${queryString(insumosFilter)}`),
-    cached('categorias', () => api(`/projects/${state.projectId}/insumos/categorias`)),
+    cached(catKey, () => api(`/projects/${state.projectId}/insumos/categorias${queryString({ incluirManoObra: insumosFilter.incluirManoObra })}`)),
   ]);
 
   view.innerHTML = `
@@ -5524,6 +5525,13 @@ async function renderInsumos(view) {
     <div class="section-actions">
       <button class="btn" id="btnExportInsumos">⭳ Exportar a Excel</button>
       ${effectivePuesto() === 'residente' || isAdmin() ? '<button class="btn btn-primary" id="btnMaterialesDisponibles">📋 Programa de materiales disponibles</button>' : ''}
+      <div class="a11y-switch">
+        <span class="a11y-switch-label">Incluir mano de obra</span>
+        <label class="a11y-switch-toggle">
+          <input type="checkbox" id="chkIncluirManoObra" ${insumosFilter.incluirManoObra ? 'checked' : ''} />
+          <span class="a11y-switch-track"><span class="a11y-switch-thumb"></span></span>
+        </label>
+      </div>
     </div>
     <div class="sticky-filters">
       <div class="search-bar">
@@ -5540,6 +5548,10 @@ async function renderInsumos(view) {
   wireExportButton('#btnExportInsumos', `/projects/${state.projectId}/insumos/export${queryString(insumosFilter)}`);
   $('#btnMaterialesDisponibles')?.addEventListener('click', openMaterialesDisponiblesModal);
 
+  $('#chkIncluirManoObra').addEventListener('change', (e) => {
+    insumosFilter.incluirManoObra = e.target.checked;
+    renderInsumos(view);
+  });
   $('#insumoSearch').addEventListener('input', debounce((e) => {
     insumosFilter.q = e.target.value.trim();
     renderInsumosList();
@@ -5565,6 +5577,10 @@ function paintInsumos(insumos) {
   list.innerHTML = insumos.map((i) => {
     const pct = i.cantidad_presupuesto > 0 ? Math.min(150, (i.cantidad_acumulada / i.cantidad_presupuesto) * 100) : 0;
     const over = i.sobrepasado_cantidad;
+    // Mismo criterio que el filtro incluirManoObra del backend (codigo NOT
+    // ILIKE 'MO%') — distingue visualmente los insumos de mano de obra
+    // cuando el toggle los trae, para que no se lean como material regular.
+    const esManoObra = !!(i.codigo && /^MO/i.test(i.codigo));
     return `
     <div class="card insumo-card">
       <div class="row between">
@@ -5572,7 +5588,10 @@ function paintInsumos(insumos) {
           <div class="title">${esc(i.concepto)}</div>
           <div class="code">${esc(i.codigo)} · ${esc(i.unidad || '')} ${i.categoria ? `· ${esc(i.categoria)}` : ''}</div>
         </div>
-        ${over ? `<span class="badge red">⚠ excede</span>` : ''}
+        <span class="inline-gap4">
+          ${esManoObra ? `<span class="badge purple">Mano de obra</span>` : ''}
+          ${over ? `<span class="badge red">⚠ excede</span>` : ''}
+        </span>
       </div>
       <div class="row between">
         <span class="muted">Presupuestado</span>
@@ -17322,9 +17341,14 @@ async function openTrabajadorModal(trab, repaint, permisosBancarios, obraId = st
           <input id="tTarjetaAlterna" value="${esc(trab?.tarjeta_alterna || '')}" ${puedeEditarBancarios ? '' : 'disabled'} placeholder="Si la dispersión es a tarjeta en vez de CLABE" />
         </div>
         <div class="field field-full">
+          <label>Importe fijo a tarjeta de nómina (pesos, opcional)</label>
+          <input id="tImporteTarjetaNomina" type="number" min="0" step="0.01" value="${trab?.importe_tarjeta_nomina ?? ''}" placeholder="Déjalo vacío para usar el % de abajo" ${puedeEditarBancarios ? '' : 'disabled'} />
+          <p class="muted fs076-m200">Si lo capturas, <strong>gana sobre el % de abajo</strong>: ese monto exacto va a la cuenta de nómina y el resto por diferencia a la cuenta alterna, en cada nómina calculada de aquí en adelante — pensado para el timbrado IMSS, que exige una cifra exacta. Si el importe excede el total de una corrida, esa nómina no se podrá calcular hasta corregirlo. No afecta nóminas ya calculadas.</p>
+        </div>
+        <div class="field field-full">
           <label>Split de pago (% a cuenta de nómina)</label>
           <input id="tSplitPct" type="number" min="0" max="100" step="1" value="${trab?.split_cuenta_nomina_pct ?? 100}" ${puedeEditarBancarios ? '' : 'disabled'} />
-          <p class="muted fs076-m200">El resto (100 − este %) se dispersa a la cuenta alterna en cada nómina. Se define una sola vez y aplica mientras el trabajador esté activo. Si no hay cuenta alterna capturada, siempre se paga 100% a la cuenta de nómina, sin importar este valor.</p>
+          <p class="muted fs076-m200">Solo aplica si el importe fijo de arriba está vacío. El resto (100 − este %) se dispersa a la cuenta alterna en cada nómina. Si no hay cuenta alterna capturada, siempre se paga 100% a la cuenta de nómina, sin importar este valor.</p>
         </div>
       ` : ''}
     </div>
@@ -17380,6 +17404,11 @@ async function openTrabajadorModal(trab, repaint, permisosBancarios, obraId = st
       body.split_cuenta_nomina_pct = splitRaw === '' ? 100 : Number(splitRaw);
       if (!Number.isFinite(body.split_cuenta_nomina_pct) || body.split_cuenta_nomina_pct < 0 || body.split_cuenta_nomina_pct > 100) {
         toast('El split debe ser un número entre 0 y 100', 'danger'); return;
+      }
+      const importeRaw = $('#tImporteTarjetaNomina').value.trim();
+      body.importe_tarjeta_nomina = importeRaw === '' ? null : Number(importeRaw);
+      if (body.importe_tarjeta_nomina !== null && (!Number.isFinite(body.importe_tarjeta_nomina) || body.importe_tarjeta_nomina < 0)) {
+        toast('El importe de tarjeta de nómina debe ser un número mayor o igual a 0', 'danger'); return;
       }
     }
     const btn = $('#btnSaveTrab');

@@ -10596,7 +10596,7 @@ async function renderMaquinariaHoras(view) {
     <div id="reportesHorasMaqSection"></div>
   `;
   $('#btnHorasMaq')?.addEventListener('click', () => openHorasMaqModal(equipos, proyectos));
-  paintReportesHorasMaq(horasMaq, { puedeAutorizarHoras, esOperador });
+  paintReportesHorasMaq(horasMaq, { puedeAutorizarHoras, esOperador, equipos, proyectos });
 }
 
 async function renderMaquinariaBitacora(view) {
@@ -10794,7 +10794,7 @@ const ESTADO_HORAS_MAQ_LABEL = { pendiente: 'Pendiente', autorizado: 'Autorizado
 // Maquinaria no tiene asignación cabo<->obra hoy (ver diagnóstico del
 // prompt), así que cabo ve TODOS los reportes pendientes, no solo los de
 // "su" obra.
-function paintReportesHorasMaq(horas, { puedeAutorizarHoras, esOperador }) {
+function paintReportesHorasMaq(horas, { puedeAutorizarHoras, esOperador, equipos, proyectos }) {
   const el = $('#reportesHorasMaqSection');
   if (!el || (!puedeAutorizarHoras && !esOperador)) { if (el) el.innerHTML = ''; return; }
 
@@ -10838,7 +10838,7 @@ function paintReportesHorasMaq(horas, { puedeAutorizarHoras, esOperador }) {
       ${!misReportes.length ? '<p class="muted">Aún no has capturado ningún reporte.</p>' : `
       <div class="table-scroll">
         <table>
-          <thead><tr><th>Fecha</th><th>Equipo</th><th class="num">Horas</th><th>Actividad</th><th>Obra</th><th>Estado</th></tr></thead>
+          <thead><tr><th>Fecha</th><th>Equipo</th><th class="num">Horas</th><th>Actividad</th><th>Obra</th><th>Estado</th><th></th></tr></thead>
           <tbody>
             ${misReportes.map((h) => `
               <tr>
@@ -10848,6 +10848,12 @@ function paintReportesHorasMaq(horas, { puedeAutorizarHoras, esOperador }) {
                 <td>${esc(h.actividad || '—')}</td>
                 <td>${esc(h.obra_nombre || '—')}</td>
                 <td><span class="badge ${ESTADO_HORAS_MAQ_BADGE[h.estado] || 'muted'}" title="${h.revisado_por_nombre ? `Revisado por ${esc(h.revisado_por_nombre)}` : ''}">${ESTADO_HORAS_MAQ_LABEL[h.estado] || esc(h.estado)}</span></td>
+                <td>${h.estado === 'pendiente' ? `
+                  <div class="row row-nowrap-gap6">
+                    <button class="btn small" data-editar-horas-propio="${h.id}">Editar</button>
+                    <button class="btn small btn-danger" data-borrar-horas-propio="${h.id}">Borrar</button>
+                  </div>
+                ` : ''}</td>
               </tr>
             `).join('')}
           </tbody>
@@ -10858,6 +10864,37 @@ function paintReportesHorasMaq(horas, { puedeAutorizarHoras, esOperador }) {
   }
 
   el.innerHTML = html;
+
+  // Editar/Borrar el propio reporte (prompt-editar-borrar-reporte-horas-
+  // propio.md) — solo existen estos botones para filas 'pendiente' (ya
+  // filtrado arriba en el propio template), el backend vuelve a exigir
+  // dueño+estado de todos modos (candado real, esto solo evita mostrar un
+  // botón que fallaría).
+  $$('[data-editar-horas-propio]', el).forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const id = Number(btn.dataset.editarHorasPropio);
+      const reporte = horas.find((h) => h.id === id);
+      if (reporte) openHorasMaqModal(equipos, proyectos, reporte);
+    });
+  });
+  $$('[data-borrar-horas-propio]', el).forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const id = Number(btn.dataset.borrarHorasPropio);
+      const ok = await confirmDialog('¿Borrar este reporte de horas? Esta acción no se puede deshacer.', {
+        titulo: 'Borrar reporte', textoAceptar: 'Borrar', claseAceptar: 'btn-danger',
+      });
+      if (!ok) return;
+      btn.disabled = true;
+      try {
+        await api(`/maquinaria/horas/${id}/propio`, { method: 'DELETE' });
+        toast('Reporte borrado', 'success');
+        renderView();
+      } catch (err) {
+        toast(err.message, 'danger');
+        btn.disabled = false;
+      }
+    });
+  });
 
   $$('[data-autorizar-horas]', el).forEach((btn) => {
     btn.addEventListener('click', async () => {
@@ -11414,18 +11451,25 @@ function openMantenimientoMaqModal(equipos) {
   });
 }
 
-function openHorasMaqModal(equipos, proyectos) {
+// reporteExistente (prompt-editar-borrar-reporte-horas-propio.md): cuando
+// viene, el modal entra en modo edición (prefill + PUT al reporte propio en
+// vez de POST uno nuevo) — el backend vuelve a exigir dueño+estado='pendiente'
+// de todos modos, esto solo evita reescribir el modal entero para el mismo
+// formulario.
+function openHorasMaqModal(equipos, proyectos, reporteExistente = null) {
+  const editando = !!reporteExistente;
+  const actividadesPrevias = editando && reporteExistente.actividad ? reporteExistente.actividad.split(', ') : [];
   openModal(`
-    <h3>Capturar horas de uso</h3>
+    <h3>${editando ? 'Editar reporte de horas' : 'Capturar horas de uso'}</h3>
     <p class="muted fs-08">Por ahora solo retroexcavadoras — ver nota de diseño pendiente de revisión.</p>
     <div class="field"><label>Equipo *</label><select id="hrEquipo">${equipoSelectOptions(equipos, true)}</select></div>
-    <div class="field"><label>Fecha *</label><input id="hrFecha" type="date" value="${new Date().toISOString().slice(0, 10)}" /></div>
-    <div class="field"><label>Horas *</label><input id="hrHoras" type="number" min="0" step="0.1" /></div>
+    <div class="field"><label>Fecha *</label><input id="hrFecha" type="date" value="${editando ? reporteExistente.fecha : new Date().toISOString().slice(0, 10)}" /></div>
+    <div class="field"><label>Horas *</label><input id="hrHoras" type="number" min="0" step="0.1" value="${editando ? reporteExistente.horas : ''}" /></div>
     <div class="field"><label>Actividad(es) *</label>
       <div id="hrActividadList">
         ${ACTIVIDADES_MAQUINARIA.map((a) => `
           <label class="checkbox-row-fw400">
-            <input type="checkbox" class="w-auto hrActividadChk" value="${esc(a)}" /> ${esc(a)}
+            <input type="checkbox" class="w-auto hrActividadChk" value="${esc(a)}" ${actividadesPrevias.includes(a) ? 'checked' : ''} /> ${esc(a)}
           </label>`).join('')}
       </div>
     </div>
@@ -11434,9 +11478,13 @@ function openHorasMaqModal(equipos, proyectos) {
     </div>
     <div class="modal-actions">
       <button class="btn" id="btnCancelHr">Cerrar</button>
-      <button class="btn btn-primary" id="btnSaveHr">Guardar</button>
+      <button class="btn btn-primary" id="btnSaveHr">${editando ? 'Guardar cambios' : 'Guardar'}</button>
     </div>
   `);
+  if (editando) {
+    $('#hrEquipo').value = String(reporteExistente.equipo_id);
+    if (reporteExistente.obra_id) $('#hrObra').value = String(reporteExistente.obra_id);
+  }
   $('#btnCancelHr').addEventListener('click', closeModal);
   $('#btnSaveHr').addEventListener('click', async () => {
     const actividades = $$('.hrActividadChk', $('#hrActividadList')).filter((cb) => cb.checked).map((cb) => cb.value);
@@ -11454,8 +11502,13 @@ function openHorasMaqModal(equipos, proyectos) {
     const btn = $('#btnSaveHr');
     btn.disabled = true;
     try {
-      await api('/maquinaria/horas', { method: 'POST', body });
-      toast('Horas registradas', 'success');
+      if (editando) {
+        await api(`/maquinaria/horas/${reporteExistente.id}`, { method: 'PUT', body });
+        toast('Reporte actualizado', 'success');
+      } else {
+        await api('/maquinaria/horas', { method: 'POST', body });
+        toast('Horas registradas', 'success');
+      }
       closeModal();
       renderView();
     } catch (err) {

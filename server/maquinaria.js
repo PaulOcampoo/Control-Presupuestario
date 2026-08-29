@@ -237,6 +237,44 @@ async function softDeleteHoras(id) {
   return rowCount > 0;
 }
 
+// Edición/borrado del propio operador (prompt-editar-borrar-reporte-horas-
+// propio.md) — candado DISTINTO del DELETE administrativo de arriba (ese es
+// puro id, sin dueño ni estado). Aquí operador_id + estado='pendiente' van
+// en el propio WHERE, atómico (mismo criterio que updateEstadoHoras arriba:
+// evita una carrera entre "cabo autoriza" y "operador edita" el mismo
+// registro). Si 0 filas afectadas, getHorasOwnershipInfo() abajo distingue
+// ajeno/ya-revisado/inexistente para el mensaje de error del endpoint.
+async function updateHorasPropio(id, operadorId, { equipo_id, fecha, horas, obra_id, actividad }) {
+  const { rows } = await db.pool.query(
+    `UPDATE reportes_horas_maquinaria
+     SET equipo_id = $1, fecha = $2, horas = $3, obra_id = $4, actividad = $5
+     WHERE id = $6 AND operador_id = $7 AND activo = true AND estado = 'pendiente'
+     RETURNING *`,
+    [equipo_id, fecha, horas, obra_id || null, actividad, id, operadorId]
+  );
+  return rows[0];
+}
+
+async function softDeleteHorasPropio(id, operadorId) {
+  const { rowCount } = await db.pool.query(
+    `UPDATE reportes_horas_maquinaria SET activo = false
+     WHERE id = $1 AND operador_id = $2 AND activo = true AND estado = 'pendiente'`,
+    [id, operadorId]
+  );
+  return rowCount > 0;
+}
+
+// Distingue por qué updateHorasPropio/softDeleteHorasPropio no afectaron
+// ninguna fila: inexistente (404), ajeno (403), o ya revisado (409) — la
+// única forma de dar ese detalle sin arriesgar la atomicidad del UPDATE de
+// arriba (que sí debe seguir siendo un solo statement).
+async function getHorasOwnershipInfo(id) {
+  const { rows } = await db.pool.query(
+    'SELECT operador_id, estado, activo FROM reportes_horas_maquinaria WHERE id = $1', [id]
+  );
+  return rows[0];
+}
+
 // Transición pendiente -> autorizado/rechazado. El WHERE estado='pendiente'
 // hace la transición atómica (evita que dos cabos autoricen/rechacen el
 // mismo reporte en una carrera) y a la vez sirve de candado "solo se revisa
@@ -581,6 +619,7 @@ module.exports = {
   listCombustible, createCombustible, softDeleteCombustible,
   listMantenimientos, createMantenimiento, softDeleteMantenimiento,
   listHoras, createHoras, softDeleteHoras, updateEstadoHoras,
+  updateHorasPropio, softDeleteHorasPropio, getHorasOwnershipInfo,
   getResumen, updatePresupuesto,
   getPresupuestoSugerido, getReportePorCliente,
   listEstadoUnidadResumen, listEstadoUnidadHistorico, createEstadoUnidad,

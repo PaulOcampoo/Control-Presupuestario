@@ -1807,6 +1807,60 @@ app.delete('/api/maquinaria/horas/:id', h(auth.checkPermiso('maquinaria', 'puede
   res.json({ ok: true });
 }));
 
+// Editar/borrar el PROPIO reporte de horas (prompt-editar-borrar-reporte-
+// horas-propio.md) — resuelve el bug real detrás del reporte de Alfredo
+// ("no me deja borrar al corregir"): no era un problema de UI/dispositivo,
+// sino la ausencia total de esta capacidad. Candado DISTINTO del DELETE
+// administrativo de arriba (ese es puro id, sin dueño ni estado — sigue
+// intacto, sin cambios).
+//
+// Gate: checkPermiso('maquinaria_captura', 'puede_crear') — a propósito el
+// mismo permiso que ya usa el POST de arriba, no 'puede_editar' (ese es el
+// de cabo/residente para autorizar/rechazar, ver PUT .../estado). Por diseño
+// actual (defaultPermisosParaRol, server/auth.js) SOLO operador tiene
+// puede_crear=true en esta sección — cabo/residente tienen puede_editar=true
+// y puede_crear=false, así que quedan bloqueados por este mismo gate sin
+// necesitar un flag nuevo (Forbidden Action del prompt: "NO permitir que
+// cabo/admin usen estos nuevos endpoints como atajo"). admin/desarrollador sí
+// bypassan el gate (como en todo el resto de la app), pero el candado de
+// dueño (operador_id=req.user.id) dentro del propio UPDATE los sigue
+// bloqueando igual — su id nunca coincide con el operador_id real de un
+// reporte ajeno, así que no hay atajo real.
+//
+// Ownership + estado='pendiente' se exigen dentro del propio UPDATE
+// (maquinaria.updateHorasPropio/softDeleteHorasPropio), atómico. Si 0 filas
+// afectadas, una segunda consulta de solo lectura (getHorasOwnershipInfo)
+// distingue 404 (no existe) / 403 (no es tuyo) / 409 (ya no está pendiente)
+// para que el frontend pueda mostrar un mensaje útil.
+async function resolverErrorHorasPropio(req, res) {
+  const info = await maquinaria.getHorasOwnershipInfo(Number(req.params.id));
+  if (!info) return res.status(404).json({ error: 'Registro no encontrado' });
+  if (info.operador_id !== req.user.id) return res.status(403).json({ error: 'No puedes modificar el reporte de otro operador' });
+  return res.status(409).json({ error: 'Este reporte ya fue revisado — no se puede modificar' });
+}
+
+app.put('/api/maquinaria/horas/:id', h(auth.checkPermiso('maquinaria_captura', 'puede_crear')), h(async (req, res) => {
+  const { equipo_id, fecha, horas, obra_id, actividad } = req.body || {};
+  if (!equipo_id || !fecha || !(horas > 0)) {
+    return res.status(400).json({ error: 'Indica equipo, fecha y horas válidas' });
+  }
+  const actividades = Array.isArray(actividad) ? actividad : (actividad ? [actividad] : []);
+  if (!actividades.length || actividades.some((a) => !ACTIVIDADES_MAQUINARIA.includes(a))) {
+    return res.status(400).json({ error: `Indica una o más actividades válidas: ${ACTIVIDADES_MAQUINARIA.join(', ')}` });
+  }
+  const registro = await maquinaria.updateHorasPropio(Number(req.params.id), req.user.id, {
+    equipo_id: Number(equipo_id), fecha, horas: Number(horas), obra_id, actividad: actividades.join(', '),
+  });
+  if (registro) return res.json(registro);
+  return resolverErrorHorasPropio(req, res);
+}));
+
+app.delete('/api/maquinaria/horas/:id/propio', h(auth.checkPermiso('maquinaria_captura', 'puede_crear')), h(async (req, res) => {
+  const ok = await maquinaria.softDeleteHorasPropio(Number(req.params.id), req.user.id);
+  if (ok) return res.json({ ok: true });
+  return resolverErrorHorasPropio(req, res);
+}));
+
 // =========================================================================
 // Estado de la unidad (prompt-6-estado-unidad-operador.md) — checklist
 // rápido de seguridad/preventivos capturado por el operador sobre SU unidad

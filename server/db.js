@@ -800,6 +800,19 @@ const SCHEMA = `
   -- especial, incluye jornal y destajo de un solo trabajador sin vinculados).
   ALTER TABLE nomina_items ADD COLUMN IF NOT EXISTS alerta_destajo TEXT;
 
+  -- prompt-importe-tarjeta-nomina-snapshot.md: snapshot PERMANENTE del
+  -- desglose de pago por cuenta (tarjeta nómina/alterna) realmente usado en
+  -- esta corrida — a diferencia de split_cuenta_nomina_pct/
+  -- importe_tarjeta_nomina en trabajadores (leídos en vivo en cada
+  -- consulta), estos dos quedan fijos desde que se calcula la nómina, para
+  -- que una corrección posterior al expediente del trabajador nunca altere
+  -- una nómina ya calculada/aprobada/timbrada ante el IMSS. NULL en
+  -- nóminas calculadas antes de este cambio — adjuntarDesgloseCuentas()
+  -- (server/app.js) cae a cálculo en vivo en ese caso, sin cambios de
+  -- comportamiento para nóminas históricas.
+  ALTER TABLE nomina_items ADD COLUMN IF NOT EXISTS importe_tarjeta_nomina_snapshot DOUBLE PRECISION;
+  ALTER TABLE nomina_items ADD COLUMN IF NOT EXISTS importe_cuenta_alterna_snapshot DOUBLE PRECISION;
+
   -- Rate limiting de endpoints costosos (ej. extracción PDF via Claude API).
   -- Serverless-safe: persiste entre instancias igual que login_attempts.
   -- Índice compuesto para la consulta de ventana temporal (usuario + endpoint + creado_en).
@@ -2260,6 +2273,21 @@ const SCHEMA = `
   -- aquí, ver calcularSplitCuentas en server/calculos.js).
   ALTER TABLE trabajadores ADD COLUMN IF NOT EXISTS split_cuenta_nomina_pct NUMERIC NOT NULL DEFAULT 100
     CHECK (split_cuenta_nomina_pct >= 0 AND split_cuenta_nomina_pct <= 100);
+
+  -- prompt-importe-tarjeta-nomina-snapshot.md: reemplazo eventual de
+  -- split_cuenta_nomina_pct por una cifra fija en pesos (motivo del
+  -- cliente: el timbrado de nómina ante el IMSS exige un importe exacto,
+  -- no un porcentaje recalculado). NULLABLE y coexiste con
+  -- split_cuenta_nomina_pct durante la transición — si está capturado (no
+  -- NULL), gana sobre el porcentaje al calcular la próxima corrida (ver
+  -- calcularSplitCuentas en server/calculos.js); si es NULL, el
+  -- comportamiento no cambia respecto a hoy. Queda NULL para los 2
+  -- trabajadores que hoy usan split por % (Javier Pineda Flores #39, Pedro
+  -- Perez #88, diagnóstico prompt-diagnostico-importe-tarjeta-nomina.md) —
+  -- su importe fijo equivalente NO es auto-derivable de un % que aplicaba
+  -- sobre un monto_total distinto cada corrida; migración manual pendiente
+  -- de Paul, no de este cambio.
+  ALTER TABLE trabajadores ADD COLUMN IF NOT EXISTS importe_tarjeta_nomina NUMERIC CHECK (importe_tarjeta_nomina >= 0);
 
   -- prompt-31-trabajador-multiobra-nn.md, CP0/CP1: bajo el modelo N:N,
   -- trabajadores.project_id deja de ser "la obra del trabajador" y pasa a ser

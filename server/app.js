@@ -840,7 +840,19 @@ app.get('/api/notificaciones', h(async (req, res) => {
     'SELECT COUNT(*)::int AS n FROM notificaciones WHERE usuario_id = $1 AND leida = false',
     [req.user.id]
   );
-  res.json({ notificaciones: rows, no_leidas: countRows[0].n });
+  const payload = { notificaciones: rows, no_leidas: countRows[0].n };
+  // prompt-badge-sugerencias-menu.md: badge de sugerencias pendientes en el
+  // sidebar (admin/desarrollador, mismos roles que reciben la notificación
+  // 'sugerencia_nueva') — piggybackeado en este mismo endpoint/polling de
+  // 60s en vez de un round-trip HTTP paralelo. Early-exit para el resto de
+  // los puestos: la query extra ni se ejecuta.
+  if (req.user.puesto === 'admin' || req.user.puesto === 'desarrollador') {
+    const { rows: sugRows } = await db.pool.query(
+      "SELECT COUNT(*)::int AS n FROM sugerencias WHERE estado = 'pendiente'"
+    );
+    payload.sugerencias_pendientes = sugRows[0].n;
+  }
+  res.json(payload);
 }));
 
 app.put('/api/notificaciones/:id/leida', h(async (req, res) => {
@@ -12118,6 +12130,18 @@ app.post('/api/sugerencias', h(async (req, res) => {
     `INSERT INTO api_rate_limits (usuario_id, endpoint) VALUES ($1, 'sugerencias')`,
     [req.user.id]
   );
+
+  // Notifica a admin/desarrollador (mismo mecanismo genérico de notificaciones
+  // que el resto de la app, ver server/notificaciones.js). Sin project_id:
+  // Sugerencias es un catálogo global, no está atado a una obra.
+  const extracto = texto.trim().length > 80 ? `${texto.trim().slice(0, 80)}…` : texto.trim();
+  const { rows: destinatarios } = await db.pool.query(
+    "SELECT id FROM usuarios WHERE puesto IN ('admin', 'desarrollador') AND activo = true"
+  );
+  await Promise.all(destinatarios.map((d) => crearNotificacion(
+    d.id, null, 'sugerencia_nueva', rows[0].id, `${req.user.nombre} envió una sugerencia: "${extracto}"`
+  )));
+
   res.status(201).json(rows[0]);
 }));
 

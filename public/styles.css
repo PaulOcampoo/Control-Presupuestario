@@ -2047,6 +2047,15 @@ html[data-palette="dorada"]:not([data-theme="light"]) .welcome-card {
   background: var(--bg-primary); padding: var(--space-2) var(--space-6); border-radius: var(--radius-pill);
   border: 1px solid var(--border-color);
 }
+/* Contador de sugerencias pendientes junto al ítem "Sugerencias" del sidebar
+   (prompt-badge-sugerencias-menu.md) — mismos colores/forma que .notif-badge
+   (campana del topbar), pero en flujo normal (no absolute) porque .sbar-item
+   es una fila flex horizontal, no un tile cuadrado como .section-card. */
+.sbar-badge-count {
+  flex-shrink: 0; min-width: 18px; height: 18px; padding: var(--space-0) var(--space-4);
+  border-radius: var(--radius-pill); background: var(--red); color: #fff; font-size: var(--fs-2xs); font-weight: 700;
+  display: flex; align-items: center; justify-content: center; line-height: 1;
+}
 
 /* ── Sidebar groups ───────────────────────────────────────────────────── */
 .sbar-group { display: flex; flex-direction: column; }
@@ -2321,6 +2330,7 @@ html[data-palette="dorada"]:not([data-theme="light"]) .welcome-card {
   #sidebar.collapsed .sbar-label,
   #sidebar.collapsed .sbar-chevron,
   #sidebar.collapsed .sbar-badge-soon,
+  #sidebar.collapsed .sbar-badge-count,
   #sidebar.collapsed .sidebar-profile-info,
   #sidebar.collapsed .sidebar-profile-chevron { display: none; }
   #sidebar.collapsed .sbar-group-body { display: none; }

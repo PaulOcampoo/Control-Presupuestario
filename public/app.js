@@ -71,7 +71,7 @@ const ROLE_TABS = {
 // caen aquí (hoy: operador, jefe_maquinaria). Debe reflejar el mismo
 // conjunto que el bloque de "vistas globales" en renderView() (~línea 3670)
 // — si se agrega una vista global nueva ahí, agregarla aquí también.
-const VISTAS_SIN_PROYECTO = ['usuarios', 'proveedores', 'cumplimiento', ...MAQUINARIA_TABS_ADMIN, 'maquinaria_gallery', 'nominas_global', 'trabajadores_global', 'cotizador', 'estadoResultadosGlobal', 'costos', 'avance_clientes', 'composicion_costos', 'dashboardEjecutivo', 'costosDashboard', 'catalogoBasicos'];
+const VISTAS_SIN_PROYECTO = ['usuarios', 'proveedores', 'cumplimiento', ...MAQUINARIA_TABS_ADMIN, 'maquinaria_gallery', 'nominas_global', 'trabajadores_global', 'cotizador', 'estadoResultadosGlobal', 'costos', 'avance_clientes', 'composicion_costos', 'dashboardEjecutivo', 'costosDashboard', 'catalogoBasicos', 'sugerencias'];
 
 const state = {
   projects: [],
@@ -95,6 +95,7 @@ const state = {
   notificaciones: [],
   notifNoLeidas: 0,
   notifTimer: null,
+  sugerenciasPendientes: 0, // badge sidebar "Sugerencias" (admin/desarrollador) — ver refreshNotificaciones()
   needsTotpReminder: false, // 2FA opcional: banner en Inicio pendiente de mostrarse esta sesión
   avisoNovedades: null, // { total_sin_ver, mas_reciente } cuando hay novedades publicadas sin ver, o null
   novedadesSubView: null, // 'administrar' cuando se entra a Novedades desde un acceso directo admin; se consume una vez en renderView()
@@ -1199,6 +1200,12 @@ async function refreshNotificaciones() {
     state.notificaciones = data.notificaciones;
     state.notifNoLeidas = data.no_leidas;
     renderNotifBadge();
+    // prompt-badge-sugerencias-menu.md: piggyback en el mismo poll de 60s —
+    // el backend solo manda este campo para admin/desarrollador (early-exit
+    // de la query para el resto de puestos), así que para cualquier otro rol
+    // queda undefined y renderSugerenciasBadge() lo oculta.
+    state.sugerenciasPendientes = data.sugerencias_pendientes;
+    renderSugerenciasBadge();
     if ($('#notifDropdown').classList.contains('show')) renderNotifList();
   } catch (err) {
     // Silencioso: un fallo de polling cada 60s no debe interrumpir con un toast.
@@ -1215,6 +1222,24 @@ function renderNotifBadge() {
     el.style.display = count > 0 ? '' : 'none';
     if (count > 0) el.textContent = text;
   }
+}
+
+// Badge de "N sugerencias pendientes" junto al ítem "Sugerencias" del
+// sidebar (prompt-badge-sugerencias-menu.md) — visible solo para
+// admin/desarrollador (mismos roles que reciben la notificación
+// 'sugerencia_nueva'), mismo criterio hide-at-zero que renderNotifBadge().
+// A diferencia de la campana (DOM vivo, nunca se destruye), el sidebar se
+// reconstruye por completo en cada renderSidebar(), por eso esta función se
+// llama tanto ahí (con el DOM recién creado) como desde refreshNotificaciones()
+// (mismo timer/poll que ya alimenta la campana, sin poll paralelo).
+function renderSugerenciasBadge() {
+  const el = $('#sbarSugerenciasBadge');
+  if (!el) return;
+  const esAdminODev = isAdminRealSinSimular();
+  const count = Number(state.sugerenciasPendientes) || 0;
+  if (!esAdminODev || count <= 0) { el.style.display = 'none'; return; }
+  el.textContent = count > 9 ? '9+' : String(count);
+  el.style.display = '';
 }
 
 function timeAgo(creadoEn) {
@@ -1817,6 +1842,7 @@ function renderSidebar() {
   html += `<button class="sbar-item ${activeSug}" id="sbarSugerencias" title="Sugerencias">
     <span class="sbar-icon">💡</span>
     <span class="sbar-label">Sugerencias</span>
+    <span id="sbarSugerenciasBadge" class="sbar-badge-count" style="display:none;"></span>
   </button>`;
   if (isDesarrollador()) {
     // Panel dev: visible solo en vista normal (un Cabo real no lo vería)
@@ -1842,6 +1868,7 @@ function renderSidebar() {
   }
 
   nav.innerHTML = html;
+  renderSugerenciasBadge();
 
   // Toggle de grupo (prompt-42-sidebar-desplegable-sin-navegar.md) — el
   // click en el NOMBRE de la sección solo expande/colapsa la lista inline,
@@ -2312,6 +2339,19 @@ async function navigateFromNotif(notif) {
     switchToView('cumplimiento');
     return;
   }
+  // Sugerencias (prompt-notificacion-sugerencias.md): catálogo global sin obra
+  // asociada, igual que Cumplimiento arriba — no encaja en el flujo genérico
+  // de abajo (que espera project_id + tab dentro de state.allowedTabs).
+  if (notif.tipo === 'sugerencia_nueva') {
+    if (!isAdmin()) return;
+    closeNotifDropdown();
+    closeDrawer();
+    closeModal();
+    showApp();
+    switchToView('sugerencias');
+    resaltarTarjetaSugerencia(notif.referencia_id);
+    return;
+  }
   const tab = TAB_POR_TIPO_NOTIF[notif.tipo];
   if (!tab || !notif.project_id || !state.allowedTabs.includes(tab)) return;
   const proj = state.projects.find((p) => p.id === notif.project_id);
@@ -2352,6 +2392,18 @@ function scrollAndFlash(el) {
 
 function resaltarFilaAvance(semana) {
   scrollAndFlash(document.querySelector(`#avanceTbody tr[data-semana="${semana}"]`));
+}
+
+// renderSugerencias() es async y switchToView() no espera su promesa —
+// best-effort: reintenta unas cuantas veces mientras el panel admin termina
+// de pintarse antes de resaltar la tarjeta (o desistir en silencio, igual
+// que el resto de los deep-links de abrirRegistroDesdeNotif()).
+function resaltarTarjetaSugerencia(sugId, intentos = 15) {
+  if (sugId == null) return;
+  const card = document.querySelector(`[data-sug-id="${sugId}"]`);
+  if (card) { scrollAndFlash(card); return; }
+  if (intentos <= 0) return;
+  setTimeout(() => resaltarTarjetaSugerencia(sugId, intentos - 1), 150);
 }
 
 // avance_pendiente trae la semana como referencia_id (preciso). destajo_pendiente

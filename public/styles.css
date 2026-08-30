@@ -3028,7 +3028,18 @@ html[data-palette="dorada"]:not([data-theme="light"]) .welcome-card {
 .sug-prompt-pre { margin: var(--space-0); font-size: var(--fs-sm); white-space: pre-wrap; color: var(--text-primary); font-family: inherit; }
 .sug-copy-btn { margin-top: var(--space-8); font-size: var(--fs-xs); padding: var(--space-4) var(--space-10); }
 .sug-gen-btn { font-size: var(--fs-sm); padding: var(--space-6) var(--space-12); margin-top: var(--space-8); }
+.sug-responder-btn { font-size: var(--fs-sm); padding: var(--space-6) var(--space-12); margin-top: var(--space-8); margin-left: var(--space-6); }
 .sug-del-btn { font-size: var(--fs-sm); padding: var(--space-6) var(--space-12); margin-top: var(--space-8); margin-left: var(--space-6); background: var(--danger, #e53935); color: #fff; border-color: var(--danger, #e53935); }
+
+/* Hilo de respuestas (prompt-responder-sugerencias-notificacion.md) — mismo
+   tono que .sug-prompt-box (fondo de superficie elevada, borde sutil) para
+   que se lea como "contenido adjunto" bajo el texto de la sugerencia, tanto
+   en la tarjeta "mía" del autor como en la tarjeta admin. */
+.sug-hilo { margin-top: var(--space-10); display: flex; flex-direction: column; gap: var(--space-8); }
+.sug-respuesta { background: var(--surface-raised); border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: var(--space-8) var(--space-12); }
+.sug-respuesta-meta { font-size: var(--fs-xs); color: var(--text-secondary); margin-bottom: var(--space-4); }
+.sug-respuesta-autor { font-weight: 600; color: var(--text-primary); }
+.sug-respuesta-texto { margin: var(--space-0); font-size: var(--fs-sm); white-space: pre-wrap; }
 
 .sug-form-card { margin-bottom: var(--space-24); padding: var(--space-14) var(--space-16); }
 .sug-form-title { margin: var(--space-0) var(--space-0) var(--space-10); font-size: var(--fs-md); }

@@ -1010,6 +1010,13 @@ function effectivePuesto() { return state.simulatedPuesto ?? state.user?.puesto;
 
 function isAdmin() { return !!state.user && ['admin', 'desarrollador'].includes(effectivePuesto()); }
 function isDesarrollador() { return !!state.user && state.user.puesto === 'desarrollador'; } // siempre puesto real
+// prompt-responder-sugerencias-notificacion.md: desarrollador + la cuenta
+// específica de Rodolfo, NO todo admin — el backend calcula este booleano
+// (auth.puedeResponderSugerencias, ver server/auth.js para el id hardcodeado
+// y por qué) y lo manda en el usuario de sesión; el frontend NO duplica el
+// id aquí, mismo criterio que Control de Cuentas/Contabilidad (whitelist
+// 100% backend, esto es solo cortesía de UI — ver renderControlCuentas()).
+function puedeResponderSugerencias() { return !!state.user && !!state.user.puede_responder_sugerencias; }
 // Puesto REAL (no effectivePuesto): para acciones que ni siquiera la vista
 // simulada debe ocultar/mostrar de forma distinta al rol verdadero del usuario.
 function isAdminRealSinSimular() { return !!state.user && ['admin', 'desarrollador'].includes(state.user.puesto); }
@@ -2344,6 +2351,20 @@ async function navigateFromNotif(notif) {
   // de abajo (que espera project_id + tab dentro de state.allowedTabs).
   if (notif.tipo === 'sugerencia_nueva') {
     if (!isAdmin()) return;
+    closeNotifDropdown();
+    closeDrawer();
+    closeModal();
+    showApp();
+    switchToView('sugerencias');
+    resaltarTarjetaSugerencia(notif.referencia_id);
+    return;
+  }
+  // Respuesta/resolución (prompt-responder-sugerencias-notificacion.md): a
+  // diferencia de sugerencia_nueva arriba, el destinatario es el AUTOR
+  // original — cualquier puesto, sin el gate isAdmin(). referencia_id es el
+  // id de la sugerencia (no de la respuesta), así que resaltarTarjetaSugerencia
+  // encuentra la misma tarjeta "mía" vía [data-sug-id] (ver tarjetaMia()).
+  if (notif.tipo === 'sugerencia_respuesta' || notif.tipo === 'sugerencia_resuelta') {
     closeNotifDropdown();
     closeDrawer();
     closeModal();
@@ -8552,11 +8573,36 @@ async function renderSugerencias(view) {
     isAdmin() ? api('/sugerencias') : Promise.resolve(null),
   ]);
 
+  // Hilo de respuestas por sugerencia (prompt-responder-sugerencias-
+  // notificacion.md) — un GET por sugerencia visible, en paralelo. Escala
+  // fine para el volumen real de esta app (decenas, no miles, de
+  // sugerencias); evita duplicar el JOIN/json_agg de arriba una 3ra vez
+  // (mías + admin) solo para traer el hilo.
+  const idsConHilo = [...new Set([...mias, ...(todas || [])].map((s) => s.id))];
+  const listasRespuestas = await Promise.all(
+    idsConHilo.map((id) => api(`/sugerencias/${id}/respuestas`).catch(() => []))
+  );
+  const respuestasPorSugId = Object.fromEntries(idsConHilo.map((id, i) => [id, listasRespuestas[i]]));
+
   // Archivos seleccionados pendientes de subir (solo para el formulario activo)
   let sugFiles = [];
 
   const estadoBadge = (estado) =>
     `<span class="badge-estado badge-estado-${estado}">${SUGERENCIA_ESTADO_LABELS[estado] || estado}</span>`;
+
+  // Mismo hilo debajo del texto tanto en la tarjeta "mía" (el autor lee la
+  // respuesta) como en la tarjeta admin (el equipo ve lo que ya se contestó).
+  const hiloHtml = (sugId) => {
+    const respuestas = respuestasPorSugId[sugId] || [];
+    if (!respuestas.length) return '';
+    return `<div class="sug-hilo">
+      ${respuestas.map((r) => `
+        <div class="sug-respuesta">
+          <div class="sug-respuesta-meta"><span class="sug-respuesta-autor">${esc(r.autor_nombre)}</span> · ${esc(r.creado_en?.slice(0, 16).replace('T', ' ') || '')}</div>
+          <p class="sug-respuesta-texto">${esc(r.mensaje)}</p>
+        </div>`).join('')}
+    </div>`;
+  };
 
   const imgsHtml = (imgs) => {
     if (!imgs || !imgs.length) return '';
@@ -8569,13 +8615,14 @@ async function renderSugerencias(view) {
   };
 
   const tarjetaMia = (s) => `
-    <div class="card sug-card-mia">
+    <div class="card sug-card-mia" data-sug-id="${s.id}">
       <div class="sug-header-row">
         <p class="sug-texto-mia">${esc(s.texto)}</p>
         ${estadoBadge(s.estado)}
       </div>
       ${imgsHtml(s.imagenes)}
       <p class="sug-fecha-mia">${esc(s.creado_en?.slice(0, 16).replace('T', ' ') || '')}</p>
+      ${hiloHtml(s.id)}
     </div>`;
 
   const tarjetaAdmin = (s) => `
@@ -8594,6 +8641,7 @@ async function renderSugerencias(view) {
       </div>
       <p class="sug-texto-admin">${esc(s.texto)}</p>
       ${imgsHtml(s.imagenes)}
+      ${hiloHtml(s.id)}
       ${s.prompt_generado ? `
         <div class="sug-prompt-box">
           <div class="sug-prompt-label">Prompt IA generado</div>
@@ -8603,6 +8651,7 @@ async function renderSugerencias(view) {
       <button class="btn sug-gen-btn" data-sug-id="${s.id}">
         ${s.prompt_generado ? 'Regenerar prompt IA' : '✨ Generar prompt IA'}
       </button>
+      ${puedeResponderSugerencias() ? `<button class="btn sug-responder-btn" data-sug-id="${s.id}">💬 Responder</button>` : ''}
       ${isDesarrollador() ? `<button class="btn sug-del-btn" data-sug-id="${s.id}">Eliminar</button>` : ''}
     </div>`;
 
@@ -8717,6 +8766,14 @@ async function renderSugerencias(view) {
     });
   });
 
+  // ── Responder (desarrollador/Rodolfo): abre modal, POST, re-pinta ──────
+  $$('.sug-responder-btn', view).forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const id = Number(btn.dataset.sugId);
+      openResponderSugerenciaModal(id, () => renderSugerencias(view));
+    });
+  });
+
   // ── Admin: copiar prompt ───────────────────────────────────────────────
   $$('.sug-copy-btn', view).forEach((btn) => {
     btn.addEventListener('click', () => {
@@ -8737,6 +8794,37 @@ async function renderSugerencias(view) {
         toast(err.message || 'Error al eliminar', 'danger');
       }
     });
+  });
+}
+
+// Modal "Responder" (prompt-responder-sugerencias-notificacion.md) — mismo
+// molde que openCambioEstadoEstimacionModal (textarea + Cancelar/Confirmar
+// vía openModal(), sin prompt()/confirm() nativos). onDone() re-pinta la
+// vista de Sugerencias para reflejar el nuevo mensaje en el hilo.
+function openResponderSugerenciaModal(sugId, onDone) {
+  openModal(`
+    <h3>Responder sugerencia</h3>
+    <div class="field"><label>Mensaje *</label><textarea id="sugRespuestaTexto" rows="4" maxlength="2000" placeholder="Explica por qué es confusa, errónea, o por qué no se puede implementar…"></textarea></div>
+    <div class="modal-actions">
+      <button class="btn" id="btnCancelSugRespuesta">Cancelar</button>
+      <button class="btn btn-primary" id="btnEnviarSugRespuesta">Enviar</button>
+    </div>
+  `);
+  $('#btnCancelSugRespuesta').addEventListener('click', closeModal);
+  $('#btnEnviarSugRespuesta').addEventListener('click', async () => {
+    const mensaje = $('#sugRespuestaTexto').value.trim();
+    if (!mensaje) { toast('El mensaje es requerido', 'danger'); return; }
+    const btn = $('#btnEnviarSugRespuesta');
+    btn.disabled = true; btn.textContent = 'Enviando…';
+    try {
+      await api(`/sugerencias/${sugId}/responder`, { method: 'POST', body: { mensaje } });
+      toast('Respuesta enviada', 'success');
+      closeModal();
+      if (onDone) await onDone();
+    } catch (err) {
+      toast(err.message, 'danger');
+      btn.disabled = false; btn.textContent = 'Enviar';
+    }
   });
 }
 

@@ -1181,6 +1181,20 @@ const SCHEMA = `
   );
   CREATE INDEX IF NOT EXISTS idx_sug_imgs ON sugerencia_imagenes(sugerencia_id);
 
+  -- Hilo de respuestas de desarrollador/Rodolfo a una sugerencia
+  -- (prompt-responder-sugerencias-notificacion.md) — gate real en
+  -- auth.requireResponderSugerencias (server/auth.js), no aquí. autor_usuario_id
+  -- siempre es quien respondió (desarrollador o la cuenta de Rodolfo), NUNCA el
+  -- autor original de la sugerencia (ese es sugerencias.usuario_id).
+  CREATE TABLE IF NOT EXISTS sugerencias_respuestas (
+    id SERIAL PRIMARY KEY,
+    sugerencia_id INTEGER NOT NULL REFERENCES sugerencias(id) ON DELETE CASCADE,
+    autor_usuario_id INTEGER NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+    mensaje TEXT NOT NULL,
+    creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
+  CREATE INDEX IF NOT EXISTS idx_sug_respuestas ON sugerencias_respuestas(sugerencia_id);
+
   -- Novedades (changelog in-app, prompt-16-novedades-changelog.md). Mismo
   -- criterio de acceso que Sugerencias: informativo, sin sección de permiso
   -- propia, sin auth.allow() para lectura — cualquier usuario autenticado

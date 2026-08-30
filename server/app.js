@@ -210,7 +210,7 @@ async function issueFullSession(res, user, extra = {}) {
   res.setHeader('Set-Cookie', auth.buildRefreshCookie(refreshToken));
   res.json({
     token,
-    user: { id: user.id, nombre: user.nombre, usuario: user.usuario, puesto: user.puesto, totp_enabled: !!user.totp_enabled, solicitud_eliminacion_datos: !!user.solicitud_eliminacion_datos },
+    user: { id: user.id, nombre: user.nombre, usuario: user.usuario, puesto: user.puesto, totp_enabled: !!user.totp_enabled, solicitud_eliminacion_datos: !!user.solicitud_eliminacion_datos, puede_responder_sugerencias: auth.puedeResponderSugerencias(user) },
     tabs: auth.tabsParaUsuario(user),
     must_change_password: user.must_change_password || false,
     avisoNovedades: await getAvisoNovedades(user.id),
@@ -642,7 +642,7 @@ app.get('/api/auth/me', h(async (req, res) => {
   );
   if (!rows[0]) return res.status(401).json({ error: 'Sesión inválida' });
   res.json({
-    user: { id: rows[0].id, nombre: rows[0].nombre, usuario: rows[0].usuario, puesto: rows[0].puesto, totp_enabled: !!rows[0].totp_enabled, solicitud_eliminacion_datos: !!rows[0].solicitud_eliminacion_datos },
+    user: { id: rows[0].id, nombre: rows[0].nombre, usuario: rows[0].usuario, puesto: rows[0].puesto, totp_enabled: !!rows[0].totp_enabled, solicitud_eliminacion_datos: !!rows[0].solicitud_eliminacion_datos, puede_responder_sugerencias: auth.puedeResponderSugerencias(rows[0]) },
     tabs: auth.tabsParaUsuario(rows[0]),
     must_change_password: rows[0].must_change_password || false,
     needsTotpReminder: shouldShowTotpReminder(rows[0]),
@@ -12297,7 +12297,69 @@ app.patch('/api/sugerencias/:id', h(auth.allow('desarrollador')), h(async (req, 
     [estado, id]
   );
   if (!rows[0]) return res.status(404).json({ error: 'Sugerencia no encontrada' });
+
+  // Agradecimiento automático al autor (prompt-responder-sugerencias-
+  // notificacion.md) — SOLO implementada/descartada, texto fijo distinto por
+  // caso. Independiente de si también se mandó un mensaje manual vía
+  // /responder — ambas notificaciones pueden coexistir, esta no reemplaza
+  // esa. No dispara en pendiente/revisada (early-return arriba ya validó que
+  // `estado` es uno de los 4 válidos; aquí solo miramos si es uno de estos 2).
+  if (estado === 'implementada' || estado === 'descartada') {
+    const mensajeResuelta = estado === 'implementada'
+      ? '¡Gracias por tu sugerencia! Ya fue implementada.'
+      : 'Gracias por tu sugerencia. Esta vez no fue posible implementarla.';
+    await crearNotificacion(rows[0].usuario_id, null, 'sugerencia_resuelta', id, mensajeResuelta);
+  }
+
   res.json(rows[0]);
+}));
+
+// Responder Sugerencias (prompt-responder-sugerencias-notificacion.md) —
+// mensaje libre del "equipo" hacia el autor, para sugerencias confusas,
+// erróneas o no implementables. Gate real: auth.requireResponderSugerencias
+// (server/auth.js) — desarrollador + la cuenta específica de Rodolfo, NO
+// todo admin (ver comentario extenso ahí sobre el id hardcodeado).
+app.post('/api/sugerencias/:id/responder', auth.requireResponderSugerencias, h(async (req, res) => {
+  const id = Number(req.params.id);
+  const { mensaje } = req.body || {};
+  if (!mensaje?.trim()) return res.status(400).json({ error: 'El mensaje es requerido' });
+  if (mensaje.trim().length > 2000) return res.status(400).json({ error: 'El mensaje no puede superar los 2 000 caracteres' });
+
+  const { rows: sugRows } = await db.pool.query('SELECT usuario_id FROM sugerencias WHERE id = $1', [id]);
+  if (!sugRows[0]) return res.status(404).json({ error: 'Sugerencia no encontrada' });
+
+  const { rows } = await db.pool.query(
+    `INSERT INTO sugerencias_respuestas (sugerencia_id, autor_usuario_id, mensaje)
+     VALUES ($1, $2, $3) RETURNING *`,
+    [id, req.user.id, mensaje.trim()]
+  );
+
+  const extracto = mensaje.trim().length > 80 ? `${mensaje.trim().slice(0, 80)}…` : mensaje.trim();
+  await crearNotificacion(
+    sugRows[0].usuario_id, null, 'sugerencia_respuesta', id, `${req.user.nombre} respondió tu sugerencia: "${extracto}"`
+  );
+
+  res.status(201).json(rows[0]);
+}));
+
+// Hilo de respuestas de una sugerencia — visible para admin/desarrollador
+// (panel admin, vía el mismo bypass de auth.allow()) y para el autor
+// original (su propia vista de Sugerencias), nadie más.
+app.get('/api/sugerencias/:id/respuestas', h(async (req, res) => {
+  const id = Number(req.params.id);
+  const { rows: sugRows } = await db.pool.query('SELECT usuario_id FROM sugerencias WHERE id = $1', [id]);
+  if (!sugRows[0]) return res.status(404).json({ error: 'Sugerencia no encontrada' });
+  const esSuperUsuario = ['admin', 'desarrollador'].includes(req.user.puesto);
+  const esAutor = sugRows[0].usuario_id === req.user.id;
+  if (!esSuperUsuario && !esAutor) return res.status(403).json({ error: 'No tienes permiso' });
+
+  const { rows } = await db.pool.query(
+    `SELECT r.*, u.nombre AS autor_nombre FROM sugerencias_respuestas r
+     JOIN usuarios u ON u.id = r.autor_usuario_id
+     WHERE r.sugerencia_id = $1 ORDER BY r.creado_en ASC`,
+    [id]
+  );
+  res.json(rows);
 }));
 
 app.delete('/api/sugerencias/:id', requireDesarrollador, h(async (req, res) => {

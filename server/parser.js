@@ -191,7 +191,17 @@ function parseBudgetConcepts(sheet) {
     if (!codigo && !concepto) continue;
 
     const upper = norm(concepto);
-    if (upper.startsWith('TOTAL DEL PRESUPUESTO') || upper.startsWith('(*') || upper.startsWith('IVA')) {
+    // prompt-fix-total-inflado-presupuesto.md (Capa 3): algunos formatos
+    // ponen la etiqueta de pie de página ("TOTAL DEL PRESUPUESTO...", "IVA
+    // ...", "(* monto en letra *)") en la columna Código en vez de Concepto,
+    // dejando concepto vacío — el chequeo original solo revisaba concepto y
+    // dejaba pasar esas filas (con su importe real de total/IVA) como si
+    // fueran conceptos normales. Revisar también código cierra ese hueco sin
+    // afectar archivos donde la etiqueta sí vive en Concepto (upper ya la
+    // detecta igual).
+    const upperCodigo = norm(codigo);
+    const esPiePagina = (texto) => texto.startsWith('TOTAL DEL PRESUPUESTO') || texto.startsWith('(*') || texto.startsWith('IVA');
+    if (esPiePagina(upper) || esPiePagina(upperCodigo)) {
       continue; // pie de pagina / totales generales
     }
 
@@ -214,7 +224,17 @@ function parseBudgetConcepts(sheet) {
       precio_unitario: precio,
       importe,
       grupo: currentGroup,
-      es_total: isTotalRow ? 1 : 0,
+      // prompt-fix-total-inflado-presupuesto.md (Capa 4): un renglón sin
+      // unidad/cantidad/precio propios (isGroupHeader) nunca es una partida
+      // comprable real, sin importar cómo esté redactado su texto — mismo
+      // criterio que un TOTAL/subtotal explícito. Antes quedaba es_total=0,
+      // así que un futuro formato de pie de página/jerarquía con otra
+      // redacción (no cubierta por esPiePagina/isTotalRow) seguía colándose
+      // como concepto real. La mayoría de estas filas ya tienen importe=0
+      // (encabezados de grupo puros) y no cambian ningún total; las que sí
+      // tuvieran importe>0 sin ser TOTAL explícito ahora también quedan
+      // excluidas del re-sumado, que es exactamente el punto.
+      es_total: (isTotalRow || isGroupHeader) ? 1 : 0,
       orden: order,
     });
   }

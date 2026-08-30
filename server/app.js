@@ -67,7 +67,7 @@ const estadoResultados = require('./estadoResultados');
 const contabilidad = require('./contabilidad');
 const { extraerDatosCFDI, extraerDatosCFDIDesdePdf } = require('./cfdiParser');
 const { parseMovimientosBancarios } = require('./movimientosBancariosParser');
-const { emparejarConceptos, calcularCambios, aplicarCambiosConceptos } = require('./reintegracionPresupuesto');
+const { emparejarConceptos, calcularCambios, aplicarCambiosConceptos, totalConfiableDesdeParse } = require('./reintegracionPresupuesto');
 const ordenesCambio = require('./ordenesCambio');
 const lotes = require('./lotes');
 const modelosVivienda = require('./modelosVivienda');
@@ -6331,7 +6331,13 @@ app.post('/api/projects/:id/presupuesto/actualizar/preview', h(auth.allow('costo
     );
 
     const { emparejados, nuevos, historicos, conflictos } = emparejarConceptos(parsed.conceptos, existentes);
-    const totalNuevo = parsed.conceptos.filter((c) => !c.es_total).reduce((s, c) => s + (Number(c.importe) || 0), 0);
+    // prompt-fix-total-inflado-presupuesto.md (Capa 1): antes se re-sumaba
+    // parsed.conceptos aquí mismo — vulnerable a que el parser clasifique
+    // mal una fila de pie de página/jerarquía como concepto real (bug real
+    // confirmado, ver diagnóstico). Mismo criterio de confianza que
+    // total_actual (presupuestoTotalDe) dos líneas abajo, ahora también
+    // para total_nuevo — nunca depende de sumar fila por fila.
+    const totalNuevo = totalConfiableDesdeParse(parsed);
     const totalActual = await presupuestoTotalDe(pid);
 
     res.json({
@@ -6420,10 +6426,19 @@ app.post('/api/projects/:id/presupuesto/actualizar/confirmar', h(auth.allow('cos
 
     // Motor de aplicación compartido con Órdenes de Cambio (prompt-ordenes-
     // cambio.md) — ver reintegracionPresupuesto.aplicarCambiosConceptos.
-    // Comportamiento sin cambios: mismo SQL, mismo orden de operaciones que
-    // antes vivía inline aquí.
+    // prompt-fix-total-inflado-presupuesto.md (Capa 2): se pasa el total de
+    // confianza del Excel recién parseado (mismo criterio que total_nuevo
+    // del preview) para que meta.total_sin_iva quede en ese valor en vez de
+    // recalcularse re-sumando conceptos — antes, confirmar una actualización
+    // con una fila de pie de página mal clasificada corrompía
+    // PERMANENTEMENTE el total oficial del proyecto (Resumen/Finanzas/
+    // Dashboard), no solo el preview. El caller de Órdenes de Cambio no pasa
+    // este argumento — sigue re-sumando igual que siempre, es el único
+    // criterio válido ahí (sin Excel de origen del que confiar un total).
     await db.withTransaction(async (client) => {
-      ({ totalFinal, aplicados } = await aplicarCambiosConceptos(client, pid, { emparejados, nuevos, historicos, resoluciones }));
+      ({ totalFinal, aplicados } = await aplicarCambiosConceptos(
+        client, pid, { emparejados, nuevos, historicos, resoluciones }, totalConfiableDesdeParse(parsed)
+      ));
 
       const detalle = JSON.stringify({
         nuevos: nuevos.length,

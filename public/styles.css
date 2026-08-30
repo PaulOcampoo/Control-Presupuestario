@@ -2962,6 +2962,65 @@ html[data-palette="dorada"]:not([data-theme="light"]) .welcome-card {
 .sug-autor-nombre { font-weight: 600; font-size: var(--fs-sm); }
 .sug-meta-inline { font-size: var(--fs-xs); color: var(--text-secondary); margin-left: var(--space-6); }
 .sug-estado-select { font-size: var(--fs-sm); padding: var(--space-4) var(--space-6); width: auto; }
+
+/* Colores de estado del selector admin de Sugerencias (prompt-colores-
+   estado-sugerencias.md; ajuste posterior confirmado por Paul: pendiente=rojo
+   en vez de dorado —urge atención—, descartada=neutro del tema en vez de un
+   color propio). [data-value] lo pone syncLabel() en app.js sobre el wrap
+   visible (.custom-select.sug-estado-select), scoped SOLO a esta clase — no
+   toca ningún otro <select> custom de la app. Nota: .badge-estado-pendiente/
+   .badge-estado-descartada (arriba, tarjeta "mía") NO se tocan — este ajuste
+   fue explícitamente solo para el selector admin. */
+.custom-select.sug-estado-select[data-value="pendiente"] .custom-select-trigger { border-color: var(--red); color: var(--red); background: color-mix(in srgb, var(--red) 12%, var(--bg-surface)); }
+.custom-select.sug-estado-select[data-value="revisada"] .custom-select-trigger { border-color: var(--accent-blue); color: var(--accent-blue); background: color-mix(in srgb, var(--accent-blue) 12%, var(--bg-surface)); }
+.custom-select.sug-estado-select[data-value="implementada"] .custom-select-trigger { border-color: var(--accent-green); color: var(--accent-green); background: color-mix(in srgb, var(--accent-green) 12%, var(--bg-surface)); }
+/* Descartada: SIN color propio — deja border/background en su default
+   neutro (mismo que .custom-select-trigger sin scoping) y solo tiñe el
+   texto con --text-secondary, el mismo gris que ya usa el resto de la app
+   por default para de-enfatizar (ej. .sug-meta-inline, .sug-fecha-mia). */
+.custom-select.sug-estado-select[data-value="descartada"] .custom-select-trigger { color: var(--text-secondary); }
+.custom-select.sug-estado-select[data-value="pendiente"] .custom-select-chevron { color: var(--red); }
+.custom-select.sug-estado-select[data-value="revisada"] .custom-select-chevron { color: var(--accent-blue); }
+.custom-select.sug-estado-select[data-value="implementada"] .custom-select-chevron { color: var(--accent-green); }
+/* Descartada: el chevron SÍ necesita override explícito a --text-secondary
+   (bug real, encontrado con evidencia de getComputedStyle: sin esta regla
+   queda con el dorado genérico de .custom-select-chevron, que es justo el
+   "todavía se ve dorado" reportado — el borde/texto del trigger de al lado
+   ya estaban correctamente neutros, solo el chevron se había quedado
+   colgado del default). */
+.custom-select.sug-estado-select[data-value="descartada"] .custom-select-chevron { color: var(--text-secondary); }
+
+/* Dropdown abierto: el listbox está "portado" a document.body (ver
+   enhanceSelect() en app.js), por eso se scoped vía
+   [data-select-class~="sug-estado-select"] (espejo de select.className que
+   list.dataset.selectClass pone ahí) en vez de un ancestro CSS real. Reposo
+   = texto tenue del color de estado (escaneable sin abrir); hover/resaltado
+   por teclado = mismo mecanismo que ya existía para "Pendiente" en dorado
+   (.custom-select-option.highlighted), extendido con color propio a las 4
+   opciones — fondo tintado (no invertido a texto oscuro fijo, evita
+   problemas de contraste en tema claro). Descartada usa el MISMO mecanismo
+   que las otras 3, solo con --text-secondary en vez de un acento — un
+   intento anterior la dejó caer al genérico .custom-select-option.
+   highlighted/:hover (fondo dorado sólido) mientras el texto en reposo
+   seguía en --text-secondary por la regla de abajo (mayor especificidad que
+   el genérico) — esa combinación (fondo dorado + texto gris) medía ~1.1:1
+   de contraste, prácticamente ilegible (confirmado con getComputedStyle).
+   Con highlight/hover propios acá abajo, fondo y texto vuelven a
+   coordinarse igual que en los otros 3 estados. */
+.custom-select-list[data-select-class~="sug-estado-select"] .custom-select-option[data-value="pendiente"] { color: var(--red); }
+.custom-select-list[data-select-class~="sug-estado-select"] .custom-select-option[data-value="revisada"] { color: var(--accent-blue); }
+.custom-select-list[data-select-class~="sug-estado-select"] .custom-select-option[data-value="implementada"] { color: var(--accent-green); }
+.custom-select-list[data-select-class~="sug-estado-select"] .custom-select-option[data-value="descartada"] { color: var(--text-secondary); }
+.custom-select-list[data-select-class~="sug-estado-select"] .custom-select-option[data-value="pendiente"].highlighted { background: color-mix(in srgb, var(--red) 22%, var(--bg-surface)); color: var(--red); }
+.custom-select-list[data-select-class~="sug-estado-select"] .custom-select-option[data-value="revisada"].highlighted { background: color-mix(in srgb, var(--accent-blue) 22%, var(--bg-surface)); color: var(--accent-blue); }
+.custom-select-list[data-select-class~="sug-estado-select"] .custom-select-option[data-value="implementada"].highlighted { background: color-mix(in srgb, var(--accent-green) 22%, var(--bg-surface)); color: var(--accent-green); }
+.custom-select-list[data-select-class~="sug-estado-select"] .custom-select-option[data-value="descartada"].highlighted { background: color-mix(in srgb, var(--text-secondary) 22%, var(--bg-surface)); color: var(--text-secondary); }
+@media (hover: hover) and (pointer: fine) {
+  .custom-select-list[data-select-class~="sug-estado-select"] .custom-select-option[data-value="pendiente"]:hover { background: color-mix(in srgb, var(--red) 22%, var(--bg-surface)); color: var(--red); }
+  .custom-select-list[data-select-class~="sug-estado-select"] .custom-select-option[data-value="revisada"]:hover { background: color-mix(in srgb, var(--accent-blue) 22%, var(--bg-surface)); color: var(--accent-blue); }
+  .custom-select-list[data-select-class~="sug-estado-select"] .custom-select-option[data-value="implementada"]:hover { background: color-mix(in srgb, var(--accent-green) 22%, var(--bg-surface)); color: var(--accent-green); }
+  .custom-select-list[data-select-class~="sug-estado-select"] .custom-select-option[data-value="descartada"]:hover { background: color-mix(in srgb, var(--text-secondary) 22%, var(--bg-surface)); color: var(--text-secondary); }
+}
 .sug-texto-admin { margin: var(--space-0) var(--space-0) var(--space-6); font-size: var(--fs-base); white-space: pre-wrap; }
 
 .sug-prompt-box { background: var(--surface-raised); border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: var(--space-10) var(--space-12); margin: var(--space-10) var(--space-0); }

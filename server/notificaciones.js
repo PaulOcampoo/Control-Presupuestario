@@ -32,6 +32,13 @@ const CATEGORIAS_NOTIFICACION = {
     tipos: {
       estimacion_rechazada: 'Estimación rechazada',
       sugerencia_nueva: 'Nueva sugerencia enviada',
+      // prompt-responder-sugerencias-notificacion.md: a diferencia de
+      // sugerencia_nueva (siempre admin/desarrollador), estas 2 le llegan al
+      // AUTOR original de la sugerencia — cualquier puesto, ver ROLES_POR_TIPO
+      // abajo (todos los puestos no-superusuario listados explícitamente, no
+      // solo admin/desarrollador).
+      sugerencia_respuesta: 'Respuesta a tu sugerencia',
+      sugerencia_resuelta: 'Tu sugerencia fue resuelta',
     },
   },
 };
@@ -62,6 +69,13 @@ const ROLES_POR_TIPO = {
   contrato_por_vencer: ['admin', 'residente'],
   estimacion_rechazada: ['residente'],
   sugerencia_nueva: ['admin', 'desarrollador'],
+  // Cualquier puesto puede enviar una sugerencia (POST /api/sugerencias, sin
+  // auth.allow()) y por lo tanto recibir estas 2 como su autor — todos los
+  // puestos NO-superusuario listados explícitamente (admin/desarrollador ya
+  // ven el catálogo completo vía el bypass esSuperusuario en el GET de
+  // preferencias, no necesitan entrada aquí).
+  sugerencia_respuesta: ['residente', 'cabo', 'compras', 'tesoreria', 'administracion', 'logistica', 'jefe_maquinaria', 'operador', 'costos'],
+  sugerencia_resuelta: ['residente', 'cabo', 'compras', 'tesoreria', 'administracion', 'logistica', 'jefe_maquinaria', 'operador', 'costos'],
 };
 
 // Sin fila en notificacion_preferencias para (usuarioId, tipo) = activado por

@@ -1030,6 +1030,31 @@ function requireContabilidadAccess(req, res, next) {
   next();
 }
 
+// Responder Sugerencias (prompt-responder-sugerencias-notificacion.md) —
+// poder responder con un mensaje a una sugerencia es EXCLUSIVO de
+// 'desarrollador' + la cuenta específica de Rodolfo Ocampo Hernandez, NO
+// todo admin (decisión de negocio confirmada por Paul en el prompt) — a
+// diferencia de tieneAccesoContabilidad() arriba, este candado NO da bypass
+// a admin en general, solo a un id puntual. Confirmado con SELECT real
+// contra Producción antes de hardcodear: id=28, usuario='Rocampo',
+// nombre='RODOLFO OCAMPO HERNANDEZ', puesto='admin'. OJO: existe una cuenta
+// de nombre parecido, id=128 "Rafael Ocampo" (usuario='Rocampoh',
+// jefe_maquinaria) — es una persona y cuenta totalmente distinta, no
+// confundir. Whitelist por id (mismo criterio que USUARIOS_CONTROL_CUENTAS/
+// USUARIOS_CONTROL_FINANCIERO/USUARIOS_ESTADO_RESULTADOS arriba); confirmar
+// siempre con SELECT real antes de tocar esta constante en el futuro.
+const USUARIO_RESPONDER_SUGERENCIAS_ADMIN = 28; // Rodolfo Ocampo Hernandez (usuario 'Rocampo')
+function puedeResponderSugerencias(user) {
+  return user.puesto === 'desarrollador' || user.id === USUARIO_RESPONDER_SUGERENCIAS_ADMIN;
+}
+function requireResponderSugerencias(req, res, next) {
+  if (!puedeResponderSugerencias(req.user)) {
+    logDenied(req, 'sin acceso a responder Sugerencias (whitelist)');
+    return res.status(403).json({ error: 'No tienes permiso para realizar esta acción' });
+  }
+  next();
+}
+
 // Los 5 tabs reales de Contabilidad (prompt-contabilidad-galeria-tiles.md —
 // antes un solo tab 'contabilidad' con subnav interno, ver public/app.js
 // CONTABILIDAD_TABS, misma lista literal duplicada aquí porque este archivo
@@ -1139,6 +1164,8 @@ module.exports = {
   requireControlFinancieroAccess,
   requireEstadoResultadosAccess,
   requireContabilidadAccess,
+  puedeResponderSugerencias,
+  requireResponderSugerencias,
   tabsParaUsuario,
   verificarAccesoObra,
   ensureBootstrapAdmin,

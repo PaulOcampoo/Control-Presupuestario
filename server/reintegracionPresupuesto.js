@@ -12,6 +12,24 @@ function normalizarDescripcion(s) {
   return (s || '').toString().trim().toLowerCase().replace(/\s+/g, ' ');
 }
 
+// prompt-fix-total-inflado-presupuesto.md (Capas 1 y 2) — total de
+// confianza de un Excel recién parseado (parsed = resultado de
+// parseWorkbook), mismo criterio EXACTO que presupuestoTotalDe()
+// (server/finanzas.js) pero sobre datos en memoria, no contra la DB: nunca
+// re-suma conceptos uno por uno (vulnerable a que el parser clasifique mal
+// una fila de pie de página/jerarquía), siempre confía primero en el total
+// que el propio Excel ya declara (parsed.meta.total_sin_iva, la fila
+// "TOTAL DEL PRESUPUESTO MOSTRADO SIN IVA"), y solo si eso falta cae al
+// último concepto es_total=1 sin grupo — igual que el fallback de
+// presupuestoTotalDe(). Usado por el preview (total_nuevo) y por el
+// confirmar (para no sobreescribir meta.total_sin_iva con un re-sumado).
+function totalConfiableDesdeParse(parsed) {
+  if (parsed.meta && parsed.meta.total_sin_iva != null) return Number(parsed.meta.total_sin_iva);
+  const grandTotales = parsed.conceptos.filter((c) => c.es_total && !c.grupo);
+  const ultimo = grandTotales[grandTotales.length - 1];
+  return ultimo ? Number(ultimo.importe) : 0;
+}
+
 // existentesDB: filas de `conceptos` del proyecto, tanto activo=1 como
 // activo=0 (para soportar el caso de un concepto histórico que "regresa"),
 // SIN incluir la fila es_total=1 (se excluye antes de llamar, o se filtra
@@ -178,7 +196,18 @@ function calcularCambios(m) {
 // Devuelve { totalFinal, aplicados } — aplicados es el detalle por concepto
 // emparejado (para que cada caller arme su propio audit_log.detalle con el
 // formato que ya usaba).
-async function aplicarCambiosConceptos(client, pid, { emparejados, nuevos, historicos, resoluciones = {} }) {
+// totalConfianzaExcel (prompt-fix-total-inflado-presupuesto.md, Capa 2):
+// OPCIONAL — cuando el caller viene de un Excel (Actualizar presupuesto),
+// pasa aquí totalConfiableDesdeParse(parsed) del archivo recién parseado,
+// y ese valor se usa TAL CUAL para meta.total_sin_iva en vez de re-sumar
+// conceptos (la misma re-suma que puede inflarse si el parser clasifica
+// mal una fila de pie de página — ver diagnóstico completo en el prompt).
+// El caller de Órdenes de Cambio (server/ordenesCambio.js) NO tiene un
+// Excel de origen del que tomar un total de confianza — nunca pasa este
+// parámetro, y sigue re-sumando exactamente como antes; es el único
+// criterio válido ahí, ya que una orden de cambio modifica conceptos
+// incrementalmente sin un archivo completo de referencia.
+async function aplicarCambiosConceptos(client, pid, { emparejados, nuevos, historicos, resoluciones = {} }, totalConfianzaExcel = null) {
   const { rows: maxOrdenRows } = await client.query(
     'SELECT COALESCE(MAX(orden), 0) AS max_orden FROM conceptos WHERE project_id = $1', [pid]
   );
@@ -225,12 +254,19 @@ async function aplicarCambiosConceptos(client, pid, { emparejados, nuevos, histo
     await client.query('UPDATE conceptos SET activo = 0 WHERE id = $1', [existente.id]);
   }
 
-  // Recalcula meta.total_sin_iva contra el conjunto activo resultante.
-  const { rows: totalRows } = await client.query(
-    'SELECT COALESCE(SUM(importe), 0) AS total FROM conceptos WHERE project_id = $1 AND es_total = 0 AND activo = 1',
-    [pid]
-  );
-  const totalFinal = Number(totalRows[0].total);
+  // Recalcula meta.total_sin_iva contra el conjunto activo resultante — o,
+  // si viene un total de confianza del Excel (ver comentario del parámetro
+  // arriba), usa ese directamente sin re-sumar.
+  let totalFinal;
+  if (totalConfianzaExcel != null) {
+    totalFinal = Number(totalConfianzaExcel);
+  } else {
+    const { rows: totalRows } = await client.query(
+      'SELECT COALESCE(SUM(importe), 0) AS total FROM conceptos WHERE project_id = $1 AND es_total = 0 AND activo = 1',
+      [pid]
+    );
+    totalFinal = Number(totalRows[0].total);
+  }
   await client.query(
     `INSERT INTO meta (project_id, clave, valor) VALUES ($1, 'total_sin_iva', $2)
      ON CONFLICT (project_id, clave) DO UPDATE SET valor = EXCLUDED.valor`,
@@ -263,4 +299,4 @@ async function aplicarCambiosConceptos(client, pid, { emparejados, nuevos, histo
   return { totalFinal, aplicados };
 }
 
-module.exports = { emparejarConceptos, normalizarDescripcion, calcularCambios, aplicarCambiosConceptos };
+module.exports = { emparejarConceptos, normalizarDescripcion, calcularCambios, aplicarCambiosConceptos, totalConfiableDesdeParse };

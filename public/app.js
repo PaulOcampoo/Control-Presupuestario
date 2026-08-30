@@ -2979,6 +2979,13 @@ function enhanceSelect(select) {
 
   const list = document.createElement('div');
   list.className = 'custom-select-list';
+  // Espeja las clases del <select> real como data-attribute (nunca como
+  // clase — evitaría heredar reglas de layout como .sug-estado-select en un
+  // elemento portado a document.body, ver comentario en styles.css) — sirve
+  // de gancho genérico para que un módulo específico (ej. colores de estado
+  // en Sugerencias, prompt-colores-estado-sugerencias.md) pueda dar estilo a
+  // SU listbox sin afectar el de ningún otro <select> de la app.
+  list.dataset.selectClass = select.className;
   list.setAttribute('role', 'listbox');
   list.style.zIndex = String(CUSTOM_SELECT_Z);
   list.hidden = true;
@@ -2998,6 +3005,7 @@ function enhanceSelect(select) {
       item.className = 'custom-select-option';
       item.setAttribute('role', 'option');
       item.dataset.index = String(i);
+      item.dataset.value = opt.value;
       item.textContent = opt.textContent;
       if (opt.value === select.value) item.classList.add('selected');
       list.appendChild(item);
@@ -3007,6 +3015,10 @@ function enhanceSelect(select) {
   function syncLabel() {
     const sel = options()[select.selectedIndex];
     label.textContent = sel ? sel.textContent : '';
+    // Mismo gancho genérico que list.dataset.selectClass arriba: refleja el
+    // value actual en el wrap (visible, no portado) para que un módulo
+    // específico pueda colorear su trigger cerrado por estado.
+    wrap.dataset.value = select.value;
   }
 
   function isOpen() { return !list.hidden && list.classList.contains('show'); }
@@ -8530,9 +8542,6 @@ async function renderDevPanel(view) {
 // =========================================================================
 const SUGERENCIA_ESTADO_LABELS = {
   pendiente: 'Pendiente', revisada: 'Revisada', implementada: 'Implementada', descartada: 'Descartada',
-};
-const SUGERENCIA_ESTADO_COLORS = {
-  pendiente: 'var(--accent-gold)', revisada: 'var(--accent-blue)', implementada: 'var(--accent-green)', descartada: 'var(--text-secondary)',
 };
 
 async function renderSugerencias(view) {

@@ -7371,7 +7371,7 @@ async function openOrdenDetalle(ocId) {
       } catch (err) { toast(err.message, 'danger'); }
     });
     $('#btnRegistrarRecepcion')?.addEventListener('click', () => openRegistrarRecepcionModal(o));
-    $('#btnRegistrarPago')?.addEventListener('click', () => openRegistrarPagoModal(o));
+    $('#btnRegistrarPago')?.addEventListener('click', () => openRegistrarPagoOcModal(o));
 
     await Promise.all([paintOcRecepciones(ocId), paintOcPagos(ocId)]);
   } catch (err) {
@@ -7511,7 +7511,15 @@ async function openRegistrarRecepcionModal(orden) {
   });
 }
 
-function openRegistrarPagoModal(orden) {
+// Renombrada desde openRegistrarPagoModal (prompt-fix-rename-registrar-pago-
+// modal.md): colisionaba con la homónima de Cobranza (más abajo en este
+// mismo archivo) — al ser 2 "function" de nivel superior con el mismo
+// nombre, la segunda sobreescribía silenciosamente a esta, causando que el
+// botón "Registrar pago" de una Orden de Compra invocara por error la
+// función de Cobranza (TypeError: planItems.map is not a function, sin
+// feedback visible al usuario — diagnóstico completo en
+// prompt-diagnostico-boton-registrar-pago-oc.md).
+function openRegistrarPagoOcModal(orden) {
   openModal(`
     <h3>Registrar pago</h3>
     <p class="muted">${esc(orden.folio || `OC #${orden.id}`)} — ${esc(orden.proveedor_nombre)}</p>
@@ -22092,7 +22100,7 @@ function pintarCobranzaDetalleModal(contratoResumen, detalle) {
   `);
   $('#btnCerrarCobranzaDetalle').addEventListener('click', closeModal);
   $('#btnEditarPlanPago').addEventListener('click', () => openPlanPagoFormModal(contratoResumen, plan, plan_items));
-  $('#btnRegistrarPago').addEventListener('click', () => openRegistrarPagoModal(contratoResumen, plan_items));
+  $('#btnRegistrarPago').addEventListener('click', () => openRegistrarPagoCobranzaModal(contratoResumen, plan_items));
 }
 
 // Reabre el detalle de cobranza ya refrescado — usado tras guardar un plan
@@ -22202,7 +22210,10 @@ function openPlanPagoFormModal(contratoResumen, plan, planItems) {
 // Un pago puede o no ligarse a un ítem del plan (pago anticipado o fuera de
 // calendario no tiene por qué corresponder a ningún renglón programado).
 // NO bloquea sobrepago — solo muestra la `advertencia` del backend.
-function openRegistrarPagoModal(contratoResumen, planItems) {
+// Renombrada desde openRegistrarPagoModal (prompt-fix-rename-registrar-pago-
+// modal.md) — mismo motivo que openRegistrarPagoOcModal arriba: nombre
+// compartido con la de Orden de Compra causaba shadowing silencioso.
+function openRegistrarPagoCobranzaModal(contratoResumen, planItems) {
   openModal(`
     <h3>Registrar pago — ${esc(contratoResumen.manzana || '—')} / ${esc(contratoResumen.numero_lote)}</h3>
     <div class="row">

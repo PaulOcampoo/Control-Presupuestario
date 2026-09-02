@@ -80,18 +80,25 @@ jobs:
       - name: Instalar dependencias (@vercel/blob, pg)
         run: npm install --omit=dev --no-audit --no-fund @vercel/blob pg
 
-      # TEMPORAL — solo para validar rotarBackupsViejos() contra Blob real
-      # antes de mergear el PR (colisión de nombre por un run manual previo
-      # el mismo día UTC). Se revierte en un commit aparte apenas se confirme
-      # el resultado, no debe llegar al merge.
-      - name: "[TEMPORAL] Borrar blob duplicado de hoy para poder reintentar"
+      # TEMPORAL — solo para inspeccionar la clasificación completa de
+      # rotarBackupsViejos() contra Blob real antes de mergear el PR.
+      # Se revierte apenas se confirme el resultado, no debe llegar al merge.
+      - name: "[TEMPORAL] Listar clasificación completa del inventario actual"
         env:
           BLOB_READ_WRITE_TOKEN: ${{ secrets.BLOB_READ_WRITE_TOKEN }}
         run: |
           node -e "
-          const { del } = require('@vercel/blob');
-          del('backups/backup-2026-09-02.sql.gz').then(() => {
-            console.log('[TEMPORAL] Borrado backups/backup-2026-09-02.sql.gz');
+          const { list } = require('@vercel/blob');
+          const { clasificarBackups } = require('./scripts/backup-neon-to-blob.js');
+          list({ prefix: 'backups/' }).then(({ blobs }) => {
+            const hoy = new Date().toISOString().slice(0, 10);
+            const { aConservar, aBorrar, sinFecha, mensualesPromovidos } = clasificarBackups(blobs, hoy);
+            console.log('[TEMPORAL] hoy=' + hoy + ' total=' + blobs.length);
+            console.log('[TEMPORAL] aConservar:');
+            aConservar.forEach(b => console.log('  ' + b.pathname + (mensualesPromovidos.has(b.pathname) ? ' (MENSUAL)' : ' (diario)')));
+            console.log('[TEMPORAL] aBorrar:');
+            aBorrar.forEach(b => console.log('  ' + b.pathname));
+            console.log('[TEMPORAL] sinFecha: ' + sinFecha.length);
           });
           "
 

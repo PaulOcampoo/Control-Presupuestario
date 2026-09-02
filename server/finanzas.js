@@ -678,8 +678,18 @@ async function getErogadoRealPorCliente(clienteId) {
   return getErogadoRealAgregado(rows.map((r) => r.id));
 }
 
+// LEFT JOIN + WHERE c.archivado IS NOT TRUE (prompt-fase1-archivar-completar-
+// clientes.md): excluye obras de clientes archivados del agregado global —
+// preserva proyectos huérfanos (cliente_id NULL, sin cliente que archivar).
+// getErogadoRealPorCliente arriba NO se toca: ver un cliente archivado
+// directo en su propia sección sigue mostrando sus números reales, solo el
+// agregado GLOBAL lo excluye.
 async function getErogadoRealGlobal() {
-  const { rows } = await db.pool.query('SELECT id FROM proyectos');
+  const { rows } = await db.pool.query(`
+    SELECT p.id FROM proyectos p
+    LEFT JOIN clientes c ON c.id = p.cliente_id
+    WHERE c.archivado IS NOT TRUE
+  `);
   return getErogadoRealAgregado(rows.map((r) => r.id));
 }
 

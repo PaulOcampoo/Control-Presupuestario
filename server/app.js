@@ -2178,22 +2178,24 @@ app.get('/api/clientes', h(auth.allow('residente', 'cabo', 'compras', 'tesoreria
     || (req.user.puesto === 'desarrollador' && !(await db.usuarioTieneAsignacionExplicita(req.user.id)));
   if (veTodo) {
     const { rows } = await db.pool.query(`
-      SELECT c.id, c.nombre, COUNT(p.id)::int AS num_proyectos
+      SELECT c.id, c.nombre, c.completado, COUNT(p.id)::int AS num_proyectos
       FROM clientes c
       LEFT JOIN proyectos p ON p.cliente_id = c.id
       LEFT JOIN orden_clientes_usuario ocu ON ocu.cliente_id = c.id AND ocu.usuario_id = $1
-      GROUP BY c.id, c.nombre, ocu.posicion
+      WHERE c.archivado = false
+      GROUP BY c.id, c.nombre, c.completado, ocu.posicion
       ORDER BY ocu.posicion NULLS LAST, c.nombre
     `, [req.user.id]);
     return res.json(rows);
   }
   const { rows } = await db.pool.query(`
-    SELECT c.id, c.nombre, COUNT(DISTINCT p.id)::int AS num_proyectos
+    SELECT c.id, c.nombre, c.completado, COUNT(DISTINCT p.id)::int AS num_proyectos
     FROM clientes c
     JOIN proyectos p ON p.cliente_id = c.id
     JOIN usuario_proyectos up ON up.project_id = p.id AND up.usuario_id = $1
     LEFT JOIN orden_clientes_usuario ocu ON ocu.cliente_id = c.id AND ocu.usuario_id = $1
-    GROUP BY c.id, c.nombre, ocu.posicion
+    WHERE c.archivado = false
+    GROUP BY c.id, c.nombre, c.completado, ocu.posicion
     ORDER BY ocu.posicion NULLS LAST, c.nombre
   `, [req.user.id]);
   res.json(rows);
@@ -2247,6 +2249,77 @@ app.delete('/api/clientes/:id', h(auth.allow()), h(async (req, res) => {
   const { rowCount } = await db.pool.query('DELETE FROM clientes WHERE id = $1', [id]);
   if (!rowCount) return res.status(404).json({ error: 'Cliente no encontrado' });
   res.json({ ok: true });
+}));
+
+// ---------------------------------------------------------------------------
+// Archivar/completar cliente (prompt-fase1-archivar-completar-clientes.md)
+// — nunca DELETE físico, todo reversible vía flags. Archivar afecta TODAS
+// las obras del cliente juntas (no hay archivado por-obra individual, ver
+// diseño Fase 0) — por eso exige confirmación explícita en el payload.
+// ---------------------------------------------------------------------------
+app.post('/api/clientes/:id/archivar', h(auth.allow()), h(async (req, res) => {
+  const id = Number(req.params.id);
+  if (!req.body || req.body.confirmado !== true) {
+    return res.status(400).json({ error: 'Se requiere confirmado:true — archivar un cliente archiva TODAS sus obras juntas.' });
+  }
+  const { rows } = await db.pool.query(
+    'UPDATE clientes SET archivado = true, archivado_en = NOW(), archivado_por = $2 WHERE id = $1 RETURNING id, nombre',
+    [id, req.user.id]
+  );
+  if (!rows[0]) return res.status(404).json({ error: 'Cliente no encontrado' });
+  res.json({ ok: true, cliente: rows[0] });
+}));
+
+app.post('/api/clientes/:id/desarchivar', h(auth.allow()), h(async (req, res) => {
+  const id = Number(req.params.id);
+  const { rows } = await db.pool.query(
+    'UPDATE clientes SET archivado = false, archivado_en = NULL, archivado_por = NULL WHERE id = $1 RETURNING id, nombre',
+    [id]
+  );
+  if (!rows[0]) return res.status(404).json({ error: 'Cliente no encontrado' });
+  res.json({ ok: true, cliente: rows[0] });
+}));
+
+// "completado" nunca se marca a mano (es automático, ver GET /api/avance-
+// por-cliente/completo) — solo se revierte a mano. completado_revertido_
+// manualmente=true evita que el próximo refresh lo re-marque de inmediato
+// mientras siga en 100%; se resetea solo si el avance cae debajo de 100%
+// después (ver misma lógica en el endpoint de arriba).
+app.post('/api/clientes/:id/completado/revertir', h(auth.allow()), h(async (req, res) => {
+  const id = Number(req.params.id);
+  const { rows } = await db.pool.query(
+    'UPDATE clientes SET completado = false, completado_revertido_manualmente = true WHERE id = $1 RETURNING id, nombre',
+    [id]
+  );
+  if (!rows[0]) return res.status(404).json({ error: 'Cliente no encontrado' });
+  res.json({ ok: true, cliente: rows[0] });
+}));
+
+app.get('/api/clientes/archivados', h(auth.allow()), h(async (req, res) => {
+  const { rows } = await db.pool.query(`
+    SELECT c.id, c.nombre, c.archivado_en, u.nombre AS archivado_por_nombre,
+           COUNT(p.id)::int AS num_proyectos
+    FROM clientes c
+    LEFT JOIN usuarios u ON u.id = c.archivado_por
+    LEFT JOIN proyectos p ON p.cliente_id = c.id
+    WHERE c.archivado = true
+    GROUP BY c.id, c.nombre, c.archivado_en, u.nombre
+    ORDER BY c.archivado_en DESC
+  `);
+  res.json(rows);
+}));
+
+app.get('/api/clientes/completados', h(auth.allow()), h(async (req, res) => {
+  const { rows } = await db.pool.query(`
+    SELECT c.id, c.nombre, c.completado_en, c.archivado,
+           COUNT(p.id)::int AS num_proyectos
+    FROM clientes c
+    LEFT JOIN proyectos p ON p.cliente_id = c.id
+    WHERE c.completado = true
+    GROUP BY c.id, c.nombre, c.completado_en, c.archivado
+    ORDER BY c.completado_en DESC
+  `);
+  res.json(rows);
 }));
 
 // ---------------------------------------------------------------------------
@@ -2361,6 +2434,8 @@ app.get('/api/resumen-global', h(auth.allow()), h(async (req, res) => {
         0
       ) AS avance_ejecutado_pct
     FROM proyectos p
+    LEFT JOIN clientes c ON c.id = p.cliente_id
+    WHERE c.archivado IS NOT TRUE
     ORDER BY p.id
   `);
 
@@ -2409,6 +2484,7 @@ app.get('/api/avance-por-cliente', h(auth.allow()), h(async (req, res) => {
       ) AS avance_ejecutado_pct
     FROM proyectos p
     JOIN clientes c ON c.id = p.cliente_id
+    WHERE c.archivado = false
   `);
 
   const porCliente = new Map();
@@ -2447,6 +2523,8 @@ app.get('/api/avance-por-cliente/completo', h(auth.allow()), h(async (req, res) 
     SELECT
       c.id AS cliente_id,
       c.nombre AS cliente_nombre,
+      c.completado,
+      c.completado_revertido_manualmente,
       p.id AS project_id,
       p.nombre AS obra_nombre,
       COALESCE(
@@ -2464,13 +2542,18 @@ app.get('/api/avance-por-cliente/completo', h(auth.allow()), h(async (req, res) 
       ) AS avance_ejecutado_pct
     FROM proyectos p
     JOIN clientes c ON c.id = p.cliente_id
+    WHERE c.archivado = false
     ORDER BY c.nombre, p.nombre
   `);
 
   const porCliente = new Map();
   for (const r of rows) {
     if (!porCliente.has(r.cliente_id)) {
-      porCliente.set(r.cliente_id, { cliente_id: r.cliente_id, cliente_nombre: r.cliente_nombre, totalPresupuesto: 0, importeEjecutado: 0, obras: [] });
+      porCliente.set(r.cliente_id, {
+        cliente_id: r.cliente_id, cliente_nombre: r.cliente_nombre,
+        completado: r.completado, completadoRevertidoManualmente: r.completado_revertido_manualmente,
+        totalPresupuesto: 0, importeEjecutado: 0, obras: [],
+      });
     }
     const acc = porCliente.get(r.cliente_id);
     const presupuesto = Number(r.presupuesto_total);
@@ -2480,12 +2563,40 @@ app.get('/api/avance-por-cliente/completo', h(auth.allow()), h(async (req, res) 
     acc.obras.push({ project_id: r.project_id, obra_nombre: r.obra_nombre, presupuesto_total: presupuesto, avance_pct: avancePct });
   }
 
-  const resultado = [...porCliente.values()]
+  // Auto-detección de "completado" (prompt-fase1-archivar-completar-
+  // clientes.md) — lazy, al vuelo, en este mismo query que ya calcula
+  // avance_ponderado_pct por cliente (sin cron nuevo). 2 transiciones:
+  // cruza a >=100% (y no fue revertido a mano antes) -> se auto-marca;
+  // cae debajo de 100% -> se auto-desmarca Y se resetea el flag de
+  // "revertido a mano" (empieza un ciclo nuevo, un futuro 100% genuino
+  // debe poder volver a auto-marcarse sin que un revert viejo lo bloquee).
+  // No afecta clientes archivados (excluidos arriba del WHERE) ni el campo
+  // avance_financiero_real de ninguna obra — 100% aditivo sobre `clientes`.
+  const porCompletarUpdates = [];
+  const calculados = [...porCliente.values()].map((c) => {
+    const pct = c.totalPresupuesto > 0 ? (c.importeEjecutado / c.totalPresupuesto) * 100 : 0;
+    if (pct >= 100 && !c.completado && !c.completadoRevertidoManualmente) {
+      porCompletarUpdates.push(
+        db.pool.query('UPDATE clientes SET completado = true, completado_en = NOW() WHERE id = $1', [c.cliente_id])
+      );
+      c.completado = true;
+    } else if (pct < 100 && (c.completado || c.completadoRevertidoManualmente)) {
+      porCompletarUpdates.push(
+        db.pool.query('UPDATE clientes SET completado = false, completado_revertido_manualmente = false WHERE id = $1', [c.cliente_id])
+      );
+      c.completado = false;
+    }
+    return { ...c, pct };
+  });
+  if (porCompletarUpdates.length) await Promise.all(porCompletarUpdates);
+
+  const resultado = calculados
     .map((c) => ({
       cliente_id: c.cliente_id,
       cliente_nombre: c.cliente_nombre,
       presupuesto_total: Number(c.totalPresupuesto.toFixed(2)),
-      avance_ponderado_pct: c.totalPresupuesto > 0 ? Number(((c.importeEjecutado / c.totalPresupuesto) * 100).toFixed(1)) : 0,
+      avance_ponderado_pct: c.totalPresupuesto > 0 ? Number(c.pct.toFixed(1)) : 0,
+      completado: c.completado,
       obras: c.obras.sort((a, b) => b.presupuesto_total - a.presupuesto_total),
     }))
     .sort((a, b) => b.avance_ponderado_pct - a.avance_ponderado_pct);

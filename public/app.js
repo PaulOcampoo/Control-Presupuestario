@@ -80,6 +80,10 @@ const VISTAS_SIN_PROYECTO = ['usuarios', 'proveedores', 'cumplimiento', ...MAQUI
   // goToFinanzasGlobal/goToFinanzasCliente). Sin esto, switchToView('finanzas')
   // rebotaría a la galería de clientes exigiendo elegir obra primero.
   'finanzas',
+  // Archivar/completar clientes (prompt-fase1-archivar-completar-
+  // clientes.md): listas globales, admin-only, sin obra ni cliente
+  // seleccionado — mismo criterio que 'usuarios'/'dashboardEjecutivo'.
+  'clientes_archivados', 'clientes_completados',
 ];
 
 const state = {
@@ -1789,6 +1793,11 @@ function updateGalleryDrawerGlobalLinks() {
     // necesita llegar a Maquinaria igual — esa vista es global, no depende
     // de ninguna obra en particular.
     ['btnGalleryGoMaquinaria', MAQUINARIA_TABS_ADMIN.some(puedeVer)],
+    // Archivar/completar clientes (prompt-fase1-archivar-completar-
+    // clientes.md): gestión admin-only, no tiene tab propio en ROLE_TABS
+    // (mismo criterio que "Permisos" arriba) — isAdmin() directo.
+    ['btnGalleryGoClientesArchivados', isAdmin()],
+    ['btnGalleryGoClientesCompletados', isAdmin()],
   ];
   let anyVisible = false;
   links.forEach(([id, visible]) => {
@@ -3907,10 +3916,12 @@ function clienteCardHtml(c) {
         aria-label="${isFav ? 'Quitar de favoritos' : 'Marcar como favorito'}">${isFav ? '⭐' : '☆'}</button>
       <span class="cliente-icon">🏢</span>
       <span class="cliente-nombre">${esc(c.nombre)}</span>
+      ${c.completado ? '<span class="cliente-badge-completado" title="Avance financiero ponderado al 100%">✅ Completado</span>' : ''}
       <span class="cliente-count">${c.num_proyectos} presupuesto${c.num_proyectos !== 1 ? 's' : ''}</span>
       ${isAdmin() ? `
         <button class="cliente-menu-btn" data-cliente-menu-btn="${c.id}" title="Opciones">⋮</button>
         <div class="cliente-menu-dropdown hidden-initial" data-cliente-menu-dropdown="${c.id}">
+          <button class="cliente-menu-item" data-cliente-archivar="${c.id}" data-cliente-archivar-nombre="${esc(c.nombre)}">📦 Archivar cliente</button>
           <button class="cliente-menu-item cliente-menu-item-danger" data-cliente-eliminar="${c.id}" data-cliente-eliminar-nombre="${esc(c.nombre)}">🗑️ Eliminar cliente</button>
         </div>` : ''}
     </div>
@@ -3941,6 +3952,13 @@ function wireClienteCards(grid) {
       ev.stopPropagation();
       closeAllClienteMenus();
       eliminarCliente(Number(btn.dataset.clienteEliminar), btn.dataset.clienteEliminarNombre);
+    });
+  });
+  $$('[data-cliente-archivar]', grid).forEach((btn) => {
+    btn.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      closeAllClienteMenus();
+      archivarCliente(Number(btn.dataset.clienteArchivar), btn.dataset.clienteArchivarNombre);
     });
   });
   $$('[data-cliente-fav]', grid).forEach((btn) => {
@@ -4149,6 +4167,106 @@ async function eliminarCliente(id, nombre) {
     state.clientes = state.clientes.filter((c) => c.id !== id);
     renderClientGallery();
     toast('Cliente eliminado', 'success');
+  } catch (err) {
+    toast(err.message, 'danger');
+  }
+}
+
+// Archivar (prompt-fase1-archivar-completar-clientes.md): a diferencia de
+// eliminar, es 100% reversible (ver desarchivarCliente en
+// renderClientesArchivados) — nunca DELETE físico. Archiva TODAS las obras
+// del cliente juntas, por eso el texto de confirmación lo deja explícito
+// (mismo patrón de confirmDialog que ya usa eliminarCliente).
+async function archivarCliente(id, nombre) {
+  const ok = await confirmDialog(
+    `Se archivará el cliente "${nombre}" junto con TODAS sus obras. Dejará de aparecer en la galería y en los totales globales, pero no se pierde ningún dato — puedes desarchivarlo cuando quieras desde "Clientes archivados".`,
+    { titulo: 'Archivar cliente', textoAceptar: 'Archivar', textoCancelar: 'Cancelar' }
+  );
+  if (!ok) return;
+  try {
+    await api(`/clientes/${id}/archivar`, { method: 'POST', body: { confirmado: true } });
+    state.clientes = state.clientes.filter((c) => c.id !== id);
+    renderClientGallery();
+    toast('Cliente archivado', 'success');
+  } catch (err) {
+    toast(err.message, 'danger');
+  }
+}
+
+async function renderClientesArchivados(view) {
+  const clientes = await api('/clientes/archivados');
+  view.innerHTML = `
+    <h2 class="section-title">📦 Clientes archivados</h2>
+    <p class="muted">Clientes archivados junto con todas sus obras. No aparecen en la galería ni en los totales globales hasta que se desarchiven.</p>
+    ${!clientes.length ? '<p class="muted">No hay clientes archivados.</p>' : `
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Cliente</th><th>Archivado</th><th>Por</th><th>Obras</th><th></th></tr></thead>
+          <tbody>
+            ${clientes.map((c) => `
+              <tr>
+                <td>${esc(c.nombre)}</td>
+                <td>${fmtDateShort(c.archivado_en)}</td>
+                <td>${esc(c.archivado_por_nombre || '—')}</td>
+                <td>${c.num_proyectos}</td>
+                <td><button class="btn btn-sm" data-desarchivar="${c.id}" data-nombre="${esc(c.nombre)}">↩️ Desarchivar</button></td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+    `}
+  `;
+  view.querySelectorAll('[data-desarchivar]').forEach((btn) => {
+    btn.addEventListener('click', () => desarchivarCliente(Number(btn.dataset.desarchivar), btn.dataset.nombre));
+  });
+}
+
+async function renderClientesCompletados(view) {
+  const clientes = await api('/clientes/completados');
+  view.innerHTML = `
+    <h2 class="section-title">✅ Clientes completados</h2>
+    <p class="muted">Clientes cuyo avance llegó al 100% (detectado automáticamente). Siguen contando en los totales globales salvo que también estén archivados.</p>
+    ${!clientes.length ? '<p class="muted">No hay clientes completados.</p>' : `
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Cliente</th><th>Completado</th><th>Obras</th><th></th></tr></thead>
+          <tbody>
+            ${clientes.map((c) => `
+              <tr>
+                <td>${esc(c.nombre)}${c.archivado ? ' <span class="badge muted">archivado</span>' : ''}</td>
+                <td>${fmtDateShort(c.completado_en)}</td>
+                <td>${c.num_proyectos}</td>
+                <td><button class="btn btn-sm" data-revertir-completado="${c.id}" data-nombre="${esc(c.nombre)}">↩️ Revertir completado</button></td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+    `}
+  `;
+  view.querySelectorAll('[data-revertir-completado]').forEach((btn) => {
+    btn.addEventListener('click', () => revertirCompletado(Number(btn.dataset.revertirCompletado), btn.dataset.nombre));
+  });
+}
+
+async function desarchivarCliente(id, nombre) {
+  try {
+    await api(`/clientes/${id}/desarchivar`, { method: 'POST' });
+    toast(`"${nombre}" desarchivado`, 'success');
+    await refreshClientList();
+    renderView();
+  } catch (err) {
+    toast(err.message, 'danger');
+  }
+}
+
+async function revertirCompletado(id, nombre) {
+  try {
+    await api(`/clientes/${id}/completado/revertir`, { method: 'POST' });
+    toast(`Completado revertido para "${nombre}"`, 'success');
+    await refreshClientList();
+    renderView();
   } catch (err) {
     toast(err.message, 'danger');
   }
@@ -4396,6 +4514,8 @@ $('#btnGalleryGoTrabajadoresGlobal').addEventListener('click', () => goToGlobalA
 $('#btnGalleryGoNominasGlobal').addEventListener('click', () => goToGlobalAdminView('nominas_global'));
 $('#btnGalleryGoPermisos').addEventListener('click', () => { state.usuariosSubView = 'permisos'; goToGlobalAdminView('usuarios'); });
 $('#btnGalleryGoMaquinaria').addEventListener('click', () => goToGlobalAdminView('maquinaria_gallery'));
+$('#btnGalleryGoClientesArchivados').addEventListener('click', () => goToGlobalAdminView('clientes_archivados'));
+$('#btnGalleryGoClientesCompletados').addEventListener('click', () => goToGlobalAdminView('clientes_completados'));
 
 function openNuevoClienteModal() {
   openModal(`
@@ -4688,7 +4808,7 @@ function destroyCharts() {
 async function renderView() {
   destroyCharts();
   const view = $('#view');
-  if (state.view === 'usuarios' || state.view === 'proveedores' || state.view === 'cumplimiento' || MAQUINARIA_TABS_ADMIN.includes(state.view) || state.view === 'nominas_global' || state.view === 'trabajadores_global' || state.view === 'cotizador' || state.view === 'estadoResultadosGlobal' || state.view === 'costos' || state.view === 'avance_clientes' || state.view === 'finanzas' || state.view === 'composicion_costos' || state.view === 'cuentas' || state.view === 'controlFinanciero' || state.view === 'dashboardEjecutivo' || state.view === 'costosDashboard' || state.view === 'catalogoBasicos' || SECTION_DEFS.contabilidad.tabs.includes(state.view)) {
+  if (state.view === 'usuarios' || state.view === 'proveedores' || state.view === 'cumplimiento' || MAQUINARIA_TABS_ADMIN.includes(state.view) || state.view === 'nominas_global' || state.view === 'trabajadores_global' || state.view === 'cotizador' || state.view === 'estadoResultadosGlobal' || state.view === 'costos' || state.view === 'avance_clientes' || state.view === 'finanzas' || state.view === 'composicion_costos' || state.view === 'cuentas' || state.view === 'controlFinanciero' || state.view === 'dashboardEjecutivo' || state.view === 'costosDashboard' || state.view === 'catalogoBasicos' || state.view === 'clientes_archivados' || state.view === 'clientes_completados' || SECTION_DEFS.contabilidad.tabs.includes(state.view)) {
     try {
       if (state.view === 'usuarios') { await renderUsuarios(view, state.usuariosSubView); state.usuariosSubView = null; }
       else if (state.view === 'dashboardEjecutivo') await renderDashboardEjecutivo(view);
@@ -4718,6 +4838,8 @@ async function renderView() {
       else if (state.view === 'maquinaria_estado_unidad') await renderMaquinariaEstadoUnidad(view);
       else if (state.view === 'maquinaria_consumibles') await renderMaquinariaConsumibles(view);
       else if (state.view === 'maquinaria_reportes_cliente') await renderMaquinariaReportesCliente(view);
+      else if (state.view === 'clientes_archivados') await renderClientesArchivados(view);
+      else if (state.view === 'clientes_completados') await renderClientesCompletados(view);
     } catch (err) { view.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`; }
     syncFab();
     return;

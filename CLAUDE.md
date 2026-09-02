@@ -94,27 +94,34 @@ Checklist completo para dar de alta una sección nueva:
    porque no truena nada — el síntoma es "otorgo el permiso y no se
    refleja", indistinguible a simple vista de un bug real de guardado.
 
-## Backup semanal de Neon a Vercel Blob
+## Backup diario de Neon a Vercel Blob
 
 Además del point-in-time recovery de corto plazo que Neon ya da por defecto,
-existe un backup lógico semanal (`pg_dump`) hacia Vercel Blob, para tener una
+existe un backup lógico diario (`pg_dump`) hacia Vercel Blob, para tener una
 copia fuera del proveedor ante pérdida de datos, branch borrada, o problema
-en la cuenta de Neon.
+en la cuenta de Neon. Cadencia diaria (antes semanal, ver
+`prompt-ajuste-backup-diario.md`) porque con los módulos financieros activos
+(Control de Cuentas, Control Financiero) una ventana de pérdida de una
+semana completa ya no es aceptable.
 
 - **Mecanismo**: `.github/workflows/backup-neon.yml`, corre en GitHub
   Actions (no en Vercel Cron — `pg_dump` no está disponible en el runtime
-  serverless de Vercel; ver comentario en el propio workflow). Domingo
-  09:00 UTC, o manualmente desde la pestaña **Actions** del repo
+  serverless de Vercel; ver comentario en el propio workflow). Todos los
+  días 09:00 UTC, o manualmente desde la pestaña **Actions** del repo
   (`workflow_dispatch`).
 - **Dónde viven los backups**: Vercel Blob, prefijo `backups/`, nombre
-  `backups/app-cp-YYYY-MM-DD.sql.gz` (`access: private` — no son públicos).
+  `backups/backup-YYYY-MM-DD.sql.gz` (`access: private` — no son públicos).
   Mismo store que ya usa la app para PDFs de contrato — administrable desde
   el mismo dashboard de Vercel (Storage → Blob).
-- **Retención**: los últimos 8 backups (~8 semanas). Al subir uno nuevo, el
-  workflow borra automáticamente los que excedan esa ventana
-  (`scripts/backup-neon-to-blob.js`) — con salvaguarda explícita: si no
-  puede confirmar que quedan al menos 8 backups válidos tras filtrar,
-  aborta el borrado sin tocar nada en vez de arriesgarse a borrar de más.
+- **Retención de 2 niveles**: los últimos 30 backups diarios + un
+  representante "mensual" (el backup más antiguo disponible de cada mes
+  calendario) por cada uno de los últimos 12 meses. Al subir uno nuevo, el
+  workflow borra automáticamente los que caen fuera de ambas ventanas
+  (`scripts/backup-neon-to-blob.js`, función `clasificarBackups`, cubierta
+  por `tests/backup-rotacion.test.js`) — con salvaguarda explícita: si
+  algún blob no calza con el patrón de nombre esperado, o la clasificación
+  no marca ningún backup para conservar, aborta el borrado sin tocar nada
+  en vez de arriesgarse a borrar de más.
 - **🔴 CRÍTICO — conexión DIRECTA, nunca pooled**: el secret
   `NEON_PRODUCTION_DATABASE_URL_DIRECT` (GitHub → repo → Settings → Secrets
   and variables → Actions) debe ser la connection string **directa** de la

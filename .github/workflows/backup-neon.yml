@@ -80,6 +80,21 @@ jobs:
       - name: Instalar dependencias (@vercel/blob, pg)
         run: npm install --omit=dev --no-audit --no-fund @vercel/blob pg
 
+      # TEMPORAL — solo para validar rotarBackupsViejos() contra Blob real
+      # antes de mergear el PR (colisión de nombre por un run manual previo
+      # el mismo día UTC). Se revierte en un commit aparte apenas se confirme
+      # el resultado, no debe llegar al merge.
+      - name: "[TEMPORAL] Borrar blob duplicado de hoy para poder reintentar"
+        env:
+          BLOB_READ_WRITE_TOKEN: ${{ secrets.BLOB_READ_WRITE_TOKEN }}
+        run: |
+          node -e "
+          const { del } = require('@vercel/blob');
+          del('backups/backup-2026-09-02.sql.gz').then(() => {
+            console.log('[TEMPORAL] Borrado backups/backup-2026-09-02.sql.gz');
+          });
+          "
+
       - name: Generar dump comprimido
         env:
           DATABASE_URL: ${{ secrets.NEON_PRODUCTION_DATABASE_URL_DIRECT }}

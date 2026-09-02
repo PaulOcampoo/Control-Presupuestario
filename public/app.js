@@ -4976,6 +4976,7 @@ async function renderInicio(view) {
     m = resumen.meta || {};
     const ejec = resumen.avance_financiero_ejecutado_actual || 0;
     const prog = resumen.avance_financiero_programado_actual || 0;
+    const fisico = resumen.avance_fisico_ejecutado_actual || 0;
     const desviacion = ejec - prog;
     const desvKind = desviacion >= 0 ? 'green' : (desviacion < -10 ? 'red' : 'yellow');
     dashboardHtml = `
@@ -4985,6 +4986,11 @@ async function renderInicio(view) {
         ${mostrarAvanceFinanciero ? `
         <div class="kpi"><div class="label">Avance programado</div><div class="value">${fmtPct(prog)}</div></div>
         <div class="kpi green"><div class="label">Avance ejecutado</div><div class="value">${fmtPct(ejec)}</div></div>
+        <!-- Avance físico (prompt-fase1-avance-fisico-implementacion.md): %
+             SIMPLE de conceptos completados (no ponderado por $), independiente
+             de "Avance ejecutado" (financiero, ponderado por $) — deliberadamente
+             pueden divergir, esa es la señal útil (ver diseño Fase 0). -->
+        <div class="kpi"><div class="label">Avance físico</div><div class="value">${fmtPct(fisico)}</div></div>
         <div class="kpi ${desvKind}"><div class="label">Desviación vs. programa</div><div class="value">${desviacion >= 0 ? '+' : ''}${fmtNum(desviacion, 1)} pp</div></div>` : ''}
       </div>
 

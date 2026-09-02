@@ -9620,6 +9620,36 @@ app.get('/api/projects/:id/resumen', h(auth.allow('tesoreria', 'administracion',
 
   const pctEjecutado = ultimoAvance ? ultimoAvance.avance_financiero_real : 0;
   const pctProgramado = programadoActual ? programadoActual.avance_financiero_programado : 0;
+
+  // Avance físico real (prompt-fase1-avance-fisico-implementacion.md, diseño
+  // validado en Fase 0) — promedio SIMPLE (no ponderado por $) de cuánto de
+  // la cantidad presupuestada de cada concepto ya se ejecutó, acumulado a la
+  // misma semana_corte que ya usa el financiero (ultimoAvance.semana) para
+  // que ambos números sean comparables. Deliberadamente INDEPENDIENTE de la
+  // columna avance_fisico_real (que hoy solo replica el financiero en los 2
+  // flujos automáticos, o trae overrides manuales sin fórmula definida) —
+  // nunca se lee ni se escribe esa columna, siempre se calcula al vuelo.
+  // Conceptos sin ninguna captura cuentan como 0% (SÍ entran al promedio,
+  // igual que el financiero los cuenta implícitamente); conceptos con
+  // cantidad=0 (encabezados de grupo históricos mal marcados es_total=0) se
+  // excluyen del promedio — no se puede calcular % de una cantidad de 0.
+  let pctFisico = 0;
+  if (ultimoAvance) {
+    const { rows: fisicoRows } = await db.pool.query(`
+      SELECT AVG(LEAST(100, GREATEST(0, (COALESCE(ac_sum.acumulado, 0) / c.cantidad) * 100))) AS pct
+      FROM conceptos c
+      LEFT JOIN (
+        SELECT ac.concepto_id, SUM(ac.cantidad_ejecutada) AS acumulado
+        FROM avance_conceptos ac
+        JOIN conceptos c2 ON c2.id = ac.concepto_id
+        WHERE c2.project_id = $1 AND ac.semana <= $2
+        GROUP BY ac.concepto_id
+      ) ac_sum ON ac_sum.concepto_id = c.id
+      WHERE c.project_id = $1 AND c.es_total = 0 AND c.activo = 1 AND c.cantidad > 0
+    `, [pid, ultimoAvance.semana]);
+    pctFisico = fisicoRows[0].pct != null ? Number(fisicoRows[0].pct) : 0;
+  }
+
   res.json({
     meta,
     tiene_contrato_pdf: contratoRows.length > 0,
@@ -9628,6 +9658,7 @@ app.get('/api/projects/:id/resumen', h(auth.allow('tesoreria', 'administracion',
     total_contratado_sospechoso: totalContratadoSospechoso,
     avance_financiero_programado_actual: pctProgramado,
     avance_financiero_ejecutado_actual: pctEjecutado,
+    avance_fisico_ejecutado_actual: Number(pctFisico.toFixed(2)),
     importe_ejecutado: Number((total * (pctEjecutado / 100)).toFixed(2)),
     importe_programado: Number((total * (pctProgramado / 100)).toFixed(2)),
     importe_por_ejecutar: Number((total * (1 - pctEjecutado / 100)).toFixed(2)),

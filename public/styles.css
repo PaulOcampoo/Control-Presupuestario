@@ -1798,6 +1798,14 @@ body.body-scroll-locked { overflow: hidden; }
 .cliente-card .cliente-icon { font-size: var(--fs-xl); }
 .cliente-card .cliente-nombre { font-weight: 700; font-size: var(--fs-base); text-transform: uppercase; }
 .cliente-card .cliente-count { color: var(--text-secondary); font-size: var(--fs-xs); }
+/* Badge "Completado" (prompt-fase1-archivar-completar-clientes.md) — mismo
+   look que .badge.green, clase propia porque va dentro de .cliente-card
+   junto al nombre, no en un contexto de tabla como el resto de .badge.*. */
+.cliente-badge-completado {
+  display: inline-flex; align-items: center; gap: var(--space-4); font-size: var(--fs-xs); font-weight: 700;
+  padding: var(--space-4) var(--space-8); border-radius: var(--radius-pill); white-space: nowrap;
+  background: rgba(34,197,94,0.15); color: var(--green);
+}
 /* Favorito (Prompt B, prompts-animaciones-y-galeria-clientes.md) — esquina
    superior IZQUIERDA (el menú de 3 puntos ya ocupa la derecha), visible para
    cualquier usuario (no solo admin: es una preferencia personal, no una

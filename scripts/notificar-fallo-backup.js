@@ -1,7 +1,8 @@
 'use strict';
 
 // prompt-p6-backup-neon.md (punto 3, "idealmente reusar el mecanismo de
-// notificaciones ya existente"): corre solo si el job de backup falló
+// notificaciones ya existente") / prompt-ajuste-backup-diario.md (cadencia
+// pasó de semanal a diaria): corre solo si el job de backup falló
 // (ver `if: failure()` en .github/workflows/backup-neon.yml). Inserta una
 // notificación in-app para admin y desarrollador, mismo patrón/tabla que
 // notificarAdmins() en server/notificaciones.js — sin depender de un
@@ -18,7 +19,7 @@ async function main() {
   const { rows: admins } = await pool.query(
     "SELECT id FROM usuarios WHERE puesto IN ('admin', 'desarrollador') AND activo = true"
   );
-  const mensaje = 'Falló el backup semanal de la base de datos (GitHub Actions) — revisa el log del workflow "Backup semanal de Neon a Vercel Blob" para el detalle.';
+  const mensaje = 'Falló el backup diario de la base de datos (GitHub Actions) — revisa el log del workflow "Backup diario de Neon a Vercel Blob" para el detalle.';
   for (const a of admins) {
     await pool.query(
       `INSERT INTO notificaciones (usuario_id, project_id, tipo, referencia_id, mensaje)

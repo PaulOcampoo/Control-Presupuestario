@@ -1,7 +1,12 @@
-name: Backup semanal de Neon a Vercel Blob
+name: Backup diario de Neon a Vercel Blob
 
 # prompt-p6-backup-neon.md: backup lógico (pg_dump) de la base de datos de
-# producción hacia Vercel Blob, con retención rotativa de 8 semanas.
+# producción hacia Vercel Blob. Cadencia diaria y retención de 2 niveles
+# (30 días + 12 meses) desde prompt-ajuste-backup-diario.md — antes corría
+# semanal con retención plana de 8 (ver historial de este archivo); se
+# ajustó porque con los módulos financieros activos (Control de Cuentas,
+# Control Financiero) una ventana de pérdida de una semana completa ya no
+# es aceptable. Ver la lógica de rotación en scripts/backup-neon-to-blob.js.
 #
 # Corre en GitHub Actions, no en Vercel Cron: pg_dump no está disponible en
 # el runtime serverless de Vercel (Node.js administrado, sin binarios nativos
@@ -35,9 +40,9 @@ name: Backup semanal de Neon a Vercel Blob
 
 on:
   schedule:
-    # Domingo 09:00 UTC (~03:00-04:00 hora de Ciudad de México, según horario
-    # de verano) — hora baja de uso.
-    - cron: '0 9 * * 0'
+    # Todos los días 09:00 UTC (~03:00-04:00 hora de Ciudad de México, según
+    # horario de verano) — hora baja de uso. Antes solo domingo (semanal).
+    - cron: '0 9 * * *'
   workflow_dispatch: {} # permite correrlo manualmente desde la pestaña Actions
 
 jobs:
@@ -89,7 +94,7 @@ jobs:
           /usr/lib/postgresql/18/bin/pg_dump "$DATABASE_URL" --no-owner --no-privileges | gzip > "backup-$FECHA.sql.gz"
           ls -lh "backup-$FECHA.sql.gz"
 
-      - name: Subir a Vercel Blob y rotar backups viejos (retener 8)
+      - name: Subir a Vercel Blob y rotar backups viejos (retener 30 diarios + 12 mensuales)
         env:
           BLOB_READ_WRITE_TOKEN: ${{ secrets.BLOB_READ_WRITE_TOKEN }}
         run: node scripts/backup-neon-to-blob.js "backup-${{ env.FECHA }}.sql.gz"

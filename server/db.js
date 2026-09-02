@@ -494,6 +494,29 @@ const SCHEMA = `
   );
   ALTER TABLE proyectos ADD COLUMN IF NOT EXISTS cliente_id INTEGER REFERENCES clientes(id);
 
+  -- Archivar/completar cliente (prompt-fase0-archivar-completar-clientes.md +
+  -- prompt-fase1-archivar-completar-clientes.md) — 2 grupos de columnas
+  -- ORTOGONALES a propósito (no un enum): un cliente completado también
+  -- puede archivarse después sin perder la marca de completado. "archivado"
+  -- excluye al cliente (y TODAS sus obras juntas) de la galería normal y de
+  -- los totales globales; "completado" es solo informativo (badge), SIGUE
+  -- contando en los totales globales (decisión confirmada por Paul — no es
+  -- lo mismo que archivado).
+  ALTER TABLE clientes ADD COLUMN IF NOT EXISTS archivado BOOLEAN NOT NULL DEFAULT false;
+  ALTER TABLE clientes ADD COLUMN IF NOT EXISTS archivado_en TIMESTAMPTZ;
+  ALTER TABLE clientes ADD COLUMN IF NOT EXISTS archivado_por INTEGER REFERENCES usuarios(id);
+
+  -- "completado" se detecta automático (avance_ponderado_pct >= 100, mismo
+  -- query que ya alimenta "Avance por cliente") pero es revertible a mano.
+  -- completado_revertido_manualmente evita que el siguiente refresh
+  -- re-marque completado=true de inmediato solo porque el % sigue en 100 —
+  -- se resetea a false automáticamente si el avance alguna vez CAE debajo de
+  -- 100% (nueva obra agregada, etc.), permitiendo que un ciclo de completado
+  -- genuino futuro sí se vuelva a auto-marcar.
+  ALTER TABLE clientes ADD COLUMN IF NOT EXISTS completado BOOLEAN NOT NULL DEFAULT false;
+  ALTER TABLE clientes ADD COLUMN IF NOT EXISTS completado_en TIMESTAMPTZ;
+  ALTER TABLE clientes ADD COLUMN IF NOT EXISTS completado_revertido_manualmente BOOLEAN NOT NULL DEFAULT false;
+
   -- Orden personalizado de tarjetas de cliente en "Selecciona un cliente",
   -- por usuario (no afecta lo que ven otros usuarios). Se reescribe entera
   -- en cada guardado (DELETE + INSERT dentro de una transacción) en vez de

@@ -228,7 +228,45 @@ function chartColors() {
     grid: v('--border-color'),
     surface: v('--bg-surface'),
     primary: v('--bg-primary'),
+    atraso: v('--donut-atraso'),
   };
+}
+
+// Fix tooltip empalmado con el número central (prompt-revertir-dorado-fix-
+// tooltip-donut.md): causa raíz — el tooltip default de Chart.js (sin
+// `external`) se dibuja DENTRO del propio <canvas> vía 2D context, recortado
+// a sus 140x140px reales (cutout 62%, banda de solo ~27px de ancho) — no es
+// un <div> posicionable con CSS, así que no hay forma de moverlo "fuera" del
+// donut ajustando positioner/align: cualquier punto dentro de un canvas tan
+// chico cae encima o pegado al texto central (.donut-center, un overlay
+// HTML/CSS aparte, no un plugin de canvas). Único fix real: `external`
+// (recipe documentada de Chart.js, no un rewrite del plugin) — reemplaza el
+// dibujo en canvas por un <div> normal posicionado con CSS, fijo siempre
+// debajo del donut completo (position:absolute + top:100% sobre
+// .donut-canvas-wrap, que ya es position:relative) sin importar qué
+// segmento se hoverea. Genérico por chart.canvas.id para poder reusarse si
+// otro donut de 3 segmentos lo necesita — hoy solo #chartResumenDona tiene
+// este overlap real (el donut global #globalPieChart es de 1 solo valor).
+function externalDonutTooltip(context) {
+  const { chart, tooltip } = context;
+  const wrap = chart.canvas.closest('.donut-canvas-wrap');
+  if (!wrap) return;
+  let el = wrap.querySelector('.donut-tooltip');
+  if (!el) {
+    el = document.createElement('div');
+    el.className = 'donut-tooltip';
+    wrap.appendChild(el);
+  }
+  if (!tooltip.opacity || !tooltip.dataPoints?.length) {
+    el.classList.remove('show');
+    return;
+  }
+  const dp = tooltip.dataPoints[0];
+  const swatch = tooltip.labelColors?.[0]?.backgroundColor || '';
+  // fmtMoney(dp.raw), no dp.formattedValue -- mismo formato que ya usaba el
+  // callback label: (c) => `${c.label}: ${fmtMoney(c.raw)}` que este external reemplaza.
+  el.innerHTML = `<span class="donut-tooltip-swatch" style="background:${esc(swatch)}"></span>${esc(dp.label)}: ${esc(fmtMoney(dp.raw))}`;
+  el.classList.add('show');
 }
 
 // Re-pinta colores de TODOS los charts activos al cambiar tema/paleta en
@@ -263,6 +301,12 @@ function applyChartTheme(chart, cc) {
   // re-derivar de cc.grid en cada refresh.
   if (chart._cpGridBgIndexes && ds && Array.isArray(ds.backgroundColor)) {
     chart._cpGridBgIndexes.forEach((i) => { ds.backgroundColor[i] = cc.grid; });
+  }
+  // Mismo criterio que _cpGridBgIndexes arriba, para el segmento "Programado
+  // por ejecutar" (cc.atraso, --donut-atraso) — sin esto se quedaba pegado
+  // al color resuelto en el momento de crear el chart al cambiar tema/paleta.
+  if (chart._cpAtrasoBgIndex != null && ds && Array.isArray(ds.backgroundColor)) {
+    ds.backgroundColor[chart._cpAtrasoBgIndex] = cc.atraso;
   }
   chart.update('none');
 }
@@ -4946,7 +4990,23 @@ async function renderInicio(view) {
 
       ${mostrarAvanceFinanciero ? `
       <h3 class="section-title">Avance físico-financiero: presupuestado vs ejecutado vs por ejecutar</h3>
-      <div class="card"><div class="chart-wrap"><canvas id="chartResumenDona"></canvas></div></div>` : ''}
+      <div class="card">
+        <div class="global-chart-wrap">
+          <div class="donut-canvas-wrap">
+            <canvas id="chartResumenDona" width="140" height="140"></canvas>
+            <div class="donut-inner-ring"></div>
+            <div class="donut-center">
+              <div class="donut-center-value">${fmtNum(ejec, 1)}<span class="pct-sign">%</span></div>
+              <div class="donut-center-label">Ejecutado</div>
+            </div>
+          </div>
+          <div class="global-chart-kpis">
+            <div class="global-kpi"><span class="global-kpi-label">Ejecutado</span><span class="global-kpi-value text-verde">${fmtMoney(resumen.importe_ejecutado)}</span></div>
+            <div class="global-kpi"><span class="global-kpi-label">Programado (a la fecha)</span><span class="global-kpi-value">${fmtMoney(resumen.importe_programado)}</span></div>
+            <div class="global-kpi"><span class="global-kpi-label">Resto por ejecutar</span><span class="global-kpi-value text-secondary-color">${fmtMoney(Math.max(0, resumen.presupuesto_total - Math.max(resumen.importe_programado, resumen.importe_ejecutado)))}</span></div>
+          </div>
+        </div>
+      </div>` : ''}
 
       <h3 class="section-title">Datos de la obra</h3>
       ${(() => {
@@ -5020,7 +5080,13 @@ async function renderInicio(view) {
           ],
           // 3er segmento ("Resto por ejecutar"): antes '#334155' fijo — ahora
           // cc.grid (--border-color), se funde como "vacío" en cualquier paleta.
-          backgroundColor: ['#22c55e', '#eab308', cc.grid],
+          // 2do segmento ("Programado por ejecutar"): cc.atraso (--donut-
+          // atraso) — probó un slate/taupe apagado (prompt-cambio-color-
+          // donut-gris.md), revertido a dorado (#eab308, mismo valor de
+          // antes) por decisión de Paul tras verlo en pantalla (prompt-
+          // revertir-dorado-fix-tooltip-donut.md) — la variable semántica se
+          // conserva, solo cambió su valor en styles.css.
+          backgroundColor: ['#22c55e', cc.atraso, cc.grid],
           // Este donut sí vive dentro de una .card — el borde de cada segmento
           // debe fundirse con --bg-surface (fondo real de la tarjeta), no un
           // hex fijo que solo coincidía con Dorada dark por casualidad.
@@ -5029,16 +5095,30 @@ async function renderInicio(view) {
         }],
       },
       options: {
-        responsive: true, maintainAspectRatio: false,
+        // responsive:false + cutout 62% (prompt-rediseno-donuts-avance-
+        // navegacion-detalle.md): mismo tratamiento fijo de 140px que
+        // #globalPieChart — antes era responsive dentro de .chart-wrap
+        // (280px alto, ancho variable), lo que habría hecho imposible
+        // alinear el anillo interior decorativo (.donut-inner-ring, CSS
+        // puro) con el círculo real que dibuja Chart.js. La leyenda se quita
+        // (mismo criterio que el donut global: los 3 valores ya se muestran
+        // como texto en .global-chart-kpis al lado, sin duplicar).
+        responsive: false,
+        cutout: '62%',
         animation: animationForChart(`resumenDona:${state.projectId}`),
         plugins: {
-          legend: { position: 'bottom', labels: { color: cc.text, boxWidth: 14, font: { size: 11 } } },
-          tooltip: { callbacks: { label: (c) => `${c.label}: ${fmtMoney(c.raw)}` } },
+          legend: { display: false },
+          // enabled:false + external: el tooltip nativo (dibujado dentro del
+          // <canvas>, recortado a sus 140px) se empalmaba con .donut-center
+          // — ver externalDonutTooltip() y comentario ahí para la causa raíz
+          // completa (prompt-revertir-dorado-fix-tooltip-donut.md).
+          tooltip: { enabled: false, external: externalDonutTooltip },
         },
       },
     });
     state.charts.resumenDona._cpBorderSurface = 'surface';
     state.charts.resumenDona._cpGridBgIndexes = [2]; // 'Resto por ejecutar' (índice 2 en backgroundColor)
+    state.charts.resumenDona._cpAtrasoBgIndex = 1; // 'Programado por ejecutar' (índice 1) — re-derivar de cc.atraso en hot-swap de tema, mismo criterio que _cpGridBgIndexes
   }
   // Botones de "Datos de la obra": SIEMPRE que puedeVerResumen, sin depender
   // de mostrarAvanceFinanciero — ese bloque se oculta para costos, pero

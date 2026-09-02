@@ -178,6 +178,17 @@
   --green: #22c55e;
   --yellow: #eab308;
   --red: #ef4444;
+  /* Donut "Avance Físico-Financiero" (Resumen por obra) — segmento "Programado
+     por ejecutar (a la fecha)". prompt-cambio-color-donut-gris.md probó un
+     slate/taupe apagado aquí (#9c8968 dark / #6f5c40 light) para no competir
+     con el dorado de acento en botones/CTAs — revertido en
+     prompt-revertir-dorado-fix-tooltip-donut.md: Paul lo vio en pantalla y
+     decidió que sí quiere dorado. Vuelve a --yellow (#eab308, mismo valor
+     que antes de la branch, invariante de paleta). Variable semántica
+     --donut-atraso se conserva (no se vuelve a hardcodear el hex en el
+     dataset de Chart.js) — solo cambia su valor, para no perder el punto de
+     extensión si se revisita el color más adelante.*/
+  --donut-atraso: #eab308;
   --radius: 12px;
   --radius-control: 10px;
   --radius-md: 8px;
@@ -794,26 +805,25 @@ h3.section-title { margin: var(--space-16) var(--space-0) var(--space-10); font-
 .chart-wrap { position: relative; height: 280px; margin: var(--space-6) var(--space-0) var(--space-4); }
 .chart-wrap.tall { height: 340px; }
 
-/* Glow dorado en la dona de resumen (prompt-paleta-roforb-carbon-glow.md)
-   — vía CSS `filter: drop-shadow`. En esta branch
-   (feature/finanzas-maquinaria-vista-picker) solo #globalPieChart se
-   rediseña ("Opción 2", ver .donut-canvas-wrap más abajo, que reemplaza el
-   glow por el anillo interior fino) — #chartResumenDona vive en
-   feature/donut-color-gris con el rediseño completo, y aquí no se toca, así
-   que conserva su glow original para no quedarse sin decoración. Scope
-   html[data-palette="dorada"]:not([data-theme="light"]) — SOLO Roforb dark
-   ("dorada" se setea explícito en <html> incluso para el default, ver
-   applyPalette() en app.js). */
-html[data-palette="dorada"]:not([data-theme="light"]) #chartResumenDona {
-  filter: drop-shadow(0 0 10px color-mix(in srgb, var(--accent-gold) 55%, transparent));
-}
+/* El glow dorado que vivía aquí (prompt-paleta-roforb-carbon-glow.md, vía
+   filter: drop-shadow en #globalPieChart/#chartResumenDona) se retiró en el
+   rediseño "Opción 2" de donuts (prompt-rediseno-donuts-avance-navegacion-
+   detalle.md, Forbidden Action explícita: sin glow/blur) — reemplazado por
+   el anillo interior fino, ver .donut-inner-ring más abajo. Ambos donuts
+   (#globalPieChart de feature/finanzas-maquinaria-vista-picker,
+   #chartResumenDona de feature/donut-color-gris) ya usan el anillo nuevo
+   tras mergear las 2 branches — ninguno necesita el glow viejo. */
 
 /* Donut "Opción 2" (prompt-rediseno-donuts-avance-navegacion-detalle.md) —
    anillo grueso (Chart.js) + anillo interior fino puramente decorativo +
    número grande centrado con "%" chico/apagado al lado + label mayúsculas
    con letter-spacing debajo, mismo tratamiento tipográfico que .kpi .label.
-   En esta branch solo #globalPieChart (galería) usa estas clases —
-   #chartResumenDona (Resumen por obra) vive en feature/donut-color-gris. */
+   Clases NUEVAS (no reusan .global-chart-canvas-wrap/.global-chart-pct a
+   propósito): esas 2 siguen usándolas Dashboard Ejecutivo, Cobertura de
+   matrices y Presupuesto por categoría — fuera de alcance de este prompt,
+   renombrarlas las habría afectado sin que nadie lo pidiera. Solo
+   #globalPieChart (galería) y #chartResumenDona (Resumen por obra) usan las
+   clases de abajo. */
 .donut-canvas-wrap { flex-shrink: 0; width: 140px; height: 140px; position: relative; }
 /* inset ~14px sobre un canvas de 140px (radio 70px) cae a medio camino del
    anillo grueso principal (cutout 62% ⇒ banda visible de radio 43-70px) —
@@ -834,10 +844,26 @@ html[data-palette="dorada"]:not([data-theme="light"]) #chartResumenDona {
 /* Donut clickeable → mismo desglose por-cliente que ya abren las barras
    (prompt-rediseno-donuts-avance-navegacion-detalle.md, punto 3e) — SOLO el
    donut global (#globalPieChart, envuelto en <button id="globalPieChartWrap">
-   en vez de <div>). */
+   en vez de <div>), nunca #chartResumenDona (ese no tiene destino de
+   navegación definido, sigue siendo un <div> sin click). */
 .donut-canvas-wrap-clickable { cursor: pointer; background: none; border: none; padding: 0; }
 .donut-canvas-wrap-clickable:hover .donut-inner-ring { border-color: var(--accent-gold); }
 .donut-canvas-wrap-clickable:focus-visible { outline: 2px solid var(--accent-gold); outline-offset: 2px; border-radius: 50%; }
+
+/* Tooltip externo del donut de 3 segmentos (prompt-revertir-dorado-fix-
+   tooltip-donut.md) — ver externalDonutTooltip() en app.js para la causa
+   raíz completa. Anclado siempre debajo de .donut-canvas-wrap (que ya es
+   position:relative), nunca sobre .donut-center. */
+.donut-tooltip {
+  position: absolute; top: 100%; left: 50%; transform: translateX(-50%);
+  margin-top: var(--space-8); z-index: 5;
+  background: var(--bg-surface-2); border: 1px solid var(--border-color); color: var(--text-primary);
+  padding: var(--space-6) var(--space-10); border-radius: var(--radius-sm); font-size: var(--fs-xs);
+  white-space: nowrap; box-shadow: var(--shadow-sm);
+  opacity: 0; pointer-events: none; transition: opacity 0.15s var(--ease-out);
+}
+.donut-tooltip.show { opacity: 1; }
+.donut-tooltip-swatch { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: var(--space-6); vertical-align: middle; }
 
 /* "Erogado Real — desglose" estilo ticket/recibo (prompt-rediseno-donuts-
    avance-navegacion-detalle.md): cada renglón etiquetado + un TOTAL con

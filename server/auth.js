@@ -960,9 +960,15 @@ function allow(...puestos) {
 // candado adicional. 46 = Paul (paul.ocmp, desarrollador). 8 = Fer (folvera,
 // Fernando Olvera Monroy, admin) — confirmado explícitamente con Paul, NO
 // el id=105 "Fernando Olvera Herrera" (apellido distinto, cuenta distinta).
-// Cambiar esta lista requiere editar código + nuevo commit a propósito (sin
-// UI de gestión — decisión consultada: 1-2 personas, cambia rarísima vez).
-const USUARIOS_CONTROL_CUENTAS = [46, 8];
+// 28 = Rocampo (Rodolfo Ocampo Hernandez, admin) agregado a pedido explícito
+// del usuario para tener acceso total — OJO al leer este código en el
+// futuro: este endpoint devuelve TODAS las cuentas sin filtrar por dueño
+// (ver GET /api/control-cuentas/cuentas en server/app.js), así que estar en
+// esta lista da visibilidad del saldo bancario PERSONAL de Paul y Fer, no
+// de una cuenta propia. Cambiar esta lista requiere editar código + nuevo
+// commit a propósito (sin UI de gestión — decisión consultada: 1-2
+// personas, cambia rarísima vez).
+const USUARIOS_CONTROL_CUENTAS = [46, 8, 28];
 function requireControlCuentasAccess(req, res, next) {
   if (!USUARIOS_CONTROL_CUENTAS.includes(req.user.id)) {
     logDenied(req, 'sin acceso a Control de Cuentas (whitelist)');
@@ -974,11 +980,12 @@ function requireControlCuentasAccess(req, res, next) {
 // Control Financiero Fase 1 (prompt-27-control-financiero-fase1.md) —
 // Ingresos (facturación/cobro) y Gastos Indirectos Corporativos. Mismo
 // patrón de whitelist que Control de Cuentas (CP0 punto 3, confirmado con
-// SELECT real: 46 = Paul, 8 = Fer) pero constante INDEPENDIENTE a
-// propósito — aunque hoy tenga los mismos 2 IDs, es un candado distinto
-// para un dato distinto (finanzas del negocio, no saldo personal); que
-// cambien juntos hoy no debe implicar que evolucionen acopladas mañana.
-const USUARIOS_CONTROL_FINANCIERO = [46, 8];
+// SELECT real: 46 = Paul, 8 = Fer; 28 = Rocampo agregado después a pedido
+// explícito del usuario) pero constante INDEPENDIENTE a propósito — aunque
+// hoy tenga los mismos 3 IDs, es un candado distinto para un dato distinto
+// (finanzas del negocio, no saldo personal); que cambien juntos hoy no debe
+// implicar que evolucionen acopladas mañana.
+const USUARIOS_CONTROL_FINANCIERO = [46, 8, 28];
 function requireControlFinancieroAccess(req, res, next) {
   if (!USUARIOS_CONTROL_FINANCIERO.includes(req.user.id)) {
     logDenied(req, 'sin acceso a Control Financiero (whitelist)');
@@ -992,9 +999,9 @@ function requireControlFinancieroAccess(req, res, next) {
 // real contra Producción antes del cambio: 0 usuarios con puesto 'tesoreria'
 // hoy, así que nadie pierde acceso real. Constante INDEPENDIENTE de
 // USUARIOS_CONTROL_CUENTAS/USUARIOS_CONTROL_FINANCIERO por el mismo motivo
-// que esas dos son independientes entre sí — mismos 2 IDs hoy, candados
-// separados a propósito.
-const USUARIOS_ESTADO_RESULTADOS = [46, 8];
+// que esas dos son independientes entre sí — mismos 3 IDs hoy (28 = Rocampo
+// agregado a pedido explícito del usuario), candados separados a propósito.
+const USUARIOS_ESTADO_RESULTADOS = [46, 8, 28];
 function requireEstadoResultadosAccess(req, res, next) {
   if (!USUARIOS_ESTADO_RESULTADOS.includes(req.user.id)) {
     logDenied(req, 'sin acceso a Estado de Resultados (whitelist)');

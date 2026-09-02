@@ -71,7 +71,16 @@ const ROLE_TABS = {
 // caen aquí (hoy: operador, jefe_maquinaria). Debe reflejar el mismo
 // conjunto que el bloque de "vistas globales" en renderView() (~línea 3670)
 // — si se agrega una vista global nueva ahí, agregarla aquí también.
-const VISTAS_SIN_PROYECTO = ['usuarios', 'proveedores', 'cumplimiento', ...MAQUINARIA_TABS_ADMIN, 'maquinaria_gallery', 'nominas_global', 'trabajadores_global', 'cotizador', 'estadoResultadosGlobal', 'costos', 'avance_clientes', 'composicion_costos', 'dashboardEjecutivo', 'costosDashboard', 'catalogoBasicos', 'sugerencias'];
+const VISTAS_SIN_PROYECTO = ['usuarios', 'proveedores', 'cumplimiento', ...MAQUINARIA_TABS_ADMIN, 'maquinaria_gallery', 'nominas_global', 'trabajadores_global', 'cotizador', 'estadoResultadosGlobal', 'costos', 'avance_clientes', 'composicion_costos', 'dashboardEjecutivo', 'costosDashboard', 'catalogoBasicos', 'sugerencias',
+  // 'finanzas' (cambio de diseño confirmado por Paul, 2026-09-01): el tab
+  // sigue siendo por-obra por defecto (vista "Esta obra"), pero ahora
+  // TAMBIÉN se puede entrar sin obra seleccionada — desde el donut/barras
+  // del dashboard global o de Avance por cliente, que aterrizan aquí con la
+  // vista "Todas las obras"/"Por cliente" ya elegida (ver
+  // goToFinanzasGlobal/goToFinanzasCliente). Sin esto, switchToView('finanzas')
+  // rebotaría a la galería de clientes exigiendo elegir obra primero.
+  'finanzas',
+];
 
 const state = {
   projects: [],
@@ -108,6 +117,17 @@ const state = {
   // vez como targetView de vuelta. null en el resto de los casos (flujo
   // normal, sin efecto).
   pendingTargetView: null,
+  // Selector de vista dentro del tab "Finanzas" (cambio de diseño confirmado
+  // por Paul, 2026-09-01: las 2 vistas consolidadas dejaron de ser tabs
+  // propios y pasaron a vivir DENTRO de "Finanzas" como un selector) — 'obra'
+  // (default, comportamiento de siempre) | 'cliente' | 'global'. Se resetea a
+  // 'obra' cada vez que se entra al tab por su punto de entrada normal
+  // (sidebar/barra de tabs, ver renderSidebar/renderTabsBar); goToFinanzasCliente/
+  // goToFinanzasGlobal lo fuerzan a 'cliente'/'global' antes de navegar.
+  finanzasVista: 'obra',
+  // Cliente elegido para la vista "Por cliente" de Finanzas; null = mostrar
+  // el picker de clientes en esa vista. Ver goToFinanzasCliente.
+  finanzasClienteId: null,
 };
 
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -1540,6 +1560,30 @@ window.addEventListener('popstate', (ev) => {
 function switchToView(viewId) {
   if (!state.projectId && viewId !== 'inicio' && !viewId.endsWith('_gallery') && !VISTAS_SIN_PROYECTO.includes(viewId)) {
     state.pendingTargetView = viewId;
+    // Cliente ya elegido (pantalla "Sin presupuesto"), solo falta obra:
+    // quedarse aquí en vez del rebote completo a goToClientGallery(), que
+    // además resetea clienteId a null — Paul reportó 2026-09-01 que
+    // cualquier click de sidebar sin obra activa lo mandaba de vuelta a la
+    // galería completa, perdiendo el cliente en el que ya estaba. renderView()
+    // ya sabe pintar picker/resumen de obras del cliente cuando
+    // !state.projectId && state.view === 'inicio' (mismo bloque que usa
+    // selectCliente()) — selectProject() consume pendingTargetView al elegir
+    // para aterrizar en la vista pedida. Sin cliente elegido todavía, el
+    // rebote a la galería completa sigue siendo correcto (hace falta elegir
+    // cliente Y obra).
+    if (state.clienteId != null) {
+      // toast INMEDIATO, antes de tocar el DOM/disparar el fetch de
+      // renderView() — el picker de obras puede tardar ~1s en cargar, el
+      // aviso no debe esperar a eso.
+      toast('Selecciona un presupuesto para realizar esta acción.', 'warning');
+      state.view = 'inicio';
+      state.section = null;
+      renderTabsBar();
+      renderSidebar();
+      renderMobileNav();
+      renderView();
+      return;
+    }
     goToClientGallery();
     return;
   }
@@ -1612,7 +1656,14 @@ function renderTabsBar() {
     html += `<button class="tab tab-back" data-goto="inicio">←</button>`;
   }
   nav.innerHTML = html;
-  $$('.tab[data-goto]', nav).forEach((btn) => btn.addEventListener('click', () => switchToView(btn.dataset.goto)));
+  $$('.tab[data-goto]', nav).forEach((btn) => btn.addEventListener('click', () => {
+    // Mismo reset que el tab equivalente del sidebar (ver renderSidebar) —
+    // entrar al tab "Finanzas" desde su propia barra de tabs siempre
+    // muestra la vista "Esta obra" (default), no la última vista
+    // "Por cliente"/"Todas las obras" que se haya visto antes.
+    if (btn.dataset.goto === 'finanzas') { state.finanzasVista = 'obra'; state.finanzasClienteId = null; }
+    switchToView(btn.dataset.goto);
+  }));
   $$('.tab[data-soon]', nav).forEach((btn) => btn.addEventListener('click', () => showProximamenteTooltip(btn.dataset.soon)));
   requestAnimationFrame(() => {
     const h = nav.getBoundingClientRect().height;
@@ -1937,6 +1988,13 @@ function renderSidebar() {
   // Navegación directa a tabs
   $$('[data-sbar-goto]', nav).forEach((btn) => {
     btn.addEventListener('click', () => {
+      // Entrar al tab "Finanzas" desde el sidebar (a diferencia de
+      // goToFinanzasCliente/goToFinanzasGlobal, que ya traen la vista
+      // elegida) siempre debe mostrar "Esta obra" (default) — sin este
+      // reset, un admin que ya venía de ver "Todas las obras"/"Por cliente"
+      // y le da click al tab del sidebar seguiría viendo esa misma vista en
+      // vez de volver al comportamiento de siempre.
+      if (btn.dataset.sbarGoto === 'finanzas') { state.finanzasVista = 'obra'; state.finanzasClienteId = null; }
       switchToView(btn.dataset.sbarGoto);
       closeSidebar(); // cierra en móvil; no hace nada en desktop
     });
@@ -2640,6 +2698,7 @@ async function bootApp() {
     renderBienvenidaSummary(bienvenida);
     renderGlobalChart().catch(() => {});
     renderAvancePorCliente().catch(() => {});
+    renderErogadoRealGlobal().catch(() => {});
     loadGaleriaActividad();
   }
   try {
@@ -3578,6 +3637,7 @@ async function goToClientGallery() {
     renderBienvenidaSummary(bienvenida);
     renderGlobalChart().catch(() => {});
     renderAvancePorCliente().catch(() => {});
+    renderErogadoRealGlobal().catch(() => {});
     loadGaleriaActividad();
   } catch (err) {
     toast(err.message, 'danger');
@@ -4122,10 +4182,14 @@ async function renderGlobalChart() {
     <div class="global-chart-section">
       <div class="bienvenida-summary-title">Resumen global — ${data.num_proyectos} obra${data.num_proyectos === 1 ? '' : 's'}</div>
       <div class="global-chart-wrap">
-        <div class="global-chart-canvas-wrap">
+        <button type="button" class="donut-canvas-wrap donut-canvas-wrap-clickable" id="globalPieChartWrap" title="Ver Finanzas — todas las obras">
           <canvas id="globalPieChart" width="140" height="140"></canvas>
-          <div class="global-chart-pct">${data.avance_ponderado_pct.toFixed(1)}%</div>
-        </div>
+          <div class="donut-inner-ring"></div>
+          <div class="donut-center">
+            <div class="donut-center-value">${data.avance_ponderado_pct.toFixed(1)}<span class="pct-sign">%</span></div>
+            <div class="donut-center-label">Avance ponderado</div>
+          </div>
+        </button>
         <div class="global-chart-kpis">
           <div class="global-kpi">
             <span class="global-kpi-label">Total contratos</span>
@@ -4175,6 +4239,44 @@ async function renderGlobalChart() {
   });
   state.charts.globalPie._cpBorderSurface = 'primary';
   state.charts.globalPie._cpGridBgIndexes = [1]; // 'Por ejecutar' (índice 1 en backgroundColor)
+
+  // Navegación al detalle (cambio de diseño confirmado por Paul,
+  // 2026-09-01: el desglose tipo recibo de Erogado Real deja de vivir
+  // expandido en línea dentro de la galería de clientes — click en el
+  // donut navega al tab "Finanzas" con la vista "Todas las obras" ya
+  // elegida, ver goToFinanzasGlobal, en vez de expandir el desglose por
+  // cliente en el mismo lugar).
+  $('#globalPieChartWrap')?.addEventListener('click', goToFinanzasGlobal);
+}
+
+// "Avance Valorizado vs. Erogado Real" global (prompt-avance-valorizado-vs-
+// erogado-real.md) — bloque propio debajo de .dashboards-row (mismo gate
+// isAdmin(), misma vida útil: se oculta solo si el contenedor queda vacío).
+// NO reemplaza el donut de renderGlobalChart() de arriba — son 2 métricas
+// distintas a propósito (ver brecha.descripcion). Bug real reportado por
+// Paul: esto vivía como 3ra columna de .dashboards-row — se encimaba con
+// "Avance por cliente" al angostar las 2 columnas existentes. Ver
+// .erogado-global-row en styles.css y el comentario en index.html.
+async function renderErogadoRealGlobal() {
+  const el = $('#erogadoRealGlobalSection');
+  if (!el) return;
+  if (!isAdmin()) { el.innerHTML = ''; return; }
+
+  const resumen = await api('/erogado-real-global');
+  if (!resumen.presupuesto_total) { el.innerHTML = ''; return; }
+
+  el.innerHTML = `
+    <div class="erogado-global-row">
+      ${avanceValorizadoVsErogadoHtml('erogadoRealGlobal', 'Avance Valorizado vs. Erogado Real — global')}
+      ${brechaCardHtml(resumen.brecha)}
+    </div>
+  `;
+  // Navegación al detalle (cambio de diseño confirmado por Paul,
+  // 2026-09-01): el desglose tipo recibo de Erogado Real deja de vivir en
+  // línea aquí — ahora vive SOLO dentro del tab "Finanzas", vista "Todas
+  // las obras" (ver goToFinanzasGlobal). Click en cualquiera de las 2
+  // barras navega ahí en vez de expandir en el mismo lugar.
+  paintAvanceValorizadoVsErogado('erogadoRealGlobal', resumen, goToFinanzasGlobal);
 }
 
 // Dashboard "Avance por cliente" (prompt-dashboard-favoritos-layout.md,
@@ -4542,7 +4644,7 @@ function destroyCharts() {
 async function renderView() {
   destroyCharts();
   const view = $('#view');
-  if (state.view === 'usuarios' || state.view === 'proveedores' || state.view === 'cumplimiento' || MAQUINARIA_TABS_ADMIN.includes(state.view) || state.view === 'nominas_global' || state.view === 'trabajadores_global' || state.view === 'cotizador' || state.view === 'estadoResultadosGlobal' || state.view === 'costos' || state.view === 'avance_clientes' || state.view === 'composicion_costos' || state.view === 'cuentas' || state.view === 'controlFinanciero' || state.view === 'dashboardEjecutivo' || state.view === 'costosDashboard' || state.view === 'catalogoBasicos' || SECTION_DEFS.contabilidad.tabs.includes(state.view)) {
+  if (state.view === 'usuarios' || state.view === 'proveedores' || state.view === 'cumplimiento' || MAQUINARIA_TABS_ADMIN.includes(state.view) || state.view === 'nominas_global' || state.view === 'trabajadores_global' || state.view === 'cotizador' || state.view === 'estadoResultadosGlobal' || state.view === 'costos' || state.view === 'avance_clientes' || state.view === 'finanzas' || state.view === 'composicion_costos' || state.view === 'cuentas' || state.view === 'controlFinanciero' || state.view === 'dashboardEjecutivo' || state.view === 'costosDashboard' || state.view === 'catalogoBasicos' || SECTION_DEFS.contabilidad.tabs.includes(state.view)) {
     try {
       if (state.view === 'usuarios') { await renderUsuarios(view, state.usuariosSubView); state.usuariosSubView = null; }
       else if (state.view === 'dashboardEjecutivo') await renderDashboardEjecutivo(view);
@@ -4564,6 +4666,7 @@ async function renderView() {
       else if (state.view === 'estadoResultadosGlobal') await renderEstadoResultadosGlobal(view);
       else if (state.view === 'costos') await renderCostos(view);
       else if (state.view === 'avance_clientes') await renderAvanceClientes(view);
+      else if (state.view === 'finanzas') await renderFinanzas(view);
       else if (state.view === 'composicion_costos') await renderComposicionCostos(view);
       else if (state.view === 'maquinaria_catalogo') await renderMaquinariaCatalogo(view);
       else if (state.view === 'maquinaria_horas') await renderMaquinariaHoras(view);
@@ -4608,10 +4711,25 @@ async function renderView() {
     // justo lo que prompt-seccion-costos-implementacion.md ocultó a
     // propósito para este rol en Resumen de obra (Target State punto 5).
     // Picker dedicado y minimal en su lugar, sin ningún dato de avance.
+    //
+    // pedirObra: llegamos aquí porque switchToView() interceptó un intento
+    // de abrir una vista por-obra (Compras/Tesorería/Costos por-obra/
+    // Contabilidad/Ventas/etc.) sin obra activa — Paul reportó 2026-09-01
+    // que cualquier click de sidebar en este estado rebotaba a la galería
+    // completa de clientes, perdiendo el cliente en el que ya estaba.
+    // switchToView() ya deja de rebotar cuando hay clienteId (ver ahí), ya
+    // disparó el toast() de aviso ahí mismo (antes de este fetch/render,
+    // para que no espere al spinner) y guarda la vista pedida en
+    // pendingTargetView — aquí, con ese flag activo, se muestra el picker de
+    // obras (generalizado más abajo a cualquier rol, no solo costos) en vez
+    // del empty-state genérico de "sube un Excel". Aterrizaje directo en
+    // 'inicio' sin haber intentado nada (pendingTargetView vacío) no
+    // cambia — fuera de alcance a propósito, ver conversación 2026-09-01.
+    const pedirObra = !!state.pendingTargetView;
     if (typeof state.clienteId === 'number' && puedeVerAgregado) {
       await renderResumenCliente(view);
-    } else if (state.clienteId != null && effectivePuesto() === 'costos') {
-      renderObrasClientePicker(view);
+    } else if (state.clienteId != null && (effectivePuesto() === 'costos' || pedirObra)) {
+      renderObrasClientePicker(view, pedirObra);
     } else {
       view.innerHTML = `
         <div class="empty-state">
@@ -4637,7 +4755,8 @@ async function renderView() {
       case 'avance': await renderAvance(view); break;
       case 'programa': await renderPrograma(view); break;
       case 'destajo': await renderDestajo(view); break;
-      case 'finanzas': await renderFinanzas(view); break;
+      // 'finanzas' ya no cae aquí: el big-if de arriba lo intercepta primero
+      // (necesita funcionar también sin state.projectId, ver VISTAS_SIN_PROYECTO).
       case 'compromisos': await renderCompromisosAbiertos(view); break;
       case 'fondoGarantia': await renderFondoGarantia(view); break;
       case 'estadoResultados': await renderEstadoResultados(view); break;
@@ -5000,8 +5119,11 @@ function openQuickFinObraModal(meta) {
 }
 
 // =========================================================================
-// VISTA: Selector de obra de un cliente para costos (prompt-URGENTE-fix-
-// costos-navegacion-cliente-obra.md) — solo nombre + lugar, sin datos de
+// VISTA: Selector de obra de un cliente — originalmente solo para costos
+// (prompt-URGENTE-fix-costos-navegacion-cliente-obra.md), generalizado
+// 2026-09-01 a cualquier rol cuando switchToView() interceptó un intento de
+// abrir una vista por-obra sin obra activa (ver pedirObra en el bloque
+// !state.projectId de renderView()). Solo nombre + lugar, sin datos de
 // dinero ni fechas: GET /api/projects (de donde sale visibleProjects(),
 // ya en memoria desde bootApp()) restringe inicio_obra/fin_obra/total_sin_
 // iva/total_con_iva a admin/desarrollador (prompt-p9-restringir-importes-
@@ -5009,9 +5131,10 @@ function openQuickFinObraModal(meta) {
 // simplemente no llegan del backend, mostrarlos habría sido "$undefined"
 // o un badge de vencimiento roto. No se usa /clientes/:id/resumen-agregado
 // tampoco: ese sí trae dinero, pero además trae los KPIs de avance que
-// prompt-seccion-costos-implementacion.md ocultó a propósito para este rol.
+// prompt-seccion-costos-implementacion.md ocultó a propósito para el rol
+// costos.
 // =========================================================================
-function renderObrasClientePicker(view) {
+function renderObrasClientePicker(view, pedirObra) {
   const projects = visibleProjects();
   if (!projects.length) {
     view.innerHTML = `<div class="empty-state"><div class="big">📂</div>Este cliente no tiene presupuestos cargados todavía.</div>`;
@@ -5027,12 +5150,16 @@ function renderObrasClientePicker(view) {
         </div>`).join('')}
     </div>
   `;
-  // targetView='costos_gallery' explícito: esta función solo se llama para
-  // costos (ver el guard en renderView()), así que sin esto selectProject()
-  // mandaría a 'inicio' (default para cualquier rol con >1 tab) en vez de
-  // aterrizar directo en la galería de Costos para la obra elegida.
   $$('.proyecto-resumen-card', view).forEach((card) => {
-    card.addEventListener('click', () => selectProject(Number(card.dataset.pid), 'costos_gallery'));
+    card.addEventListener('click', () => {
+      // pedirObra: dejar que selectProject() consuma state.pendingTargetView
+      // solo (aterriza en la vista que el usuario intentó abrir originalmente).
+      // Sin pedirObra (aterrizaje normal de costos en 'inicio', sin acción
+      // pendiente): targetView='costos_gallery' explícito, igual que antes —
+      // sin esto selectProject() mandaría a 'inicio' (default con >1 tab) en
+      // vez de la galería de Costos.
+      selectProject(Number(card.dataset.pid), pedirObra ? undefined : 'costos_gallery');
+    });
   });
 }
 
@@ -7327,6 +7454,145 @@ function paintFisFinChart(avances) {
       plugins: { legend: { position: 'bottom', labels: { color: cc.text, boxWidth: 14, font: { size: 11 } } } },
     },
   });
+}
+
+// =========================================================================
+// Componente reusado: "Avance Valorizado vs. Erogado Real" (prompt-avance-
+// valorizado-vs-erogado-real.md, rediseño "Opción A" en prompt-rediseno-
+// donuts-avance-navegacion-detalle.md) — mismo componente en los 3 niveles
+// (obra/Finanzas, cliente/Avance por cliente, global/galería), cada uno
+// solo cambia qué endpoint alimenta `resumen` (misma forma que ya devuelve
+// getFinanzasResumenData por obra: { avance_valorizado, erogado_real,
+// brecha, presupuesto_total }). Barras horizontales delgadas en HTML/CSS
+// puro (ya NO Chart.js — ver .hbar-* en styles.css): más liviano, hot-swap
+// de tema/paleta gratis vía var(), y cada barra es un <button> real
+// clickeable para navegar al detalle (ver paintAvanceValorizadoVsErogado).
+// =========================================================================
+function avanceValorizadoVsErogadoHtml(idPrefix, titulo) {
+  return `
+    <div class="card avs-card">
+      <h3 class="section-title finanzas-section-h3">${esc(titulo || 'Avance Valorizado vs. Erogado Real')}</h3>
+      <div class="hbar-group" id="${idPrefix}Bars"></div>
+    </div>
+  `;
+}
+
+// Card de "Brecha" con el mismo texto/fórmula que ya usa Finanzas por obra
+// — factorizada aquí y usada en los 3 niveles (compacta desde el rediseño
+// "Opción A": menos padding/texto más chico, para no competir en tamaño
+// con las barras ni con Resumen Global en la galería).
+function brechaCardHtml(brecha) {
+  const brechaPositiva = brecha.monto >= 0;
+  return `
+    <div class="card brecha-card-compact ${brechaPositiva ? 'border-verde' : 'border-rojo'}">
+      <h3 class="section-title finanzas-section-h3">Brecha</h3>
+      <div class="value brecha-value ${brechaPositiva ? 'text-verde' : 'text-rojo'}">${fmtMoney(brecha.monto)}</div>
+      <p class="muted">${esc(brecha.descripcion)}</p>
+    </div>
+  `;
+}
+
+// Pinta las 2 barras dentro de #${idPrefix}Bars (ver avanceValorizadoVsErogadoHtml).
+// onBarClick (opcional): callback sin argumentos, se llama igual sin importar
+// cuál de las 2 barras se clickeó — el destino de navegación es el mismo
+// para ambas en los 3 niveles (prompt-rediseno-donuts-avance-navegacion-
+// detalle.md, punto 3: "Click en cualquiera de las 2 barras... navega a...").
+// erogadoPct NO se clampea a 100 para el texto mostrado (a diferencia de
+// las barras de avance físico del resto de la app, que sí clampean) — un
+// cliente/obra puede legítimamente haber gastado más de lo presupuestado,
+// y ocultar ese > 100% escondería justo la señal que esta gráfica existe
+// para mostrar (ver brecha.descripcion). Solo el ANCHO visual de la barra
+// se topa en 100% para no desbordar el track.
+// Scroll + flash dorado (ver .avs-highlight-flash en styles.css) — usado
+// por el nivel obra (Finanzas) para navegar al desglose de texto que ya
+// vive en la misma pantalla, sin construir una vista/modal nueva.
+function scrollAndHighlight(elId) {
+  const el = $(`#${elId}`);
+  if (!el) return;
+  el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  el.classList.remove('avs-highlight-flash');
+  void el.offsetWidth; // reflow: permite re-disparar la animación si ya corrió antes
+  el.classList.add('avs-highlight-flash');
+}
+
+function paintAvanceValorizadoVsErogado(idPrefix, resumen, onBarClick) {
+  const cont = $(`#${idPrefix}Bars`);
+  if (!cont) return;
+  const av = resumen.avance_valorizado;
+  const presupuesto = resumen.presupuesto_total;
+  const erogadoPct = presupuesto > 0 ? (resumen.erogado_real.total_pagado / presupuesto) * 100 : 0;
+  const anchoValorizado = Math.min(100, Math.max(0, av.pct));
+  const anchoErogado = Math.min(100, Math.max(0, erogadoPct));
+
+  cont.innerHTML = `
+    <button type="button" class="hbar-row" data-avs-bar="valorizado" title="${fmtMoney(av.monto)}">
+      <div class="hbar-row-top"><span class="hbar-label">Avance valorizado</span><span class="hbar-pct">${fmtNum(av.pct, 1)}%</span></div>
+      <div class="hbar-track"><div class="hbar-fill hbar-fill-accent" style="width:${anchoValorizado}%"></div></div>
+    </button>
+    <button type="button" class="hbar-row" data-avs-bar="erogado" title="${fmtMoney(resumen.erogado_real.total_pagado)}">
+      <div class="hbar-row-top"><span class="hbar-label">Erogado real</span><span class="hbar-pct">${fmtNum(erogadoPct, 1)}%</span></div>
+      <div class="hbar-track"><div class="hbar-fill hbar-fill-silver" style="width:${anchoErogado}%"></div></div>
+    </button>
+  `;
+  if (onBarClick) {
+    $$('.hbar-row', cont).forEach((btn) => btn.addEventListener('click', onBarClick));
+  }
+}
+
+// =========================================================================
+// "Erogado Real — desglose" estilo ticket/recibo (prompt-rediseno-donuts-
+// avance-navegacion-detalle.md) — mismo componente reusado en los 3 niveles
+// (obra/Finanzas, cliente, global). 2 secciones (Pagado / Comprometido),
+// cada una con su propio TOTAL que suma EXACTAMENTE los renglones de esa
+// sección — nunca se mezclan pagado y comprometido en una sola suma, y
+// nunca se muestra una cifra que no esté desglosada arriba (las variantes
+// "con IVA" son informativas, en una nota chica, no un renglón que sume).
+// =========================================================================
+function erogadoRealDesgloseHtml(idPrefix) {
+  return `<div class="card" id="${idPrefix}Receipt"></div>`;
+}
+
+function paintErogadoRealDesglose(idPrefix, resumen) {
+  const el = $(`#${idPrefix}Receipt`);
+  if (!el) return;
+  const er = resumen.erogado_real;
+
+  const filaHtml = ({ label, monto, nota }) => `
+    <div class="avs-receipt-row">
+      <span class="avs-receipt-label">${esc(label)}</span>
+      <span class="avs-receipt-monto">${fmtMoney(monto)}</span>
+    </div>
+    ${nota ? `<div class="avs-receipt-nota">${esc(nota)}</div>` : ''}
+  `;
+
+  const filasPagado = [
+    { label: 'Compras — pagado', monto: er.compras_pagado, nota: `${fmtMoney(er.compras_pagado_con_iva)} con IVA` },
+    { label: 'Gastos generales — pagado', monto: er.gastos_generales_pagado },
+    {
+      label: 'Destajo — ejecutado', monto: er.destajo_ejecutado,
+      nota: er.destajo_huerfano > 0 ? `incluye ${fmtMoney(er.destajo_huerfano)} sin trabajador vinculado (no reconciliable contra nómina)` : null,
+    },
+    { label: 'Jornal — nómina aprobada', monto: er.jornal_aprobado },
+    { label: 'Maquinaria — combustible', monto: er.maquinaria_combustible },
+    { label: 'Maquinaria — mantenimiento', monto: er.maquinaria_mantenimiento },
+  ];
+  const filasComprometido = [
+    { label: 'Compras — comprometido', monto: er.compras_comprometido, nota: `${fmtMoney(er.compras_comprometido_con_iva)} con IVA` },
+    { label: 'Gastos generales — pendiente', monto: er.gastos_generales_pendiente },
+  ];
+
+  el.innerHTML = `
+    <h3 class="section-title finanzas-section-h3">Erogado Real — desglose</h3>
+    <p class="muted finanzas-iva-note">Compras se muestra ajustado a base sin IVA (÷${(1 + er.iva_ajuste_pct / 100).toFixed(2)}) para ser comparable contra Avance Valorizado — el monto con IVA real va en la nota chica de cada renglón.</p>
+    <div class="avs-receipt-section">
+      ${filasPagado.map(filaHtml).join('')}
+      <div class="avs-receipt-total"><span>Total pagado</span><span>${fmtMoney(er.total_pagado)}</span></div>
+    </div>
+    <div class="avs-receipt-section avs-receipt-section-comprometido">
+      ${filasComprometido.map(filaHtml).join('')}
+      <div class="avs-receipt-total avs-receipt-total-comprometido"><span>Total comprometido (no pagado)</span><span>${fmtMoney(er.total_comprometido_no_pagado)}</span></div>
+    </div>
+  `;
 }
 
 function paintAvanceTable(avances, presupuestoTotal, puedeEditar) {
@@ -12005,19 +12271,85 @@ const GASTO_CATEGORIA_LABELS = {
 };
 let gastosFilter = { categoria: '', estado: '' };
 
+// Selector de vista dentro del tab "Finanzas" (cambio de diseño confirmado
+// por Paul, 2026-09-01): "Esta obra" (default, comportamiento de siempre,
+// requiere state.projectId) / "Por cliente" / "Todas las obras" — las 2
+// últimas vivían como tabs propios ("Finanzas por cliente"/"Finanzas (todas
+// las obras)") en un diseño anterior; ahora viven DENTRO de este mismo tab
+// como vistas alternas, sin navegar a ningún lado. state.finanzasVista +
+// state.finanzasClienteId gobiernan cuál se pinta — ver goToFinanzasCliente/
+// goToFinanzasGlobal para cómo la navegación desde el dashboard global/
+// Avance por cliente las preselecciona.
 async function renderFinanzas(view) {
+  view.innerHTML = `
+    <h2 class="section-title">Finanzas</h2>
+    <div class="nominas-subnav" id="finanzasVistaSubnav">
+      <button type="button" class="btn ${state.finanzasVista === 'obra' ? 'btn-primary' : ''}" data-finanzas-vista="obra">Esta obra</button>
+      <button type="button" class="btn ${state.finanzasVista === 'cliente' ? 'btn-primary' : ''}" data-finanzas-vista="cliente">Por cliente</button>
+      <button type="button" class="btn ${state.finanzasVista === 'global' ? 'btn-primary' : ''}" data-finanzas-vista="global">Todas las obras</button>
+    </div>
+    <div id="finanzasVistaBody" class="mt-12"><div class="spinner"></div></div>
+  `;
+  $$('[data-finanzas-vista]', view).forEach((btn) => {
+    btn.addEventListener('click', () => {
+      if (btn.dataset.finanzasVista === state.finanzasVista) return;
+      state.finanzasVista = btn.dataset.finanzasVista;
+      renderView();
+    });
+  });
+
+  const body = $('#finanzasVistaBody');
+  if (state.finanzasVista === 'cliente') { await renderFinanzasVistaCliente(body); return; }
+  if (state.finanzasVista === 'global') { await renderFinanzasVistaGlobal(body); return; }
+  await renderFinanzasVistaObra(body);
+}
+
+async function renderFinanzasVistaObra(body) {
+  if (!state.projectId) {
+    // Antes mandaba de regreso a la galería de clientes con un mensaje
+    // muerto. Ahora deja elegir la obra sin salir de la pantalla — mismo
+    // patrón de <select> que finanzasClienteSelect en renderFinanzasVistaCliente,
+    // pero disparando selectProject() (con targetView='finanzas' para no
+    // caer en 'inicio') en vez de solo repintar #finanzasVistaBody, porque
+    // elegir obra sí debe actualizar sidebar/tabs/project list como
+    // cualquier otra selección de obra en la app.
+    body.innerHTML = `
+      <div class="card">
+        <label for="finanzasObraSelect">Obra</label>
+        <select id="finanzasObraSelect">
+          <option value="">Selecciona una obra…</option>
+          ${state.projects.map((p) => {
+            const cliente = state.clientes.find((c) => c.id === p.cliente_id);
+            const label = cliente ? `${p.nombre} — ${cliente.nombre}` : p.nombre;
+            return `<option value="${p.id}">${esc(label)}</option>`;
+          }).join('')}
+        </select>
+      </div>
+    `;
+    $('#finanzasObraSelect').addEventListener('change', async (e) => {
+      const id = e.target.value ? Number(e.target.value) : null;
+      if (id) await selectProject(id, 'finanzas');
+    });
+    return;
+  }
+
   const [resumen, gastos] = await Promise.all([
     api(`/projects/${state.projectId}/finanzas/resumen`),
     api(`/projects/${state.projectId}/gastos${queryString(gastosFilter)}`),
   ]);
+  // El usuario pudo haber cambiado de vista (Por cliente/Todas las obras)
+  // mientras esta llamada estaba en vuelo — renderFinanzas() ya reemplazó
+  // #finanzasVistaBody por un nodo nuevo en ese caso, y este `body` quedó
+  // desconectado del DOM. Sin este guard, seguir pintando aquí encima
+  // (o peor, `.addEventListener` sobre selectores que ya no existen)
+  // tronaba con "Cannot read properties of null" y el catch de renderView()
+  // reemplazaba TODA la pantalla (incluido el selector de vista) con un
+  // error, aunque la vista nueva ya se hubiera pintado bien.
+  if (!document.body.contains(body)) return;
 
   const av = resumen.avance_valorizado;
-  const er = resumen.erogado_real;
-  const brecha = resumen.brecha;
-  const brechaPositiva = brecha.monto >= 0;
 
-  view.innerHTML = `
-    <h2 class="section-title">Finanzas</h2>
+  body.innerHTML = `
     <p class="muted">Compara el avance valorizado (% ejecutado del presupuesto) contra el dinero realmente erogado — son dos números distintos a propósito, no se fusionan.</p>
     <div class="section-actions">
       <button class="btn" id="btnExportFinanzas">⭳ Exportar a Excel</button>
@@ -12031,28 +12363,9 @@ async function renderFinanzas(view) {
       </div>
     </div>
 
-    <div class="card border-verde">
-      <h3 class="section-title finanzas-section-h3">Erogado Real</h3>
-      <p class="muted finanzas-iva-note">Los montos de Compras se muestran ajustados a base sin IVA (÷${(1 + er.iva_ajuste_pct / 100).toFixed(2)}) para que sean comparables contra Avance Valorizado, que también es sin IVA. Esto no cambia lo realmente pagado al proveedor — solo la base usada aquí para comparar.</p>
-      <div class="card-row"><span class="k">Total pagado</span><span class="v text-verde">${fmtMoney(er.total_pagado)}</span></div>
-      <div class="card-row"><span class="k">Total comprometido (no pagado)</span><span class="v text-amarillo">${fmtMoney(er.total_comprometido_no_pagado)}</span></div>
-      <h4 class="finanzas-desglose-h4">Desglose</h4>
-      <div class="card-row"><span class="k">Compras — pagado (sin IVA, ajustado)</span><span class="v">${fmtMoney(er.compras_pagado)}</span></div>
-      <div class="card-row"><span class="k">Compras — pagado (con IVA, real)</span><span class="v muted">${fmtMoney(er.compras_pagado_con_iva)}</span></div>
-      <div class="card-row"><span class="k">Compras — comprometido (sin IVA, ajustado)</span><span class="v">${fmtMoney(er.compras_comprometido)}</span></div>
-      <div class="card-row"><span class="k">Compras — comprometido (con IVA, real)</span><span class="v muted">${fmtMoney(er.compras_comprometido_con_iva)}</span></div>
-      <div class="card-row"><span class="k">Gastos generales — pagado</span><span class="v">${fmtMoney(er.gastos_generales_pagado)}</span></div>
-      <div class="card-row"><span class="k">Gastos generales — pendiente</span><span class="v">${fmtMoney(er.gastos_generales_pendiente)}</span></div>
-      <div class="card-row"><span class="k">Destajo — ejecutado (mano de obra)</span><span class="v">${fmtMoney(er.destajo_ejecutado)}</span></div>
-      <div class="card-row"><span class="k">Jornal — nómina aprobada</span><span class="v">${fmtMoney(er.jornal_aprobado)}</span></div>
-      ${er.destajo_huerfano > 0 ? `<p class="muted finanzas-destajo-huerfano-note">⚠️ De lo anterior, ${fmtMoney(er.destajo_huerfano)} de Destajo corresponden a destajistas sin trabajador vinculado — pagado fuera del sistema de nómina, ya incluido en el total pero no reconciliable contra ninguna nómina real.</p>` : ''}
-    </div>
-
-    <div class="card ${brechaPositiva ? 'border-verde' : 'border-rojo'}">
-      <h3 class="section-title finanzas-section-h3">Brecha</h3>
-      <div class="value brecha-value ${brechaPositiva ? 'text-verde' : 'text-rojo'}">${fmtMoney(brecha.monto)}</div>
-      <p class="muted mt-8">${esc(brecha.descripcion)}</p>
-    </div>
+    ${avanceValorizadoVsErogadoHtml('finanzasObra')}
+    ${brechaCardHtml(resumen.brecha)}
+    ${erogadoRealDesgloseHtml('finanzasErogadoDesglose')}
 
     <h3 class="section-title">Gastos Generales</h3>
     <div class="row finanzas-filtros-row">
@@ -12078,7 +12391,108 @@ async function renderFinanzas(view) {
   $('#gastoFiltroEstado').addEventListener('change', (e) => { gastosFilter.estado = e.target.value; renderView(); });
   $('#btnNuevoGasto')?.addEventListener('click', () => openGastoModal(null));
 
+  // Navegación al detalle (prompt-rediseno-donuts-avance-navegacion-
+  // detalle.md, punto 3): por obra, el desglose de texto ya está en la
+  // misma pantalla (Compras/Gastos/Destajo/Jornal) — click en cualquiera de
+  // las 2 barras solo hace scroll + resalta esa card, sin navegar a ningún
+  // lado nuevo.
+  paintAvanceValorizadoVsErogado('finanzasObra', resumen, () => scrollAndHighlight('finanzasErogadoDesgloseReceipt'));
+  paintErogadoRealDesglose('finanzasErogadoDesglose', resumen);
   paintGastosList(gastos);
+}
+
+// Vista "Por cliente" (cambio de diseño confirmado por Paul, 2026-09-01):
+// picker de cliente + Erogado Real agregado de todas sus obras (GET
+// /clientes/:id/erogado-real, ya existía, sin cambios de backend). El
+// picker reusa el patrón <select> ya establecido en toda la app para
+// "elegir cliente" (ej. #costosClienteSelect en Composición de Costos) —
+// se auto-mejora a un dropdown con estilo real vía el MutationObserver de
+// enhanceSelect() (ver más arriba en este archivo), nunca un <select>
+// nativo sin estilo ni un botón suelto.
+async function renderFinanzasVistaCliente(body) {
+  body.innerHTML = `
+    <p class="muted">Erogado Real agregado de todas las obras de un cliente — mismo desglose que "Esta obra".</p>
+    <div class="card">
+      <label for="finanzasClienteSelect">Cliente</label>
+      <select id="finanzasClienteSelect">
+        <option value="">Selecciona un cliente…</option>
+        ${state.clientes.map((c) => `<option value="${c.id}" ${c.id === state.finanzasClienteId ? 'selected' : ''}>${esc(c.nombre)}</option>`).join('')}
+      </select>
+    </div>
+    <div id="finanzasClienteResult" class="mt-12"></div>
+  `;
+  const result = $('#finanzasClienteResult');
+
+  async function cargar(clienteId) {
+    if (!clienteId) { result.innerHTML = ''; return; }
+    result.innerHTML = '<div class="spinner"></div>';
+    try {
+      const resumen = await api(`/clientes/${clienteId}/erogado-real`);
+      // Mismo guard que renderFinanzasVistaObra — el usuario pudo cambiar de
+      // vista o de cliente mientras esta llamada estaba en vuelo.
+      if (!document.body.contains(body)) return;
+      if (!resumen.presupuesto_total) { result.innerHTML = '<div class="empty-state">Sin datos todavía para este cliente.</div>'; return; }
+      const cliente = state.clientes.find((c) => c.id === clienteId);
+      result.innerHTML = `
+        ${avanceValorizadoVsErogadoHtml('finanzasCliente', `Avance Valorizado vs. Erogado Real — ${cliente ? esc(cliente.nombre) : 'cliente'}`)}
+        ${brechaCardHtml(resumen.brecha)}
+        ${erogadoRealDesgloseHtml('finanzasCliente')}
+      `;
+      // Mismo criterio que "Esta obra": el desglose ya está en la misma
+      // pantalla, click en las barras solo hace scroll + resalta la card.
+      paintAvanceValorizadoVsErogado('finanzasCliente', resumen, () => scrollAndHighlight('finanzasClienteReceipt'));
+      paintErogadoRealDesglose('finanzasCliente', resumen);
+    } catch (err) {
+      result.innerHTML = `<p class="muted">No se pudo cargar Finanzas del cliente: ${esc(err.message)}</p>`;
+    }
+  }
+
+  $('#finanzasClienteSelect').addEventListener('change', (e) => {
+    state.finanzasClienteId = e.target.value ? Number(e.target.value) : null;
+    cargar(state.finanzasClienteId);
+  });
+  await cargar(state.finanzasClienteId);
+}
+
+// Vista "Todas las obras" (cambio de diseño confirmado por Paul,
+// 2026-09-01): Erogado Real agregado global (GET /erogado-real-global, ya
+// existía, sin cambios de backend).
+async function renderFinanzasVistaGlobal(body) {
+  body.innerHTML = `
+    <p class="muted">Erogado Real agregado de todas las obras de todos los clientes — mismo desglose que "Esta obra".</p>
+    <div id="finanzasGlobalResult"><div class="spinner"></div></div>
+  `;
+  const result = $('#finanzasGlobalResult');
+  try {
+    const resumen = await api('/erogado-real-global');
+    // Mismo guard que renderFinanzasVistaObra/Cliente.
+    if (!document.body.contains(body)) return;
+    if (!resumen.presupuesto_total) { result.innerHTML = '<div class="empty-state">Sin datos todavía.</div>'; return; }
+    result.innerHTML = `
+      ${avanceValorizadoVsErogadoHtml('finanzasGlobal', 'Avance Valorizado vs. Erogado Real — global')}
+      ${brechaCardHtml(resumen.brecha)}
+      ${erogadoRealDesgloseHtml('finanzasGlobal')}
+    `;
+    paintAvanceValorizadoVsErogado('finanzasGlobal', resumen, () => scrollAndHighlight('finanzasGlobalReceipt'));
+    paintErogadoRealDesglose('finanzasGlobal', resumen);
+  } catch (err) {
+    result.innerHTML = `<p class="muted">No se pudo cargar Finanzas global: ${esc(err.message)}</p>`;
+  }
+}
+
+// Navegación desde fuera del tab "Finanzas" (donut/barras del dashboard
+// global, barras de Avance por cliente) — preseleccionan la vista antes de
+// entrar, en vez de navegar a un tab distinto (ver comentario arriba de
+// renderFinanzas). goToGlobalAdminView limpia projectId/clienteId y muestra
+// #app — funciona igual venga o no de dentro de #app ya.
+function goToFinanzasCliente(clienteId) {
+  state.finanzasVista = 'cliente';
+  state.finanzasClienteId = clienteId;
+  goToGlobalAdminView('finanzas');
+}
+function goToFinanzasGlobal() {
+  state.finanzasVista = 'global';
+  goToGlobalAdminView('finanzas');
 }
 
 function paintGastosList(gastos) {
@@ -15577,17 +15991,46 @@ async function renderAvanceClientes(view) {
                 <span class="apc-obra-pct">${opct.toFixed(1)}%</span>
               </div>`;
             }).join('')}
+            <div class="apc-erogado-real mt-12" id="apcErogado${c.cliente_id}"><div class="spinner"></div></div>
           </div>
         </div>`;
       }).join('')}
     </div>
   `;
   $$('.apc-fill', list).forEach((fill) => { fill.style.width = fill.dataset.pct + '%'; });
+  // "Avance Valorizado vs. Erogado Real" por cliente (prompt-avance-
+  // valorizado-vs-erogado-real.md): se carga solo al expandir (no de entrada
+  // para los N clientes de la lista completa) — evita N llamadas a
+  // /clientes/:id/erogado-real y N charts sin abrir cuando la vista carga.
+  // erogadoRealCargado marca qué clientes ya se pintaron para no re-pedir el
+  // endpoint cada vez que se colapsa/expande el mismo cliente.
+  const erogadoRealCargado = new Set();
   $$('.apc-toggle', list).forEach((btn) => {
-    btn.addEventListener('click', () => {
+    btn.addEventListener('click', async () => {
       const item = btn.closest('.apc-item-full');
       item.querySelector('.apc-obras').classList.toggle('hidden-initial');
       item.classList.toggle('apc-expanded');
+      const clienteId = Number(item.dataset.cliente);
+      if (!item.classList.contains('apc-expanded') || erogadoRealCargado.has(clienteId)) return;
+      erogadoRealCargado.add(clienteId);
+      const cont = $(`#apcErogado${clienteId}`);
+      try {
+        const resumen = await api(`/clientes/${clienteId}/erogado-real`);
+        const prefix = `apcErogado${clienteId}`;
+        cont.innerHTML = `
+          ${avanceValorizadoVsErogadoHtml(prefix)}
+          ${brechaCardHtml(resumen.brecha)}
+        `;
+        // Navegación al detalle (cambio de diseño confirmado por Paul,
+        // 2026-09-01): el desglose tipo recibo de Erogado Real deja de vivir
+        // en línea aquí — ahora vive SOLO en la pantalla nueva
+        // "Finanzas — [cliente]" (renderFinanzasCliente). Click en
+        // cualquiera de las 2 barras navega ahí en vez de expandir en el
+        // mismo lugar.
+        paintAvanceValorizadoVsErogado(prefix, resumen, () => goToFinanzasCliente(clienteId));
+      } catch (err) {
+        cont.innerHTML = `<p class="muted">No se pudo cargar Avance Valorizado vs. Erogado Real: ${esc(err.message)}</p>`;
+      }
     });
   });
 }

@@ -97,6 +97,15 @@
             <div id="globalChartSection" class="dashboard-col"></div>
             <div id="avancePorClienteSection" class="dashboard-col"></div>
           </div>
+          <!-- Avance Valorizado vs. Erogado Real global (prompt-avance-
+               valorizado-vs-erogado-real.md) — bloque propio, ancho completo,
+               NO como 3ra columna de .dashboards-row: esa fila está calibrada
+               para 2 columnas (donut de Resumen Global + lista de Avance por
+               cliente); forzar una 3ra angostaba tanto las 2 existentes que
+               su contenido (KPIs de Resumen Global) desbordaba horizontalmente
+               y se encimaba con el texto de Avance por cliente — bug real
+               reportado por Paul, ver .erogado-global-row en styles.css. -->
+          <div id="erogadoRealGlobalSection"></div>
           <div id="bienvenidaSummary"></div>
         </div>
 

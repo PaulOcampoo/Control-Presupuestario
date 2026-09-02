@@ -126,6 +126,40 @@ async function getFinanzasResumenData(pid) {
   `, [pid]);
   const jornalAprobado = Number(jornalRows[0].total);
 
+  // Maquinaria — combustible + mantenimiento (expansión de Erogado Real
+  // aprobada por Paul, diagnóstico previo confirmó con evidencia): sin
+  // distinción pagado/pendiente en el esquema actual (combustible_maquinaria.
+  // costo / mantenimientos_maquinaria.costo son NOT NULL sin campo de
+  // estatus), mismo criterio que Destajo/Jornal arriba — se trata como costo
+  // ya incurrido. Atribución vía equipos_maquinaria.obra_id (asignación
+  // ACTUAL del equipo, mutable) — misma limitación ya aceptada y documentada
+  // en getReportePorCliente (server/maquinaria.js): si un equipo cambió de
+  // obra, su gasto histórico completo aparece bajo la obra de HOY. Sin
+  // ajuste de IVA — mismo tratamiento que ya usa getReportePorCliente para
+  // estos 2 mismos campos, no se inventa un ajuste nuevo sin precedente.
+  // Consumibles (aceites/gasolina, consumibles_maquinaria.costo_estimado)
+  // quedan FUERA a propósito — decisión de Paul: es un campo nullable y
+  // explícitamente "estimado", no al mismo nivel de confiabilidad que estos
+  // 2. Maquinaria — gasto_personal (nómina de operadores) tampoco se agrega:
+  // ya está 100% dentro de jornalAprobado arriba (esa query no filtra por
+  // trabajadores.categoria_costo) — agregarlo sería doble conteo confirmado
+  // en el diagnóstico previo.
+  const { rows: maquinariaCombustibleRows } = await db.pool.query(`
+    SELECT COALESCE(SUM(cm.costo), 0) AS total
+    FROM combustible_maquinaria cm
+    JOIN equipos_maquinaria e ON e.id = cm.equipo_id
+    WHERE e.obra_id = $1 AND cm.activo = true
+  `, [pid]);
+  const maquinariaCombustible = Number(maquinariaCombustibleRows[0].total);
+
+  const { rows: maquinariaMantenimientoRows } = await db.pool.query(`
+    SELECT COALESCE(SUM(mm.costo), 0) AS total
+    FROM mantenimientos_maquinaria mm
+    JOIN equipos_maquinaria e ON e.id = mm.equipo_id
+    WHERE e.obra_id = $1 AND mm.activo = true
+  `, [pid]);
+  const maquinariaMantenimiento = Number(maquinariaMantenimientoRows[0].total);
+
   // pagos.monto siempre es el monto real transferido (con IVA, es lo que en
   // efecto se le paga al proveedor); comprasComprometido ahora también es
   // real-con-IVA de verdad para toda OC gracias a totalConIvaDeItems() de
@@ -142,7 +176,7 @@ async function getFinanzasResumenData(pid) {
   const comprasPagadoSinIva = montoSinIva(comprasPagado, IVA_RATE);
   const comprasComprometidoSinIva = montoSinIva(comprasComprometido, IVA_RATE);
 
-  const totalPagado = Number((comprasPagadoSinIva + gastosPagado + destajoGanado + jornalAprobado).toFixed(2));
+  const totalPagado = Number((comprasPagadoSinIva + gastosPagado + destajoGanado + jornalAprobado + maquinariaCombustible + maquinariaMantenimiento).toFixed(2));
   const totalComprometidoNoPagado = Number((comprasComprometidoSinIva + gastosPendiente).toFixed(2));
   const brechaMonto = Number((montoValorizado - totalPagado).toFixed(2));
 
@@ -161,6 +195,8 @@ async function getFinanzasResumenData(pid) {
       destajo_ejecutado: Number(destajoGanado.toFixed(2)),
       destajo_huerfano: Number(destajoHuerfano.toFixed(2)),
       jornal_aprobado: Number(jornalAprobado.toFixed(2)),
+      maquinaria_combustible: Number(maquinariaCombustible.toFixed(2)),
+      maquinaria_mantenimiento: Number(maquinariaMantenimiento.toFixed(2)),
       total_pagado: totalPagado,
       total_comprometido_no_pagado: totalComprometidoNoPagado,
       iva_ajuste_pct: IVA_RATE * 100,
@@ -466,10 +502,192 @@ async function getFondoGarantiaAgregado(pids) {
   return { porObra, acumulado_total: Number(acumuladoTotal.toFixed(2)) };
 }
 
+// ---------------------------------------------------------------------------
+// Erogado Real agregado por cliente/global (prompt-avance-valorizado-vs-
+// erogado-real.md) — mismas 4 fuentes y misma fórmula que getFinanzasResumenData
+// (avance valorizado, compras pagado/comprometido, gastos generales, destajo,
+// jornal), pero en queries batched (WHERE project_id = ANY($1)) en vez de
+// llamar getFinanzasResumenData obra por obra — mismo criterio ya usado por
+// getCompromisosAbiertosAgregado/getFondoGarantiaAgregado arriba, para no
+// reintroducir el patrón N+1 que el resto de agregadores de esta app evita.
+// getFinanzasResumenData NO se toca ni se reusa (Forbidden Action explícita
+// del prompt) — esta es una query independiente que debe reproducir el mismo
+// resultado agregado, mismo criterio ya documentado arriba para Compromisos
+// Abiertos frente a compras_comprometido_con_iva.
+//
+// La pieza de "comprometido" SÍ reusa fetchOrdenesComprometiblesPorObra (ya
+// definida arriba para Compromisos Abiertos) porque es exactamente la misma
+// query/fórmula (Math.max(0, importe_total_oc - pagado_oc) por OC, mismo
+// ESTATUS_COMPROMETIBLE) — reusar la función batched ya validada evita
+// duplicar ese JOIN de 3 tablas + prorrateo de IVA por tercera vez.
+async function getErogadoRealAgregado(pids) {
+  const vacio = () => ({
+    avance_valorizado: { pct: 0, monto: 0 },
+    erogado_real: {
+      compras_pagado: 0, compras_pagado_con_iva: 0,
+      compras_comprometido: 0, compras_comprometido_con_iva: 0,
+      gastos_generales_pagado: 0, gastos_generales_pendiente: 0,
+      destajo_ejecutado: 0, destajo_huerfano: 0, jornal_aprobado: 0,
+      maquinaria_combustible: 0, maquinaria_mantenimiento: 0,
+      total_pagado: 0, total_comprometido_no_pagado: 0, iva_ajuste_pct: 16,
+    },
+    brecha: { monto: 0, descripcion: 'positivo = se ha avanzado más obra de la que se ha pagado; negativo = se ha pagado más de lo que refleja el avance reportado' },
+    presupuesto_total: 0,
+  });
+  if (!pids.length) return vacio();
+
+  // Mismo criterio de presupuesto_total/avance valorizado que ya usan
+  // /resumen-global y /avance-por-cliente/completo (server/app.js) — misma
+  // fórmula de ponderación (Σ presupuesto_i × avance_i/100, dividido entre
+  // Σ presupuesto_i), reescrita aquí en JS en vez de SQL para reusar el
+  // mismo resultado en el cálculo de brecha más abajo sin una segunda query.
+  const { rows: obrasRows } = await db.pool.query(`
+    SELECT
+      p.id,
+      COALESCE(
+        (SELECT valor::DOUBLE PRECISION FROM meta WHERE project_id = p.id AND clave = 'total_sin_iva' LIMIT 1),
+        (SELECT importe FROM conceptos WHERE project_id = p.id AND es_total = 1 AND grupo IS NULL ORDER BY orden DESC LIMIT 1),
+        0
+      ) AS presupuesto_total,
+      COALESCE(
+        (SELECT avance_financiero_real FROM avances_semanales
+         WHERE project_id = p.id AND avance_financiero_real IS NOT NULL ORDER BY semana DESC LIMIT 1),
+        0
+      ) AS avance_pct
+    FROM proyectos p
+    WHERE p.id = ANY($1)
+  `, [pids]);
+
+  const presupuestoTotal = obrasRows.reduce((s, r) => s + Number(r.presupuesto_total), 0);
+  const montoValorizado = obrasRows.reduce((s, r) => s + Number(r.presupuesto_total) * Number(r.avance_pct) / 100, 0);
+  const pctValorizado = presupuestoTotal > 0 ? (montoValorizado / presupuestoTotal) * 100 : 0;
+
+  const { rows: comprasPagadoRows } = await db.pool.query(`
+    SELECT COALESCE(SUM(p.monto), 0) AS total
+    FROM pagos p
+    JOIN ordenes_compra oc ON oc.id = p.orden_compra_id
+    WHERE oc.project_id = ANY($1) AND oc.estado != 'cancelada'
+  `, [pids]);
+  const comprasPagado = Number(comprasPagadoRows[0].total);
+
+  const { ocMap, pagadoPorOc } = await fetchOrdenesComprometiblesPorObra(pids);
+  let comprasComprometido = 0;
+  for (const oc of ocMap.values()) {
+    const pagadoOc = pagadoPorOc.get(oc.oc_id) || 0;
+    comprasComprometido += Math.max(0, oc.importe_total - pagadoOc);
+  }
+
+  const { rows: gastosPagadoRows } = await db.pool.query(
+    "SELECT COALESCE(SUM(monto), 0) AS total FROM gastos_generales WHERE project_id = ANY($1) AND estado = 'pagado'", [pids]
+  );
+  const gastosPagado = Number(gastosPagadoRows[0].total);
+
+  const { rows: gastosPendienteRows } = await db.pool.query(
+    "SELECT COALESCE(SUM(monto), 0) AS total FROM gastos_generales WHERE project_id = ANY($1) AND estado = 'pendiente'", [pids]
+  );
+  const gastosPendiente = Number(gastosPendienteRows[0].total);
+
+  const { rows: destajoRows } = await db.pool.query(`
+    SELECT COALESCE(SUM(ad.cantidad_ejecutada * di.precio_destajo), 0) AS total
+    FROM destajo_items di
+    JOIN avance_destajo ad ON ad.destajo_item_id = di.id
+    WHERE di.project_id = ANY($1)
+  `, [pids]);
+  const destajoGanado = Number(destajoRows[0].total);
+
+  const { rows: destajoHuerfanoRows } = await db.pool.query(`
+    SELECT COALESCE(SUM(ad.cantidad_ejecutada * di.precio_destajo), 0) AS total
+    FROM destajistas dst
+    JOIN destajo_items di ON di.destajista_id = dst.id
+    JOIN avance_destajo ad ON ad.destajo_item_id = di.id
+    WHERE dst.project_id = ANY($1)
+      AND NOT EXISTS (SELECT 1 FROM trabajadores t WHERE t.destajista_id = dst.id)
+  `, [pids]);
+  const destajoHuerfano = Number(destajoHuerfanoRows[0].total);
+
+  const { rows: jornalRows } = await db.pool.query(`
+    SELECT COALESCE(SUM(ni.monto_jornal), 0) AS total
+    FROM nomina_items ni
+    JOIN nominas n ON n.id = ni.nomina_id
+    WHERE n.project_id = ANY($1) AND n.estado = 'aprobada'
+  `, [pids]);
+  const jornalAprobado = Number(jornalRows[0].total);
+
+  // Maquinaria — combustible + mantenimiento: misma fórmula/criterio que
+  // getFinanzasResumenData (ver ese comentario para el detalle completo),
+  // batched con ANY($1) — mismo patrón que el resto de esta función.
+  const { rows: maquinariaCombustibleRows } = await db.pool.query(`
+    SELECT COALESCE(SUM(cm.costo), 0) AS total
+    FROM combustible_maquinaria cm
+    JOIN equipos_maquinaria e ON e.id = cm.equipo_id
+    WHERE e.obra_id = ANY($1) AND cm.activo = true
+  `, [pids]);
+  const maquinariaCombustible = Number(maquinariaCombustibleRows[0].total);
+
+  const { rows: maquinariaMantenimientoRows } = await db.pool.query(`
+    SELECT COALESCE(SUM(mm.costo), 0) AS total
+    FROM mantenimientos_maquinaria mm
+    JOIN equipos_maquinaria e ON e.id = mm.equipo_id
+    WHERE e.obra_id = ANY($1) AND mm.activo = true
+  `, [pids]);
+  const maquinariaMantenimiento = Number(maquinariaMantenimientoRows[0].total);
+
+  // Mismo ajuste sin-IVA que getFinanzasResumenData, IVA_RATE propio (no
+  // compartido con esa función) a propósito — Forbidden Action explícita del
+  // prompt es no modificarla, así que no se toca su alcance para exponer esta
+  // constante en módulo compartido.
+  const IVA_RATE = 0.16;
+  const comprasPagadoSinIva = montoSinIva(comprasPagado, IVA_RATE);
+  const comprasComprometidoSinIva = montoSinIva(comprasComprometido, IVA_RATE);
+
+  const totalPagado = Number((comprasPagadoSinIva + gastosPagado + destajoGanado + jornalAprobado + maquinariaCombustible + maquinariaMantenimiento).toFixed(2));
+  const totalComprometidoNoPagado = Number((comprasComprometidoSinIva + gastosPendiente).toFixed(2));
+  const brechaMonto = Number((montoValorizado - totalPagado).toFixed(2));
+
+  return {
+    avance_valorizado: {
+      pct: Number(pctValorizado.toFixed(2)),
+      monto: Number(montoValorizado.toFixed(2)),
+    },
+    erogado_real: {
+      compras_pagado: comprasPagadoSinIva,
+      compras_pagado_con_iva: Number(comprasPagado.toFixed(2)),
+      compras_comprometido: comprasComprometidoSinIva,
+      compras_comprometido_con_iva: Number(comprasComprometido.toFixed(2)),
+      gastos_generales_pagado: Number(gastosPagado.toFixed(2)),
+      gastos_generales_pendiente: Number(gastosPendiente.toFixed(2)),
+      destajo_ejecutado: Number(destajoGanado.toFixed(2)),
+      destajo_huerfano: Number(destajoHuerfano.toFixed(2)),
+      jornal_aprobado: Number(jornalAprobado.toFixed(2)),
+      maquinaria_combustible: Number(maquinariaCombustible.toFixed(2)),
+      maquinaria_mantenimiento: Number(maquinariaMantenimiento.toFixed(2)),
+      total_pagado: totalPagado,
+      total_comprometido_no_pagado: totalComprometidoNoPagado,
+      iva_ajuste_pct: IVA_RATE * 100,
+    },
+    brecha: {
+      monto: brechaMonto,
+      descripcion: 'positivo = se ha avanzado más obra de la que se ha pagado; negativo = se ha pagado más de lo que refleja el avance reportado',
+    },
+    presupuesto_total: Number(presupuestoTotal.toFixed(2)),
+  };
+}
+
+async function getErogadoRealPorCliente(clienteId) {
+  const { rows } = await db.pool.query('SELECT id FROM proyectos WHERE cliente_id = $1', [clienteId]);
+  return getErogadoRealAgregado(rows.map((r) => r.id));
+}
+
+async function getErogadoRealGlobal() {
+  const { rows } = await db.pool.query('SELECT id FROM proyectos');
+  return getErogadoRealAgregado(rows.map((r) => r.id));
+}
+
 module.exports = {
   metaToObject, presupuestoTotalDe, getFinanzasResumenData, getCompromisosAbiertosData,
   getCompromisosAbiertosAgregado,
   porcentajeFondoGarantiaDe, getFondoGarantiaData, getFondoGarantiaAgregado,
   upsertPorcentajeFondoGarantia,
+  getErogadoRealPorCliente, getErogadoRealGlobal,
   FONDO_GARANTIA_PCT_DEFAULT, FONDO_GARANTIA_PCT_MIN, FONDO_GARANTIA_PCT_MAX,
 };

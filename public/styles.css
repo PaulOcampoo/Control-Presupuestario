@@ -795,28 +795,117 @@ h3.section-title { margin: var(--space-16) var(--space-0) var(--space-10); font-
 .chart-wrap.tall { height: 340px; }
 
 /* Glow dorado en la dona de resumen (prompt-paleta-roforb-carbon-glow.md)
-   — vía CSS `filter: drop-shadow`, no plugin de Chart.js: es la ruta más
-   simple (cero JS nuevo) y no toca los colores de dataset. Trade-off
-   aceptado: un solo color de glow para todo el canvas (no uno distinto
-   por segmento) — aceptable para un halo ambiental, no un "LED por
-   color". #globalPieChart es la dona de resumen global (dashboard admin,
-   entre proyectos); #chartResumenDona es su equivalente por proyecto
-   (tab Resumen) — mismo rol de "gráfica de mayor jerarquía" en cada
-   contexto, mismo tratamiento. drop-shadow (no box-shadow) porque sigue
-   la silueta real de lo pintado en el canvas, no el rectángulo del
-   elemento. Estático (sin animación continua) — sin riesgo de frame
-   drops en el refresh de tema. */
-/* Scope html[data-palette="dorada"]:not([data-theme="light"]) — SOLO Roforb
-   dark. --accent-gold es el mismo nombre de variable que reusan las otras
-   3 paletas (Morada/Jade/Terra, cada una con su propio hex) y el modo
-   light de Roforb: sin este scope el glow se pintaría en los 4 con el
-   acento de cada una, cambiando su apariencia — justo lo que este prompt
-   prohíbe tocar. "dorada" se setea explícito en <html> incluso para el
-   default (ver applyPalette() en app.js), así que el selector positivo es
-   seguro (no depende de la AUSENCIA de un atributo). */
-html[data-palette="dorada"]:not([data-theme="light"]) #globalPieChart,
+   — vía CSS `filter: drop-shadow`. En esta branch
+   (feature/finanzas-maquinaria-vista-picker) solo #globalPieChart se
+   rediseña ("Opción 2", ver .donut-canvas-wrap más abajo, que reemplaza el
+   glow por el anillo interior fino) — #chartResumenDona vive en
+   feature/donut-color-gris con el rediseño completo, y aquí no se toca, así
+   que conserva su glow original para no quedarse sin decoración. Scope
+   html[data-palette="dorada"]:not([data-theme="light"]) — SOLO Roforb dark
+   ("dorada" se setea explícito en <html> incluso para el default, ver
+   applyPalette() en app.js). */
 html[data-palette="dorada"]:not([data-theme="light"]) #chartResumenDona {
   filter: drop-shadow(0 0 10px color-mix(in srgb, var(--accent-gold) 55%, transparent));
+}
+
+/* Donut "Opción 2" (prompt-rediseno-donuts-avance-navegacion-detalle.md) —
+   anillo grueso (Chart.js) + anillo interior fino puramente decorativo +
+   número grande centrado con "%" chico/apagado al lado + label mayúsculas
+   con letter-spacing debajo, mismo tratamiento tipográfico que .kpi .label.
+   En esta branch solo #globalPieChart (galería) usa estas clases —
+   #chartResumenDona (Resumen por obra) vive en feature/donut-color-gris. */
+.donut-canvas-wrap { flex-shrink: 0; width: 140px; height: 140px; position: relative; }
+/* inset ~14px sobre un canvas de 140px (radio 70px) cae a medio camino del
+   anillo grueso principal (cutout 62% ⇒ banda visible de radio 43-70px) —
+   puramente decorativo, mismo --border-color sutil que ya usa .card. */
+.donut-inner-ring {
+  position: absolute; inset: 14px; border-radius: 50%;
+  border: 1px solid var(--border-color); pointer-events: none;
+}
+.donut-center {
+  position: absolute; inset: 0;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  pointer-events: none;
+}
+.donut-center-value { display: flex; align-items: baseline; gap: 2px; font-size: 1.7rem; font-weight: 800; color: var(--text-primary); line-height: 1; }
+.donut-center-value .pct-sign { font-size: 0.6em; font-weight: 700; color: var(--text-secondary); }
+.donut-center-label { margin-top: var(--space-4); font-size: var(--fs-xs); color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.06em; font-weight: 700; }
+
+/* Donut clickeable → mismo desglose por-cliente que ya abren las barras
+   (prompt-rediseno-donuts-avance-navegacion-detalle.md, punto 3e) — SOLO el
+   donut global (#globalPieChart, envuelto en <button id="globalPieChartWrap">
+   en vez de <div>). */
+.donut-canvas-wrap-clickable { cursor: pointer; background: none; border: none; padding: 0; }
+.donut-canvas-wrap-clickable:hover .donut-inner-ring { border-color: var(--accent-gold); }
+.donut-canvas-wrap-clickable:focus-visible { outline: 2px solid var(--accent-gold); outline-offset: 2px; border-radius: 50%; }
+
+/* "Erogado Real — desglose" estilo ticket/recibo (prompt-rediseno-donuts-
+   avance-navegacion-detalle.md): cada renglón etiquetado + un TOTAL con
+   línea divisoria punteada (evoca el corte de un recibo real) que suma
+   EXACTAMENTE los renglones de arriba — nunca una cifra "de más" que no
+   esté desglosada en la lista. 2 secciones independientes (Pagado /
+   Comprometido) para que cada TOTAL sume solo sus propios renglones, sin
+   mezclar pagado con comprometido en una sola suma. Mismo componente
+   reusado en obra/cliente/global — ver erogadoRealDesgloseHtml en app.js. */
+.avs-receipt-section { margin-top: var(--space-10); }
+.avs-receipt-row { display: flex; justify-content: space-between; align-items: baseline; gap: var(--space-8); padding: var(--space-4) var(--space-0); font-size: var(--fs-sm); }
+.avs-receipt-label { color: var(--text-secondary); }
+.avs-receipt-monto { color: var(--text-primary); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.avs-receipt-nota { font-size: var(--fs-xs); color: var(--text-secondary); margin-top: calc(var(--space-4) * -1); padding-bottom: var(--space-4); }
+.avs-receipt-total {
+  display: flex; justify-content: space-between; align-items: baseline; gap: var(--space-8);
+  margin-top: var(--space-6); padding-top: var(--space-8);
+  border-top: 2px dashed var(--border-color);
+  font-size: var(--fs-md); font-weight: 800; color: var(--text-primary);
+}
+.avs-receipt-section-comprometido { margin-top: var(--space-16); padding-top: var(--space-12); border-top: 1px solid var(--border-color); }
+.avs-receipt-total-comprometido { font-size: var(--fs-sm); font-weight: 700; color: var(--text-secondary); border-top-style: dashed; }
+
+/* "Avance Valorizado vs. Erogado Real" — Opción A (prompt-rediseno-donuts-
+   avance-navegacion-detalle.md): barras horizontales delgadas, sin eje ni
+   gridlines, HTML/CSS puro — reemplaza las barras verticales Chart.js del
+   rediseño anterior de esta misma gráfica. El hot-swap de tema/paleta queda
+   gratis vía var() (a diferencia de Chart.js, que necesitaba re-pintar en
+   JS en cada cambio — ver applyChartTheme). Cada .hbar-row es un <button>
+   real (accesible por teclado) — click navega al detalle correspondiente,
+   ver paintAvanceValorizadoVsErogado en app.js. */
+.avs-card { padding-bottom: var(--space-10); }
+.hbar-group { display: flex; flex-direction: column; gap: var(--space-14); margin-top: var(--space-8); }
+.hbar-row {
+  display: block; width: 100%; text-align: left; background: none; border: none; padding: var(--space-4);
+  margin: calc(var(--space-4) * -1); cursor: pointer; font: inherit; color: inherit;
+  border-radius: var(--radius-sm);
+}
+.hbar-row:hover { background: var(--bg-surface-2); }
+.hbar-row:hover .hbar-label { color: var(--text-primary); }
+.hbar-row:focus-visible { outline: 2px solid var(--accent-gold); outline-offset: 2px; }
+.hbar-row-top { display: flex; justify-content: space-between; align-items: baseline; gap: var(--space-8); margin-bottom: var(--space-4); }
+.hbar-label { font-size: var(--fs-sm); font-weight: 600; color: var(--text-secondary); }
+.hbar-pct { font-size: var(--fs-sm); font-weight: 700; font-variant-numeric: tabular-nums; color: var(--text-primary); }
+.hbar-track { background: var(--border-color); border-radius: 4px; height: 8px; overflow: hidden; }
+.hbar-fill { height: 100%; border-radius: 4px; transition: width 0.4s ease; }
+.hbar-fill-accent { background: var(--accent-gold); }
+.hbar-fill-silver { background: var(--accent-silver); }
+
+/* Card de Brecha compacta (mismo prompt) — menos padding y texto más chico
+   que antes, para no competir en tamaño con Resumen Global/las barras. */
+.brecha-card-compact { padding: var(--space-10) var(--space-14); }
+.brecha-card-compact .finanzas-section-h3 { font-size: var(--fs-sm); margin-bottom: var(--space-2); }
+.brecha-card-compact .brecha-value { font-size: var(--fs-md); }
+.brecha-card-compact p { font-size: var(--fs-xs); margin-top: var(--space-2); }
+
+/* Highlight-flash: click en una barra de obra hace scroll al desglose de
+   texto ya existente (Compras/Gastos/Destajo/Jornal) y lo resalta 1.5s para
+   que quede claro que es el destino del click, sin agregar navegación
+   nueva (ya están en la misma pantalla). prefers-reduced-motion: sin
+   transición, solo el color final y ya. */
+@keyframes avsHighlightFlash {
+  0% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-gold) 55%, transparent); }
+  100% { box-shadow: 0 0 0 3px transparent; }
+}
+.avs-highlight-flash { animation: avsHighlightFlash 1.5s ease-out; }
+@media (prefers-reduced-motion: reduce) {
+  .avs-highlight-flash { animation: none; box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-gold) 40%, transparent); }
 }
 
 .empty-state { text-align: center; padding: 60px var(--space-20); color: var(--text-secondary); }
@@ -1554,6 +1643,37 @@ body.body-scroll-locked { overflow: hidden; }
   .dashboards-row { flex-direction: row; align-items: stretch; }
 }
 
+/* Avance Valorizado vs. Erogado Real — global (prompt-avance-valorizado-vs-
+   erogado-real.md). Bug real reportado por Paul: esto vivía como 3ra columna
+   dentro de .dashboards-row arriba, y esa fila está calibrada para 2
+   columnas (donut de Resumen Global + lista de Avance por cliente) — la 3ra
+   angostaba tanto las 2 existentes que .global-chart-kpis (labels largos
+   tipo "AVANCE PONDERADO") desbordaba horizontalmente su columna y se
+   encimaba visualmente con los nombres de cliente de la columna vecina.
+   Bloque propio, ancho completo, mismo breakpoint (1100px) que
+   .dashboards-row porque a ese ancho ya se probó que 2 paneles conviven sin
+   apretarse — aquí también son 2 (chart + Brecha). */
+.erogado-global-row {
+  display: flex; flex-direction: column; gap: var(--space-12);
+  margin-top: var(--space-20); padding-top: var(--space-16);
+  border-top: 1px solid var(--border-color);
+}
+.erogado-global-row > .card { flex: 1; min-width: 0; margin-bottom: 0; }
+@media (min-width: 1100px) {
+  .erogado-global-row { flex-direction: row; align-items: stretch; }
+}
+/* De-énfasis específico en la galería (prompt-rediseno-donuts-avance-
+   navegacion-detalle.md, punto 2): Resumen Global sigue siendo el elemento
+   principal de esa pantalla — esta card debe sentirse claramente
+   secundaria, no competir en tamaño. Solo dentro de .erogado-global-row
+   (no afecta Finanzas por obra ni Avance por cliente, donde esta misma
+   .avs-card sí es protagonista de su propia vista). */
+.erogado-global-row .avs-card { padding: var(--space-10) var(--space-14); }
+.erogado-global-row .finanzas-section-h3 { font-size: var(--fs-sm); margin-bottom: var(--space-2); }
+.erogado-global-row .hbar-group { gap: var(--space-10); margin-top: var(--space-6); }
+.erogado-global-row .hbar-label, .erogado-global-row .hbar-pct { font-size: var(--fs-xs); }
+.erogado-global-row .hbar-track { height: 6px; }
+
 .gallery-clientes-header { display: flex; justify-content: space-between; align-items: flex-end; gap: var(--space-12); flex-wrap: wrap; }
 .gallery-subtitle { font-size: var(--fs-md); margin: var(--space-0) var(--space-0) var(--space-10); }
 
@@ -1802,10 +1922,18 @@ html[data-palette="dorada"]:not([data-theme="light"]) .welcome-card {
   display: flex; align-items: center; justify-content: center;
   font-size: var(--fs-md); font-weight: 800; color: var(--accent-gold); pointer-events: none;
 }
-.global-chart-kpis { flex: 1; display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-10); }
-.global-kpi { display: flex; flex-direction: column; gap: var(--space-2); }
+.global-chart-kpis { flex: 1; min-width: 0; display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-10); }
+/* min-width:0 (prompt-rediseno-donuts-avance-navegacion-detalle.md, fix de
+   encimado): un item de grid por default no se encoge debajo del ancho
+   intrínseco de su contenido — un monto largo sin espacios (ej.
+   "$123,456,789,012.34") empujaba la columna más allá de su 1fr y
+   desbordaba fuera de la card. Confirmado con datos de stress-test
+   (Playwright, no reproducido con datos reales de Preview, pero sí con un
+   monto artificialmente largo) — min-width:0 + overflow-wrap en
+   .global-kpi-value dejan que el texto se parta en vez de desbordar. */
+.global-kpi { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; }
 .global-kpi-label { font-size: var(--fs-xs); color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.04em; font-weight: 700; }
-.global-kpi-value { font-size: var(--fs-sm); font-weight: 700; color: var(--text-primary); }
+.global-kpi-value { font-size: var(--fs-sm); font-weight: 700; color: var(--text-primary); overflow-wrap: break-word; }
 .global-kpi-value.accent { color: var(--accent-gold); }
 @media (max-width: 480px) {
   .global-chart-wrap { flex-direction: column; align-items: center; }

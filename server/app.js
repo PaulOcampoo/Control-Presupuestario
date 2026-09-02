@@ -59,6 +59,7 @@ const {
   getCompromisosAbiertosAgregado,
   porcentajeFondoGarantiaDe, getFondoGarantiaData, getFondoGarantiaAgregado,
   upsertPorcentajeFondoGarantia,
+  getErogadoRealPorCliente, getErogadoRealGlobal,
   FONDO_GARANTIA_PCT_MIN, FONDO_GARANTIA_PCT_MAX,
 } = require('./finanzas');
 const { calcularJornal, calcularDestajo, totalConIvaDeItems, totalConIvaEsValido, numeroALetra, calcularSplitCuentas, distribuirDestajoGrupo } = require('./calculos');
@@ -2325,6 +2326,24 @@ app.get('/api/clientes/:id/resumen-agregado', h(auth.allow('residente')), h(asyn
 // Resumen global (admin + desarrollador) — suma todas las obras del sistema.
 // Reutiliza la misma query lateral de resumen-agregado sin filtro por cliente.
 // ---------------------------------------------------------------------------
+// Erogado Real agregado por cliente/global (prompt-avance-valorizado-vs-
+// erogado-real.md) — mismo criterio de permisos que Avance por cliente/
+// Resumen Global (auth.allow() = admin/desarrollador únicamente), ver
+// getErogadoRealAgregado en server/finanzas.js para la fórmula. Registrado
+// ANTES de /api/resumen-global (sin conflicto de rutas real, solo agrupado
+// junto a sus hermanos de agregación global/por-cliente).
+app.get('/api/clientes/:id/erogado-real', h(auth.allow()), h(async (req, res) => {
+  const clienteId = Number(req.params.id);
+  if (!Number.isFinite(clienteId)) return res.status(400).json({ error: 'ID de cliente inválido' });
+  const { rows: clienteRows } = await db.pool.query('SELECT id FROM clientes WHERE id=$1', [clienteId]);
+  if (!clienteRows[0]) return res.status(404).json({ error: 'Cliente no encontrado' });
+  res.json(await getErogadoRealPorCliente(clienteId));
+}));
+
+app.get('/api/erogado-real-global', h(auth.allow()), h(async (req, res) => {
+  res.json(await getErogadoRealGlobal());
+}));
+
 app.get('/api/resumen-global', h(auth.allow()), h(async (req, res) => {
   const { rows } = await db.pool.query(`
     SELECT

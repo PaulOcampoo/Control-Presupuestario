@@ -41,8 +41,10 @@ const ROLE_TABS = {
   // simulación de rol no puede simular "soy el usuario 8", solo "soy rol X"
   // (prompt-fix-role-tabs-contabilidad.md) — limitación conocida y
   // aceptada para esos tres, no un bug.
-  admin:          ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'cumplimiento', 'finanzas', 'compromisos', 'fondoGarantia', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', 'ordenesCambio', 'lotes', 'modelosVivienda', 'compradores', 'apartados', 'contratosVenta', 'infraVivienda', ...MAQUINARIA_TABS_ADMIN, 'cotizador', 'costos', 'costosDashboard', 'matrices', 'avance_clientes', 'composicion_costos', 'dashboardEjecutivo', 'catalogoBasicos', ...CONTABILIDAD_TABS],
-  desarrollador:  ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'cumplimiento', 'finanzas', 'compromisos', 'fondoGarantia', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', 'ordenesCambio', 'lotes', 'modelosVivienda', 'compradores', 'apartados', 'contratosVenta', 'infraVivienda', ...MAQUINARIA_TABS_ADMIN, 'cotizador', 'costos', 'costosDashboard', 'matrices', 'avance_clientes', 'composicion_costos', 'dashboardEjecutivo', 'catalogoBasicos', ...CONTABILIDAD_TABS],
+  // 'trabajadores_global'/'nominas_global' retirados (prompt-fase1-fusionar-
+  // trabajadores-nominas.md) — ver mismo comentario en server/auth.js.
+  admin:          ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'cumplimiento', 'finanzas', 'compromisos', 'fondoGarantia', 'mapeo', 'trabajadores', 'nominas', 'estimaciones', 'ordenesCambio', 'lotes', 'modelosVivienda', 'compradores', 'apartados', 'contratosVenta', 'infraVivienda', ...MAQUINARIA_TABS_ADMIN, 'cotizador', 'costos', 'costosDashboard', 'matrices', 'avance_clientes', 'composicion_costos', 'dashboardEjecutivo', 'catalogoBasicos', ...CONTABILIDAD_TABS],
+  desarrollador:  ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'cumplimiento', 'finanzas', 'compromisos', 'fondoGarantia', 'mapeo', 'trabajadores', 'nominas', 'estimaciones', 'ordenesCambio', 'lotes', 'modelosVivienda', 'compradores', 'apartados', 'contratosVenta', 'infraVivienda', ...MAQUINARIA_TABS_ADMIN, 'cotizador', 'costos', 'costosDashboard', 'matrices', 'avance_clientes', 'composicion_costos', 'dashboardEjecutivo', 'catalogoBasicos', ...CONTABILIDAD_TABS],
   residente:      ['programa', 'avance', 'destajo', 'requisiciones', 'insumos', 'ordenes', 'nominas', 'trabajadores', 'estimaciones', 'ordenesCambio', 'lotes', 'modelosVivienda', 'infraVivienda', 'matrices'],
   cabo:           ['destajo', 'insumos', 'avance', 'requisiciones', ...MAQUINARIA_TABS_CABO, 'trabajadores', 'nominas', 'ordenesCambio'],
   compras:        ['programa', 'requisiciones', 'insumos', 'ordenes', 'proveedores', 'cumplimiento', 'cotizador'],
@@ -71,7 +73,7 @@ const ROLE_TABS = {
 // caen aquí (hoy: operador, jefe_maquinaria). Debe reflejar el mismo
 // conjunto que el bloque de "vistas globales" en renderView() (~línea 3670)
 // — si se agrega una vista global nueva ahí, agregarla aquí también.
-const VISTAS_SIN_PROYECTO = ['usuarios', 'proveedores', 'cumplimiento', ...MAQUINARIA_TABS_ADMIN, 'maquinaria_gallery', 'nominas_global', 'trabajadores_global', 'cotizador', 'estadoResultadosGlobal', 'costos', 'avance_clientes', 'composicion_costos', 'dashboardEjecutivo', 'costosDashboard', 'catalogoBasicos', 'sugerencias',
+const VISTAS_SIN_PROYECTO = ['usuarios', 'proveedores', 'cumplimiento', ...MAQUINARIA_TABS_ADMIN, 'maquinaria_gallery', 'cotizador', 'estadoResultadosGlobal', 'costos', 'avance_clientes', 'composicion_costos', 'dashboardEjecutivo', 'costosDashboard', 'catalogoBasicos', 'sugerencias',
   // 'finanzas' (cambio de diseño confirmado por Paul, 2026-09-01): el tab
   // sigue siendo por-obra por defecto (vista "Esta obra"), pero ahora
   // TAMBIÉN se puede entrar sin obra seleccionada — desde el donut/barras
@@ -80,6 +82,13 @@ const VISTAS_SIN_PROYECTO = ['usuarios', 'proveedores', 'cumplimiento', ...MAQUI
   // goToFinanzasGlobal/goToFinanzasCliente). Sin esto, switchToView('finanzas')
   // rebotaría a la galería de clientes exigiendo elegir obra primero.
   'finanzas',
+  // 'trabajadores'/'nominas' (prompt-fase1-fusionar-trabajadores-nominas.md):
+  // mismo criterio que 'finanzas' arriba — el tab fusionado necesita entrar
+  // sin obra seleccionada para poder mostrar la rama "Todas las obras"
+  // (antes 'trabajadores_global'/'nominas_global', tabs propios que SÍ vivían
+  // aquí — retirados, ahora son una rama del selector interno de este mismo
+  // tab en vez de vistas separadas).
+  'trabajadores', 'nominas',
   // Archivar/completar clientes (prompt-fase1-archivar-completar-
   // clientes.md): listas globales, admin-only, sin obra ni cliente
   // seleccionado — mismo criterio que 'usuarios'/'dashboardEjecutivo'.
@@ -132,6 +141,13 @@ const state = {
   // Cliente elegido para la vista "Por cliente" de Finanzas; null = mostrar
   // el picker de clientes en esa vista. Ver goToFinanzasCliente.
   finanzasClienteId: null,
+  // Mismo patrón que finanzasVista (prompt-fase1-fusionar-trabajadores-
+  // nominas.md), pero solo 2 ramas: 'obra' (default) | 'global' — no hay
+  // "Por cliente" para estos 2 módulos. 'global' solo es alcanzable si
+  // isAdmin() (ver renderTrabajadoresFusion/renderNominasFusion); se
+  // resetea a 'obra' al entrar por sidebar/barra de tabs, igual que Finanzas.
+  trabajadoresVista: 'obra',
+  nominasVista: 'obra',
 };
 
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -1387,7 +1403,10 @@ const SECTION_DEFS = {
   // 'mapeo' vivió un tiempo aquí, luego en Presupuestos, ahora en la nueva
   // sección 'costos' (prompt-seccion-costos-implementacion.md) —
   // administracion conserva el resto de sus tabs sin cambios.
-  administracion:{ label: 'Administración', icon: 'administracion', emoji: '📂',  tabs: ['contrato', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'avance_clientes', 'usuarios', 'cuentas'], proximamente: ['Almacenes'] },
+  // 'trabajadores_global'/'nominas_global' retirados de esta lista (prompt-
+  // fase1-fusionar-trabajadores-nominas.md): dejaron de ser tiles propios —
+  // absorbidos por el selector interno de 'trabajadores'/'nominas'.
+  administracion:{ label: 'Administración', icon: 'administracion', emoji: '📂',  tabs: ['contrato', 'trabajadores', 'nominas', 'avance_clientes', 'usuarios', 'cuentas'], proximamente: ['Almacenes'] },
   maquinaria:    { label: 'Maquinaria',     icon: 'maquinaria',     emoji: '🚜',   tabs: MAQUINARIA_TABS_ADMIN,                                 proximamente: [] },
   // prompt-seccion-costos-implementacion.md: sección "Costos" nueva,
   // reemplaza a "Presupuestos" (disuelta — su único tab restante,
@@ -1710,6 +1729,8 @@ function renderTabsBar() {
     // muestra la vista "Esta obra" (default), no la última vista
     // "Por cliente"/"Todas las obras" que se haya visto antes.
     if (btn.dataset.goto === 'finanzas') { state.finanzasVista = 'obra'; state.finanzasClienteId = null; }
+    if (btn.dataset.goto === 'trabajadores') state.trabajadoresVista = 'obra';
+    if (btn.dataset.goto === 'nominas') state.nominasVista = 'obra';
     switchToView(btn.dataset.goto);
   }));
   $$('.tab[data-soon]', nav).forEach((btn) => btn.addEventListener('click', () => showProximamenteTooltip(btn.dataset.soon)));
@@ -1783,8 +1804,11 @@ function updateGalleryDrawerGlobalLinks() {
   const links = [
     ['btnGalleryGoUsuarios', puedeVer('usuarios')],
     ['btnGalleryGoDashboardEjecutivo', puedeVer('dashboardEjecutivo')],
-    ['btnGalleryGoTrabajadoresGlobal', puedeVer('trabajadores_global')],
-    ['btnGalleryGoNominasGlobal', puedeVer('nominas_global')],
+    // 'trabajadores_global'/'nominas_global' retirados de allowedTabs
+    // (prompt-fase1-fusionar-trabajadores-nominas.md) — mismo criterio que
+    // "Permisos"/Archivar-completar clientes arriba: isAdmin() directo.
+    ['btnGalleryGoTrabajadoresGlobal', isAdmin()],
+    ['btnGalleryGoNominasGlobal', isAdmin()],
     // "Permisos" es la subvista "Permisos de Acceso" dentro de Usuarios
     // (ver renderUsuarios/renderSubNav) — mismo gate ahí: isAdmin().
     ['btnGalleryGoPermisos', puedeVer('usuarios') && isAdmin()],
@@ -2048,6 +2072,8 @@ function renderSidebar() {
       // y le da click al tab del sidebar seguiría viendo esa misma vista en
       // vez de volver al comportamiento de siempre.
       if (btn.dataset.sbarGoto === 'finanzas') { state.finanzasVista = 'obra'; state.finanzasClienteId = null; }
+      if (btn.dataset.sbarGoto === 'trabajadores') state.trabajadoresVista = 'obra';
+      if (btn.dataset.sbarGoto === 'nominas') state.nominasVista = 'obra';
       switchToView(btn.dataset.sbarGoto);
       closeSidebar(); // cierra en móvil; no hace nada en desktop
     });
@@ -4510,8 +4536,12 @@ $('#btnMiCuentaGalleryDrawer').addEventListener('click', () => { closeGalleryDra
 $('#btnLogoutGalleryDrawer').addEventListener('click', () => { closeGalleryDrawer(); logout(); });
 $('#btnGalleryGoUsuarios').addEventListener('click', () => goToGlobalAdminView('usuarios'));
 $('#btnGalleryGoDashboardEjecutivo').addEventListener('click', () => goToGlobalAdminView('dashboardEjecutivo'));
-$('#btnGalleryGoTrabajadoresGlobal').addEventListener('click', () => goToGlobalAdminView('trabajadores_global'));
-$('#btnGalleryGoNominasGlobal').addEventListener('click', () => goToGlobalAdminView('nominas_global'));
+// Ya no navegan a un tab propio 'trabajadores_global'/'nominas_global'
+// (prompt-fase1-fusionar-trabajadores-nominas.md) — preseleccionan la rama
+// "Todas las obras" del selector interno, mismo patrón que
+// goToFinanzasGlobal().
+$('#btnGalleryGoTrabajadoresGlobal').addEventListener('click', () => { state.trabajadoresVista = 'global'; goToGlobalAdminView('trabajadores'); });
+$('#btnGalleryGoNominasGlobal').addEventListener('click', () => { state.nominasVista = 'global'; goToGlobalAdminView('nominas'); });
 $('#btnGalleryGoPermisos').addEventListener('click', () => { state.usuariosSubView = 'permisos'; goToGlobalAdminView('usuarios'); });
 $('#btnGalleryGoMaquinaria').addEventListener('click', () => goToGlobalAdminView('maquinaria_gallery'));
 $('#btnGalleryGoClientesArchivados').addEventListener('click', () => goToGlobalAdminView('clientes_archivados'));
@@ -4808,7 +4838,7 @@ function destroyCharts() {
 async function renderView() {
   destroyCharts();
   const view = $('#view');
-  if (state.view === 'usuarios' || state.view === 'proveedores' || state.view === 'cumplimiento' || MAQUINARIA_TABS_ADMIN.includes(state.view) || state.view === 'nominas_global' || state.view === 'trabajadores_global' || state.view === 'cotizador' || state.view === 'estadoResultadosGlobal' || state.view === 'costos' || state.view === 'avance_clientes' || state.view === 'finanzas' || state.view === 'composicion_costos' || state.view === 'cuentas' || state.view === 'controlFinanciero' || state.view === 'dashboardEjecutivo' || state.view === 'costosDashboard' || state.view === 'catalogoBasicos' || state.view === 'clientes_archivados' || state.view === 'clientes_completados' || SECTION_DEFS.contabilidad.tabs.includes(state.view)) {
+  if (state.view === 'usuarios' || state.view === 'proveedores' || state.view === 'cumplimiento' || MAQUINARIA_TABS_ADMIN.includes(state.view) || state.view === 'cotizador' || state.view === 'estadoResultadosGlobal' || state.view === 'costos' || state.view === 'avance_clientes' || state.view === 'finanzas' || state.view === 'trabajadores' || state.view === 'nominas' || state.view === 'composicion_costos' || state.view === 'cuentas' || state.view === 'controlFinanciero' || state.view === 'dashboardEjecutivo' || state.view === 'costosDashboard' || state.view === 'catalogoBasicos' || state.view === 'clientes_archivados' || state.view === 'clientes_completados' || SECTION_DEFS.contabilidad.tabs.includes(state.view)) {
     try {
       if (state.view === 'usuarios') { await renderUsuarios(view, state.usuariosSubView); state.usuariosSubView = null; }
       else if (state.view === 'dashboardEjecutivo') await renderDashboardEjecutivo(view);
@@ -4824,13 +4854,13 @@ async function renderView() {
       else if (state.view === 'contabilidadExport') await renderContabilidadExport(view);
       else if (state.view === 'proveedores') await renderProveedores(view);
       else if (state.view === 'cumplimiento') await renderCumplimiento(view);
-      else if (state.view === 'nominas_global') await renderNominasGlobal(view);
-      else if (state.view === 'trabajadores_global') await renderTrabajadoresGlobal(view);
       else if (state.view === 'cotizador') await renderCotizador(view);
       else if (state.view === 'estadoResultadosGlobal') await renderEstadoResultadosGlobal(view);
       else if (state.view === 'costos') await renderCostos(view);
       else if (state.view === 'avance_clientes') await renderAvanceClientes(view);
       else if (state.view === 'finanzas') await renderFinanzas(view);
+      else if (state.view === 'trabajadores') await renderTrabajadoresFusion(view);
+      else if (state.view === 'nominas') await renderNominasFusion(view);
       else if (state.view === 'composicion_costos') await renderComposicionCostos(view);
       else if (state.view === 'maquinaria_catalogo') await renderMaquinariaCatalogo(view);
       else if (state.view === 'maquinaria_horas') await renderMaquinariaHoras(view);
@@ -4927,8 +4957,9 @@ async function renderView() {
       case 'fondoGarantia': await renderFondoGarantia(view); break;
       case 'estadoResultados': await renderEstadoResultados(view); break;
       case 'mapeo': await renderMapeo(view); break;
-      case 'trabajadores': await renderTrabajadores(view); break;
-      case 'nominas': await renderNominas(view); break;
+      // 'trabajadores'/'nominas' ya no caen aquí: el big-if de arriba los
+      // intercepta primero (necesitan funcionar también sin state.projectId,
+      // ver VISTAS_SIN_PROYECTO) — mismo comentario que 'finanzas' arriba.
       case 'estimaciones': await renderEstimaciones(view); break;
       case 'ordenesCambio': await renderOrdenesCambio(view); break;
       case 'lotes': await renderLotes(view); break;
@@ -12487,31 +12518,53 @@ const GASTO_CATEGORIA_LABELS = {
 };
 let gastosFilter = { categoria: '', estado: '' };
 
-// Selector de vista dentro del tab "Finanzas" (cambio de diseño confirmado
-// por Paul, 2026-09-01): "Esta obra" (default, comportamiento de siempre,
-// requiere state.projectId) / "Por cliente" / "Todas las obras" — las 2
-// últimas vivían como tabs propios ("Finanzas por cliente"/"Finanzas (todas
-// las obras)") en un diseño anterior; ahora viven DENTRO de este mismo tab
-// como vistas alternas, sin navegar a ningún lado. state.finanzasVista +
-// state.finanzasClienteId gobiernan cuál se pinta — ver goToFinanzasCliente/
-// goToFinanzasGlobal para cómo la navegación desde el dashboard global/
-// Avance por cliente las preselecciona.
+// Selector de vista reusable dentro de un tab (Esta obra/Por cliente/Todas
+// las obras en Finanzas; Esta obra/Todas las obras en Trabajadores/Nóminas)
+// — patrón introducido en Finanzas (cambio de diseño confirmado por Paul,
+// 2026-09-01): el tab de menú no cambia, la opción activa decide qué
+// función de render corre en el body de abajo, sin navegar a ningún lado NI
+// unificar datos/columnas entre opciones — cada una sigue llamando a su
+// propia función de render tal cual existía antes de fusionar el tab.
+// Extraído como helper (prompt-fase1-fusionar-trabajadores-nominas.md) al
+// llegar al 3er uso (Finanzas, Trabajadores, Nóminas) — antes de eso no
+// justificaba el helper sobre copiar el bloque de botones.
+function vistaSelectorAttr(datasetKey) {
+  return datasetKey.replace(/[A-Z]/g, (m) => `-${m.toLowerCase()}`);
+}
+function renderVistaSelectorHtml(datasetKey, opciones, vistaActual, subnavId) {
+  const attr = vistaSelectorAttr(datasetKey);
+  return `
+    <div class="nominas-subnav"${subnavId ? ` id="${subnavId}"` : ''}>
+      ${opciones.map((o) => `<button type="button" class="btn ${vistaActual === o.valor ? 'btn-primary' : ''}" data-${attr}="${o.valor}">${esc(o.label)}</button>`).join('')}
+    </div>
+  `;
+}
+function bindVistaSelector(view, datasetKey, getVistaActual, onCambiar) {
+  $$(`[data-${vistaSelectorAttr(datasetKey)}]`, view).forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const val = btn.dataset[datasetKey];
+      if (val === getVistaActual()) return;
+      onCambiar(val);
+    });
+  });
+}
+
+// state.finanzasVista + state.finanzasClienteId gobiernan cuál rama se
+// pinta — ver goToFinanzasCliente/goToFinanzasGlobal para cómo la
+// navegación desde el dashboard global/Avance por cliente las preselecciona.
 async function renderFinanzas(view) {
   view.innerHTML = `
     <h2 class="section-title">Finanzas</h2>
-    <div class="nominas-subnav" id="finanzasVistaSubnav">
-      <button type="button" class="btn ${state.finanzasVista === 'obra' ? 'btn-primary' : ''}" data-finanzas-vista="obra">Esta obra</button>
-      <button type="button" class="btn ${state.finanzasVista === 'cliente' ? 'btn-primary' : ''}" data-finanzas-vista="cliente">Por cliente</button>
-      <button type="button" class="btn ${state.finanzasVista === 'global' ? 'btn-primary' : ''}" data-finanzas-vista="global">Todas las obras</button>
-    </div>
+    ${renderVistaSelectorHtml('finanzasVista', [
+      { valor: 'obra', label: 'Esta obra' },
+      { valor: 'cliente', label: 'Por cliente' },
+      { valor: 'global', label: 'Todas las obras' },
+    ], state.finanzasVista, 'finanzasVistaSubnav')}
     <div id="finanzasVistaBody" class="mt-12"><div class="spinner"></div></div>
   `;
-  $$('[data-finanzas-vista]', view).forEach((btn) => {
-    btn.addEventListener('click', () => {
-      if (btn.dataset.finanzasVista === state.finanzasVista) return;
-      state.finanzasVista = btn.dataset.finanzasVista;
-      renderView();
-    });
+  bindVistaSelector(view, 'finanzasVista', () => state.finanzasVista, (val) => {
+    state.finanzasVista = val;
+    renderView();
   });
 
   const body = $('#finanzasVistaBody');
@@ -13499,6 +13552,65 @@ const TIPO_PAGO_LABELS = { jornal: 'Jornal fijo', destajo: 'Destajo', mixto: 'Mi
 const PERIODICIDAD_LABELS = { semanal: 'Semanal', quincenal: 'Quincenal', mensual: 'Mensual' };
 const CATEGORIA_COSTO_LABELS = { obra: 'Obra', maquinaria: 'Maquinaria' };
 const TIPO_DOC_LABELS = { ine_frente: 'INE frente', ine_reverso: 'INE reverso', curp_doc: 'CURP', domicilio: 'Comprobante domicilio', otro: 'Otro' };
+
+// Punto de entrada real del tab 'trabajadores' (prompt-fase1-fusionar-
+// trabajadores-nominas.md) — antes 'trabajadores' (por obra) y
+// 'trabajadores_global' (todas las obras, admin/desarrollador) eran 2 tabs
+// separados; ahora es 1 solo tab con selector interno Esta obra/Todas las
+// obras (mismo patrón que renderFinanzas). Deliberadamente NO unifica
+// columnas/datos entre ramas (diagnóstico completo en Fase 0,
+// docs/fase0-fusionar-trabajadores-nominas.md — ambas vistas tienen
+// columnas/acciones sustancialmente distintas) — cada rama sigue llamando
+// tal cual a renderTrabajadores()/renderTrabajadoresGlobal(), sin tocarlas
+// internamente. "Todas las obras" solo es alcanzable con isAdmin() — mismo
+// gate que ya usaba GET /api/trabajadores + el tab retirado
+// 'trabajadores_global' de ROLE_TABS (ningún otro rol lo tuvo nunca).
+async function renderTrabajadoresFusion(view) {
+  const puedeGlobal = isAdmin();
+  if (!puedeGlobal) state.trabajadoresVista = 'obra'; // salvaguarda: "Vista como" a mitad de sesión, etc.
+
+  const opciones = [{ valor: 'obra', label: 'Esta obra' }];
+  if (puedeGlobal) opciones.push({ valor: 'global', label: 'Todas las obras' });
+
+  view.innerHTML = opciones.length > 1
+    ? `${renderVistaSelectorHtml('trabajadoresVista', opciones, state.trabajadoresVista, 'trabajadoresVistaSubnav')}<div id="trabajadoresVistaBody" class="mt-12"></div>`
+    : `<div id="trabajadoresVistaBody"></div>`;
+  if (opciones.length > 1) {
+    bindVistaSelector(view, 'trabajadoresVista', () => state.trabajadoresVista, (val) => {
+      state.trabajadoresVista = val;
+      renderView();
+    });
+  }
+
+  const body = $('#trabajadoresVistaBody');
+  if (state.trabajadoresVista === 'global' && puedeGlobal) { await renderTrabajadoresGlobal(body); return; }
+  // Rama "Esta obra" sin obra activa (ej. entrando desde 'administracion'
+  // sin haber elegido obra todavía, ahora posible porque 'trabajadores' se
+  // agregó a VISTAS_SIN_PROYECTO) — mismo picker inline que ya usa
+  // renderFinanzasVistaObra para el mismo caso, sin tocar renderTrabajadores()
+  // (que asume state.projectId ya presente).
+  if (!state.projectId) {
+    body.innerHTML = `
+      <div class="card">
+        <label for="trabajadoresObraSelect">Obra</label>
+        <select id="trabajadoresObraSelect">
+          <option value="">Selecciona una obra…</option>
+          ${state.projects.map((p) => {
+            const cliente = state.clientes.find((c) => c.id === p.cliente_id);
+            const label = cliente ? `${p.nombre} — ${cliente.nombre}` : p.nombre;
+            return `<option value="${p.id}">${esc(label)}</option>`;
+          }).join('')}
+        </select>
+      </div>
+    `;
+    $('#trabajadoresObraSelect').addEventListener('change', async (e) => {
+      const id = e.target.value ? Number(e.target.value) : null;
+      if (id) await selectProject(id, 'trabajadores');
+    });
+    return;
+  }
+  await renderTrabajadores(body);
+}
 
 // Vista global — solo admin/desarrollador (ver GET /api/trabajadores en
 // server/app.js): todos los trabajadores de todas las obras, con la obra y
@@ -18767,6 +18879,55 @@ const NOMINA_ESTADO_BADGE = {
   borrador: 'muted', revision: 'yellow', aprobada: 'green', rechazada: 'red', cancelada: 'purple',
 };
 
+// Punto de entrada real del tab 'nominas' (prompt-fase1-fusionar-
+// trabajadores-nominas.md) — mismo patrón que renderTrabajadoresFusion:
+// selector Esta obra/Todas las obras, sin unificar las 2 sub-navegaciones
+// internas de cada rama (Asistencia diaria/Nóminas por-obra vs. Todas las
+// nóminas/Reporte semanal/SIROC global — diagnóstico en Fase 0), cada una
+// sigue llamando tal cual a renderNominas()/renderNominasGlobal().
+async function renderNominasFusion(view) {
+  const puedeGlobal = isAdmin();
+  if (!puedeGlobal) state.nominasVista = 'obra';
+
+  const opciones = [{ valor: 'obra', label: 'Esta obra' }];
+  if (puedeGlobal) opciones.push({ valor: 'global', label: 'Todas las obras' });
+
+  view.innerHTML = opciones.length > 1
+    ? `${renderVistaSelectorHtml('nominasVista', opciones, state.nominasVista, 'nominasVistaSubnav')}<div id="nominasVistaBody" class="mt-12"></div>`
+    : `<div id="nominasVistaBody"></div>`;
+  if (opciones.length > 1) {
+    bindVistaSelector(view, 'nominasVista', () => state.nominasVista, (val) => {
+      state.nominasVista = val;
+      renderView();
+    });
+  }
+
+  const body = $('#nominasVistaBody');
+  if (state.nominasVista === 'global' && puedeGlobal) { await renderNominasGlobal(body); return; }
+  // Mismo picker inline que renderTrabajadoresFusion, ver comentario ahí.
+  if (!state.projectId) {
+    body.innerHTML = `
+      <div class="card">
+        <label for="nominasObraSelect">Obra</label>
+        <select id="nominasObraSelect">
+          <option value="">Selecciona una obra…</option>
+          ${state.projects.map((p) => {
+            const cliente = state.clientes.find((c) => c.id === p.cliente_id);
+            const label = cliente ? `${p.nombre} — ${cliente.nombre}` : p.nombre;
+            return `<option value="${p.id}">${esc(label)}</option>`;
+          }).join('')}
+        </select>
+      </div>
+    `;
+    $('#nominasObraSelect').addEventListener('change', async (e) => {
+      const id = e.target.value ? Number(e.target.value) : null;
+      if (id) await selectProject(id, 'nominas');
+    });
+    return;
+  }
+  await renderNominas(body);
+}
+
 // Vista global — solo admin/desarrollador (ver GET /api/nominas en server/app.js):
 // todas las nóminas de todas las obras y todos los residentes, de solo
 // lectura. El detalle/edición de cada nómina se hace desde la pestaña
@@ -18845,7 +19006,11 @@ async function renderNominasGlobal(view) {
       `).join('');
 
       $$('[data-ir-obra]', body).forEach((btn) => {
-        btn.addEventListener('click', () => selectProject(Number(btn.dataset.irObra), 'nominas'));
+        // state.nominasVista='obra' explícito (prompt-fase1-fusionar-
+        // trabajadores-nominas.md): sin esto, el tab fusionado 'nominas'
+        // seguiría en la rama "Todas las obras" (de la que venimos) tras
+        // selectProject(), en vez de mostrar la nómina de la obra elegida.
+        btn.addEventListener('click', () => { state.nominasVista = 'obra'; selectProject(Number(btn.dataset.irObra), 'nominas'); });
       });
     } catch (err) {
       body.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;

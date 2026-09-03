@@ -63,8 +63,17 @@ const PERMISSIONS = {
   // entrada en permisos_usuario (Forbidden Action explícita): el único gate
   // real es este tab list + auth.allow() sin argumentos en cada endpoint de
   // server/app.js, mismo criterio que 'contrato'.
-  admin:          { label: 'Administrador', tabs: ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'cumplimiento', 'finanzas', 'compromisos', 'fondoGarantia', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', 'ordenesCambio', 'lotes', 'modelosVivienda', 'compradores', 'apartados', 'contratosVenta', 'cobranza', 'entregas', ...MAQUINARIA_TABS_ADMIN, 'cotizador', 'costos', 'costosDashboard', 'matrices', 'avance_clientes', 'composicion_costos', 'dashboardEjecutivo', 'catalogoBasicos'] },
-  desarrollador:  { label: 'Desarrollador', tabs: ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'cumplimiento', 'finanzas', 'compromisos', 'fondoGarantia', 'mapeo', 'trabajadores', 'trabajadores_global', 'nominas', 'nominas_global', 'estimaciones', 'ordenesCambio', 'lotes', 'modelosVivienda', 'compradores', 'apartados', 'contratosVenta', 'cobranza', 'entregas', ...MAQUINARIA_TABS_ADMIN, 'cotizador', 'costos', 'costosDashboard', 'matrices', 'avance_clientes', 'composicion_costos', 'dashboardEjecutivo', 'catalogoBasicos'] },
+  // 'trabajadores_global'/'nominas_global' RETIRADOS de aquí (prompt-fase1-
+  // fusionar-trabajadores-nominas.md): dejaron de ser tabs navegables propios
+  // — 'trabajadores'/'nominas' ahora traen selector interno Esta obra/Todas
+  // las obras (mismo patrón que 'finanzas' desde prompt-ajuste-finanzas-
+  // selector.md), y la rama "Todas las obras" se gatea con isAdmin() en el
+  // frontend, no con membresía en este array. SIGUEN existiendo como
+  // secciones de permiso independientes (SECCIONES_PERMISOS, checkPermiso en
+  // GET /api/trabajadores y /api/nominas, matriz de permisos granulares) —
+  // esto NO cambia, solo se retira su rol como tab de navegación separado.
+  admin:          { label: 'Administrador', tabs: ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'cumplimiento', 'finanzas', 'compromisos', 'fondoGarantia', 'mapeo', 'trabajadores', 'nominas', 'estimaciones', 'ordenesCambio', 'lotes', 'modelosVivienda', 'compradores', 'apartados', 'contratosVenta', 'cobranza', 'entregas', ...MAQUINARIA_TABS_ADMIN, 'cotizador', 'costos', 'costosDashboard', 'matrices', 'avance_clientes', 'composicion_costos', 'dashboardEjecutivo', 'catalogoBasicos'] },
+  desarrollador:  { label: 'Desarrollador', tabs: ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'cumplimiento', 'finanzas', 'compromisos', 'fondoGarantia', 'mapeo', 'trabajadores', 'nominas', 'estimaciones', 'ordenesCambio', 'lotes', 'modelosVivienda', 'compradores', 'apartados', 'contratosVenta', 'cobranza', 'entregas', ...MAQUINARIA_TABS_ADMIN, 'cotizador', 'costos', 'costosDashboard', 'matrices', 'avance_clientes', 'composicion_costos', 'dashboardEjecutivo', 'catalogoBasicos'] },
   // 'trabajadores' agregado aquí (prompts-cotizador-sidebar-permisos-
   // estimaciones.md, Prompt 3) para que el residente reciba la pestaña al
   // hacer login — el acceso REAL a los datos de cada obra lo sigue

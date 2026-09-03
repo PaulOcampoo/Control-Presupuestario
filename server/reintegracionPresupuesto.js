@@ -81,15 +81,21 @@ function emparejarConceptos(itemsExcelNuevo, existentesDB) {
   // en el Excel nuevo ya no es un conflicto bloqueante: la primera fila
   // empareja normalmente contra el existente (preserva concepto_id/avance/
   // destajo/finanzas), las filas adicionales se agregan como conceptos
-  // nuevos. Solo aplica cuando el código NO está también duplicado del lado
-  // de la DB — si lo está, es una ambigüedad real de datos preexistente y
-  // se deja caer al fallback por descripción de siempre (comportamiento ya
-  // confirmado por Paul en el diseño original, sin tocar).
+  // nuevos. También aplica emparejamiento posicional cuando el código está
+  // duplicado en AMBOS lados con el MISMO conteo (metodología AJAL: la
+  // primera carga de un presupuesto con partidas repetidas por zona deja la
+  // DB con ese mismo patrón N-a-N, y toda actualización subsecuente debe
+  // seguir emparejando por posición, no solo la primera — confirmado con
+  // datos reales de Kalia, prompt-fase0/fase1-emparejamiento-duplicados-
+  // legitimos.md: 12 conflictos → 0). Solo el conteo DISTINTO entre Excel y
+  // DB sigue siendo ambigüedad real de datos preexistente sin forma no
+  // ambigua de resolverse, y se deja caer al fallback por descripción.
   const codigosDuplicadosExcel = new Set();
   for (const item of nuevosFiltrados) {
     if (!item.codigo) continue;
     if ((excelCountByCode.get(item.codigo) || 0) <= 1) continue;
-    if ((countByCode.get(item.codigo) || 0) > 1) continue;
+    const enDB = countByCode.get(item.codigo) || 0;
+    if (enDB > 1 && enDB !== excelCountByCode.get(item.codigo)) continue;
     codigosDuplicadosExcel.add(item.codigo);
   }
   for (const codigo of codigosDuplicadosExcel) {

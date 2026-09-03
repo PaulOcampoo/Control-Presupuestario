@@ -63,8 +63,15 @@ describe('emparejarConceptos — duplicados legítimos en el Excel nuevo (prompt
     expect(nuevos).toHaveLength(3);
   });
 
-  it('código repetido en Excel Y en la DB (ambigüedad real de datos preexistente): sigue cayendo a descripción, sin regresión', () => {
-    const { emparejados, conflictos } = emparejarConceptos(
+  it('código repetido con MISMO conteo en Excel y en la DB (metodología AJAL — misma partida repetida por zona, prompt-fase0/fase1-emparejamiento-duplicados-legitimos): empareja posicionalmente, sin conflicto', () => {
+    // Confirmado con Paul y reproducido contra datos reales de Kalia
+    // (Fase 0): este NO es un caso de ambigüedad de datos — es el estado
+    // normal de la DB después de la primera carga de un presupuesto con
+    // partidas repetidas por zona. Antes de este fix, caía al fallback por
+    // descripción y siempre generaba conflicto (12 conflictos reales en
+    // proyecto 32 de Kalia); ahora empareja por posición igual que el caso
+    // asimétrico (Excel duplicado / DB no duplicada).
+    const { emparejados, nuevos, historicos, conflictos } = emparejarConceptos(
       [
         item({ codigo: 'DUP3', concepto: 'Concepto A', orden: 1 }),
         item({ codigo: 'DUP3', concepto: 'Concepto A', orden: 2 }),
@@ -74,9 +81,31 @@ describe('emparejarConceptos — duplicados legítimos en el Excel nuevo (prompt
         existente({ id: 2, codigo: 'DUP3', concepto: 'Concepto A' }),
       ]
     );
-    // Ambos lados duplicados: no es el escenario de "duplicado legítimo del
-    // Excel", cae al fallback por descripción de siempre — 2 nuevos vs 2
-    // existentes con la misma descripción sigue siendo ambigüedad real.
+    expect(conflictos).toHaveLength(0);
+    expect(emparejados).toHaveLength(2);
+    expect(emparejados.every((m) => m.via === 'codigo-duplicado')).toBe(true);
+    expect(emparejados[0].existente.id).toBe(1);
+    expect(emparejados[1].existente.id).toBe(2);
+    expect(nuevos).toHaveLength(0);
+    expect(historicos).toHaveLength(0);
+  });
+
+  it('código repetido con conteo DISTINTO en Excel y en la DB (2 en Excel vs 3 en DB): sigue siendo ambigüedad real, cae a descripción', () => {
+    // El fix solo relaja el caso de conteo IGUAL. Conteo asimétrico con
+    // ambos lados duplicados (ni el caso original del Paso 0 ni el nuevo
+    // caso N-a-N) sigue sin tener una forma no ambigua de decidir qué fila
+    // vieja corresponde a cuál fila nueva — debe seguir reportándose.
+    const { emparejados, conflictos } = emparejarConceptos(
+      [
+        item({ codigo: 'DUP4', concepto: 'Concepto B', orden: 1 }),
+        item({ codigo: 'DUP4', concepto: 'Concepto B', orden: 2 }),
+      ],
+      [
+        existente({ id: 1, codigo: 'DUP4', concepto: 'Concepto B' }),
+        existente({ id: 2, codigo: 'DUP4', concepto: 'Concepto B' }),
+        existente({ id: 3, codigo: 'DUP4', concepto: 'Concepto B' }),
+      ]
+    );
     expect(conflictos.length).toBeGreaterThan(0);
     expect(emparejados).toHaveLength(0);
   });
@@ -114,5 +143,22 @@ describe('calcularCambios — detección de cambio ambiguo de precio/cantidad', 
     const m = { existente: existente({ precio_unitario: 100, cantidad: 10 }), nuevo: item({ precio_unitario: 100, cantidad: 10 }), via: 'codigo-duplicado' };
     const r = calcularCambios(m);
     expect(r.ambiguo).toBe(false);
+  });
+
+  it('end-to-end: emparejamiento N-a-N con precio distinto en una de las filas sigue exigiendo confirmación (guard no se debilitó con el fix de fase1)', () => {
+    const { emparejados } = emparejarConceptos(
+      [
+        item({ codigo: 'DUP5', concepto: 'Concepto C', orden: 1, precio_unitario: 100 }),
+        item({ codigo: 'DUP5', concepto: 'Concepto C', orden: 2, precio_unitario: 150 }),
+      ],
+      [
+        existente({ id: 1, codigo: 'DUP5', concepto: 'Concepto C', precio_unitario: 100 }),
+        existente({ id: 2, codigo: 'DUP5', concepto: 'Concepto C', precio_unitario: 100 }),
+      ]
+    );
+    expect(emparejados).toHaveLength(2);
+    const cambios = emparejados.map(calcularCambios);
+    expect(cambios[0].ambiguo).toBe(false); // fila 1: sin cambio
+    expect(cambios[1].ambiguo).toBe(true); // fila 2: precio distinto vía codigo-duplicado
   });
 });

@@ -6367,7 +6367,15 @@ function pintarPreviewActualizacionPresupuesto(preview, archivoUrl) {
   `);
 
   const btnConfirmar = $('#btnConfirmarActualizacion');
-  const selectsResolucion = () => Array.from(document.querySelectorAll('.select-resolucion-precio-cantidad'));
+  // select.select-resolucion-precio-cantidad (no solo .select-resolucion-precio-cantidad):
+  // enhanceSelect() envuelve cada <select> en un <div class="custom-select
+  // ${select.className}"> que hereda esta misma clase — sin el tag `select`
+  // el querySelectorAll también capturaba el div wrapper (sin .value nativo,
+  // siempre undefined), dejando el botón de confirmar permanentemente
+  // deshabilitado sin importar qué elija el usuario (prompt-diagnostico-
+  // boton-confirmar-bloqueado.md / prompt-fix-selector-wrapper-boton-
+  // confirmar.md).
+  const selectsResolucion = () => Array.from(document.querySelectorAll('select.select-resolucion-precio-cantidad'));
   function actualizarEstadoBotonConfirmar() {
     if (!btnConfirmar) return;
     const faltanSelecciones = selectsResolucion().some((s) => !s.value);
@@ -9249,7 +9257,14 @@ async function renderSugerencias(view) {
   });
 
   // ── Admin: cambiar estado ───────────────────────────────────────────────
-  $$('.sug-estado-select', view).forEach((sel) => {
+  // select.sug-estado-select (no solo .sug-estado-select): mismo patrón que
+  // selectsResolucion() en pintarPreviewActualizacionPresupuesto — sin el
+  // tag `select`, el wrapper <div class="custom-select sug-estado-select">
+  // de enhanceSelect() también quedaba en el forEach; su 'change' burbujeado
+  // disparaba este mismo handler con `sel` apuntando al div (sin .value ni
+  // dataset.sugId), mandando un PATCH espurio (id NaN, estado undefined) y
+  // un toast de error confuso justo después del de éxito legítimo.
+  $$('select.sug-estado-select', view).forEach((sel) => {
     sel.addEventListener('change', async () => {
       const id = Number(sel.dataset.sugId);
       try {

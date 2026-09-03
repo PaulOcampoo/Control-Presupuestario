@@ -1102,6 +1102,42 @@ input[type="date"] { color-scheme: dark; cursor: pointer; }
 .checkbox-circle input[type="checkbox"]:checked + .checkbox-circle-visual::after { transform: rotate(-45deg) scale(1); }
 .checkbox-circle input[type="checkbox"]:focus-visible + .checkbox-circle-visual { box-shadow: var(--shadow-ring-accent-focus); }
 
+/* Zona de carga de archivos reusable (drag & drop) — prompt-fase0/fase1-
+   lote1-zona-carga-archivos.md. Mismo lenguaje visual que
+   .custom-select-trigger (borde/radius/transición) y .checkbox-circle
+   (anillo de foco), a escala de zona grande clickeable en vez de control de
+   formulario compacto. data-state lo controla crearZonaCargaArchivo() en
+   app.js: 'idle' | 'dragover' | 'error' — la animación de 'error' ya queda
+   cubierta por el apagador global de movimiento (body.a11y-reduce-motion /
+   @media prefers-reduced-motion más abajo en este archivo), no hace falta
+   una excepción propia aquí. */
+.file-dropzone {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--space-4);
+  width: 100%; padding: var(--space-24) var(--space-16); text-align: center; cursor: pointer;
+  background: var(--bg-surface); border: 2px dashed var(--border-color); border-radius: var(--radius);
+  transition: border-color 0.15s var(--ease-out), background 0.15s var(--ease-out), box-shadow 0.15s var(--ease-out);
+}
+@media (hover: hover) and (pointer: fine) {
+  .file-dropzone:hover { border-color: var(--accent-gold); }
+}
+.file-dropzone:focus-visible { outline: none; border-color: var(--accent-gold); box-shadow: var(--shadow-ring-accent-focus); }
+.file-dropzone[data-state="dragover"] {
+  border-color: var(--accent-gold); background: color-mix(in srgb, var(--accent-gold) 8%, var(--bg-surface));
+}
+.file-dropzone[data-state="error"] {
+  border-color: var(--red); background: color-mix(in srgb, var(--red) 8%, var(--bg-surface));
+  animation: file-dropzone-shake 0.4s var(--ease-out);
+}
+@keyframes file-dropzone-shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-4px); }
+  75% { transform: translateX(4px); }
+}
+.file-dropzone-icon { color: var(--accent-gold); display: flex; }
+.file-dropzone[data-state="error"] .file-dropzone-icon { color: var(--red); }
+.file-dropzone-text { margin: 0; font-size: var(--fs-base); color: var(--text-primary); }
+.file-dropzone-hint { margin: 0; font-size: var(--fs-xs); color: var(--text-secondary); }
+
 label { display: block; font-size: var(--fs-sm); color: var(--text-secondary); margin: var(--space-10) var(--space-0) var(--space-4); }
 .field { margin-bottom: var(--space-6); }
 .field-null input, .field-null select { border-color: var(--yellow); }

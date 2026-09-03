@@ -102,8 +102,6 @@ const state = {
   favoritos: new Set(), // cliente_id de favoritos del usuario (Prompt B) — Set para O(1) lookup al pintar tarjetas
   favoritosOrden: [], // mismos IDs que favoritos, pero en el orden elegido por drag (prompt-dashboard-favoritos-layout.md) — GET /favoritos ya los devuelve ordenados
   clienteId: null,
-  pendingUploadClienteId: null,
-  pendingContrato: null,
   view: 'inicio',
   section: null,     // sección activa (obra/compras/administracion/tesoreria/maquinaria) o null
   cache: {},     // per-project cached API responses
@@ -199,6 +197,7 @@ const ICON_SVG = {
   'log-out':     '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>',
   home:          '<path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>',
   settings:      '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>',
+  'upload-cloud': '<path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/><polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/>',
 };
 
 function icon(name, size = 18) {
@@ -4684,6 +4683,104 @@ async function validarArchivoXlsxCliente(file) {
   return null;
 }
 
+// ---------------------------------------------------------------------------
+// Zona de carga de archivos reusable (drag & drop) — prompt-fase0/fase1-
+// lote1-zona-carga-archivos.md. Reemplaza el <input type="file"> nativo
+// simple ("Seleccionar archivo" + "Ningún archivo seleccionado") por una
+// zona clickeable + soltar-archivo, estilo similar al de Claude.ai.
+//
+// Convención elegida (confirmada contra el resto del código, ver
+// wireMoneyInput()/openModal()): genera HTML vía template string para
+// insertar en el modal/vista, y expone un wire() aparte para atar los
+// listeners DESPUÉS de que ese HTML ya está en el DOM real — mismo patrón
+// de 2 pasos (render → wire) que ya usa cada modal de la app, no un
+// componente con ciclo de vida propio.
+//
+// - onFiles(files) SIEMPRE recibe un array, aunque multiple sea false — así
+//   el mismo callback sirve tanto para "un archivo entra, una acción sale"
+//   (Lote 1) como para selección acumulativa (Lote 4, sugerencias) sin que
+//   el caller tenga que normalizar nada.
+// - validar es opcional, async, (file) => string|null — mensaje de error o
+//   null. Se corre encima de accept, porque accept solo no detecta
+//   problemas reales como el .xlsx con firma de Excel abierto (~$) o un ZIP
+//   corrupto (ver validarArchivoXlsxCliente arriba).
+// - matchesAccept() cubre el hueco real que accept NO cubre solo: el
+//   atributo accept del <input> nativo sí filtra el picker del SO, pero NO
+//   filtra un drop — cualquier tipo de archivo puede soltarse sin importar
+//   accept, así que hay que revisarlo a mano en el handler de 'drop'.
+function matchesAccept(file, accept) {
+  if (!accept) return true;
+  const patrones = accept.split(',').map((p) => p.trim().toLowerCase()).filter(Boolean);
+  const nombre = file.name.toLowerCase();
+  const tipo = (file.type || '').toLowerCase();
+  return patrones.some((p) => {
+    if (p.startsWith('.')) return nombre.endsWith(p);
+    if (p.endsWith('/*')) return tipo.startsWith(p.slice(0, -1));
+    return tipo === p;
+  });
+}
+
+function crearZonaCargaArchivo({ id, accept = '', multiple = false, texto, textoMobile, hint = '', validar, onFiles }) {
+  const html = `
+    <div class="file-dropzone" id="${id}" data-state="idle" role="button" tabindex="0" aria-label="${esc(texto)}">
+      <input type="file" class="file-dropzone-input" id="${id}Input" hidden accept="${esc(accept)}" ${multiple ? 'multiple' : ''} />
+      <div class="file-dropzone-icon">${icon('upload-cloud', 28)}</div>
+      <p class="file-dropzone-text">${esc(texto)}</p>
+      ${hint ? `<p class="file-dropzone-hint">${esc(hint)}</p>` : ''}
+    </div>
+  `;
+
+  // Móvil (≤860px, mismo breakpoint que ya usa el resto de la app — ver
+  // window.innerWidth <= 860 más abajo y @media (max-width: 860px) en
+  // styles.css): no hace falta desactivar dragover/drop a mano, esos
+  // eventos simplemente nunca se disparan por touch — solo cambia el texto
+  // de "arrastra" a "toca para elegir".
+  function wire() {
+    const zone = $(`#${id}`);
+    if (!zone) return;
+    const input = $(`#${id}Input`);
+    if (textoMobile && window.innerWidth <= 860) {
+      const textEl = zone.querySelector('.file-dropzone-text');
+      if (textEl) textEl.textContent = textoMobile;
+    }
+
+    function mostrarError(mensaje) {
+      zone.dataset.state = 'error';
+      toast(mensaje, 'danger');
+      setTimeout(() => { if (zone.dataset.state === 'error') zone.dataset.state = 'idle'; }, 500);
+    }
+
+    async function procesar(fileList) {
+      const files = Array.from(fileList || []);
+      if (!files.length) return;
+      for (const f of files) {
+        if (!matchesAccept(f, accept)) {
+          mostrarError(`"${f.name}" no es un tipo de archivo admitido aquí (se espera ${accept || 'otro formato'}).`);
+          return;
+        }
+        if (validar) {
+          const err = await validar(f);
+          if (err) { mostrarError(err); return; }
+        }
+      }
+      onFiles(files);
+    }
+
+    zone.addEventListener('click', () => input.click());
+    zone.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); input.click(); } });
+    input.addEventListener('change', (e) => { procesar(e.target.files); input.value = ''; });
+    zone.addEventListener('dragover', (e) => { e.preventDefault(); zone.dataset.state = 'dragover'; });
+    zone.addEventListener('dragleave', (e) => { if (!zone.contains(e.relatedTarget)) zone.dataset.state = 'idle'; });
+    zone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      zone.dataset.state = 'idle';
+      procesar(e.dataTransfer.files);
+    });
+  }
+
+  return { html, wire };
+}
+
 function promptUpload() {
   const options = state.clientes.map((c) => `<option value="${c.id}" ${c.id === state.clienteId ? 'selected' : ''}>${esc(c.nombre)}</option>`).join('');
   openModal(`
@@ -4731,9 +4828,7 @@ function promptUpload() {
         await refreshClientList();
       }
       if (!clienteId) { toast('Selecciona o crea un cliente', 'danger'); btn.disabled = false; return; }
-      state.pendingUploadClienteId = clienteId;
-      closeModal();
-      $('#fileInput').click();
+      mostrarZonaCargaPresupuestoNuevo(clienteId);
     } catch (err) {
       toast(err.message, 'danger');
       btn.disabled = false;
@@ -4744,22 +4839,44 @@ function promptUpload() {
 $('#btnUpload').addEventListener('click', promptUpload);
 $('#btnUploadDrawer').addEventListener('click', promptUpload);
 
+// Paso 2 de promptUpload() (prompt-fase1-lote1-zona-carga-archivos.md):
+// reemplaza el <input type="file"> nativo oculto (#fileInput, retirado de
+// index.html junto con #pdfFileInput) por la zona de arrastrar/soltar —
+// vive dentro del mismo modal en vez de cerrar y disparar un input global,
+// un paso menos de indirección que antes.
+function mostrarZonaCargaPresupuestoNuevo(clienteId) {
+  const zona = crearZonaCargaArchivo({
+    id: 'presupuestoNuevoZona',
+    accept: '.xlsx',
+    texto: 'Arrastra tu Excel aquí o haz clic para seleccionarlo',
+    textoMobile: 'Toca para seleccionar tu Excel',
+    hint: '.xlsx',
+    validar: validarArchivoXlsxCliente,
+    onFiles: (files) => procesarArchivoPresupuestoNuevo(files[0], clienteId),
+  });
+  openModal(`
+    <h3>Cargar presupuesto</h3>
+    <p class="muted">Sube el Excel de presupuesto para este cliente.</p>
+    ${zona.html}
+    <div class="modal-actions">
+      <button class="btn" id="btnCancelarZonaPresupuestoNuevo">Cancelar</button>
+    </div>
+  `);
+  $('#btnCancelarZonaPresupuestoNuevo').addEventListener('click', closeModal);
+  zona.wire();
+}
+
 // Aviso de "tardando más de lo normal" si la carga no ha terminado después de
 // este tiempo — no cancela nada, solo le da al usuario la opción de seguir
 // esperando o cancelar en vez de un spinner infinito sin información.
 const UPLOAD_SLOW_WARNING_MS = 90 * 1000;
 
-$('#fileInput').addEventListener('change', async (ev) => {
-  const file = ev.target.files[0];
-  ev.target.value = '';
-  if (!file) return;
-  if (!/\.xlsx$/i.test(file.name)) { toast('Solo se admiten archivos .xlsx', 'danger'); return; }
-  const errorArchivo = await validarArchivoXlsxCliente(file);
-  if (errorArchivo) { toast(errorArchivo, 'danger'); return; }
-  const clienteId = state.pendingUploadClienteId;
-  state.pendingUploadClienteId = null;
-  if (!clienteId) { toast('Selecciona un cliente antes de subir el archivo', 'danger'); return; }
-
+// Antes vivía como listener de 'change' de #fileInput — misma lógica de
+// procesamiento exacta (sin cambios), ahora invocada por el onFiles() del
+// dropzone de mostrarZonaCargaPresupuestoNuevo(). accept y
+// validarArchivoXlsxCliente ya se corrieron dentro del dropzone antes de
+// llegar aquí, no hace falta repetirlos.
+async function procesarArchivoPresupuestoNuevo(file, clienteId) {
   const controller = new AbortController();
   let cancelled = false;
 
@@ -4828,7 +4945,7 @@ $('#fileInput').addEventListener('change', async (ev) => {
       toast(err.message, 'danger');
     }
   }
-});
+}
 
 function destroyCharts() {
   Object.values(state.charts).forEach((c) => c && c.destroy());
@@ -5594,27 +5711,47 @@ function promptUploadContrato() {
   $('#btnContinuarContratoUpload').addEventListener('click', () => {
     const clienteId = Number($('#contratoClienteSelect').value) || null;
     if (!clienteId) { toast('Selecciona un cliente', 'danger'); return; }
-    state.pendingContrato = { mode: 'create', clienteId };
-    closeModal();
-    $('#pdfFileInput').click();
+    mostrarZonaCargaContrato({ mode: 'create', clienteId });
   });
 }
 // Punto de entrada (b): dentro de una obra ya existente → adjunta/actualiza sin crear duplicado
 function promptAttachContrato() {
-  state.pendingContrato = { mode: 'attach', projectId: state.projectId };
-  $('#pdfFileInput').click();
+  mostrarZonaCargaContrato({ mode: 'attach', projectId: state.projectId });
 }
 
-$('#pdfFileInput').addEventListener('change', async (ev) => {
-  const file = ev.target.files[0];
-  ev.target.value = '';
-  if (!file) return;
-  if (!/\.pdf$/i.test(file.name)) { toast('Solo se admiten archivos .pdf', 'danger'); return; }
-  const ctx = state.pendingContrato;
-  state.pendingContrato = null;
-  if (!ctx) return;
-  ctx.fileName = file.name;
+// Paso final compartido por los 2 puntos de entrada (prompt-fase1-lote1-
+// zona-carga-archivos.md): reemplaza el <input type="file"> global oculto
+// (#pdfFileInput, retirado de index.html junto con #fileInput) por la zona
+// de arrastrar/soltar. ctx (mode 'create'|'attach' + clienteId/projectId)
+// viaja por closure en vez de state.pendingContrato — ya no hace falta
+// sobrevivir un closeModal()+click() a un input fuera del modal.
+function mostrarZonaCargaContrato(ctx) {
+  const zona = crearZonaCargaArchivo({
+    id: 'contratoZona',
+    accept: '.pdf',
+    texto: 'Arrastra el PDF del contrato aquí o haz clic para seleccionarlo',
+    textoMobile: 'Toca para seleccionar el PDF del contrato',
+    hint: '.pdf',
+    onFiles: (files) => procesarArchivoContrato(files[0], ctx),
+  });
+  openModal(`
+    <h3>Cargar Contrato PDF</h3>
+    <p class="muted">Sube el PDF del contrato — los datos se extraen automáticamente con IA.</p>
+    ${zona.html}
+    <div class="modal-actions">
+      <button class="btn" id="btnCancelarZonaContrato">Cancelar</button>
+    </div>
+  `);
+  $('#btnCancelarZonaContrato').addEventListener('click', closeModal);
+  zona.wire();
+}
 
+// Antes vivía como listener de 'change' de #pdfFileInput — misma lógica de
+// procesamiento exacta (sin cambios), ahora invocada por el onFiles() del
+// dropzone de mostrarZonaCargaContrato(). accept ya corrió dentro del
+// dropzone antes de llegar aquí.
+async function procesarArchivoContrato(file, ctx) {
+  ctx.fileName = file.name;
   openModal(`
     <h3>Analizando contrato…</h3>
     <p class="muted">Extrayendo los datos de "${esc(file.name)}" con IA. Esto puede tardar unos segundos.</p>
@@ -5629,7 +5766,7 @@ $('#pdfFileInput').addEventListener('change', async (ev) => {
     closeModal();
     toast(err.message, 'danger');
   }
-});
+}
 
 function openContratoFormModal(preview, ctx) {
   const campos = preview.campos || {};
@@ -6274,37 +6411,49 @@ async function renderMapeo(view) {
 // (/api/projects/upload-token).
 // =========================================================================
 async function abrirModalActualizarPresupuesto() {
+  const zona = crearZonaCargaArchivo({
+    id: 'actualizarPresupuestoZona',
+    accept: '.xlsx',
+    texto: 'Arrastra tu Excel aquí o haz clic para seleccionarlo',
+    textoMobile: 'Toca para seleccionar tu Excel',
+    hint: '.xlsx',
+    validar: validarArchivoXlsxCliente,
+    onFiles: (files) => procesarArchivoActualizarPresupuesto(files[0]),
+  });
   openModal(`
     <h3>Actualizar presupuesto</h3>
     <p class="muted">Sube el Excel de presupuesto nuevo para esta obra. No se borra ni se aplica nada todavía — primero verás un preview de los cambios.</p>
-    <input type="file" id="actualizarPresupuestoFile" accept=".xlsx" />
+    ${zona.html}
     <div class="modal-actions">
       <button class="btn btn-outline" id="btnCancelarActualizarPresupuesto">Cancelar</button>
     </div>
   `);
   $('#btnCancelarActualizarPresupuesto').addEventListener('click', closeModal);
-  $('#actualizarPresupuestoFile').addEventListener('change', async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    const errorArchivo = await validarArchivoXlsxCliente(file);
-    if (errorArchivo) { toast(errorArchivo, 'danger'); return; }
-    openModal(`<h3>Subiendo y analizando…</h3><div class="spinner"></div>`);
-    try {
-      const blob = await VercelBlobClient.upload(file.name, file, {
-        access: 'private',
-        handleUploadUrl: '/api/projects/upload-token',
-        headers: state.token ? { Authorization: `Bearer ${state.token}` } : {},
-      });
-      const preview = await api(`/projects/${state.projectId}/presupuesto/actualizar/preview`, {
-        method: 'POST',
-        body: { archivo_url: blob.url },
-      });
-      pintarPreviewActualizacionPresupuesto(preview, blob.url);
-    } catch (err) {
-      closeModal();
-      toast(err.message, 'danger');
-    }
-  });
+  zona.wire();
+}
+
+// Antes vivía como listener de 'change' del <input> nativo — misma lógica
+// de procesamiento exacta (sin cambios), ahora invocada por el onFiles()
+// del dropzone de abrirModalActualizarPresupuesto(). accept y
+// validarArchivoXlsxCliente ya se corrieron dentro del dropzone antes de
+// llegar aquí.
+async function procesarArchivoActualizarPresupuesto(file) {
+  openModal(`<h3>Subiendo y analizando…</h3><div class="spinner"></div>`);
+  try {
+    const blob = await VercelBlobClient.upload(file.name, file, {
+      access: 'private',
+      handleUploadUrl: '/api/projects/upload-token',
+      headers: state.token ? { Authorization: `Bearer ${state.token}` } : {},
+    });
+    const preview = await api(`/projects/${state.projectId}/presupuesto/actualizar/preview`, {
+      method: 'POST',
+      body: { archivo_url: blob.url },
+    });
+    pintarPreviewActualizacionPresupuesto(preview, blob.url);
+  } catch (err) {
+    closeModal();
+    toast(err.message, 'danger');
+  }
 }
 
 function pintarPreviewActualizacionPresupuesto(preview, archivoUrl) {

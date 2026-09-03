@@ -279,6 +279,30 @@ async function aplicarCambiosConceptos(client, pid, { emparejados, nuevos, histo
     [pid, String(totalFinal)]
   );
 
+  // prompt-fix-calcular-total-con-iva.md: total_con_iva/iva_importe NUNCA se
+  // leen de una celda del Excel (tampoco en el alta original — ver
+  // extractMeta() en parser.js) — siempre se CALCULAN desde total_sin_iva
+  // (recién actualizado arriba) e iva_pct (guardado en meta, estable —
+  // confirmado "16.00" en todos los proyectos reales de Preview antes de
+  // este fix). Antes, total_con_iva/iva_importe solo se escribían una vez en
+  // el alta y quedaban congelados en cada actualización posterior —
+  // diagnóstico real: proyecto Kalia "Amenidades", total_sin_iva se
+  // actualizaba bien pero total_con_iva quedaba desfasado $493.17 del valor
+  // correcto porque venía de un Excel de una carga anterior.
+  const { rows: ivaPctRows } = await client.query(
+    `SELECT valor FROM meta WHERE project_id = $1 AND clave = 'iva_pct'`, [pid]
+  );
+  if (ivaPctRows[0]) {
+    const ivaPct = Number(ivaPctRows[0].valor);
+    const ivaImporte = Math.round(totalFinal * (ivaPct / 100) * 100) / 100;
+    const totalConIva = Math.round((totalFinal + ivaImporte) * 100) / 100;
+    await client.query(
+      `INSERT INTO meta (project_id, clave, valor) VALUES ($1, 'iva_importe', $2), ($1, 'total_con_iva', $3)
+       ON CONFLICT (project_id, clave) DO UPDATE SET valor = EXCLUDED.valor`,
+      [pid, String(ivaImporte), String(totalConIva)]
+    );
+  }
+
   // Recalcula avance_financiero_real de toda semana con avance capturado,
   // contra los precios/volúmenes ya actualizados arriba y el total nuevo.
   const { rows: semanasConAvance } = await client.query(

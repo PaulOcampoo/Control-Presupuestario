@@ -142,7 +142,16 @@ function extractMeta(workbook) {
     }
   }
 
-  // Totales del presupuesto (cualquier hoja de presupuesto)
+  // Totales del presupuesto (cualquier hoja de presupuesto). total_sin_iva
+  // e iva_pct sí se leen del Excel (son la fuente de verdad — total_sin_iva
+  // es siempre un valor tecleado, no una fórmula). total_con_iva/
+  // iva_importe NUNCA se leen de su celda del Excel — ver
+  // prompt-fix-calcular-total-con-iva.md: esa celda suele ser una fórmula
+  // (ej. "=F49+F48") y su `result` queda cacheado al momento en que Excel
+  // guardó el archivo, pudiendo desincronizarse de total_sin_iva incluso
+  // dentro del mismo archivo. Se calculan siempre, más abajo, desde
+  // total_sin_iva + iva_pct — así el alta y cada "Actualizar presupuesto"
+  // (aplicarCambiosConceptos, mismo criterio) quedan consistentes entre sí.
   for (const sheet of workbook.worksheets) {
     const lastRow = sheet.rowCount;
     for (let r = 1; r <= lastRow; r += 1) {
@@ -152,12 +161,15 @@ function extractMeta(workbook) {
         meta.total_sin_iva = meta.total_sin_iva || findFirstNumberInRow(row);
       } else if (label.startsWith('IVA')) {
         meta.iva_pct = meta.iva_pct || (label.match(/[\d.]+/) || [])[0];
-        meta.iva_importe = meta.iva_importe || findFirstNumberInRow(row);
-      } else if (label.startsWith('TOTAL DEL PRESUPUESTO MOSTRADO') && !label.includes('SIN IVA')) {
-        meta.total_con_iva = meta.total_con_iva || findFirstNumberInRow(row);
       }
     }
-    if (meta.total_con_iva) break;
+    if (meta.total_sin_iva) break;
+  }
+  if (meta.total_sin_iva != null && meta.iva_pct != null) {
+    const sinIva = Number(meta.total_sin_iva);
+    const pct = Number(meta.iva_pct) / 100;
+    meta.iva_importe = Math.round(sinIva * pct * 100) / 100;
+    meta.total_con_iva = Math.round((sinIva + meta.iva_importe) * 100) / 100;
   }
   return meta;
 }

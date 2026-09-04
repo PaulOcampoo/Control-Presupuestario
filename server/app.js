@@ -8354,7 +8354,7 @@ app.post('/api/projects/:id/requisiciones/:reqId/ordenes', h(auth.allow('compras
   }
 
   const { rows: reqItems } = await db.pool.query(`
-    SELECT ri.*, i.iva_tasa
+    SELECT ri.*, i.iva_tasa, i.codigo AS insumo_codigo, i.concepto AS insumo_concepto, i.unidad
     FROM requisicion_items ri
     JOIN insumos i ON i.id = ri.insumo_id
     WHERE ri.requisicion_id = $1
@@ -8389,8 +8389,44 @@ app.post('/api/projects/:id/requisiciones/:reqId/ordenes', h(auth.allow('compras
       importe: Number((cantidad * precio).toFixed(2)),
       iva_tasa: reqItem.iva_tasa,
       alerta_sobre_orden: (acumuladoPrevio + cantidad) > reqItem.cantidad_solicitada,
+      insumo_codigo: reqItem.insumo_codigo,
+      insumo_concepto: reqItem.insumo_concepto,
+      unidad: reqItem.unidad,
+      disponible: reqItem.cantidad_solicitada - acumuladoPrevio,
     };
   });
+
+  // Fase 2 (prompt-fase2-bloqueo-confirmacion-sobreorden.md): sobre-orden ya
+  // NO se crea en silencio (solo con `alerta_sobre_orden` informativa en la
+  // respuesta, Fase 0/1A) -- exige confirmación explícita con motivo antes
+  // de escribir nada. Diseño deliberado: NO es un bloqueo duro (el negocio
+  // sí necesita poder pasarse de lo solicitado en casos legítimos, ej.
+  // desperdicio real mayor al estimado) -- 409 + detalle da lugar a que el
+  // cliente muestre el motivo exacto y reintente con confirmación.
+  const excedentes = computed
+    .filter((c) => c.cantidad_ordenada > 0 && c.alerta_sobre_orden)
+    .map((c) => ({
+      requisicion_item_id: c.requisicion_item_id,
+      insumo_codigo: c.insumo_codigo,
+      insumo_concepto: c.insumo_concepto,
+      unidad: c.unidad,
+      disponible: Number(Math.max(0, c.disponible).toFixed(3)),
+      cantidad_solicitada_en_oc: c.cantidad_ordenada,
+      exceso: Number((c.cantidad_ordenada - c.disponible).toFixed(3)),
+    }));
+
+  const { confirmar_sobreorden, motivo } = req.body || {};
+  if (excedentes.length > 0) {
+    if (confirmar_sobreorden !== true) {
+      return res.status(409).json({
+        error: 'Uno o más insumos exceden lo disponible de la requisición (lo solicitado menos lo ya ordenado en OCs previas). Confirma explícitamente con un motivo para continuar.',
+        excedentes,
+      });
+    }
+    if (!motivo || !motivo.trim()) {
+      return res.status(400).json({ error: 'Indica un motivo para confirmar la sobre-orden.' });
+    }
+  }
 
   const created = await db.withTransaction(async (client) => {
     const { rows } = await client.query(
@@ -8404,6 +8440,20 @@ app.post('/api/projects/:id/requisiciones/:reqId/ordenes', h(auth.allow('compras
         `INSERT INTO orden_compra_items (orden_compra_id, requisicion_item_id, cantidad_ordenada, precio_unitario, importe)
          VALUES ($1,$2,$3,$4,$5)`,
         [ocId, c.requisicion_item_id, c.cantidad_ordenada, c.precio_unitario, c.importe]
+      );
+    }
+    if (excedentes.length > 0) {
+      const ip = auth.getIp(req);
+      await client.query(
+        `INSERT INTO audit_log (actor_id, actor_usuario, accion, target_id, project_id, ip, detalle)
+         VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+        [req.user.id, req.user.usuario, 'confirmar_sobreorden_oc', ocId, pid, ip,
+          JSON.stringify({
+            requisicion_id: reqId,
+            requisicion_folio: reqRows[0].folio,
+            excedentes,
+            motivo: motivo.trim(),
+          })]
       );
     }
     return rows[0];

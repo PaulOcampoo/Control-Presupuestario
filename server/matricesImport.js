@@ -426,10 +426,31 @@ function resolverBloqueImportacion(bloque, { conceptosPorCodigo, insumosPorCodig
   if (!bloque.codigo_analisis) return { ...base, estado: 'error', motivo: 'No se pudo leer el código de análisis (fila "Análisis:").' };
 
   const conceptosCandidatos = conceptosPorCodigo.get(bloque.codigo_analisis);
+  let concepto = conceptosCandidatos ? conceptosCandidatos[0] : null;
   if (conceptosCandidatos && conceptosCandidatos.length > 1) {
-    return { ...base, estado: 'error', motivo: `El código "${bloque.codigo_analisis}" corresponde a ${conceptosCandidatos.length} conceptos distintos en esta obra (mismo código en más de un capítulo) — no se puede determinar automáticamente a cuál corresponde este bloque, se omite.` };
+    // Desambiguación por cantidad (Fase 1 Parte A, Caso 1 —
+    // prompt-fase1a-matrices-caso1-desambiguacion-cantidad.md, diagnóstico
+    // previo en docs/fase0-importador-matrices-casos-no-soportados.md):
+    // cuando el mismo código aparece en 2+ capítulos, cada aparición tiene
+    // su propio bloque "Análisis:" en la hoja de Matrices, y cada bloque ya
+    // trae su propia cantidad_concepto (fila "Análisis:", col F) — que en
+    // la práctica coincide exacta con la cantidad de UNA sola de las
+    // apariciones del código en el presupuesto (verificado contra
+    // Ppto_732_VInte_Infra_RD_E1_03092026.xlsx: AJAL.TRA.LIN en 2
+    // capítulos, 208.9 y 303.77, cada bloque de Matrices trae la cantidad
+    // exacta de su capítulo). Nunca se adivina: si no queda exactamente 1
+    // candidato tras filtrar por cantidad, se reporta como no resuelto,
+    // igual que antes.
+    const TOLERANCIA_CANTIDAD = 0.01;
+    const porCantidad = bloque.cantidad_concepto != null
+      ? conceptosCandidatos.filter((c) => Math.abs(Number(c.cantidad) - bloque.cantidad_concepto) < TOLERANCIA_CANTIDAD)
+      : [];
+    if (porCantidad.length === 1) {
+      concepto = porCantidad[0];
+    } else {
+      return { ...base, estado: 'error', motivo: `El código "${bloque.codigo_analisis}" corresponde a ${conceptosCandidatos.length} conceptos distintos en esta obra (mismo código en más de un capítulo) — no se pudo desambiguar automáticamente por cantidad (cantidad del bloque: ${bloque.cantidad_concepto ?? 'sin cantidad'}), se omite.` };
+    }
   }
-  const concepto = conceptosCandidatos ? conceptosCandidatos[0] : null;
   if (!concepto) {
     return { ...base, estado: 'error', motivo: `No existe un concepto con código "${bloque.codigo_analisis}" en esta obra — carga primero el presupuesto (Actualizar presupuesto) con este código.` };
   }

@@ -107,14 +107,22 @@ async function ingest(client, projectId, parsed, userId = null) {
   // manual (/api/projects/:id/matrices/import/*), que se deja intacto para
   // obras existentes o para corregir/actualizar matrices después.
   //
-  // Todo-o-nada a propósito (igual que el import de 4 hojas de PR #176): si
-  // CUALQUIER bloque no se puede resolver, se lanza y toda la transacción
-  // de alta de obra hace rollback -- no queda una obra con conceptos pero
-  // sin matrices a medias. conceptoIdsConMatriz siempre vacío: una obra
-  // recién creada en esta misma llamada nunca pudo tener una matriz previa.
+  // prompt-fase1a-matrices-caso1-desambiguacion-cantidad.md (Fase 1 Parte
+  // A del diagnóstico en docs/fase0-importador-matrices-casos-no-
+  // soportados.md): la obra (proyecto + conceptos + insumos + destajo)
+  // sigue siendo 100% atómica -- eso NO cambió, sigue siendo imposible que
+  // quede una obra a medias. Lo que cambió es la granularidad: un bloque de
+  // Matrices que no se puede resolver YA NO aborta toda la transacción --
+  // se omite (el concepto ya se insertó arriba con su precio/importe de la
+  // hoja de presupuesto, solo queda sin la matriz de Análisis de Precio
+  // Unitario) y se reporta en `matricesNoResueltas` para que quien subió el
+  // archivo sepa qué falta capturar manualmente. conceptoIdsConMatriz
+  // siempre vacío: una obra recién creada en esta misma llamada nunca pudo
+  // tener una matriz previa.
+  let matricesNoResueltas = [];
   if (parsed.matricesBloques && parsed.matricesBloques.length > 0) {
     const { rows: conceptoRows } = await client.query(
-      'SELECT id, codigo FROM conceptos WHERE project_id = $1 AND activo = 1 AND codigo IS NOT NULL', [projectId]
+      'SELECT id, codigo, cantidad FROM conceptos WHERE project_id = $1 AND activo = 1 AND codigo IS NOT NULL', [projectId]
     );
     const { rows: insumoRows } = await client.query(
       'SELECT id, codigo, categoria, precio_presupuesto FROM insumos WHERE project_id = $1 AND codigo IS NOT NULL', [projectId]
@@ -139,10 +147,9 @@ async function ingest(client, projectId, parsed, userId = null) {
       vistos.add(r.concepto_id);
     }
 
-    const conErrores = resultados.filter((r) => r.estado === 'error');
-    if (conErrores.length) {
-      throw new Error(`No se pudo generar la matriz de precio unitario para "${conErrores[0].codigo_analisis || '(sin código)'}": ${conErrores[0].motivo}`);
-    }
+    matricesNoResueltas = resultados
+      .filter((r) => r.estado === 'error')
+      .map((r) => ({ codigo_analisis: r.codigo_analisis || null, motivo: r.motivo }));
 
     for (const r of resultados) {
       if (r.estado !== 'ok') continue; // 'omitido' no debería darse en una obra recién creada
@@ -173,6 +180,8 @@ async function ingest(client, projectId, parsed, userId = null) {
       await matricesImport.insertarRenglones(client, matrizRows[0].id, renglonesFinales);
     }
   }
+
+  return { matrices_no_resueltas: matricesNoResueltas };
 }
 
 module.exports = { ingest };

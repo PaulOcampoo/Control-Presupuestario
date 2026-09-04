@@ -6023,20 +6023,19 @@ app.post('/api/projects', h(auth.allow()), h(async (req, res) => {
     // la misma transacción que ingest() (antes se creaba afuera con
     // db.createProjectRecord, vía el pool) -- mismo patrón ya usado en
     // POST /costos/crear-presupuesto/import-completo/confirm (PR #176).
-    // Necesario porque ingest() ahora puede lanzar por un bloque de Matrices
-    // irresoluble (ej. cuadrilla pre-agregada sin desglosar); sin este
-    // cambio, esa falla dejaba conceptos/insumos/destajo bien revertidos por
-    // el rollback interno pero una fila en `proyectos` huérfana y vacía
-    // sobreviviendo igual, visible en la galería del cliente sin nada dentro
-    // (confirmado con EST Kaila Red Hidraulica 06082026.xlsx antes de este fix).
+    // proyecto+conceptos+insumos+destajo siguen siendo 100% atómicos -- un
+    // bloque de Matrices irresoluble (prompt-fase1a-matrices-caso1-
+    // desambiguacion-cantidad.md) YA NO hace que ingest() lance: se omite y
+    // se reporta en matrices_no_resueltas, la obra se crea igual.
     let record;
+    let ingestResult;
     await db.withTransaction(async (client) => {
       const { rows: projRows } = await client.query(
         'INSERT INTO proyectos (nombre, archivo_original, cliente_id) VALUES ($1, $2, $3) RETURNING *',
         [nombre, archivo_nombre || null, clienteId]
       );
       record = projRows[0];
-      await ingest(client, record.id, parsed, req.user.id);
+      ingestResult = await ingest(client, record.id, parsed, req.user.id);
     });
     res.status(201).json({
       id: record.id,
@@ -6047,6 +6046,7 @@ app.post('/api/projects', h(auth.allow()), h(async (req, res) => {
       destajistas: parsed.destajistas ? parsed.destajistas.length : 0,
       inicio_obra: parsed.meta.inicio_obra || null,
       fin_obra: parsed.meta.fin_obra || null,
+      matrices_no_resueltas: ingestResult.matrices_no_resueltas,
     });
   } catch (err) {
     res.status(400).json({ error: err.message });

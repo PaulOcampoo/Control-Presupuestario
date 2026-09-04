@@ -316,7 +316,14 @@ function parseMatricesSheet(sheet) {
     } else {
       destino.push({
         categoria: seccionActiva === 'BASICOS' ? null : seccionActiva, tipo: 'insumo',
-        codigo: A, cantidad: num(F), operador: E === '/' ? '/' : '*',
+        codigo: A, descripcion: B, cantidad: num(F), operador: E === '/' ? '/' : '*',
+        // precio_hoja (columna D): normalmente se ignora -- el precio de un
+        // renglón real siempre sale del catálogo de insumos (precio_presupuesto).
+        // Solo se usa cuando el código NO está en el catálogo y matchea el
+        // patrón de cuadrilla pre-agregada (prompt-fase1-parteB-matrices-
+        // caso2-cuadrilla.md, ver resolverRenglon abajo) -- ahí SÍ es la
+        // única fuente real de precio, porque no hay insumo del que leerlo.
+        precio_hoja: num(D),
       });
     }
   });
@@ -354,6 +361,26 @@ function resolverRenglon(r, { insumosPorCodigo, subtotalesConocidos }) {
   const insumo = insumosPorCodigo.get(r.codigo);
   if (!insumo) {
     const pareceCuadrilla = /^\d/.test(r.codigo) && (r.categoria === 'MANO DE OBRA' || r.categoria === null);
+    // Cuadrilla pre-agregada sin desglose por oficio (prompt-fase1-parteB-
+    // matrices-caso2-cuadrilla.md, confirmado contra el Excel real -- fila
+    // "1A5P | CUADRILLA No 22 (1 ALBAÑIL + 5 PEONES) | JOR | 5218.31 | / |
+    // 12 | 434.86"): el código nunca va a existir en el catálogo de
+    // insumos porque NO es un insumo, es la cuadrilla misma ya agregada --
+    // pero la hoja SÍ trae su precio/costo total real en la misma fila
+    // (precio_hoja, columna de precio). Se usa tal cual, sin inferir ni
+    // desglosar nada -- si esa columna viniera vacía/0, no hay ningún dato
+    // seguro que rescatar y se mantiene el error de siempre (fallback).
+    if (pareceCuadrilla && r.precio_hoja != null && r.precio_hoja > 0) {
+      return {
+        renglon: {
+          categoria: r.categoria || 'MANO DE OBRA', tipo: 'insumo',
+          insumo_id: null, cantidad: r.cantidad, operador: r.operador,
+          precio_presupuesto: r.precio_hoja,
+          codigo: r.codigo, descripcion: r.descripcion || `Cuadrilla ${r.codigo}`,
+          sin_desglosar: true,
+        },
+      };
+    }
     return {
       error: pareceCuadrilla
         ? ERROR_CUADRILLA_PRECOLAPSADA(r.codigo, r.categoria || 'BASICOS')
@@ -511,18 +538,19 @@ async function insertarRenglones(client, matrizId, renglones) {
   let orden = 0;
   for (const r of renglones) {
     await client.query(
-      `INSERT INTO matriz_precio_renglones (matriz_id, categoria, tipo, insumo_id, codigo, descripcion, cantidad, operador, factor_referencia, basico_matriz_id, orden)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+      `INSERT INTO matriz_precio_renglones (matriz_id, categoria, tipo, insumo_id, codigo, descripcion, cantidad, operador, factor_referencia, basico_matriz_id, orden, precio_fijo)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
       [
         matrizId, r.categoria, r.tipo,
-        r.tipo === 'insumo' ? Number(r.insumo_id) : null,
-        r.tipo === 'factor_pct' ? r.codigo.trim() : null,
-        r.tipo === 'factor_pct' ? r.descripcion.trim() : null,
+        r.tipo === 'insumo' && r.insumo_id != null ? Number(r.insumo_id) : null,
+        r.tipo === 'factor_pct' ? r.codigo.trim() : (r.sin_desglosar ? r.codigo : null),
+        r.tipo === 'factor_pct' ? r.descripcion.trim() : (r.sin_desglosar ? r.descripcion : null),
         Number(r.cantidad),
         r.operador === '/' ? '/' : '*',
         r.tipo === 'factor_pct' ? r.factor_referencia : null,
         r.tipo === 'basico_ref' ? Number(r.basico_matriz_id) : null,
         orden++,
+        r.sin_desglosar ? Number(r.precio_presupuesto) : null,
       ]
     );
   }

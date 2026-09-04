@@ -203,6 +203,17 @@ const SCHEMA = `
   ALTER TABLE matriz_precio_renglones DROP CONSTRAINT IF EXISTS matriz_precio_renglones_categoria_check;
   ALTER TABLE matriz_precio_renglones ADD CONSTRAINT matriz_precio_renglones_categoria_check CHECK (categoria IN ('MATERIALES','MANO DE OBRA','EQUIPO Y HERRAMIENTA','BASICOS'));
 
+  -- prompt-fase1-parteB-matrices-caso2-cuadrilla.md: cuadrilla pre-agregada
+  -- sin desglose por oficio (ej. "1A5P", código que nunca existe en el
+  -- catálogo de insumos) -- se guarda igual como tipo='insumo' pero con
+  -- insumo_id NULL (nunca ocurría antes: un renglón tipo='insumo' con
+  -- insumo_id NULL solo puede ser este caso, marcador implícito adrede en
+  -- vez de una columna booleana aparte) y el precio total que ya traía la
+  -- hoja de Excel en precio_fijo, porque no hay ningún insumo del catálogo
+  -- del que leer un precio "vivo". codigo/descripcion (columnas de arriba,
+  -- ya reusadas por factor_pct) llevan el código/nombre de la cuadrilla.
+  ALTER TABLE matriz_precio_renglones ADD COLUMN IF NOT EXISTS precio_fijo DOUBLE PRECISION;
+
   -- % de indirecto/utilidad por defecto de una obra (cada contrato se cotiza
   -- distinto — porcentajes_referencia_costo de PR #48 es un set global único,
   -- no sirve como default por obra). Se usa SOLO para prellenar una matriz

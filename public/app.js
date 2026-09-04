@@ -17640,7 +17640,7 @@ async function paintMatrizDetalle(view) {
             <tbody>${filas.map((r) => `
               <tr>
                 <td>${esc(r.codigo || '—')}</td>
-                <td>${esc(r.descripcion || '—')}${r.tipo === 'factor_pct' ? `<div class="muted fs-07">Factor % sobre subtotal de ${esc(r.factor_referencia)}</div>` : ''}${r.tipo === 'basico_ref' ? `<div class="muted fs-07">Básico reutilizable — costo directo × Volumen</div>` : ''}</td>
+                <td>${esc(r.descripcion || '—')}${r.tipo === 'factor_pct' ? `<div class="muted fs-07">Factor % sobre subtotal de ${esc(r.factor_referencia)}</div>` : ''}${r.tipo === 'basico_ref' ? `<div class="muted fs-07">Básico reutilizable — costo directo × Volumen</div>` : ''}${r.sin_desglosar ? `<div class="muted fs-07">⚠️ Mano de obra sin desglosar por oficio — capturada como cuadrilla completa desde el Excel</div>` : ''}</td>
                 <td class="num">
                   <input type="number" step="0.0001" min="0.0001" class="matriz-input-num matRenglonCantidad" data-idx="${r._idx}"
                     value="${r.tipo === 'factor_pct' ? Number((Number(r.cantidad) * 100).toFixed(4)) : r.cantidad}" />${r.tipo === 'factor_pct' ? ' %' : ''}
@@ -18001,7 +18001,7 @@ async function openBasicoEditorModal(view, basicoId) {
             <tbody>${filas.map((r) => `
               <tr>
                 <td>${esc(r.codigo || '—')}</td>
-                <td>${esc(r.descripcion || '—')}${r.tipo === 'factor_pct' ? `<div class="muted fs-07">Factor % sobre subtotal de ${esc(r.factor_referencia)}</div>` : ''}${r.tipo === 'basico_ref' ? '<div class="muted fs-07">Básico anidado</div>' : ''}</td>
+                <td>${esc(r.descripcion || '—')}${r.tipo === 'factor_pct' ? `<div class="muted fs-07">Factor % sobre subtotal de ${esc(r.factor_referencia)}</div>` : ''}${r.tipo === 'basico_ref' ? '<div class="muted fs-07">Básico anidado</div>' : ''}${r.sin_desglosar ? `<div class="muted fs-07">⚠️ Mano de obra sin desglosar por oficio — capturada como cuadrilla completa desde el Excel</div>` : ''}</td>
                 ${cat === 'MANO DE OBRA' ? `
                   <td>${r.tipo === 'insumo' ? `
                     <select class="matBasicoOperador" data-idx="${r._idx}">

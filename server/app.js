@@ -3939,7 +3939,8 @@ async function fetchRenglonesRaw(matrizId) {
     SELECT r.id, r.categoria, r.tipo, r.insumo_id, r.cantidad, r.operador, r.factor_referencia, r.basico_matriz_id, r.orden,
            COALESCE(i.codigo, r.codigo) AS codigo,
            COALESCE(i.concepto, r.descripcion) AS descripcion,
-           i.unidad, i.precio_presupuesto
+           i.unidad, COALESCE(i.precio_presupuesto, r.precio_fijo) AS precio_presupuesto,
+           (r.tipo = 'insumo' AND r.insumo_id IS NULL) AS sin_desglosar
     FROM matriz_precio_renglones r
     LEFT JOIN insumos i ON i.id = r.insumo_id
     WHERE r.matriz_id = $1
@@ -4040,7 +4041,17 @@ function validarRenglones(renglones, insumoIdsValidos, basicoIdsValidos = new Se
     if (!['insumo', 'factor_pct', 'basico_ref'].includes(r.tipo)) return `Tipo de renglón inválido: ${r.tipo}`;
     if (!(Number(r.cantidad) > 0)) return 'Cada renglón requiere una cantidad mayor a 0';
     if (r.operador != null && !['*', '/'].includes(r.operador)) return `Operador inválido: ${r.operador}`;
-    if (r.tipo === 'insumo') {
+    if (r.tipo === 'insumo' && r.sin_desglosar) {
+      // Cuadrilla pre-agregada sin desglose (prompt-fase1-parteB-matrices-
+      // caso2-cuadrilla.md): nunca tiene insumo_id (no existe en el
+      // catálogo, es la cuadrilla misma) -- en vez de eso lleva su propio
+      // código/descripción y un precio_presupuesto capturado directo de la
+      // hoja, no del catálogo. Se re-persiste tal cual al guardar/editar la
+      // matriz manualmente, mismo criterio que ya se usa al generarla
+      // automáticamente en el alta de obra (ingest.js).
+      if (!r.codigo?.trim()) return 'Cada renglón sin desglosar requiere un código';
+      if (!(Number(r.precio_presupuesto) > 0)) return 'Cada renglón sin desglosar requiere un precio mayor a 0';
+    } else if (r.tipo === 'insumo') {
       if (!Number(r.insumo_id)) return 'Cada renglón de tipo insumo requiere insumo_id';
       if (!insumoIdsValidos.has(Number(r.insumo_id))) return `El insumo ${r.insumo_id} no pertenece a esta obra`;
     } else if (r.tipo === 'factor_pct') {
@@ -4303,7 +4314,8 @@ app.get('/api/projects/:id/matrices', h(auth.allow('residente', 'costos')), h(re
   const renglonesPorMatriz = new Map();
   if (matrizIds.length) {
     const { rows: renglonRows } = await db.pool.query(`
-      SELECT r.matriz_id, r.categoria, r.tipo, r.cantidad, r.operador, r.factor_referencia, r.basico_matriz_id, i.precio_presupuesto
+      SELECT r.matriz_id, r.categoria, r.tipo, r.cantidad, r.operador, r.factor_referencia, r.basico_matriz_id,
+             COALESCE(i.precio_presupuesto, r.precio_fijo) AS precio_presupuesto
       FROM matriz_precio_renglones r LEFT JOIN insumos i ON i.id = r.insumo_id
       WHERE r.matriz_id = ANY($1)
     `, [matrizIds]);

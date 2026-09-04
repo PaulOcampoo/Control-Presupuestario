@@ -927,7 +927,17 @@ async function api(path, opts = {}) {
       throw new Error(extraerMensajeError(data && data.error, 'Sesión expirada'));
     }
   }
-  if (!res.ok) throw new Error(extraerMensajeError(data && data.error, `Error ${res.status}`));
+  if (!res.ok) {
+    const err = new Error(extraerMensajeError(data && data.error, `Error ${res.status}`));
+    // prompt-fase2-bloqueo-confirmacion-sobreorden.md: algunos endpoints
+    // (ej. generar OC con sobre-orden, 409) devuelven detalle estructurado
+    // además del mensaje — status/data quedan disponibles en el error para
+    // el caller que los necesite, sin cambiar el comportamiento de nadie
+    // más (los catch existentes solo leen err.message, como siempre).
+    err.status = res.status;
+    err.data = data;
+    throw err;
+  }
   return data;
 }
 
@@ -7442,38 +7452,83 @@ async function openGenerarOrdenModal(requisicion) {
   updateIvaResumen();
 
   $('#btnCancelOC').addEventListener('click', closeModal);
-  $('#btnSaveOC').addEventListener('click', async () => {
-    const items = $$('#ocItems .req-item-row').map((row) => ({
-      requisicion_item_id: Number(row.dataset.reqItem),
-      cantidad_ordenada: Number(row.querySelector('[data-oc-cantidad]').value) || 0,
-      precio_unitario: Number(row.querySelector('[data-oc-precio]').value) || 0,
-    })).filter((it) => it.cantidad_ordenada > 0);
-
-    if (!items.length) { toast('Indica una cantidad mayor a 0 en al menos un item', 'danger'); return; }
-
+  // body se arma UNA VEZ leyendo el DOM del modal "Generar OC" — necesario
+  // porque, si hay sobre-orden, mostrarConfirmacionSobreOrdenModal() abajo
+  // reemplaza ese DOM por completo (openModal sobreescribe #modal) antes de
+  // reintentar: para entonces #ocItems/#ocProveedor/etc. ya no existen, así
+  // que el reintento NUNCA vuelve a leer el formulario, reusa el body ya
+  // capturado con solo `confirmar_sobreorden`/`motivo` añadidos encima.
+  async function crearOrdenCompra(body) {
+    if (!body.items.length) { toast('Indica una cantidad mayor a 0 en al menos un item', 'danger'); return; }
     const btn = $('#btnSaveOC');
-    btn.disabled = true; btn.textContent = 'Creando…';
+    if (btn) { btn.disabled = true; btn.textContent = 'Creando…'; }
     try {
-      const result = await api(`/projects/${state.projectId}/requisiciones/${requisicion.id}/ordenes`, {
-        method: 'POST',
-        body: {
-          proveedor_id: Number($('#ocProveedor').value),
-          folio: $('#ocFolio').value.trim() || null,
-          fecha: $('#ocFecha').value || null,
-          observaciones: $('#ocObs').value.trim() || null,
-          incluye_iva: $('#ocIncluyeIva').checked,
-          items,
-        },
-      });
+      const result = await api(`/projects/${state.projectId}/requisiciones/${requisicion.id}/ordenes`, { method: 'POST', body });
       closeModal();
       toast(result.tiene_alertas
         ? 'Orden de compra creada — algún item supera lo solicitado en la requisición'
         : 'Orden de compra creada', result.tiene_alertas ? 'danger' : 'success');
       switchToView('ordenes');
     } catch (err) {
+      if (err.status === 409 && err.data?.excedentes?.length) {
+        mostrarConfirmacionSobreOrdenModal(err.data.excedentes, (motivo) => crearOrdenCompra({ ...body, confirmar_sobreorden: true, motivo }));
+        return;
+      }
       toast(err.message, 'danger');
-      btn.disabled = false; btn.textContent = 'Crear orden de compra';
+      const btnAhora = $('#btnSaveOC');
+      if (btnAhora) { btnAhora.disabled = false; btnAhora.textContent = 'Crear orden de compra'; }
     }
+  }
+
+  // prompt-fase2-bloqueo-confirmacion-sobreorden.md: NO es un bloqueo duro
+  // (el negocio sí necesita poder pasarse de lo solicitado en casos
+  // legítimos) — solo exige confirmación explícita con motivo, que el
+  // backend audita en audit_log (accion 'confirmar_sobreorden_oc'). Motivo
+  // vacío nunca deja confirmar (checkbox del botón deshabilitado).
+  function mostrarConfirmacionSobreOrdenModal(excedentes, onConfirmar) {
+    openModal(`
+      <h3>⚠️ Vas a ordenar más de lo pendiente</h3>
+      <p class="muted">Estos insumos exceden lo disponible de la requisición (lo solicitado menos lo ya ordenado en OCs previas de esta misma requisición). Puedes continuar, pero indica por qué.</p>
+      <div class="card bg-panel2 mb-12">
+        ${excedentes.map((e) => `
+          <div class="row between mb-6">
+            <span>${esc(e.insumo_concepto)} <span class="muted code">(${esc(e.insumo_codigo)})</span></span>
+            <span class="muted">Disponible: ${fmtNum(e.disponible, 3)} ${esc(e.unidad || '')} · Pidiendo: ${fmtNum(e.cantidad_solicitada_en_oc, 3)} ${esc(e.unidad || '')} · Exceso: ${fmtNum(e.exceso, 3)} ${esc(e.unidad || '')}</span>
+          </div>
+        `).join('')}
+      </div>
+      <div class="field"><label>Motivo (obligatorio) *</label><textarea id="sobreOrdenMotivo" rows="3" placeholder="Ej. desperdicio real mayor al estimado, cambio de especificación…"></textarea></div>
+      <div class="modal-actions">
+        <button class="btn" id="btnCancelarSobreOrden">Cancelar</button>
+        <button class="btn btn-danger" id="btnConfirmarSobreOrden" disabled>Confirmar de todos modos</button>
+      </div>
+    `);
+    const motivoInput = $('#sobreOrdenMotivo');
+    const btnConfirmar = $('#btnConfirmarSobreOrden');
+    motivoInput.addEventListener('input', () => { btnConfirmar.disabled = !motivoInput.value.trim(); });
+    $('#btnCancelarSobreOrden').addEventListener('click', () => openGenerarOrdenModal(requisicion));
+    btnConfirmar.addEventListener('click', () => {
+      const motivo = motivoInput.value.trim();
+      if (!motivo) return; // salvaguarda extra, el botón ya queda deshabilitado sin motivo
+      btnConfirmar.disabled = true; btnConfirmar.textContent = 'Creando…';
+      onConfirmar(motivo);
+    });
+  }
+
+  $('#btnSaveOC').addEventListener('click', () => {
+    const items = $$('#ocItems .req-item-row').map((row) => ({
+      requisicion_item_id: Number(row.dataset.reqItem),
+      cantidad_ordenada: Number(row.querySelector('[data-oc-cantidad]').value) || 0,
+      precio_unitario: Number(row.querySelector('[data-oc-precio]').value) || 0,
+    })).filter((it) => it.cantidad_ordenada > 0);
+    crearOrdenCompra({
+      proveedor_id: Number($('#ocProveedor').value),
+      folio: $('#ocFolio').value.trim() || null,
+      fecha: $('#ocFecha').value || null,
+      observaciones: $('#ocObs').value.trim() || null,
+      incluye_iva: $('#ocIncluyeIva').checked,
+      items,
+    });
   });
 }
 

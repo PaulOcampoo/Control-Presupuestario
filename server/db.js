@@ -2003,6 +2003,14 @@ const SCHEMA = `
   CREATE INDEX IF NOT EXISTS idx_cfdi_project ON cfdi(project_id);
   CREATE INDEX IF NOT EXISTS idx_cfdi_rfc_emisor ON cfdi(rfc_emisor);
 
+  -- prompt-fase1-vinculacion-cfdi-pago-oc.md (diseño aprobado en
+  -- docs/fase0-vinculacion-factura-pago-oc-contabilidad.md): FK simple, NO
+  -- tabla puente -- 1 pago vincula a lo más 1 CFDI. ON DELETE SET NULL: si
+  -- un CFDI se borra algún día, el pago no debe desaparecer ni bloquear el
+  -- borrado, solo queda "sin factura" otra vez.
+  ALTER TABLE pagos ADD COLUMN IF NOT EXISTS cfdi_id INTEGER REFERENCES cfdi(id) ON DELETE SET NULL;
+  CREATE INDEX IF NOT EXISTS idx_pagos_cfdi ON pagos(cfdi_id);
+
   -- Contabilidad Fase 3 (prompt-contabilidad-fase3-conciliacion.md) —
   -- catálogo de cuentas bancarias corporativas + importación/conciliación
   -- de movimientos bancarios. Gateado por la misma auth.requireContabilidadAccess

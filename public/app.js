@@ -30,7 +30,7 @@ const MAQUINARIA_TABS_OPERADOR = ['maquinaria_horas', 'maquinaria_estado_unidad'
 // Las 5 subsecciones reales de Contabilidad (prompt-contabilidad-galeria-
 // tiles.md) — constante única reusada aquí y en SECTION_DEFS.contabilidad.tabs
 // más abajo, mismo patrón que MAQUINARIA_TABS_ADMIN arriba.
-const CONTABILIDAD_TABS = ['contabilidadCuentas', 'contabilidadPolizas', 'contabilidadCfdi', 'contabilidadConciliacion', 'contabilidadDepreciacion', 'contabilidadExport'];
+const CONTABILIDAD_TABS = ['contabilidadCuentas', 'contabilidadPolizas', 'contabilidadCfdi', 'contabilidadPagos', 'contabilidadConciliacion', 'contabilidadDepreciacion', 'contabilidadExport'];
 
 const ROLE_TABS = {
   // CONTABILIDAD_TABS aquí (solo admin/desarrollador): desde PR #130,
@@ -1481,7 +1481,7 @@ const TAB_ICONS = {
   nominas_global: '💵', trabajadores_global: '👷', cotizador: '🔍',
   estadoResultados: '📈', estadoResultadosGlobal: '📈', costos: '💲', avance_clientes: '📈', composicion_costos: '🧮',
   cuentas: '🏦', matrices: '🧱', controlFinanciero: '💹', dashboardEjecutivo: '📊', costosDashboard: '📊', catalogoBasicos: '📚',
-  contabilidadCuentas: '📒', contabilidadPolizas: '🧾', contabilidadCfdi: '📑',
+  contabilidadCuentas: '📒', contabilidadPolizas: '🧾', contabilidadCfdi: '📑', contabilidadPagos: '💳',
   contabilidadConciliacion: '🏦', contabilidadDepreciacion: '📉', contabilidadExport: '📤',
 };
 const TAB_LABELS = {
@@ -1497,6 +1497,7 @@ const TAB_LABELS = {
   cuentas: 'Cuentas', matrices: 'Matrices de precio unitario', controlFinanciero: 'Control Financiero', dashboardEjecutivo: 'Dashboard Ejecutivo',
   costosDashboard: 'Dashboard de Costos', catalogoBasicos: 'Catálogo de Básicos',
   contabilidadCuentas: 'Catálogo de Cuentas', contabilidadPolizas: 'Pólizas', contabilidadCfdi: 'CFDI',
+  contabilidadPagos: 'Pagos de OC',
   contabilidadConciliacion: 'Conciliación Bancaria', contabilidadDepreciacion: 'Depreciación de Maquinaria',
   contabilidadExport: 'Exportar / Reporte Mensual',
 };
@@ -4980,6 +4981,7 @@ async function renderView() {
       else if (state.view === 'contabilidadCuentas') await renderContabilidadCuentas(view);
       else if (state.view === 'contabilidadPolizas') await renderContabilidadPolizas(view);
       else if (state.view === 'contabilidadCfdi') await renderContabilidadCfdi(view);
+      else if (state.view === 'contabilidadPagos') await renderContabilidadPagos(view);
       else if (state.view === 'contabilidadConciliacion') await renderContabilidadConciliacion(view);
       else if (state.view === 'contabilidadDepreciacion') await renderContabilidadDepreciacion(view);
       else if (state.view === 'contabilidadExport') await renderContabilidadExport(view);
@@ -15003,6 +15005,143 @@ async function renderContabilidadCfdi(view) {
   await cargarCfdi();
 }
 
+// prompt-fase1-vinculacion-cfdi-pago-oc.md (diseño aprobado en
+// docs/fase0-vinculacion-factura-pago-oc-contabilidad.md): vista de pagos
+// de OC dentro de Contabilidad — muestra si cada pago ya tiene su CFDI
+// vinculado o no, para que Paul identifique de un vistazo qué le falta
+// antes de cerrar el mes. Mismo acceso que el resto de Contabilidad
+// (requireContabilidadAccess) — compras/tesorería NO ven esta pestaña
+// (CONTABILIDAD_TABS no está en ROLE_TABS.compras/.tesoreria).
+async function renderContabilidadPagos(view) {
+  view.innerHTML = `
+    <h2 class="section-title">Pagos de OC ${renderHelpBtn('contabilidadCfdi')}</h2>
+    <p class="muted">Pagos registrados en Órdenes de Compra — vincula la factura (CFDI) real del proveedor a cada uno para poder cuadrar el cierre de mes.</p>
+    <div class="card mt-12">
+      <label>Obra</label>
+      <select id="contPagosObraFiltro">
+        <option value="">Todas</option>
+        ${state.projects.map((p) => `<option value="${p.id}">${esc(p.nombre)}</option>`).join('')}
+      </select>
+      <label class="mt-8">Factura</label>
+      <select id="contPagosFacturaFiltro">
+        <option value="">Todos</option>
+        <option value="no">Sin factura vinculada</option>
+        <option value="si">Con factura vinculada</option>
+      </select>
+    </div>
+    <div id="contPagosList" class="mt-12"></div>
+  `;
+  async function cargarPagos() {
+    const list = $('#contPagosList');
+    list.innerHTML = '<div class="spinner"></div>';
+    try {
+      const params = new URLSearchParams();
+      const obra = $('#contPagosObraFiltro').value;
+      const factura = $('#contPagosFacturaFiltro').value;
+      if (obra) params.set('project_id', obra);
+      if (factura) params.set('con_factura', factura);
+      const pagos = await api(`/contabilidad/pagos${params.toString() ? `?${params}` : ''}`);
+      if (!pagos.length) { list.innerHTML = '<div class="empty-state">Sin pagos registrados.</div>'; return; }
+      list.innerHTML = `
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th>Fecha</th><th>OC</th><th>Obra</th><th>Proveedor</th><th class="num">Monto</th><th>Factura</th><th></th></tr></thead>
+            <tbody>
+              ${pagos.map((p) => `
+                <tr>
+                  <td>${fmtDate(p.fecha)}</td>
+                  <td>${esc(p.oc_folio || `OC #${p.oc_id}`)}</td>
+                  <td>${esc(p.project_nombre || '—')}</td>
+                  <td>${esc(p.proveedor_nombre)}</td>
+                  <td class="num">${fmtMoney(p.monto)}</td>
+                  <td>${p.cfdi_id
+                    ? `<span class="badge green">✓ ${esc(p.cfdi_uuid.slice(0, 8))}…</span>`
+                    : '<span class="badge yellow">Sin factura</span>'}</td>
+                  <td><button class="btn small" data-vincular-pago="${p.id}">${p.cfdi_id ? 'Cambiar' : 'Vincular factura'}</button></td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+      `;
+      $$('[data-vincular-pago]', list).forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const pago = pagos.find((p) => p.id === Number(btn.dataset.vincularPago));
+          openVincularFacturaModal(pago, cargarPagos);
+        });
+      });
+    } catch (err) {
+      list.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+    }
+  }
+  $('#contPagosObraFiltro').addEventListener('change', cargarPagos);
+  $('#contPagosFacturaFiltro').addEventListener('change', cargarPagos);
+  await cargarPagos();
+}
+
+// Busca CFDI candidatos por el RFC del proveedor de la OC del pago (reusa
+// GET /api/contabilidad/cfdi?rfc_emisor=... tal cual, sin endpoint nuevo)
+// y deja elegir uno, desvincular, o subir un CFDI nuevo y vincularlo en el
+// mismo paso (pago_id se manda a /cfdi/confirm, ver server/app.js).
+function openVincularFacturaModal(pago, onSaved) {
+  openModal(`
+    <h3>Vincular factura</h3>
+    <p class="muted">${esc(pago.oc_folio || `OC #${pago.oc_id}`)} · ${esc(pago.proveedor_nombre)} · ${fmtMoney(pago.monto)} · ${fmtDate(pago.fecha)}</p>
+    ${pago.proveedor_rfc ? '' : '<div class="alert-box danger">⚠️ Este proveedor no tiene RFC capturado — no se pueden sugerir candidatos automáticamente, solo subir uno nuevo.</div>'}
+    <div id="vincularCfdiCandidatos" class="mt-8"><div class="spinner"></div></div>
+    <div class="modal-actions">
+      <button class="btn" id="btnCerrarVincularCfdi">Cerrar</button>
+      ${pago.cfdi_id ? '<button class="btn btn-danger" id="btnDesvincularCfdi">Desvincular</button>' : ''}
+      <button class="btn btn-primary" id="btnSubirCfdiParaPago">+ Subir CFDI nuevo</button>
+    </div>
+  `);
+  $('#btnCerrarVincularCfdi').addEventListener('click', closeModal);
+  $('#btnDesvincularCfdi')?.addEventListener('click', async () => {
+    try {
+      await api(`/contabilidad/pagos/${pago.id}/cfdi`, { method: 'PATCH', body: { cfdi_id: null } });
+      toast('Factura desvinculada', 'success');
+      closeModal();
+      onSaved();
+    } catch (err) { toast(err.message, 'danger'); }
+  });
+  $('#btnSubirCfdiParaPago').addEventListener('click', () => openNuevoCfdiContModal(onSaved, pago.id));
+
+  (async () => {
+    const cont = $('#vincularCfdiCandidatos');
+    if (!pago.proveedor_rfc) { cont.innerHTML = ''; return; }
+    try {
+      const candidatos = await api(`/contabilidad/cfdi?rfc_emisor=${encodeURIComponent(pago.proveedor_rfc)}`);
+      if (!candidatos.length) {
+        cont.innerHTML = '<p class="muted">No hay CFDI en el repositorio con este RFC emisor todavía.</p>';
+        return;
+      }
+      cont.innerHTML = `
+        <p class="muted fs-08">CFDI candidatos (mismo RFC que el proveedor de esta OC):</p>
+        ${candidatos.map((c) => `
+          <div class="row between mb-6">
+            <span>${fmtDate(c.fecha_emision)} · ${esc(c.uuid)} · ${fmtMoney(c.total)}</span>
+            <button class="btn small ${pago.cfdi_id === c.id ? 'btn-primary' : ''}" data-elegir-cfdi="${c.id}">${pago.cfdi_id === c.id ? 'Vinculado' : 'Vincular'}</button>
+          </div>
+        `).join('')}
+      `;
+      $$('[data-elegir-cfdi]', cont).forEach((btn) => {
+        btn.addEventListener('click', async () => {
+          const cfdiId = Number(btn.dataset.elegirCfdi);
+          btn.disabled = true; btn.textContent = 'Vinculando…';
+          try {
+            await api(`/contabilidad/pagos/${pago.id}/cfdi`, { method: 'PATCH', body: { cfdi_id: cfdiId } });
+            toast('Factura vinculada', 'success');
+            closeModal();
+            onSaved();
+          } catch (err) { toast(err.message, 'danger'); btn.disabled = false; }
+        });
+      });
+    } catch (err) {
+      cont.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+    }
+  })();
+}
+
 async function renderContabilidadConciliacion(view) {
   view.innerHTML = `
     <h2 class="section-title">Conciliación Bancaria ${renderHelpBtn('contabilidadConciliacion')}</h2>
@@ -15385,7 +15524,11 @@ function openDetallePolizaContModal(poliza, onChange) {
 // el usuario revisa los campos, y /contabilidad/cfdi/confirm persiste —
 // mismo patrón preview→confirm que Contrato (promptUploadContrato/
 // openContratoFormModal).
-function openNuevoCfdiContModal(onSaved) {
+// pagoId opcional (prompt-fase1-vinculacion-cfdi-pago-oc.md): cuando se
+// abre desde "Vincular factura" sobre un pago, el CFDI recién creado queda
+// vinculado a ese pago en el mismo paso — se hilvana sin cambios al resto
+// del flujo (preview no sabe nada de pagos, solo el confirm final).
+function openNuevoCfdiContModal(onSaved, pagoId = null) {
   openModal(`
     <h3>Nuevo CFDI</h3>
     <p class="muted fs-08">Sube el XML del CFDI (recomendado — los datos se leen directo del archivo). Si solo tienes el PDF de representación impresa, se pueden extraer los datos con IA, pero revísalos con cuidado antes de guardar.</p>
@@ -15409,7 +15552,7 @@ function openNuevoCfdiContModal(onSaved) {
       if (pdfFile) fd.append('pdf', pdfFile);
       const preview = await api('/contabilidad/cfdi/preview', { method: 'POST', body: fd });
       closeModal();
-      openCfdiConfirmModal(preview, onSaved);
+      openCfdiConfirmModal(preview, onSaved, pagoId);
     } catch (err) {
       toast(err.message, 'danger');
       btn.disabled = false; btn.textContent = 'Extraer datos';
@@ -15417,7 +15560,7 @@ function openNuevoCfdiContModal(onSaved) {
   });
 }
 
-function openCfdiConfirmModal(preview, onSaved) {
+function openCfdiConfirmModal(preview, onSaved, pagoId = null) {
   const c = preview.campos;
   openModal(`
     <h3>Confirmar CFDI</h3>
@@ -15461,6 +15604,7 @@ function openCfdiConfirmModal(preview, onSaved) {
       nombre_archivo_xml: preview.nombre_archivo_xml,
       nombre_archivo_pdf: preview.nombre_archivo_pdf,
       project_id: $('#cfdiConfObra').value ? Number($('#cfdiConfObra').value) : null,
+      pago_id: pagoId,
     };
     if (!body.campos.uuid || !body.campos.rfc_emisor || !body.campos.rfc_receptor || !body.campos.fecha_emision ||
         !(body.campos.subtotal >= 0) || !(body.campos.total >= 0)) {
@@ -15470,7 +15614,7 @@ function openCfdiConfirmModal(preview, onSaved) {
     btn.disabled = true;
     try {
       await api('/contabilidad/cfdi/confirm', { method: 'POST', body });
-      toast('CFDI guardado', 'success');
+      toast(pagoId ? 'CFDI guardado y vinculado al pago' : 'CFDI guardado', 'success');
       closeModal();
       onSaved();
     } catch (err) {

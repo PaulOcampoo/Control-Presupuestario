@@ -1929,7 +1929,7 @@ app.post('/api/maquinaria/estado-unidad', h(auth.checkPermiso('estado_unidad', '
   }
   const equipo = await maquinaria.getEquipoById(Number(equipo_id));
   if (!equipo) return res.status(404).json({ error: 'Equipo no encontrado' });
-  if (equipo.operador_asignado_id !== req.user.id) {
+  if (req.user.puesto === 'operador' && equipo.operador_asignado_id !== req.user.id) {
     return res.status(403).json({ error: 'No tienes permiso para realizar esta acción' });
   }
   const catalogo = CHECKLIST_ESTADO_UNIDAD[equipo.categoria];
@@ -2024,7 +2024,7 @@ app.post('/api/maquinaria/consumibles', h(auth.checkPermiso('maquinaria_consumib
 
   const equipo = await maquinaria.getEquipoById(Number(equipo_id));
   if (!equipo) return res.status(404).json({ error: 'Equipo no encontrado' });
-  if (equipo.operador_asignado_id !== req.user.id) {
+  if (req.user.puesto === 'operador' && equipo.operador_asignado_id !== req.user.id) {
     return res.status(403).json({ error: 'No tienes permiso para realizar esta acción' });
   }
 

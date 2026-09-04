@@ -7623,10 +7623,13 @@ async function getRequisicionesData(pid, usuarioId = null) {
   return Promise.all(reqs.map(async (r) => {
     const { rows } = await db.pool.query(`
       SELECT COUNT(*) AS num_items,
-             COALESCE(SUM(importe), 0) AS importe_total,
-             COALESCE(SUM(alerta_cantidad), 0) AS alertas_cantidad,
-             COALESCE(SUM(alerta_precio), 0) AS alertas_precio
-      FROM requisicion_items WHERE requisicion_id = $1
+             COALESCE(SUM(ri.importe), 0) AS importe_total,
+             COALESCE(SUM(ri.alerta_cantidad), 0) AS alertas_cantidad,
+             COALESCE(SUM(ri.alerta_precio), 0) AS alertas_precio,
+             COALESCE(STRING_AGG(i.concepto, ' | '), '') AS conceptos_texto
+      FROM requisicion_items ri
+      JOIN insumos i ON i.id = ri.insumo_id
+      WHERE ri.requisicion_id = $1
     `, [r.id]);
     return { ...r, ...rows[0] };
   }));
@@ -8240,7 +8243,7 @@ async function getOrdenesData(pid) {
     // lista/export use totalConIvaDeItems() (respeta o.incluye_iva) en vez
     // de asumir que orden_compra_items.importe ya es el total pagable.
     const { rows: itemRows } = await db.pool.query(`
-      SELECT oci.importe, i.iva_tasa
+      SELECT oci.importe, i.iva_tasa, i.concepto AS insumo_concepto
       FROM orden_compra_items oci
       JOIN requisicion_items ri ON ri.id = oci.requisicion_item_id
       JOIN insumos i ON i.id = ri.insumo_id
@@ -8257,6 +8260,7 @@ async function getOrdenesData(pid) {
       importe_total: importeTotal,
       total_pagado: Number(totalPagado.toFixed(2)),
       saldo_pendiente: Number((importeTotal - totalPagado).toFixed(2)),
+      conceptos_texto: itemRows.map((it) => it.insumo_concepto).join(' | '),
     };
   }));
 }

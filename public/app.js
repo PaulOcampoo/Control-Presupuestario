@@ -150,6 +150,10 @@ const state = {
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
+// Mismo criterio de normalización ya usado en otros buscadores de la app
+// (ej. buscador de conceptos en destajo, línea ~8902): minúsculas + sin
+// acentos, para que "Concreto" y "concreto" o "cemento" y "cémento" matcheen.
+const normalizarTexto = (s) => (s || '').toString().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
 
 // ---------------------------------------------------------------------------
 // Íconos SVG minimalistas (Lucide-style, stroke, viewBox 0 0 24 24).
@@ -6618,6 +6622,11 @@ async function renderRequisiciones(view, initialSubView) {
         <button class="btn" id="btnExportRequisiciones">⭳ Exportar a Excel</button>
         ${puedeGestionarUsuarios() ? `<button class="btn" id="btnReqHistorial">🕘 Historial</button>` : ''}
       </div>
+      <div class="search-bar-fancy" id="reqSearchWrap">
+        <span class="search-icon">🔍</span>
+        <input id="reqSearchInput" placeholder="Buscar por folio o concepto/insumo…" autocomplete="off" />
+        <button type="button" class="search-clear" id="btnClearReqSearch" title="Limpiar búsqueda">✕</button>
+      </div>
       <div id="reqList"></div>
     `;
     bindSubNav();
@@ -6628,28 +6637,56 @@ async function renderRequisiciones(view, initialSubView) {
 
     const list = $('#reqList');
     if (!reqs.length) {
+      $('#reqSearchWrap').classList.add('hidden-initial');
       list.innerHTML = `<div class="empty-state"><div class="big">🧾</div>Aún no hay requisiciones.<br>Agrega insumos desde el catálogo y crea tu primera requisición.</div>`;
       return;
     }
-    list.innerHTML = reqs.map((r) => {
-      const alertCount = r.alertas_cantidad + r.alertas_precio;
-      const estadoBadge = { borrador: 'muted', enviada: 'yellow', autorizada: 'green', rechazada: 'red', cancelada: 'red' }[r.estado] || 'muted';
-      return `
-      <div class="card" data-req="${r.id}">
-        <div class="row between">
-          <div>
-            <strong>${esc(r.folio || `Requisición #${r.id}`)}</strong>
-            <div class="muted">${fmtDate(r.fecha)} · ${r.num_items} insumo${r.num_items === 1 ? '' : 's'} · ${fmtMoney(r.importe_total)}</div>
-          </div>
-          <span class="badge ${estadoBadge}">${esc(r.estado)}</span>
-        </div>
-        ${!r.fecha_suministro ? `<div class="row"><span class="badge yellow" title="No aparecerá en el Programa de suministros hasta que se le agregue una fecha">Sin fecha de suministro</span></div>` : ''}
-        ${alertCount ? `<div class="alert-box warn">⚠️${alertCount} alerta${alertCount === 1 ? '' : 's'}: ${r.alertas_cantidad ? `${r.alertas_cantidad} de cantidad ` : ''}${r.alertas_precio ? `${r.alertas_precio} de precio` : ''}</div>` : ''}
-        <div class="row end"><button class="btn small" data-view-req="${r.id}">Ver detalle</button></div>
-      </div>`;
-    }).join('');
 
-    $$('[data-view-req]', list).forEach((btn) => btn.addEventListener('click', () => openRequisicionDetail(Number(btn.dataset.viewReq))));
+    function pintarReqList(items) {
+      list.innerHTML = items.map((r) => {
+        const alertCount = r.alertas_cantidad + r.alertas_precio;
+        const estadoBadge = { borrador: 'muted', enviada: 'yellow', autorizada: 'green', rechazada: 'red', cancelada: 'red' }[r.estado] || 'muted';
+        return `
+        <div class="card" data-req="${r.id}">
+          <div class="row between">
+            <div>
+              <strong>${esc(r.folio || `Requisición #${r.id}`)}</strong>
+              <div class="muted">${fmtDate(r.fecha)} · ${r.num_items} insumo${r.num_items === 1 ? '' : 's'} · ${fmtMoney(r.importe_total)}</div>
+            </div>
+            <span class="badge ${estadoBadge}">${esc(r.estado)}</span>
+          </div>
+          ${!r.fecha_suministro ? `<div class="row"><span class="badge yellow" title="No aparecerá en el Programa de suministros hasta que se le agregue una fecha">Sin fecha de suministro</span></div>` : ''}
+          ${alertCount ? `<div class="alert-box warn">⚠️${alertCount} alerta${alertCount === 1 ? '' : 's'}: ${r.alertas_cantidad ? `${r.alertas_cantidad} de cantidad ` : ''}${r.alertas_precio ? `${r.alertas_precio} de precio` : ''}</div>` : ''}
+          <div class="row end"><button class="btn small" data-view-req="${r.id}">Ver detalle</button></div>
+        </div>`;
+      }).join('');
+
+      $$('[data-view-req]', list).forEach((btn) => btn.addEventListener('click', () => openRequisicionDetail(Number(btn.dataset.viewReq))));
+    }
+
+    function aplicarReqFiltro(raw) {
+      const q = raw.trim();
+      $('#reqSearchWrap').classList.toggle('has-value', !!q);
+      if (!q) { pintarReqList(reqs); return; }
+      const norm = normalizarTexto(q);
+      const filtrados = reqs.filter((r) => {
+        const hay = normalizarTexto(`${r.folio || ''} ${r.conceptos_texto || ''}`);
+        return hay.includes(norm);
+      });
+      if (!filtrados.length) {
+        list.innerHTML = `<div class="empty-state">Sin resultados para "${esc(q)}".</div>`;
+        return;
+      }
+      pintarReqList(filtrados);
+    }
+
+    pintarReqList(reqs);
+    $('#reqSearchInput').addEventListener('input', (e) => aplicarReqFiltro(e.target.value));
+    $('#btnClearReqSearch').addEventListener('click', () => {
+      $('#reqSearchInput').value = '';
+      aplicarReqFiltro('');
+      $('#reqSearchInput').focus();
+    });
   }
 
   async function showPrograma() {
@@ -7452,35 +7489,68 @@ async function renderOrdenes(view) {
     <div class="section-actions">
       <button class="btn" id="btnExportOrdenes">⭳ Exportar a Excel</button>
     </div>
+    <div class="search-bar-fancy" id="ocSearchWrap">
+      <span class="search-icon">🔍</span>
+      <input id="ocSearchInput" placeholder="Buscar por folio, proveedor o concepto/insumo…" autocomplete="off" />
+      <button type="button" class="search-clear" id="btnClearOcSearch" title="Limpiar búsqueda">✕</button>
+    </div>
     <div id="ordenesList"></div>
   `;
   wireExportButton('#btnExportOrdenes', `/projects/${state.projectId}/ordenes/export`);
 
   const list = $('#ordenesList');
   if (!ordenes.length) {
+    $('#ocSearchWrap').classList.add('hidden-initial');
     list.innerHTML = `<div class="empty-state"><div class="big">🧾</div>Aún no hay órdenes de compra.<br>Genera una desde el detalle de una requisición autorizada.</div>`;
     return;
   }
   const estadoBadge = { borrador: 'muted', enviada: 'yellow', confirmada: 'green', rechazada: 'red', recibida_parcial: 'yellow', recibida_completa: 'green', cancelada: 'red' };
-  list.innerHTML = ordenes.map((o) => `
-    <div class="card" data-oc="${o.id}">
-      <div class="row between">
-        <div>
-          <strong>${esc(o.folio || `OC #${o.id}`)}</strong>
-          <div class="muted">${fmtDate(o.fecha)} · ${esc(o.proveedor_nombre)} · req. ${esc(o.requisicion_folio || '')}</div>
-          <div class="muted">${o.num_items} insumo${o.num_items === 1 ? '' : 's'} · ${fmtMoney(o.importe_total)}</div>
-        </div>
-        <span class="badge ${estadoBadge[o.estado] || 'muted'}">${esc(o.estado)}</span>
-      </div>
-      <div class="row between mt-6-fs-084">
-        <span class="muted">Pagado: ${fmtMoney(o.total_pagado)}</span>
-        <span class="saldo-pendiente ${o.saldo_pendiente > 0 ? 'text-rojo' : 'text-verde'}">Saldo: ${fmtMoney(o.saldo_pendiente)}</span>
-      </div>
-      <div class="row end"><button class="btn small" data-view-oc="${o.id}">Ver detalle</button></div>
-    </div>
-  `).join('');
 
-  $$('[data-view-oc]', list).forEach((btn) => btn.addEventListener('click', () => openOrdenDetalle(Number(btn.dataset.viewOc))));
+  function pintarOcList(items) {
+    list.innerHTML = items.map((o) => `
+      <div class="card" data-oc="${o.id}">
+        <div class="row between">
+          <div>
+            <strong>${esc(o.folio || `OC #${o.id}`)}</strong>
+            <div class="muted">${fmtDate(o.fecha)} · ${esc(o.proveedor_nombre)} · req. ${esc(o.requisicion_folio || '')}</div>
+            <div class="muted">${o.num_items} insumo${o.num_items === 1 ? '' : 's'} · ${fmtMoney(o.importe_total)}</div>
+          </div>
+          <span class="badge ${estadoBadge[o.estado] || 'muted'}">${esc(o.estado)}</span>
+        </div>
+        <div class="row between mt-6-fs-084">
+          <span class="muted">Pagado: ${fmtMoney(o.total_pagado)}</span>
+          <span class="saldo-pendiente ${o.saldo_pendiente > 0 ? 'text-rojo' : 'text-verde'}">Saldo: ${fmtMoney(o.saldo_pendiente)}</span>
+        </div>
+        <div class="row end"><button class="btn small" data-view-oc="${o.id}">Ver detalle</button></div>
+      </div>
+    `).join('');
+
+    $$('[data-view-oc]', list).forEach((btn) => btn.addEventListener('click', () => openOrdenDetalle(Number(btn.dataset.viewOc))));
+  }
+
+  function aplicarOcFiltro(raw) {
+    const q = raw.trim();
+    $('#ocSearchWrap').classList.toggle('has-value', !!q);
+    if (!q) { pintarOcList(ordenes); return; }
+    const norm = normalizarTexto(q);
+    const filtrados = ordenes.filter((o) => {
+      const hay = normalizarTexto(`${o.folio || ''} ${o.proveedor_nombre || ''} ${o.requisicion_folio || ''} ${o.conceptos_texto || ''}`);
+      return hay.includes(norm);
+    });
+    if (!filtrados.length) {
+      list.innerHTML = `<div class="empty-state">Sin resultados para "${esc(q)}".</div>`;
+      return;
+    }
+    pintarOcList(filtrados);
+  }
+
+  pintarOcList(ordenes);
+  $('#ocSearchInput').addEventListener('input', (e) => aplicarOcFiltro(e.target.value));
+  $('#btnClearOcSearch').addEventListener('click', () => {
+    $('#ocSearchInput').value = '';
+    aplicarOcFiltro('');
+    $('#ocSearchInput').focus();
+  });
 }
 
 async function openOrdenDetalle(ocId) {

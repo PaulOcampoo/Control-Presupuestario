@@ -8450,6 +8450,54 @@ app.put('/api/projects/:id/ordenes/:ocId/estado', h(auth.allow('compras', 'tesor
   res.json({ ok: true });
 }));
 
+// Reasignar proveedor de una OC ya creada — diseño aprobado en
+// docs/fase0-reasignar-proveedor-oc.md. auth.allow() sin argumentos: solo
+// admin/desarrollador pasan (bypass hardcodeado en allow(), ver
+// server/auth.js:952-959), disponible en CUALQUIER estado de la OC porque
+// proveedor_id no está denormalizado en ningún lado (pagos/recepciones
+// referencian orden_compra_id, nunca proveedor_id — confirmado en Fase 0).
+app.patch('/api/projects/:id/ordenes/:ocId/proveedor', h(auth.allow()), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('ordenes_compra', 'puede_editar')), h(async (req, res) => {
+  const pid = req.project.id;
+  const ocId = Number(req.params.ocId);
+  const { proveedor_id, motivo } = req.body || {};
+  const proveedorIdNuevo = Number(proveedor_id);
+
+  const { rows: ocRows } = await db.pool.query(
+    `SELECT oc.*, pv.nombre AS proveedor_nombre_actual
+     FROM ordenes_compra oc JOIN proveedores pv ON pv.id = oc.proveedor_id
+     WHERE oc.id = $1 AND oc.project_id = $2`,
+    [ocId, pid]
+  );
+  if (!ocRows[0]) return res.status(404).json({ error: 'Orden de compra no encontrada' });
+  const oc = ocRows[0];
+
+  if (!proveedorIdNuevo) return res.status(400).json({ error: 'Selecciona un proveedor' });
+  if (proveedorIdNuevo === oc.proveedor_id) return res.status(400).json({ error: 'El proveedor ya es ese' });
+
+  const { rows: provRows } = await db.pool.query('SELECT * FROM proveedores WHERE id = $1', [proveedorIdNuevo]);
+  if (!provRows[0]) return res.status(400).json({ error: 'Proveedor no encontrado' });
+  if (!provRows[0].activo) return res.status(400).json({ error: 'El proveedor no está activo' });
+
+  await db.withTransaction(async (client) => {
+    await client.query('UPDATE ordenes_compra SET proveedor_id = $1 WHERE id = $2', [proveedorIdNuevo, ocId]);
+    const ip = auth.getIp(req);
+    await client.query(
+      `INSERT INTO audit_log (actor_id, actor_usuario, accion, target_id, project_id, ip, detalle)
+       VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+      [req.user.id, req.user.usuario, 'reasignar_proveedor_oc', ocId, pid, ip,
+        JSON.stringify({
+          oc_folio: oc.folio,
+          proveedor_anterior_id: oc.proveedor_id,
+          proveedor_anterior_nombre: oc.proveedor_nombre_actual,
+          proveedor_nuevo_id: proveedorIdNuevo,
+          proveedor_nuevo_nombre: provRows[0].nombre,
+          motivo: motivo || null,
+        })]
+    );
+  });
+  res.json({ ok: true, proveedor_id: proveedorIdNuevo, proveedor_nombre: provRows[0].nombre });
+}));
+
 app.delete('/api/projects/:id/ordenes/:ocId', h(auth.allow('compras')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('ordenes_compra', 'puede_eliminar')), h(async (req, res) => {
   const ocId = Number(req.params.ocId);
   const { rows: ocRows } = await db.pool.query(

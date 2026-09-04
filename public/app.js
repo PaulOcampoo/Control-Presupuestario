@@ -7566,7 +7566,10 @@ async function openOrdenDetalle(ocId) {
     const puedeRecibir = ['confirmada', 'recibida_parcial'].includes(o.estado);
     openModal(`
       <h3>${esc(o.folio || `Orden de Compra #${o.id}`)}</h3>
-      <div class="card-row"><span class="k">Proveedor</span><span class="v">${esc(o.proveedor_nombre)}</span></div>
+      <div class="card-row">
+        <span class="k">Proveedor</span>
+        <span class="v">${esc(o.proveedor_nombre)}${isAdmin() ? ' <button type="button" class="btn small" id="btnReasignarProveedor" title="Reasignar proveedor">✏️ Reasignar</button>' : ''}</span>
+      </div>
       ${o.proveedor_contacto ? `<div class="card-row"><span class="k">Contacto</span><span class="v">${esc(o.proveedor_contacto)}</span></div>` : ''}
       ${o.proveedor_telefono ? `<div class="card-row"><span class="k">Teléfono</span><span class="v">${esc(o.proveedor_telefono)}</span></div>` : ''}
       <div class="card-row"><span class="k">Requisición origen</span><span class="v">${esc(o.requisicion_folio || '')}</span></div>
@@ -7630,12 +7633,68 @@ async function openOrdenDetalle(ocId) {
     });
     $('#btnRegistrarRecepcion')?.addEventListener('click', () => openRegistrarRecepcionModal(o));
     $('#btnRegistrarPago')?.addEventListener('click', () => openRegistrarPagoOcModal(o));
+    $('#btnReasignarProveedor')?.addEventListener('click', () => openReasignarProveedorModal(o, () => openOrdenDetalle(ocId)));
 
     await Promise.all([paintOcRecepciones(ocId), paintOcPagos(ocId)]);
   } catch (err) {
     closeModal();
     toast(err.message, 'danger');
   }
+}
+
+// Reasignar proveedor de una OC ya creada (prompt-fase1-reasignar-
+// proveedor-oc.md) — admin/desarrollador only (el botón que abre este modal
+// ya está gateado por isAdmin() en openOrdenDetalle; el backend repite el
+// mismo candado vía auth.allow() sin argumentos, por si se llama la API
+// directo). Disponible en cualquier estado de la OC — proveedor_id no está
+// denormalizado en pagos/recepciones (ver docs/fase0-reasignar-proveedor-oc.md).
+async function openReasignarProveedorModal(oc, onSaved) {
+  openModal('<div class="spinner"></div>');
+  let proveedores = [];
+  try {
+    proveedores = await api('/proveedores');
+  } catch (err) {
+    closeModal();
+    toast(err.message, 'danger');
+    return;
+  }
+  openModal(`
+    <h3>Reasignar proveedor</h3>
+    <p class="muted">Proveedor actual de ${esc(oc.folio || `OC #${oc.id}`)}: <strong>${esc(oc.proveedor_nombre)}</strong></p>
+    <div class="field"><label>Nuevo proveedor</label>
+      <select id="reasignarProveedorSelect">${proveedores.map((p) => `<option value="${p.id}" ${p.id === oc.proveedor_id ? 'selected' : ''}>${esc(p.nombre)}</option>`).join('')}</select>
+    </div>
+    <div class="field"><label>Motivo del cambio (opcional)</label><textarea id="reasignarProveedorMotivo" rows="2" placeholder="Ej. Se capturó el proveedor equivocado al generar la OC."></textarea></div>
+    <div class="modal-actions">
+      <button class="btn" id="btnCancelReasignarProveedor">Cancelar</button>
+      <button class="btn btn-primary" id="btnSaveReasignarProveedor">Reasignar proveedor</button>
+    </div>
+  `);
+  $('#btnCancelReasignarProveedor').addEventListener('click', closeModal);
+  $('#btnSaveReasignarProveedor').addEventListener('click', async () => {
+    const nuevoId = Number($('#reasignarProveedorSelect').value);
+    const nuevo = proveedores.find((p) => p.id === nuevoId);
+    if (!nuevo) return;
+    if (nuevoId === oc.proveedor_id) { toast('El proveedor ya es ese', 'danger'); return; }
+    // Leer el motivo ANTES de confirmDialog: confirmDialog hace su propio
+    // openModal(), que reemplaza el innerHTML de #modal y se lleva entre
+    // las patas el textarea — leerlo después regresa null y truena en
+    // silencio (nunca llega a llamar la API).
+    const motivo = $('#reasignarProveedorMotivo').value.trim() || undefined;
+    const ok = await confirmDialog(
+      `¿Seguro que quieres reasignar el proveedor de ${oc.folio || `OC #${oc.id}`} de "${oc.proveedor_nombre}" a "${nuevo.nombre}"? Esta OC está en estado "${oc.estado}" — el cambio queda registrado en auditoría.`,
+      { titulo: 'Confirmar reasignación', textoAceptar: 'Sí, reasignar' }
+    );
+    if (!ok) return;
+    try {
+      await api(`/projects/${state.projectId}/ordenes/${oc.id}/proveedor`, {
+        method: 'PATCH',
+        body: { proveedor_id: nuevoId, motivo },
+      });
+      toast('Proveedor reasignado', 'success');
+      if (onSaved) await onSaved();
+    } catch (err) { toast(err.message, 'danger'); }
+  });
 }
 
 async function paintOcRecepciones(ocId) {

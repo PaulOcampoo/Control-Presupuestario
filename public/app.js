@@ -15017,7 +15017,9 @@ async function renderContabilidadPagos(view) {
     <h2 class="section-title">Pagos de OC ${renderHelpBtn('contabilidadCfdi')}</h2>
     <p class="muted">Pagos registrados en Órdenes de Compra — vincula la factura (CFDI) real del proveedor a cada uno para poder cuadrar el cierre de mes.</p>
     <div class="card mt-12">
-      <label>Obra</label>
+      <label>Mes</label>
+      <input type="month" id="contPagosMesInput" value="${mesActualInputValue()}" />
+      <label class="mt-8">Obra</label>
       <select id="contPagosObraFiltro">
         <option value="">Todas</option>
         ${state.projects.map((p) => `<option value="${p.id}">${esc(p.nombre)}</option>`).join('')}
@@ -15029,18 +15031,45 @@ async function renderContabilidadPagos(view) {
         <option value="si">Con factura vinculada</option>
       </select>
     </div>
+    <div id="contPagosResumen" class="mt-12"></div>
     <div id="contPagosList" class="mt-12"></div>
   `;
   async function cargarPagos() {
+    const resumen = $('#contPagosResumen');
     const list = $('#contPagosList');
+    resumen.innerHTML = '';
     list.innerHTML = '<div class="spinner"></div>';
     try {
+      const mes = $('#contPagosMesInput').value;
       const params = new URLSearchParams();
       const obra = $('#contPagosObraFiltro').value;
       const factura = $('#contPagosFacturaFiltro').value;
+      if (mes) params.set('mes', mes);
       if (obra) params.set('project_id', obra);
       if (factura) params.set('con_factura', factura);
       const pagos = await api(`/contabilidad/pagos${params.toString() ? `?${params}` : ''}`);
+      if (mes) {
+        // Resumen del mes (prompt-fase2-cierre-mensual-pagos-oc.md) — se
+        // calcula sobre TODOS los pagos del mes, no sobre el resultado ya
+        // filtrado por el select de Factura, para que el total siempre
+        // cuadre con el cierre real aunque Paul esté usando el filtro
+        // solo para mirar los pendientes.
+        const paramsResumen = new URLSearchParams({ mes });
+        if (obra) paramsResumen.set('project_id', obra);
+        const pagosMes = factura ? await api(`/contabilidad/pagos?${paramsResumen}`) : pagos;
+        const totalPagado = pagosMes.reduce((acc, p) => acc + Number(p.monto), 0);
+        const conFactura = pagosMes.filter((p) => p.cfdi_id);
+        const sinFactura = pagosMes.filter((p) => !p.cfdi_id);
+        const totalConFactura = conFactura.reduce((acc, p) => acc + Number(p.monto), 0);
+        const totalSinFactura = sinFactura.reduce((acc, p) => acc + Number(p.monto), 0);
+        resumen.innerHTML = `
+          <div class="kpi-grid">
+            <div class="kpi accent"><div class="label">Total pagado en el mes</div><div class="value">${fmtMoney(totalPagado)}</div></div>
+            <div class="kpi green"><div class="label">Con factura vinculada</div><div class="value">${fmtMoney(totalConFactura)}</div><div class="muted fs-08">${conFactura.length} pago(s)</div></div>
+            <div class="kpi ${sinFactura.length ? 'red' : 'green'}"><div class="label">Falta vincular</div><div class="value">${fmtMoney(totalSinFactura)}</div><div class="muted fs-08">${sinFactura.length} pago(s)</div></div>
+          </div>
+        `;
+      }
       if (!pagos.length) { list.innerHTML = '<div class="empty-state">Sin pagos registrados.</div>'; return; }
       list.innerHTML = `
         <div class="table-scroll">
@@ -15048,7 +15077,7 @@ async function renderContabilidadPagos(view) {
             <thead><tr><th>Fecha</th><th>OC</th><th>Obra</th><th>Proveedor</th><th class="num">Monto</th><th>Factura</th><th></th></tr></thead>
             <tbody>
               ${pagos.map((p) => `
-                <tr>
+                <tr class="${p.cfdi_id ? '' : 'row-sin-factura'}">
                   <td>${fmtDate(p.fecha)}</td>
                   <td>${esc(p.oc_folio || `OC #${p.oc_id}`)}</td>
                   <td>${esc(p.project_nombre || '—')}</td>
@@ -15074,6 +15103,7 @@ async function renderContabilidadPagos(view) {
       list.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
     }
   }
+  $('#contPagosMesInput').addEventListener('change', cargarPagos);
   $('#contPagosObraFiltro').addEventListener('change', cargarPagos);
   $('#contPagosFacturaFiltro').addEventListener('change', cargarPagos);
   await cargarPagos();

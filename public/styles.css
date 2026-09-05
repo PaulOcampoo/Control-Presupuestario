@@ -1178,6 +1178,11 @@ label { display: block; font-size: var(--fs-sm); color: var(--text-secondary); m
 .badge.muted { background: rgba(148,163,184,0.15); color: var(--text-secondary); }
 .badge.purple { background: rgba(168,85,247,0.15); color: #a855f7; }
 
+/* prompt-fase2-cierre-mensual-pagos-oc.md: resalta filas de pagos sin
+   factura vinculada en la tabla de cierre mensual, para que Paul las
+   identifique de un vistazo antes de cerrar el mes. */
+.row-sin-factura { background: rgba(234,179,8,0.08); }
+
 /* prompt-32-fix-listado-trabajadores-duplicado.md: desplegable inline de
    obras de un trabajador con 2+ asignaciones, dentro de la celda "Obra". */
 .obras-expand summary { cursor: pointer; list-style: none; display: inline-flex; align-items: center; gap: var(--space-6); }

@@ -510,7 +510,28 @@ async function getDatosExportacionMes({ mes, projectId }) {
   `, paramsDeprec);
   const depreciacion = deprecRows.map((r) => ({ ...r, ...calcularDepreciacion(r, mes) }));
 
-  return { polizas, cfdi, movimientos, depreciacion };
+  // Pagos de OC del mes (prompt-fase2-cierre-mensual-pagos-oc.md) — misma
+  // fuente que GET /api/contabilidad/pagos (server/app.js), filtrada por
+  // fecha de pago en vez de traer las últimas 200 sin filtro de mes.
+  const paramsPagos = [inicio, fin];
+  let wherePagos = 'p.fecha >= $1 AND p.fecha < $2';
+  if (projectId) { paramsPagos.push(projectId); wherePagos += ` AND oc.project_id = $${paramsPagos.length}`; }
+  const { rows: pagos } = await db.pool.query(`
+    SELECT p.id, p.fecha, p.monto, p.metodo, p.referencia, p.cfdi_id,
+           oc.id AS oc_id, oc.folio AS oc_folio, oc.project_id,
+           pr.nombre AS project_nombre,
+           pv.nombre AS proveedor_nombre, pv.rfc AS proveedor_rfc,
+           c.uuid AS cfdi_uuid, c.total AS cfdi_total
+    FROM pagos p
+    JOIN ordenes_compra oc ON oc.id = p.orden_compra_id
+    JOIN proveedores pv ON pv.id = oc.proveedor_id
+    LEFT JOIN proyectos pr ON pr.id = oc.project_id
+    LEFT JOIN cfdi c ON c.id = p.cfdi_id
+    WHERE ${wherePagos}
+    ORDER BY p.fecha, p.id
+  `, paramsPagos);
+
+  return { polizas, cfdi, movimientos, depreciacion, pagos };
 }
 
 module.exports = {
@@ -536,4 +557,5 @@ module.exports = {
   updateDepreciacion,
   generarPolizaDepreciacion,
   getDatosExportacionMes,
+  limitesMes,
 };

@@ -5381,23 +5381,39 @@ app.post('/api/contabilidad/cfdi/confirm', h(auth.requireContabilidadAccess), h(
   if (!b.xml_blob_url && !b.pdf_blob_url) {
     return res.status(400).json({ error: 'No se recibió ningún archivo — vuelve a intentar la subida' });
   }
+  // pago_id opcional (prompt-fase1-vinculacion-cfdi-pago-oc.md): permite
+  // subir un CFDI nuevo y dejarlo vinculado al pago en el mismo paso, sin
+  // que el usuario tenga que ir y volver entre "Nuevo CFDI" y "Vincular
+  // factura". Se valida ANTES del insert para no crear un CFDI huérfano si
+  // el pago_id viene mal.
+  const pagoId = b.pago_id != null ? Number(b.pago_id) : null;
+  if (pagoId != null) {
+    const { rows: pagoRows } = await db.pool.query('SELECT id FROM pagos WHERE id = $1', [pagoId]);
+    if (!pagoRows[0]) return res.status(400).json({ error: 'El pago indicado no existe' });
+  }
   try {
-    const { rows } = await db.pool.query(
-      `INSERT INTO cfdi (
-         uuid, rfc_emisor, rfc_receptor, fecha_emision, subtotal, iva, total, tipo_comprobante,
-         origen, xml_blob_url, pdf_blob_url, nombre_archivo_xml, nombre_archivo_pdf, project_id, subido_por
-       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
-       RETURNING *`,
-      [
-        campos.uuid, campos.rfc_emisor, campos.rfc_receptor, campos.fecha_emision || null,
-        campos.subtotal != null ? Number(campos.subtotal) : null, Number(campos.iva) || 0, Number(campos.total),
-        campos.tipo_comprobante || null, b.origen === 'pdf_representacion' ? 'pdf_representacion' : 'xml',
-        b.xml_blob_url || null, b.pdf_blob_url || null,
-        b.nombre_archivo_xml || null, b.nombre_archivo_pdf || null,
-        b.project_id ? Number(b.project_id) : null, req.user.id,
-      ]
-    );
-    res.status(201).json(rows[0]);
+    const cfdi = await db.withTransaction(async (client) => {
+      const { rows } = await client.query(
+        `INSERT INTO cfdi (
+           uuid, rfc_emisor, rfc_receptor, fecha_emision, subtotal, iva, total, tipo_comprobante,
+           origen, xml_blob_url, pdf_blob_url, nombre_archivo_xml, nombre_archivo_pdf, project_id, subido_por
+         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+         RETURNING *`,
+        [
+          campos.uuid, campos.rfc_emisor, campos.rfc_receptor, campos.fecha_emision || null,
+          campos.subtotal != null ? Number(campos.subtotal) : null, Number(campos.iva) || 0, Number(campos.total),
+          campos.tipo_comprobante || null, b.origen === 'pdf_representacion' ? 'pdf_representacion' : 'xml',
+          b.xml_blob_url || null, b.pdf_blob_url || null,
+          b.nombre_archivo_xml || null, b.nombre_archivo_pdf || null,
+          b.project_id ? Number(b.project_id) : null, req.user.id,
+        ]
+      );
+      if (pagoId != null) {
+        await client.query('UPDATE pagos SET cfdi_id = $1 WHERE id = $2', [rows[0].id, pagoId]);
+      }
+      return rows[0];
+    });
+    res.status(201).json(cfdi);
   } catch (err) {
     if (err.code === '23505') { // unique_violation (uuid)
       return res.status(409).json({ error: `Ya existe un CFDI registrado con el UUID ${campos.uuid}` });
@@ -5453,6 +5469,60 @@ app.get('/api/contabilidad/cfdi/:id/archivo', h(auth.requireContabilidadAccess),
   res.setHeader('Content-Type', tipo === 'pdf' ? 'application/pdf' : 'application/xml');
   res.setHeader('Content-Disposition', safeContentDisposition('inline', nombreArchivo));
   await pipeline(Readable.fromWeb(blobResult.stream), res);
+}));
+
+// ---------------------------------------------------------------------------
+// Vinculación CFDI↔pago de OC (prompt-fase1-vinculacion-cfdi-pago-oc.md,
+// diseño aprobado en docs/fase0-vinculacion-factura-pago-oc-contabilidad.md).
+// El vínculo se hace DESDE Contabilidad (mismo auth.requireContabilidadAccess
+// que el resto del repositorio CFDI) — deliberadamente NO se amplía el
+// acceso a compras/tesorería, que son quienes registran el pago pero no
+// tienen por qué ver el repositorio fiscal completo. pagos.cfdi_id es FK
+// simple (1 pago → a lo más 1 CFDI), no tabla puente — ver diseño Fase 0
+// para la justificación y la condición bajo la que cambiaría.
+// ---------------------------------------------------------------------------
+app.get('/api/contabilidad/pagos', h(auth.requireContabilidadAccess), h(async (req, res) => {
+  const { project_id, con_factura } = req.query;
+  const where = [];
+  const params = [];
+  if (project_id) { params.push(Number(project_id)); where.push(`oc.project_id = $${params.length}`); }
+  if (con_factura === 'si') where.push('p.cfdi_id IS NOT NULL');
+  if (con_factura === 'no') where.push('p.cfdi_id IS NULL');
+  const { rows } = await db.pool.query(`
+    SELECT p.id, p.fecha, p.monto, p.metodo, p.referencia, p.cfdi_id,
+           oc.id AS oc_id, oc.folio AS oc_folio, oc.project_id,
+           pr.nombre AS project_nombre,
+           pv.id AS proveedor_id, pv.nombre AS proveedor_nombre, pv.rfc AS proveedor_rfc,
+           c.uuid AS cfdi_uuid, c.total AS cfdi_total
+    FROM pagos p
+    JOIN ordenes_compra oc ON oc.id = p.orden_compra_id
+    JOIN proveedores pv ON pv.id = oc.proveedor_id
+    LEFT JOIN proyectos pr ON pr.id = oc.project_id
+    LEFT JOIN cfdi c ON c.id = p.cfdi_id
+    ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
+    ORDER BY p.fecha DESC, p.id DESC
+    LIMIT 200
+  `, params);
+  res.json(rows);
+}));
+
+app.patch('/api/contabilidad/pagos/:pagoId/cfdi', h(auth.requireContabilidadAccess), h(async (req, res) => {
+  const pagoId = Number(req.params.pagoId);
+  const { cfdi_id } = req.body || {};
+  const { rows: pagoRows } = await db.pool.query('SELECT id FROM pagos WHERE id = $1', [pagoId]);
+  if (!pagoRows[0]) return res.status(404).json({ error: 'Pago no encontrado' });
+
+  let cfdiId = null;
+  if (cfdi_id != null) {
+    cfdiId = Number(cfdi_id);
+    const { rows: cfdiRows } = await db.pool.query('SELECT id FROM cfdi WHERE id = $1', [cfdiId]);
+    if (!cfdiRows[0]) return res.status(400).json({ error: 'CFDI no encontrado' });
+  }
+
+  const { rows } = await db.pool.query(
+    'UPDATE pagos SET cfdi_id = $1 WHERE id = $2 RETURNING *', [cfdiId, pagoId]
+  );
+  res.json(rows[0]);
 }));
 
 // ---------------------------------------------------------------------------

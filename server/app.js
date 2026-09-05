@@ -5482,12 +5482,18 @@ app.get('/api/contabilidad/cfdi/:id/archivo', h(auth.requireContabilidadAccess),
 // para la justificación y la condición bajo la que cambiaría.
 // ---------------------------------------------------------------------------
 app.get('/api/contabilidad/pagos', h(auth.requireContabilidadAccess), h(async (req, res) => {
-  const { project_id, con_factura } = req.query;
+  const { project_id, con_factura, mes } = req.query;
+  if (mes && !MES_YYYY_MM_RE.test(mes)) return res.status(400).json({ error: 'Indica el mes en formato YYYY-MM' });
   const where = [];
   const params = [];
   if (project_id) { params.push(Number(project_id)); where.push(`oc.project_id = $${params.length}`); }
   if (con_factura === 'si') where.push('p.cfdi_id IS NOT NULL');
   if (con_factura === 'no') where.push('p.cfdi_id IS NULL');
+  if (mes) {
+    const { inicio, fin } = contabilidad.limitesMes(mes);
+    params.push(inicio); where.push(`p.fecha >= $${params.length}`);
+    params.push(fin); where.push(`p.fecha < $${params.length}`);
+  }
   const { rows } = await db.pool.query(`
     SELECT p.id, p.fecha, p.monto, p.metodo, p.referencia, p.cfdi_id,
            oc.id AS oc_id, oc.folio AS oc_folio, oc.project_id,
@@ -5706,13 +5712,15 @@ app.post('/api/contabilidad/depreciacion/:id/generar-poliza', h(auth.requireCont
 
 // ---------------------------------------------------------------------------
 // Contabilidad Fase 5 (prompt-contabilidad-fase5-exportacion.md) — export
-// mensual consolidado a Excel (4 hojas: Pólizas, CFDI, Movimientos Bancarios
-// Conciliados, Depreciación). Mismo whitelist que Fase 1-4, mismo patrón de
-// rate limiting que el resto de exports del proyecto (EXPORT_RATE_LIMIT,
-// server ~3837). Nunca persiste/cachea — se genera al vuelo en cada request.
-// Si las 4 fuentes están vacías para el mes/obra pedidos, 400 con mensaje
-// claro en vez de generar un .xlsx con 4 hojas sin una sola fila (diagnóstico
-// Fase 5, checkpoint "mensaje claro antes de generar").
+// mensual consolidado a Excel (5 hojas: Pólizas, CFDI, Movimientos Bancarios
+// Conciliados, Depreciación, Pagos OC — la 5ª agregada en
+// prompt-fase2-cierre-mensual-pagos-oc.md). Mismo whitelist que Fase 1-4,
+// mismo patrón de rate limiting que el resto de exports del proyecto
+// (EXPORT_RATE_LIMIT, server ~3837). Nunca persiste/cachea — se genera al
+// vuelo en cada request. Si las 5 fuentes están vacías para el mes/obra
+// pedidos, 400 con mensaje claro en vez de generar un .xlsx con 5 hojas sin
+// una sola fila (diagnóstico Fase 5, checkpoint "mensaje claro antes de
+// generar").
 // ---------------------------------------------------------------------------
 app.get('/api/contabilidad/export', h(auth.requireContabilidadAccess), h(async (req, res) => {
   const { mes, project_id } = req.query;
@@ -5729,9 +5737,9 @@ app.get('/api/contabilidad/export', h(auth.requireContabilidadAccess), h(async (
     return res.status(429).json({ error: `Límite de exports alcanzado (${EXPORT_RATE_LIMIT} por hora). Intenta más tarde.` });
   }
 
-  const { polizas, cfdi, movimientos, depreciacion } = await contabilidad.getDatosExportacionMes({ mes, projectId });
-  if (!polizas.length && !cfdi.length && !movimientos.length && !depreciacion.length) {
-    return res.status(400).json({ error: `No hay datos de Contabilidad (pólizas, CFDI, movimientos conciliados ni depreciación) para ${mes}${projectId ? ' en esta obra' : ''}.` });
+  const { polizas, cfdi, movimientos, depreciacion, pagos } = await contabilidad.getDatosExportacionMes({ mes, projectId });
+  if (!polizas.length && !cfdi.length && !movimientos.length && !depreciacion.length && !pagos.length) {
+    return res.status(400).json({ error: `No hay datos de Contabilidad (pólizas, CFDI, movimientos conciliados, depreciación ni pagos de OC) para ${mes}${projectId ? ' en esta obra' : ''}.` });
   }
 
   await db.pool.query('INSERT INTO api_rate_limits (usuario_id, endpoint) VALUES ($1, $2)', [req.user.id, 'export_contabilidad']);
@@ -5801,6 +5809,25 @@ app.get('/api/contabilidad/export', h(auth.requireContabilidadAccess), h(async (
           { header: 'Fecha de Baja', key: 'fecha_baja', width: 14 },
         ],
         rows: depreciacion.map((d) => ({ ...d, fecha_baja: d.fecha_baja || '' })),
+      },
+      {
+        sheetName: 'Pagos OC',
+        columns: [
+          { header: 'Fecha', key: 'fecha', width: 14 },
+          { header: 'OC', key: 'oc_folio', width: 16 },
+          { header: 'Obra', key: 'project_nombre', width: 24 },
+          { header: 'Proveedor', key: 'proveedor_nombre', width: 26 },
+          { header: 'Monto', key: 'monto', width: 16, format: 'money' },
+          { header: 'Folio Fiscal (CFDI)', key: 'cfdi_uuid', width: 38 },
+          { header: 'Estado', key: 'estado_factura', width: 16 },
+        ],
+        rows: pagos.map((p) => ({
+          ...p,
+          oc_folio: p.oc_folio || `OC #${p.oc_id}`,
+          project_nombre: p.project_nombre || 'Corporativo',
+          cfdi_uuid: p.cfdi_uuid || '',
+          estado_factura: p.cfdi_id ? 'Con factura' : 'Sin factura',
+        })),
       },
     ],
   });

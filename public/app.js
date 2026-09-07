@@ -358,6 +358,7 @@ function animationForChart(key) {
 const PALETTE_META_COLORS = {
   dorada: { light: '#EAEEF5', dark: '#0B1220' },
   morada: { light: '#F3EFFA', dark: '#030014' },
+  azul: { light: '#EAF1FB', dark: '#030916' },
 };
 function updateThemeColorMeta() {
   const meta = document.querySelector('meta[name="theme-color"]');
@@ -2298,6 +2299,10 @@ function openMobileAjustes() {
           <button class="palette-opt ${pal==='naranja'?'active':''}" data-palette-set="naranja">
             <span class="palette-swatch palette-swatch-naranja"><span></span><span></span><span></span></span>
             Tema TERRA
+          </button>
+          <button class="palette-opt ${pal==='azul'?'active':''}" data-palette-set="azul">
+            <span class="palette-swatch palette-swatch-azul"><span></span><span></span><span></span></span>
+            Tema ZAFIRO
           </button>
         </div>
       </div>

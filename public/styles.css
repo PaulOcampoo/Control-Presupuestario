@@ -430,6 +430,33 @@ html[data-palette="dorada"][data-theme="light"] {
   --accent-silver: #A17A54;
 }
 
+/* Paleta Azul ("Tema ZAFIRO", prompt-claude-code-tema-azul-app-cp.md) — mismo
+   patrón tonal y misma lógica de especificidad que Morada/Verde/Naranja
+   arriba. Base #2563EB (Azul Zafiro), mismo valor usado en la demo
+   hermana, para consistencia de marca entre ambos productos. */
+[data-palette="azul"] {
+  --bg-primary: #030916;
+  --bg-surface: #0A1830;
+  --bg-surface-2: #142744;
+  --border-color: #1F3A5C;
+  --text-primary: #E8EEFC;
+  --text-secondary: #93A8CC;
+  --accent-gold: #2563EB;
+  --accent-gold-hover: #3B82F6;
+  --accent-silver: #6C86B8;
+}
+[data-palette="azul"][data-theme="light"] {
+  --bg-primary: #EAF1FB;
+  --bg-surface: #F5F9FE;
+  --bg-surface-2: #DCE9F8;
+  --border-color: #C3D8F0;
+  --text-primary: #14233D;
+  --text-secondary: #4F6A92;
+  --accent-gold: #1D4ED8;
+  --accent-gold-hover: #1E40AF;
+  --accent-silver: #5C7398;
+}
+
 * { box-sizing: border-box; }
 html, body { height: 100%; }
 body {
@@ -2419,6 +2446,9 @@ html[data-palette="dorada"]:not([data-theme="light"]) .welcome-card {
 .palette-swatch-naranja span:nth-child(1) { background: #180D03; }
 .palette-swatch-naranja span:nth-child(2) { background: #F97316; }
 .palette-swatch-naranja span:nth-child(3) { background: #FB923C; }
+.palette-swatch-azul span:nth-child(1) { background: #030916; }
+.palette-swatch-azul span:nth-child(2) { background: #2563EB; }
+.palette-swatch-azul span:nth-child(3) { background: #3B82F6; }
 
 /* ── Barra de navegación móvil — isla "liquid glass" ─────────────────────
    Flotante y separada de los bordes (--mobile-nav-gap), vidrio esmerilado

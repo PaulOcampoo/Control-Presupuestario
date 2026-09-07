@@ -113,3 +113,19 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets.NEON_PRODUCTION_DATABASE_URL_DIRECT }}
         run: node scripts/notificar-fallo-backup.js
+
+  # TEMPORAL -- prueba de la condicion de arriba en un run real de Actions,
+  # sin tocar el job de backup real ni gastar el secret. Se borra en el
+  # siguiente commit tras confirmar el resultado (prompt-fix-notificacion-
+  # backup-solo-main.md).
+  test-condicion-temporal:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Forzar fallo (simula backup roto)
+        run: exit 1
+      - name: Notificaria en produccion? (misma condicion que el job real)
+        if: failure() && github.event_name == 'schedule' && github.ref == 'refs/heads/main'
+        run: echo "BUG -- esto NO deberia imprimirse en un workflow_dispatch"
+      - name: Confirmar supresion
+        if: failure() && !(github.event_name == 'schedule' && github.ref == 'refs/heads/main')
+        run: echo "OK -- notificacion suprimida (event=${{ github.event_name }}, ref=${{ github.ref }})"

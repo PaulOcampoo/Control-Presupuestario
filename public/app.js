@@ -3010,7 +3010,7 @@ function openTotpLoginModal(preAuthToken) {
     <h3>Verificación en dos pasos</h3>
     <p class="muted">Ingresa el código de 6 dígitos de tu app autenticadora.</p>
     <div class="field"><label>Código</label><input id="totpLoginCode" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="000000" /></div>
-    <p class="muted fs-078"><a href="#" id="linkUseBackupCode">¿Perdiste el acceso? Usa un código de respaldo</a></p>
+    <p class="muted fs-078"><a href="#" id="linkUseBackupCode" class="link-btn">¿Perdiste el acceso? Usa un código de respaldo</a></p>
     <div class="field hidden-initial" id="totpBackupField">
       <label>Código de respaldo</label>
       <input id="totpBackupCode" autocomplete="off" placeholder="XXXX-XXXX" />

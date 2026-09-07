@@ -10239,11 +10239,42 @@ async function renderUsuarios(view, initialSubView) {
       <div class="section-actions mt-12">
         <button class="btn btn-primary" id="btnNuevoUsuario">+ Nuevo usuario</button>
       </div>
+      <div class="search-bar-fancy" id="usuariosSearchWrap">
+        <span class="search-icon">🔍</span>
+        <input id="usuariosSearchInput" placeholder="Buscar por nombre o usuario…" autocomplete="off" />
+        <button type="button" class="search-clear" id="btnClearUsuariosSearch" title="Limpiar búsqueda">✕</button>
+      </div>
       <div id="usuariosList"></div>
     `;
     bindSubNav();
     $('#btnNuevoUsuario').addEventListener('click', () => openUsuarioModal(null));
+
+    if (!usuarios.length) {
+      $('#usuariosSearchWrap').classList.add('hidden-initial');
+      paintUsuariosList(usuarios);
+      return;
+    }
+
+    function aplicarUsuariosFiltro(raw) {
+      const q = raw.trim();
+      $('#usuariosSearchWrap').classList.toggle('has-value', !!q);
+      if (!q) { paintUsuariosList(usuarios); return; }
+      const norm = normalizarTexto(q);
+      const filtrados = usuarios.filter((u) => normalizarTexto(`${u.nombre || ''} ${u.usuario || ''}`).includes(norm));
+      if (!filtrados.length) {
+        $('#usuariosList').innerHTML = `<div class="empty-state">Sin resultados para "${esc(q)}".</div>`;
+        return;
+      }
+      paintUsuariosList(filtrados);
+    }
+
     paintUsuariosList(usuarios);
+    $('#usuariosSearchInput').addEventListener('input', (e) => aplicarUsuariosFiltro(e.target.value));
+    $('#btnClearUsuariosSearch').addEventListener('click', () => {
+      $('#usuariosSearchInput').value = '';
+      aplicarUsuariosFiltro('');
+      $('#usuariosSearchInput').focus();
+    });
   }
 
   async function showPermisos() {

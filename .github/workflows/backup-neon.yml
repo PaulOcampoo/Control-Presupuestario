@@ -99,8 +99,17 @@ jobs:
           BLOB_READ_WRITE_TOKEN: ${{ secrets.BLOB_READ_WRITE_TOKEN }}
         run: node scripts/backup-neon-to-blob.js "backup-${{ env.FECHA }}.sql.gz"
 
+      # prompt-fix-notificacion-backup-solo-main.md: NEON_PRODUCTION_DATABASE_URL_DIRECT
+      # es un secret de repo, no restringido a main -- un workflow_dispatch manual
+      # desde cualquier branch (ej. probando el workflow durante desarrollo) escribe
+      # en la MISMA tabla de notificaciones de Producción que ve el equipo real.
+      # Incidente real: prueba manual en feat/backup-diario (2026-09-02) insertó
+      # notificaciones de "fallo de backup" para los 6 admin/desarrollador reales,
+      # sin que hubiera fallado el backup real de producción. El fallo sigue
+      # quedando visible en el log de Actions para cualquier run (no se toca eso)
+      # -- solo se restringe a quién avisamos dentro de la app.
       - name: Avisar a admin/desarrollador si algo falló
-        if: failure()
+        if: failure() && github.event_name == 'schedule' && github.ref == 'refs/heads/main'
         env:
           DATABASE_URL: ${{ secrets.NEON_PRODUCTION_DATABASE_URL_DIRECT }}
         run: node scripts/notificar-fallo-backup.js

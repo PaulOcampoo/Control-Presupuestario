@@ -1,6 +1,6 @@
 'use strict';
 
-const CACHE = 'ctrl-ppto-v416';
+const CACHE = 'ctrl-ppto-v419';
 const SHELL = [
   '/',
   '/index.html',
@@ -15,6 +15,9 @@ const SHELL = [
   '/vendor/posthog-browser.js',
   '/icons/icon-192.png',
   '/icons/icon-512.png',
+  '/icons/apple-touch-icon-152.png',
+  '/icons/apple-touch-icon-167.png',
+  '/icons/apple-touch-icon-180.png',
   '/assets/logo-roforb.png',
   '/assets/logo-roforb-icon.png',
 ];

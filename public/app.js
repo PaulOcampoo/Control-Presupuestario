@@ -8319,13 +8319,20 @@ function paintAvanceTable(avances, presupuestoTotal, puedeEditar) {
 async function openAvanceConceptosModal(avance, presupuestoTotal, puedeEditar = true) {
   const semana = avance.semana;
   const puedeIrAEstimaciones = puedeVerEstimaciones() && state.allowedTabs.includes('estimaciones');
+  // .modal-wide (prompt-mejora-modal-avance.md): mismo patrón opt-in ya usado
+  // en openVerEstimacionModal/openVerNominaModal — solo agranda en desktop
+  // (@media min-width:861px), mobile se queda igual que antes. closeModal()
+  // ya limpia la clase sola, no hace falta hacerlo aquí.
+  $('#modal').classList.add('modal-wide');
   openModal(`
     <h3>Avance físico por concepto — Semana ${semana}</h3>
     <p class="muted">${fmtDate(avance.fecha_inicio)} – ${fmtDate(avance.fecha_fin)}<br>
       ${puedeEditar
         ? 'Anota la cantidad realmente ejecutada de cada concepto del catálogo durante este periodo (no acumulada — solo lo avanzado en esta semana). El % de avance real se calculará automáticamente a partir de estas cantidades y se guardará en la tabla semanal.'
         : 'Solo consulta — no tienes permiso para modificar el avance de esta obra.'}</p>
+    <div id="avcFiltros"></div>
     <div id="avcList"><div class="spinner"></div></div>
+    <div class="empty-state hidden-initial" id="avcEmptyState">No se encontraron conceptos que coincidan.</div>
     <div class="card hidden-initial" id="avcSummary">
       <div class="card-row"><span class="k">Importe ejecutado acumulado a la fecha</span><span class="v" id="avcImporte">—</span></div>
       <div class="card-row"><span class="k">% de avance real (se guardará así)</span><span class="v" id="avcPct">—</span></div>
@@ -8363,33 +8370,65 @@ async function openAvanceConceptosModal(avance, presupuestoTotal, puedeEditar = 
     groups.get(key).push(c);
   });
 
-  $('#avcList').innerHTML = [...groups.entries()].map(([grupo, groupItems]) => `
-    <h3 class="section-title mt14-mb8">${esc(grupo)}</h3>
-    ${groupItems.map((c) => {
-      const pendientes = c.insumos_pendientes || [];
-      const bloqueado = pendientes.length > 0;
-      return `
-    <div class="req-item-row">
-      <div class="fw600-fs086">${esc(c.concepto)}</div>
-      <div class="code muted">${esc(c.codigo)} · presup: ${fmtNum(c.cantidad_presupuesto, 3)} ${esc(c.unidad || '')} a ${fmtMoney(c.precio_unitario)}/u</div>
-      <div class="qty-row mt-6">
-        <div>
-          <label>Acumulado previo</label>
-          <div class="muted acumulado-previo">${fmtNum(c.cantidad_acumulada_previa, 3)} ${esc(c.unidad || '')}</div>
-        </div>
-        <div>
-          <label>Ejecutado este periodo</label>
-          <input type="number" min="0" step="0.01" data-cantidad="${c.concepto_id}"
-                 data-precio="${c.precio_unitario}" data-presup="${c.cantidad_presupuesto}" data-prev="${c.cantidad_acumulada_previa}"
-                 value="${c.cantidad_ejecutada_periodo ?? ''}" ${(puedeEditar && !bloqueado) ? '' : 'disabled'}
-                 ${bloqueado ? `title="Faltan insumos por entregar en obra: ${esc(pendientes.map((p) => p.insumo_nombre).join(', '))}"` : ''} />
-        </div>
-        <div class="muted acum-out" data-acum-out></div>
+  // Buscador + filtro de grupo + toggle "solo pendientes" (prompt-mejora-
+  // modal-avance.md) — sticky respecto al propio .modal (ya es scroll
+  // container, overflow-y:auto) sin wrapper intermedio con overflow propio
+  // entre ambos, mismo criterio documentado en CLAUDE.md contra el bug de
+  // sticky roto en iOS Safari. Puramente cliente: filtra ocultando filas
+  // (.hidden-initial), nunca re-renderiza #avcList, para no perder valores
+  // ya tecleados en otros conceptos mientras se busca/filtra.
+  const gruposUnicos = [...groups.keys()];
+  $('#avcFiltros').innerHTML = `
+    <div class="avc-sticky-bar">
+      <div class="search-bar">
+        <input type="search" id="avcBuscar" placeholder="Buscar por código o concepto…" autocomplete="off" />
       </div>
-      ${bloqueado ? `<div class="muted solo-lectura-note">🔒 Falta entrega de: ${esc(pendientes.map((p) => p.insumo_nombre).join(', '))}</div>` : ''}
+      ${gruposUnicos.length > 1 ? `
+      <div class="chip-row" id="avcGrupoChips">
+        <button type="button" class="chip active" data-grupo="">Todos</button>
+        ${gruposUnicos.map((g) => `<button type="button" class="chip" data-grupo="${esc(g)}">${esc(g)}</button>`).join('')}
+      </div>` : ''}
+      <div class="a11y-switch mt-6">
+        <span class="a11y-switch-label">Solo pendientes por capturar</span>
+        <label class="a11y-switch-toggle">
+          <input type="checkbox" id="avcSoloPendientes" />
+          <span class="a11y-switch-track"><span class="a11y-switch-thumb"></span></span>
+        </label>
+      </div>
     </div>
-    `;
-    }).join('')}
+  `;
+
+  $('#avcList').innerHTML = [...groups.entries()].map(([grupo, groupItems]) => `
+    <div class="avc-grupo-block" data-grupo-block="${esc(grupo)}">
+      <h3 class="section-title mt14-mb8">${esc(grupo)}</h3>
+      ${groupItems.map((c) => {
+        const pendientes = c.insumos_pendientes || [];
+        const bloqueado = pendientes.length > 0;
+        const esLarga = (c.concepto || '').length > 90;
+        return `
+      <div class="req-item-row avc-row" data-avc-row data-grupo="${esc(grupo)}" data-search="${esc(normalizarTexto(`${c.codigo || ''} ${c.concepto || ''}`))}">
+        <div class="fw600-fs086 avc-concepto-title${esLarga ? ' avc-clamp' : ''}" data-concepto-title>${esc(c.concepto)}</div>
+        ${esLarga ? '<button type="button" class="link-btn avc-ver-mas" data-toggle-desc>Ver más</button>' : ''}
+        <div class="code muted">${esc(c.codigo)} · presup: ${fmtNum(c.cantidad_presupuesto, 3)} ${esc(c.unidad || '')} a ${fmtMoney(c.precio_unitario)}/u</div>
+        <div class="qty-row mt-6">
+          <div>
+            <label>Acumulado previo</label>
+            <div class="muted acumulado-previo">${fmtNum(c.cantidad_acumulada_previa, 3)} ${esc(c.unidad || '')}</div>
+          </div>
+          <div>
+            <label>Ejecutado este periodo</label>
+            <input type="number" min="0" step="0.01" data-cantidad="${c.concepto_id}"
+                   data-precio="${c.precio_unitario}" data-presup="${c.cantidad_presupuesto}" data-prev="${c.cantidad_acumulada_previa}"
+                   value="${c.cantidad_ejecutada_periodo ?? ''}" ${(puedeEditar && !bloqueado) ? '' : 'disabled'}
+                   ${bloqueado ? `title="Faltan insumos por entregar en obra: ${esc(pendientes.map((p) => p.insumo_nombre).join(', '))}"` : ''} />
+          </div>
+          <div class="muted acum-out" data-acum-out></div>
+        </div>
+        ${bloqueado ? `<div class="muted solo-lectura-note">🔒 Falta entrega de: ${esc(pendientes.map((p) => p.insumo_nombre).join(', '))}</div>` : ''}
+      </div>
+      `;
+      }).join('')}
+    </div>
   `).join('');
 
   const updateRowOutput = (inp) => {
@@ -8412,10 +8451,54 @@ async function openAvanceConceptosModal(avance, presupuestoTotal, puedeEditar = 
     $('#avcPct').textContent = presupuestoTotal ? fmtPct(Math.min(100, (importe / presupuestoTotal) * 100)) : '—';
   };
 
+  let filtroTexto = '';
+  let filtroGrupo = '';
+  const aplicarFiltrosAvc = () => {
+    const q = normalizarTexto(filtroTexto.trim());
+    const soloPendientes = $('#avcSoloPendientes')?.checked || false;
+    let visibles = 0;
+    $$('[data-grupo-block]').forEach((block) => {
+      let grupoTieneVisibles = false;
+      $$('[data-avc-row]', block).forEach((row) => {
+        const matchTexto = !q || row.dataset.search.includes(q);
+        const matchGrupo = !filtroGrupo || row.dataset.grupo === filtroGrupo;
+        const inp = row.querySelector('[data-cantidad]');
+        const matchPendiente = !soloPendientes || !inp.value;
+        const visible = matchTexto && matchGrupo && matchPendiente;
+        row.classList.toggle('hidden-initial', !visible);
+        if (visible) { visibles += 1; grupoTieneVisibles = true; }
+      });
+      block.classList.toggle('hidden-initial', !grupoTieneVisibles);
+    });
+    $('#avcEmptyState').classList.toggle('hidden-initial', visibles > 0);
+  };
+
+  $('#avcBuscar').addEventListener('input', (e) => {
+    filtroTexto = e.target.value;
+    aplicarFiltrosAvc();
+  });
+  $('#avcGrupoChips')?.addEventListener('click', (e) => {
+    const chip = e.target.closest('.chip');
+    if (!chip) return;
+    $$('.chip', $('#avcGrupoChips')).forEach((c) => c.classList.remove('active'));
+    chip.classList.add('active');
+    filtroGrupo = chip.dataset.grupo;
+    aplicarFiltrosAvc();
+  });
+  $('#avcSoloPendientes').addEventListener('change', aplicarFiltrosAvc);
+  $('#avcList').addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-toggle-desc]');
+    if (!btn) return;
+    const title = btn.previousElementSibling;
+    const debeClamparse = !title.classList.contains('avc-clamp');
+    title.classList.toggle('avc-clamp', debeClamparse);
+    btn.textContent = debeClamparse ? 'Ver más' : 'Ver menos';
+  });
+
   $('#avcSummary').classList.remove('hidden-initial'); // ver .hidden-initial en styles.css
   $('#avcSummary').style.display = '';
   recalc();
-  $$('[data-cantidad]').forEach((inp) => inp.addEventListener('input', recalc));
+  $$('[data-cantidad]').forEach((inp) => inp.addEventListener('input', () => { recalc(); aplicarFiltrosAvc(); }));
 
   if (puedeEditar) {
     $('#btnSaveAvc').addEventListener('click', async () => {

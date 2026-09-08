@@ -2065,6 +2065,81 @@ app.post('/api/maquinaria/consumibles', h(auth.checkPermiso('maquinaria_consumib
   res.status(201).json({ ...registro, tipo, costo_resuelto_de_insumo: !!insumo });
 }));
 
+// prompts-maquinaria-consumibles.md (Prompt B) — editar/eliminar una captura
+// individual desde la pantalla Consumibles (que unifica diesel en
+// combustible_maquinaria + los 3 aceites/gasolina en consumibles_maquinaria,
+// ver listConsumibles). El frontend manda `tipo` (ya lo tiene del listado)
+// para que este único par de endpoints sepa a qué tabla ir, mismo criterio
+// de la tabla-oculta-tras-tipo que ya usa el POST de arriba.
+// Ownership: equipos_maquinaria.obra_id es opcional (catálogo global, no
+// todo equipo está atado a una obra) — si el equipo SÍ tiene obra asignada,
+// se exige acceso a esa obra (usuarioPuedeOperarObra, mismo criterio anti-
+// IDOR que verificarAccesoObra en el resto del sistema) antes de editar o
+// borrar. Los DELETE ya existentes de combustible/mantenimientos (arriba,
+// prompt-4-bitacora-taller-jefe-maquinaria.md) NO tienen este check — gap
+// preexistente y fuera de alcance de este prompt, reportado aparte, no
+// tocado aquí (Forbidden Action: no tocar otros endpoints).
+app.put('/api/maquinaria/consumibles/:id', h(auth.checkPermiso('maquinaria_consumibles', 'puede_editar')), h(async (req, res) => {
+  const id = Number(req.params.id);
+  const { tipo, fecha, cantidad, lectura } = req.body || {};
+  if (!TIPOS_CONSUMIBLE.includes(tipo)) {
+    return res.status(400).json({ error: `Indica un tipo válido: ${TIPOS_CONSUMIBLE.join(', ')}` });
+  }
+  if (!fecha || !(Number(cantidad) > 0)) return res.status(400).json({ error: 'Indica fecha y cantidad válidas' });
+
+  const existente = tipo === 'diesel'
+    ? await maquinaria.getCombustibleById(id)
+    : await maquinaria.getConsumibleById(id);
+  if (!existente) return res.status(404).json({ error: 'Registro no encontrado' });
+
+  const equipo = await maquinaria.getEquipoById(existente.equipo_id);
+  if (!(await auth.usuarioPuedeOperarObra(req, equipo ? equipo.obra_id : null))) {
+    return res.status(403).json({ error: 'No tienes acceso a la obra de este equipo' });
+  }
+
+  const insumo = await maquinaria.resolverCostoConsumible(tipo);
+  const lecturaNum = lectura != null && lectura !== '' ? Number(lectura) : null;
+
+  let actualizado;
+  if (tipo === 'diesel') {
+    actualizado = await maquinaria.updateCombustible(id, {
+      fecha, litros: Number(cantidad),
+      costo: insumo ? Number(insumo.precio_presupuesto) * Number(cantidad) : 0,
+      lectura: lecturaNum,
+    });
+  } else {
+    actualizado = await maquinaria.updateConsumible(id, {
+      fecha, cantidad: Number(cantidad), lectura: lecturaNum,
+      costo_estimado: insumo ? Number(insumo.precio_presupuesto) * Number(cantidad) : null,
+    });
+  }
+  res.json({ ...actualizado, tipo });
+}));
+
+app.delete('/api/maquinaria/consumibles/:id', h(auth.checkPermiso('maquinaria_consumibles', 'puede_eliminar')), h(async (req, res) => {
+  const id = Number(req.params.id);
+  const tipo = req.query.tipo;
+  if (!TIPOS_CONSUMIBLE.includes(tipo)) {
+    return res.status(400).json({ error: `Indica un tipo válido: ${TIPOS_CONSUMIBLE.join(', ')}` });
+  }
+
+  const existente = tipo === 'diesel'
+    ? await maquinaria.getCombustibleById(id)
+    : await maquinaria.getConsumibleById(id);
+  if (!existente) return res.status(404).json({ error: 'Registro no encontrado' });
+
+  const equipo = await maquinaria.getEquipoById(existente.equipo_id);
+  if (!(await auth.usuarioPuedeOperarObra(req, equipo ? equipo.obra_id : null))) {
+    return res.status(403).json({ error: 'No tienes acceso a la obra de este equipo' });
+  }
+
+  const ok = tipo === 'diesel'
+    ? await maquinaria.softDeleteCombustible(id)
+    : await maquinaria.softDeleteConsumible(id);
+  if (!ok) return res.status(404).json({ error: 'Registro no encontrado' });
+  res.json({ ok: true });
+}));
+
 // Cifras de presupuesto (monto total, gastado, % consumido) — solo
 // admin/desarrollador; el resto de roles con acceso a Maquinaria ve el
 // catálogo/combustible/mantenimiento/horas pero no estos montos.

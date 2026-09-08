@@ -162,6 +162,26 @@ async function softDeleteCombustible(id) {
   return rowCount > 0;
 }
 
+// prompts-maquinaria-consumibles.md (Prompt B) — lectura/edición individual
+// de un registro de diesel, para el editar/eliminar de la pantalla
+// Consumibles (que unifica diesel + aceites, ver listConsumibles). Excluye
+// activo=false: no se puede "editar" un registro ya borrado.
+async function getCombustibleById(id) {
+  const { rows } = await db.pool.query(
+    'SELECT * FROM combustible_maquinaria WHERE id = $1 AND activo = true', [id]
+  );
+  return rows[0] || null;
+}
+
+async function updateCombustible(id, { fecha, litros, costo, lectura }) {
+  const { rows } = await db.pool.query(
+    `UPDATE combustible_maquinaria SET fecha = $1, litros = $2, costo = $3, lectura = $4
+     WHERE id = $5 AND activo = true RETURNING *`,
+    [fecha, litros, costo, lectura ?? null, id]
+  );
+  return rows[0] || null;
+}
+
 // LEFT JOIN (no JOIN): prompt-4-bitacora-taller-jefe-maquinaria.md —
 // equipo_id ahora es nullable (entradas generales de taller, sin equipo),
 // un INNER JOIN las excluiría por completo del resultado.
@@ -544,6 +564,34 @@ async function createConsumible({ equipo_id, tipo, cantidad, unidad, lectura, op
   return rows[0];
 }
 
+// prompts-maquinaria-consumibles.md (Prompt B) — misma pareja lectura/edición
+// que getCombustibleById/updateCombustible arriba, para los 3 aceites +
+// gasolina que sí viven en esta tabla propia. tipo/equipo_id NO son editables
+// (cambiar de tabla o de equipo no es "corregir una captura", es otra
+// captura) — solo fecha/cantidad/lectura/costo_estimado.
+async function getConsumibleById(id) {
+  const { rows } = await db.pool.query(
+    'SELECT * FROM consumibles_maquinaria WHERE id = $1 AND activo = true', [id]
+  );
+  return rows[0] || null;
+}
+
+async function updateConsumible(id, { fecha, cantidad, lectura, costo_estimado }) {
+  const { rows } = await db.pool.query(
+    `UPDATE consumibles_maquinaria SET fecha = $1, cantidad = $2, lectura = $3, costo_estimado = $4
+     WHERE id = $5 AND activo = true RETURNING *`,
+    [fecha, cantidad, lectura ?? null, costo_estimado, id]
+  );
+  return rows[0] || null;
+}
+
+async function softDeleteConsumible(id) {
+  const { rowCount } = await db.pool.query(
+    'UPDATE consumibles_maquinaria SET activo = false WHERE id = $1', [id]
+  );
+  return rowCount > 0;
+}
+
 // Resuelve costo/IVA desde Insumos para un tipo de consumible — mismo
 // criterio "precio más recio" que costosCatalogoQuery (server/app.js): toma
 // el insumo con ese concepto de la obra creada más recientemente entre
@@ -617,6 +665,7 @@ module.exports = {
   asignarClienteEquipo, asignarOperadorEquipo,
   listResponsablesDiarios, createResponsableDiario,
   listCombustible, createCombustible, softDeleteCombustible,
+  getCombustibleById, updateCombustible,
   listMantenimientos, createMantenimiento, softDeleteMantenimiento,
   listHoras, createHoras, softDeleteHoras, updateEstadoHoras,
   updateHorasPropio, softDeleteHorasPropio, getHorasOwnershipInfo,
@@ -624,4 +673,5 @@ module.exports = {
   getPresupuestoSugerido, getReportePorCliente,
   listEstadoUnidadResumen, listEstadoUnidadHistorico, createEstadoUnidad,
   createConsumible, resolverCostoConsumible, listConsumibles,
+  getConsumibleById, updateConsumible, softDeleteConsumible,
 };

@@ -990,6 +990,22 @@ app.put('/api/usuarios/:id', h(auth.allow('administracion')), h(async (req, res)
     return res.status(400).json({ error: 'La contraseña no puede superar 72 caracteres' });
   }
   const passwordHash = password ? await auth.hashPassword(password) : null;
+  // promptA-fix-token-valid-since-CORREGIDO.md: req.user sale del JWT tal
+  // cual (server/auth.js:922, req.user = decoded), nunca se re-consulta
+  // fresco de la DB -- token_valid_since es lo único que invalida una
+  // sesión vieja. Antes solo se bumpeaba en cambio de contraseña, así que
+  // un usuario ascendido/degradado de puesto (o desactivado) seguía
+  // operando bajo su rol/estado anterior hasta que cambiara su password.
+  // Comparar contra el valor YA GUARDADO (no solo "vino en el body") es
+  // necesario porque el form de edición siempre manda puesto/activo en
+  // cada guardado, incluso sin cambiarlos -- bumpear por presencia del
+  // campo forzaría cierre de sesión en cualquier edición (ej. solo
+  // corregir el nombre), no solo cuando el valor realmente cambia.
+  const { rows: actualRows } = await db.pool.query('SELECT puesto, activo FROM usuarios WHERE id = $1', [id]);
+  if (!actualRows[0]) return res.status(404).json({ error: 'Usuario no encontrado' });
+  const cambioPuesto = puesto != null && puesto !== actualRows[0].puesto;
+  const cambioActivo = activo != null && Boolean(activo) !== actualRows[0].activo;
+  const debeInvalidarSesion = password != null || cambioPuesto || cambioActivo;
   const { rows } = await db.pool.query(
     `UPDATE usuarios SET
        nombre = COALESCE($1, nombre),
@@ -997,10 +1013,10 @@ app.put('/api/usuarios/:id', h(auth.allow('administracion')), h(async (req, res)
        activo = COALESCE($3, activo),
        password_hash = COALESCE($4, password_hash),
        must_change_password = CASE WHEN $4 IS NOT NULL THEN true ELSE must_change_password END,
-       token_valid_since = CASE WHEN $4 IS NOT NULL THEN NOW() ELSE token_valid_since END
+       token_valid_since = CASE WHEN $6 THEN NOW() ELSE token_valid_since END
      WHERE id = $5
      RETURNING id, nombre, usuario, puesto, activo, creado_en, must_change_password`,
-    [nombre?.trim() || null, puesto || null, activo != null ? Boolean(activo) : null, passwordHash, id]
+    [nombre?.trim() || null, puesto || null, activo != null ? Boolean(activo) : null, passwordHash, id, debeInvalidarSesion]
   );
   if (!rows[0]) return res.status(404).json({ error: 'Usuario no encontrado' });
   if (password) {

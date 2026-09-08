@@ -1135,6 +1135,24 @@ async function verificarAccesoObra(req, res, next) {
   next();
 }
 
+// Misma lógica de veTodo/usuario_proyectos que verificarAccesoObra() arriba,
+// pero como función invocable directo (no middleware) para endpoints que no
+// viven bajo /projects/:id/ — ej. Maquinaria, que es catálogo global y solo
+// referencia una obra opcionalmente vía equipos_maquinaria.obra_id
+// (prompts-maquinaria-consumibles.md, Prompt B). obraId null (equipo sin
+// obra asignada) siempre pasa: no hay obra específica que proteger.
+async function usuarioPuedeOperarObra(req, obraId) {
+  if (obraId == null) return true;
+  const veTodo = req.user.puesto === 'admin'
+    || (req.user.puesto === 'desarrollador' && !(await db.usuarioTieneAsignacionExplicita(req.user.id)));
+  if (veTodo) return true;
+  const { rows } = await db.pool.query(
+    'SELECT 1 FROM usuario_proyectos WHERE usuario_id = $1 AND project_id = $2',
+    [req.user.id, obraId]
+  );
+  return rows.length > 0;
+}
+
 // Crea el primer usuario administrador si la tabla de usuarios está vacía,
 // para poder entrar la primera vez y dar de alta al resto desde la app.
 async function ensureBootstrapAdmin() {
@@ -1184,6 +1202,7 @@ module.exports = {
   requireResponderSugerencias,
   tabsParaUsuario,
   verificarAccesoObra,
+  usuarioPuedeOperarObra,
   ensureBootstrapAdmin,
   SECCIONES_PERMISOS,
   ACCIONES_PERMISOS,

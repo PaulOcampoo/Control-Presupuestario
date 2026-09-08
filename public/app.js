@@ -11789,6 +11789,12 @@ async function renderMaquinariaConsumibles(view) {
   maquinariaEquiposCache = equipos;
   const puedeCrearConsumibles = !!misPermisosConsumibles.puede_crear;
   const puedeSupervisarConsumibles = !!misPermisosConsumibles.puede_ver;
+  // prompts-maquinaria-consumibles.md (Prompt B): editar/eliminar son
+  // permisos NUEVOS, default false para todos los roles (admin/desarrollador
+  // los tienen vía bypass) hasta que Paul los otorgue explícito a algún otro
+  // rol desde la matriz de permisos.
+  const puedeEditarConsumibles = !!misPermisosConsumibles.puede_editar;
+  const puedeEliminarConsumibles = !!misPermisosConsumibles.puede_eliminar;
   const esOperador = effectivePuesto() === 'operador';
   view.innerHTML = `
     <h2 class="section-title">⛽ Consumibles</h2>
@@ -11799,7 +11805,7 @@ async function renderMaquinariaConsumibles(view) {
     <div id="consumiblesMaqSection"></div>
   `;
   $('#btnConsumiblesMaq')?.addEventListener('click', () => openConsumiblesMaqModal(equipos));
-  paintConsumiblesMaq(consumiblesData, { puedeSupervisarConsumibles, esOperador });
+  paintConsumiblesMaq(consumiblesData, { puedeSupervisarConsumibles, esOperador, puedeEditarConsumibles, puedeEliminarConsumibles });
 }
 
 // Fusiona lo que en PR #114 eran 2 <details> separados — "Presupuesto
@@ -12889,6 +12895,116 @@ function openConsumiblesMaqModal(equipos) {
   });
 }
 
+// prompts-maquinaria-consumibles.md (Prompt B) — editar una captura existente
+// (diesel o aceite/gasolina). Mismos campos que openConsumiblesMaqModal
+// arriba, precargados; Equipo y Tipo NO son editables (ver comentario de
+// updateConsumible en server/maquinaria.js) — solo se muestran como
+// referencia de solo lectura.
+function openEditarConsumibleModal(registro, onSaved) {
+  openModal(`
+    <h3>Editar consumible</h3>
+    <p class="muted">${esc(registro.equipo_nombre)} — ${esc(TIPOS_CONSUMIBLE_LABELS[registro.tipo] || registro.tipo)}</p>
+    <div class="field"><label>Fecha *</label><input id="ecFecha" type="date" value="${esc(String(registro.fecha).slice(0, 10))}" /></div>
+    <div class="field"><label>Cantidad (litros) *</label><input id="ecCantidad" type="number" min="0" step="0.1" value="${registro.cantidad}" /></div>
+    <div class="field"><label>Lectura de horómetro/kilometraje (opcional)</label><input id="ecLectura" type="number" min="0" step="0.1" value="${registro.lectura ?? ''}" /></div>
+    <div class="modal-actions">
+      <button class="btn" id="btnCancelEc">Cerrar</button>
+      <button class="btn btn-primary" id="btnSaveEc">Guardar cambios</button>
+    </div>
+  `);
+  $('#btnCancelEc').addEventListener('click', closeModal);
+  $('#btnSaveEc').addEventListener('click', async () => {
+    const body = {
+      tipo: registro.tipo, fecha: $('#ecFecha').value,
+      cantidad: Number($('#ecCantidad').value),
+      lectura: $('#ecLectura').value ? Number($('#ecLectura').value) : null,
+    };
+    if (!body.fecha || !(body.cantidad > 0)) {
+      toast('Completa fecha y una cantidad válida', 'danger'); return;
+    }
+    const btn = $('#btnSaveEc');
+    btn.disabled = true;
+    try {
+      await api(`/maquinaria/consumibles/${registro.registro_id}`, { method: 'PUT', body });
+      toast('Consumible actualizado', 'success');
+      closeModal();
+      onSaved?.();
+    } catch (err) {
+      toast(err.message, 'danger');
+      btn.disabled = false;
+    }
+  });
+}
+
+async function eliminarConsumible(registro, onDeleted) {
+  const ok = await confirmDialog(
+    `Se eliminará la captura de ${fmtNum(registro.cantidad, 1)} L de ${TIPOS_CONSUMIBLE_LABELS[registro.tipo] || registro.tipo} del ${fmtDate(registro.fecha)} en ${registro.equipo_nombre}. Esta acción no se puede deshacer desde la app.`,
+    { titulo: 'Eliminar consumible', textoAceptar: 'Eliminar', claseAceptar: 'btn-danger' }
+  );
+  if (!ok) return;
+  try {
+    await api(`/maquinaria/consumibles/${registro.registro_id}?tipo=${encodeURIComponent(registro.tipo)}`, { method: 'DELETE' });
+    toast('Consumible eliminado', 'success');
+    onDeleted?.();
+  } catch (err) {
+    toast(err.message, 'danger');
+  }
+}
+
+// Detalle de capturas individuales detrás de una fila del resumen agregado
+// (Equipo+Tipo) — el agregado no tiene id propio que editar/eliminar
+// (prompts-maquinaria-consumibles.md, Fase 0 del Prompt B), así que
+// editar/eliminar abren aquí la lista de capturas reales de ese Equipo+Tipo,
+// filtrada en JS sobre lo que ya está cargado (mismo dataset del resumen,
+// sin refetch).
+function openDetalleCapturasModal(equipoId, tipo, todosLosRegistros, { puedeEditar, puedeEliminar, onCambio }) {
+    const capturas = todosLosRegistros.filter((r) => r.equipo_id === equipoId && r.tipo === tipo)
+      .sort((a, b) => (a.fecha < b.fecha ? 1 : -1));
+    openModal(`
+      <h3>Capturas — ${esc(capturas[0]?.equipo_nombre || '')} · ${esc(TIPOS_CONSUMIBLE_LABELS[tipo] || tipo)}</h3>
+      <div class="table-scroll">
+        <table>
+          <thead><tr>
+            <th>Fecha</th><th>Operador</th><th class="num">Cantidad (L)</th><th class="num">Lectura</th>
+            ${(puedeEditar || puedeEliminar) ? '<th></th>' : ''}
+          </tr></thead>
+          <tbody>
+            ${capturas.map((r) => `
+              <tr>
+                <td>${fmtDate(r.fecha)}</td>
+                <td>${esc(r.operador_nombre || '—')}</td>
+                <td class="num">${fmtNum(r.cantidad, 1)}</td>
+                <td class="num">${r.lectura != null ? fmtNum(r.lectura, 1) : '—'}</td>
+                ${(puedeEditar || puedeEliminar) ? `
+                <td class="row-nowrap-gap6">
+                  ${puedeEditar ? `<button class="btn small" data-editar-cm="${r.registro_id}" title="Editar">✏️</button>` : ''}
+                  ${puedeEliminar ? `<button class="btn small btn-danger" data-eliminar-cm="${r.registro_id}" title="Eliminar">🗑️</button>` : ''}
+                </td>` : ''}
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+      <div class="modal-actions"><button class="btn" id="btnCerrarDetalleCm">Cerrar</button></div>
+    `);
+    $('#btnCerrarDetalleCm').addEventListener('click', closeModal);
+    // Tras editar/eliminar se cierra este detalle y se refresca la tabla de
+    // resumen de atrás (onCambio) -- no se repinta este mismo modal con los
+    // datos viejos que ya tiene en memoria (quedarían desactualizados).
+    $$('[data-editar-cm]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const registro = capturas.find((r) => r.registro_id === Number(btn.dataset.editarCm));
+        openEditarConsumibleModal(registro, onCambio);
+      });
+    });
+    $$('[data-eliminar-cm]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const registro = capturas.find((r) => r.registro_id === Number(btn.dataset.eliminarCm));
+        eliminarConsumible(registro, onCambio);
+      });
+    });
+}
+
 // Rango de fechas para los filtros rápidos de periodo — "Esta semana"
 // arranca en lunes (mismo criterio ya usado en avances_semanales, no
 // domingo) para no introducir un segundo criterio de "semana" en la app.
@@ -12907,18 +13023,26 @@ function rangoPeriodoConsumibles(periodo) {
   return { desde: null, hasta: null }; // 'todo'
 }
 
-async function paintConsumiblesMaq(dataInicial, { puedeSupervisarConsumibles, esOperador }) {
+async function paintConsumiblesMaq(dataInicial, { puedeSupervisarConsumibles, esOperador, puedeEditarConsumibles, puedeEliminarConsumibles }) {
   const el = $('#consumiblesMaqSection');
   if (!el || (!puedeSupervisarConsumibles && !esOperador)) { if (el) el.innerHTML = ''; return; }
 
   let periodo = 'todo'; // 'semana' | 'mes' | 'todo' | 'rango'
 
-  function tablaResumenHtml(resumen) {
+  // El agregado (Equipo+Tipo) no tiene un id propio editable/eliminable
+  // (prompts-maquinaria-consumibles.md, Fase 0 del Prompt B) -- "Ver
+  // capturas" abre el detalle individual (openDetalleCapturasModal) sobre el
+  // mismo dataset ya cargado, sin refetch. Solo se muestra la columna/botón
+  // si el usuario tiene editar o eliminar (si no tiene ninguno, no hay nada
+  // que hacer ahí y el botón sería un callejón sin salida).
+  const puedeGestionarCapturas = puedeEditarConsumibles || puedeEliminarConsumibles;
+
+  function tablaResumenHtml(resumen, registrosCompletos, onCambio) {
     if (!resumen.length) return '<p class="muted">Sin consumo registrado en este periodo.</p>';
     return `
       <div class="table-scroll">
         <table>
-          <thead><tr><th>Equipo</th><th>Consumible</th><th class="num">Total (L)</th><th class="num">Costo estimado</th><th class="num"># capturas</th></tr></thead>
+          <thead><tr><th>Equipo</th><th>Consumible</th><th class="num">Total (L)</th><th class="num">Costo estimado</th><th class="num"># capturas</th>${puedeGestionarCapturas ? '<th></th>' : ''}</tr></thead>
           <tbody>
             ${resumen.map((r) => `
               <tr>
@@ -12927,6 +13051,7 @@ async function paintConsumiblesMaq(dataInicial, { puedeSupervisarConsumibles, es
                 <td class="num">${fmtNum(r.total_cantidad, 1)}</td>
                 <td class="num">${r.total_costo_estimado > 0 ? fmtMoney(r.total_costo_estimado) : '<span class="muted">Sin costo (sin insumo)</span>'}</td>
                 <td class="num">${r.n_registros}</td>
+                ${puedeGestionarCapturas ? `<td><button class="btn small" data-ver-capturas-cm="${r.equipo_id}" data-tipo-capturas-cm="${esc(r.tipo)}">Ver capturas</button></td>` : ''}
               </tr>
             `).join('')}
           </tbody>
@@ -12958,6 +13083,12 @@ async function paintConsumiblesMaq(dataInicial, { puedeSupervisarConsumibles, es
     `;
   }
 
+  async function recargar() {
+    const { desde, hasta } = rangoPeriodoConsumibles(periodo);
+    const nuevaData = await api(`/maquinaria/consumibles${desde ? `?desde=${desde}&hasta=${hasta}` : ''}`);
+    await pintar(nuevaData);
+  }
+
   async function pintar(data) {
     let html = '';
     if (puedeSupervisarConsumibles) {
@@ -12967,7 +13098,7 @@ async function paintConsumiblesMaq(dataInicial, { puedeSupervisarConsumibles, es
           <button class="btn ${periodo === 'mes' ? 'btn-primary' : ''}" data-periodo-cm="mes">Este mes</button>
           <button class="btn ${periodo === 'todo' ? 'btn-primary' : ''}" data-periodo-cm="todo">Todo</button>
         </div>
-        <div id="cmResumenTabla" class="mt-8">${tablaResumenHtml(data.resumen)}</div>
+        <div id="cmResumenTabla" class="mt-8">${tablaResumenHtml(data.resumen, data.registros)}</div>
       `;
     }
     if (esOperador) {
@@ -12977,13 +13108,19 @@ async function paintConsumiblesMaq(dataInicial, { puedeSupervisarConsumibles, es
     $$('[data-periodo-cm]', el).forEach((btn) => {
       btn.addEventListener('click', async () => {
         periodo = btn.dataset.periodoCm;
-        const { desde, hasta } = rangoPeriodoConsumibles(periodo);
         try {
-          const nuevaData = await api(`/maquinaria/consumibles${desde ? `?desde=${desde}&hasta=${hasta}` : ''}`);
-          await pintar(nuevaData);
+          await recargar();
         } catch (err) {
           toast(err.message, 'danger');
         }
+      });
+    });
+    $$('[data-ver-capturas-cm]', el).forEach((btn) => {
+      btn.addEventListener('click', () => {
+        openDetalleCapturasModal(
+          Number(btn.dataset.verCapturasCm), btn.dataset.tipoCapturasCm, data.registros,
+          { puedeEditar: puedeEditarConsumibles, puedeEliminar: puedeEliminarConsumibles, onCambio: recargar }
+        );
       });
     });
   }

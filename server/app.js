@@ -990,6 +990,22 @@ app.put('/api/usuarios/:id', h(auth.allow('administracion')), h(async (req, res)
     return res.status(400).json({ error: 'La contraseña no puede superar 72 caracteres' });
   }
   const passwordHash = password ? await auth.hashPassword(password) : null;
+  // promptA-fix-token-valid-since-CORREGIDO.md: req.user sale del JWT tal
+  // cual (server/auth.js:922, req.user = decoded), nunca se re-consulta
+  // fresco de la DB -- token_valid_since es lo único que invalida una
+  // sesión vieja. Antes solo se bumpeaba en cambio de contraseña, así que
+  // un usuario ascendido/degradado de puesto (o desactivado) seguía
+  // operando bajo su rol/estado anterior hasta que cambiara su password.
+  // Comparar contra el valor YA GUARDADO (no solo "vino en el body") es
+  // necesario porque el form de edición siempre manda puesto/activo en
+  // cada guardado, incluso sin cambiarlos -- bumpear por presencia del
+  // campo forzaría cierre de sesión en cualquier edición (ej. solo
+  // corregir el nombre), no solo cuando el valor realmente cambia.
+  const { rows: actualRows } = await db.pool.query('SELECT puesto, activo FROM usuarios WHERE id = $1', [id]);
+  if (!actualRows[0]) return res.status(404).json({ error: 'Usuario no encontrado' });
+  const cambioPuesto = puesto != null && puesto !== actualRows[0].puesto;
+  const cambioActivo = activo != null && Boolean(activo) !== actualRows[0].activo;
+  const debeInvalidarSesion = password != null || cambioPuesto || cambioActivo;
   const { rows } = await db.pool.query(
     `UPDATE usuarios SET
        nombre = COALESCE($1, nombre),
@@ -997,10 +1013,10 @@ app.put('/api/usuarios/:id', h(auth.allow('administracion')), h(async (req, res)
        activo = COALESCE($3, activo),
        password_hash = COALESCE($4, password_hash),
        must_change_password = CASE WHEN $4 IS NOT NULL THEN true ELSE must_change_password END,
-       token_valid_since = CASE WHEN $4 IS NOT NULL THEN NOW() ELSE token_valid_since END
+       token_valid_since = CASE WHEN $6 THEN NOW() ELSE token_valid_since END
      WHERE id = $5
      RETURNING id, nombre, usuario, puesto, activo, creado_en, must_change_password`,
-    [nombre?.trim() || null, puesto || null, activo != null ? Boolean(activo) : null, passwordHash, id]
+    [nombre?.trim() || null, puesto || null, activo != null ? Boolean(activo) : null, passwordHash, id, debeInvalidarSesion]
   );
   if (!rows[0]) return res.status(404).json({ error: 'Usuario no encontrado' });
   if (password) {
@@ -6567,6 +6583,70 @@ app.get('/api/projects/:id/conceptos', h(auth.allow('residente', 'cabo', 'compra
   res.json(rows);
 }));
 
+// Export a Excel del catálogo de conceptos cargado + "Saldo por estimar"
+// (prompt1-export-catalogo-saldo-CORREGIDO.md, sugerencia de Rodolfo vía
+// módulo Sugerencias). "Saldo por estimar" = presupuestoTotalDe(pid) −
+// total_acumulado de la última estimación APROBADA (por folio, la fuente
+// real de "ya facturado al cliente") — a propósito NO usa Avance Valorizado
+// de getFinanzasResumenData(): esa es una métrica de avance físico que
+// puede ir adelantada respecto a lo ya facturado, confirmado con Paul que
+// mezclarlas daría un número engañoso. Si el proyecto no tiene ninguna
+// estimación aprobada todavía, total_acumulado se trata como 0 (confirmado
+// con Paul) — saldo por estimar = presupuesto total completo, sin caso
+// especial en el código. "Avance no facturado" se incluye aparte, rotulado
+// explícitamente, como columna secundaria informativa (Forbidden Action del
+// prompt: nunca como el cálculo principal).
+app.get('/api/projects/:id/export-catalogo-excel', h(auth.allow('residente', 'cabo', 'compras', 'tesoreria', 'administracion', 'logistica', 'costos')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('presupuestos', 'puede_ver')), h(async (req, res) => {
+  const pid = req.project.id;
+  const { rows: conceptos } = await db.pool.query(
+    'SELECT codigo, concepto, grupo, unidad, cantidad, precio_unitario, importe FROM conceptos WHERE project_id = $1 AND activo = 1 AND es_total = 0 ORDER BY orden',
+    [pid]
+  );
+  const [presupuestoTotal, { rows: estRows }, finanzas] = await Promise.all([
+    presupuestoTotalDe(pid),
+    db.pool.query(
+      "SELECT total_acumulado FROM estimaciones WHERE project_id = $1 AND estado = 'aprobada' ORDER BY folio DESC LIMIT 1",
+      [pid]
+    ),
+    getFinanzasResumenData(pid),
+  ]);
+  const totalAcumuladoEstimado = estRows[0] ? Number(estRows[0].total_acumulado) : 0;
+  const saldoPorEstimar = Number((presupuestoTotal - totalAcumuladoEstimado).toFixed(2));
+  const avanceNoFacturado = Number((finanzas.avance_valorizado.monto - totalAcumuladoEstimado).toFixed(2));
+
+  await sendXlsxExport(res, {
+    filename: buildExportFilename('Catalogo-Conceptos', req.project.nombre),
+    sheets: [
+      {
+        sheetName: 'Resumen',
+        columns: [
+          { header: 'Concepto', key: 'concepto', width: 45 },
+          { header: 'Valor', key: 'valor', width: 20, format: 'money' },
+        ],
+        rows: [
+          { concepto: 'Presupuesto total', valor: presupuestoTotal },
+          { concepto: 'Total acumulado (última estimación aprobada)', valor: totalAcumuladoEstimado },
+          { concepto: 'Saldo por estimar', valor: saldoPorEstimar },
+          { concepto: 'Avance no facturado (Avance Valorizado − acumulado ya facturado; métrica distinta al saldo por estimar)', valor: avanceNoFacturado },
+        ],
+      },
+      {
+        sheetName: 'Catálogo',
+        columns: [
+          { header: 'Código', key: 'codigo', width: 14 },
+          { header: 'Concepto', key: 'concepto', width: 45 },
+          { header: 'Grupo', key: 'grupo', width: 22 },
+          { header: 'Unidad', key: 'unidad', width: 10 },
+          { header: 'Cantidad', key: 'cantidad', width: 14, format: 'int' },
+          { header: 'Precio unitario', key: 'precio_unitario', width: 16, format: 'money' },
+          { header: 'Importe', key: 'importe', width: 16, format: 'money' },
+        ],
+        rows: conceptos,
+      },
+    ],
+  });
+}));
+
 // ---------------------------------------------------------------------------
 // Actualización de presupuesto preservando avance (DISEÑO-ACTUALIZACION-
 // PRESUPUESTO.md, aprobado por Paul 2026-07-21). Dos pasos: preview (nunca
@@ -8601,6 +8681,177 @@ app.post('/api/projects/:id/requisiciones/:reqId/ordenes', h(auth.allow('compras
     importe_total: Number(computed.reduce((s, c) => s + c.importe, 0).toFixed(2)),
     tiene_alertas: computed.some((c) => c.alerta_sobre_orden),
     desglose_iva: computeIvaBreakdown(computed, incluyeIva),
+  });
+}));
+
+// Generar varias OCs (una por proveedor distinto) de una misma requisición en
+// una sola acción (prompt-requisicion-multi-proveedor-multi-oc.md). Fase 0
+// confirmó que esto ya era parcialmente posible a mano (el endpoint de
+// arriba ya acepta un subconjunto de items -- "deja en 0 los que no vayas a
+// incluir" -- y la sobre-orden ya compara contra "OCs previas", plural) --
+// lo que faltaba era hacerlo atómico (todo o nada) en una sola llamada, sin
+// tener que reabrir el modal N veces. A propósito NO se toca
+// requisiciones.estado (queda en 'autorizada', igual que con una sola OC):
+// "¿ya tiene OC?" se deriva consultando ordenes_compra por requisicion_id
+// (ver GET .../requisiciones/riesgo-suministro más abajo), y cambiar el
+// estado aquí rompería esa señal ya usada por el dashboard de riesgo de
+// suministro -- decisión confirmada con Paul en Fase 0.
+app.post('/api/projects/:id/requisiciones/:reqId/ordenes/multi', h(auth.allow('compras')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('ordenes_compra', 'puede_crear')), h(async (req, res) => {
+  const pid = req.project.id;
+  const reqId = Number(req.params.reqId);
+  const { grupos, folio, fecha, observaciones, confirmar_sobreorden, motivo } = req.body || {};
+  const incluyeIva = (req.body || {}).incluye_iva === true;
+
+  const { rows: reqRows } = await db.pool.query(
+    'SELECT * FROM requisiciones WHERE id = $1 AND project_id = $2', [reqId, pid]
+  );
+  if (!reqRows[0]) return res.status(404).json({ error: 'Requisición no encontrada' });
+  if (reqRows[0].estado !== 'autorizada') {
+    return res.status(400).json({ error: 'Solo se pueden generar órdenes de compra de requisiciones en estado "autorizada"' });
+  }
+  if (!Array.isArray(grupos) || grupos.length < 2) {
+    return res.status(400).json({ error: 'Indica al menos 2 grupos (uno por proveedor distinto) -- para un solo proveedor usa el endpoint normal' });
+  }
+  for (const g of grupos) {
+    if (!g.proveedor_id) return res.status(400).json({ error: 'Cada grupo debe indicar un proveedor' });
+    if (!Array.isArray(g.items) || g.items.length === 0) {
+      return res.status(400).json({ error: 'Cada grupo debe incluir al menos un insumo' });
+    }
+  }
+  // Un mismo renglón de requisición no puede repartirse entre 2 proveedores
+  // en esta versión (Target State: "cada insumo se asigne a UN proveedor").
+  const vistos = new Set();
+  for (const g of grupos) {
+    for (const it of g.items) {
+      const rid = Number(it.requisicion_item_id);
+      if (vistos.has(rid)) {
+        return res.status(400).json({ error: `El item ${rid} está asignado a más de un proveedor -- cada renglón debe ir a un solo proveedor` });
+      }
+      vistos.add(rid);
+    }
+  }
+
+  const { rows: reqItems } = await db.pool.query(`
+    SELECT ri.*, i.iva_tasa, i.codigo AS insumo_codigo, i.concepto AS insumo_concepto, i.unidad
+    FROM requisicion_items ri
+    JOIN insumos i ON i.id = ri.insumo_id
+    WHERE ri.requisicion_id = $1
+  `, [reqId]);
+  const reqItemsMap = new Map(reqItems.map((it) => [it.id, it]));
+  for (const rid of vistos) {
+    if (!reqItemsMap.has(rid)) {
+      return res.status(400).json({ error: `El item ${rid} no pertenece a esta requisición` });
+    }
+  }
+
+  // Mismo criterio que el endpoint de una sola OC: acumulado ya ordenado en
+  // OCs previas no canceladas. No hace falta acumular también dentro de
+  // este mismo batch porque un mismo requisicion_item_id ya no puede repetirse
+  // entre grupos (validado arriba).
+  const { rows: acumRows } = await db.pool.query(`
+    SELECT oci.requisicion_item_id, COALESCE(SUM(oci.cantidad_ordenada), 0) AS acumulado
+    FROM orden_compra_items oci
+    JOIN ordenes_compra oc ON oc.id = oci.orden_compra_id
+    WHERE oc.requisicion_id = $1 AND oc.estado != 'cancelada'
+    GROUP BY oci.requisicion_item_id
+  `, [reqId]);
+  const acumMap = new Map(acumRows.map((r) => [r.requisicion_item_id, Number(r.acumulado)]));
+
+  const gruposComputados = grupos.map((g) => {
+    const computed = g.items.map((it) => {
+      const reqItem = reqItemsMap.get(Number(it.requisicion_item_id));
+      const cantidad = Math.max(0, Number(it.cantidad_ordenada) || 0);
+      const precio = Math.max(0, Number(it.precio_unitario) || 0);
+      const acumuladoPrevio = acumMap.get(reqItem.id) || 0;
+      return {
+        requisicion_item_id: reqItem.id,
+        cantidad_ordenada: cantidad,
+        precio_unitario: precio,
+        importe: Number((cantidad * precio).toFixed(2)),
+        iva_tasa: reqItem.iva_tasa,
+        alerta_sobre_orden: (acumuladoPrevio + cantidad) > reqItem.cantidad_solicitada,
+        insumo_codigo: reqItem.insumo_codigo,
+        insumo_concepto: reqItem.insumo_concepto,
+        unidad: reqItem.unidad,
+        disponible: reqItem.cantidad_solicitada - acumuladoPrevio,
+      };
+    }).filter((c) => c.cantidad_ordenada > 0);
+    return { proveedor_id: Number(g.proveedor_id), computed };
+  }).filter((g) => g.computed.length > 0);
+
+  if (gruposComputados.length < 2) {
+    return res.status(400).json({ error: 'Indica una cantidad mayor a 0 en al menos un item de 2 o más proveedores distintos' });
+  }
+
+  const excedentes = gruposComputados.flatMap((g) => g.computed
+    .filter((c) => c.alerta_sobre_orden)
+    .map((c) => ({
+      requisicion_item_id: c.requisicion_item_id,
+      insumo_codigo: c.insumo_codigo,
+      insumo_concepto: c.insumo_concepto,
+      unidad: c.unidad,
+      disponible: Number(Math.max(0, c.disponible).toFixed(3)),
+      cantidad_solicitada_en_oc: c.cantidad_ordenada,
+      exceso: Number((c.cantidad_ordenada - c.disponible).toFixed(3)),
+    })));
+  if (excedentes.length > 0) {
+    if (confirmar_sobreorden !== true) {
+      return res.status(409).json({
+        error: 'Uno o más insumos exceden lo disponible de la requisición (lo solicitado menos lo ya ordenado en OCs previas). Confirma explícitamente con un motivo para continuar.',
+        excedentes,
+      });
+    }
+    if (!motivo || !motivo.trim()) {
+      return res.status(400).json({ error: 'Indica un motivo para confirmar la sobre-orden.' });
+    }
+  }
+
+  // Todo o nada: si cualquier INSERT falla, ninguna de las N OCs queda
+  // creada (Forbidden Action explícita: nunca dejar la requisición en un
+  // estado ambiguo con solo algunas OCs generadas).
+  const creadas = await db.withTransaction(async (client) => {
+    const ip = auth.getIp(req);
+    const resultado = [];
+    for (const g of gruposComputados) {
+      const { rows } = await client.query(
+        `INSERT INTO ordenes_compra (project_id, requisicion_id, proveedor_id, folio, fecha, observaciones, incluye_iva)
+         VALUES ($1,$2,$3,$4,COALESCE($5::date, CURRENT_DATE),$6,$7) RETURNING *`,
+        [pid, reqId, g.proveedor_id, folio || null, fecha || null, observaciones || null, incluyeIva]
+      );
+      const ocId = rows[0].id;
+      for (const c of g.computed) {
+        await client.query(
+          `INSERT INTO orden_compra_items (orden_compra_id, requisicion_item_id, cantidad_ordenada, precio_unitario, importe)
+           VALUES ($1,$2,$3,$4,$5)`,
+          [ocId, c.requisicion_item_id, c.cantidad_ordenada, c.precio_unitario, c.importe]
+        );
+      }
+      const excedentesGrupo = g.computed
+        .filter((c) => c.alerta_sobre_orden)
+        .map((c) => ({ requisicion_item_id: c.requisicion_item_id, insumo_codigo: c.insumo_codigo, insumo_concepto: c.insumo_concepto }));
+      if (excedentesGrupo.length > 0) {
+        await client.query(
+          `INSERT INTO audit_log (actor_id, actor_usuario, accion, target_id, project_id, ip, detalle)
+           VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+          [req.user.id, req.user.usuario, 'confirmar_sobreorden_oc', ocId, pid, ip,
+            JSON.stringify({ requisicion_id: reqId, requisicion_folio: reqRows[0].folio, excedentes: excedentesGrupo, motivo: motivo?.trim() })]
+        );
+      }
+      resultado.push({
+        ...rows[0],
+        items: g.computed,
+        importe_total: Number(g.computed.reduce((s, c) => s + c.importe, 0).toFixed(2)),
+        tiene_alertas: excedentesGrupo.length > 0,
+        desglose_iva: computeIvaBreakdown(g.computed, incluyeIva),
+      });
+    }
+    return resultado;
+  });
+
+  res.status(201).json({
+    ordenes: creadas,
+    importe_total: Number(creadas.reduce((s, o) => s + o.importe_total, 0).toFixed(2)),
+    tiene_alertas: creadas.some((o) => o.tiene_alertas),
   });
 }));
 

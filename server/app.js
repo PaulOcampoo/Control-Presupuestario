@@ -990,6 +990,22 @@ app.put('/api/usuarios/:id', h(auth.allow('administracion')), h(async (req, res)
     return res.status(400).json({ error: 'La contraseña no puede superar 72 caracteres' });
   }
   const passwordHash = password ? await auth.hashPassword(password) : null;
+  // promptA-fix-token-valid-since-CORREGIDO.md: req.user sale del JWT tal
+  // cual (server/auth.js:922, req.user = decoded), nunca se re-consulta
+  // fresco de la DB -- token_valid_since es lo único que invalida una
+  // sesión vieja. Antes solo se bumpeaba en cambio de contraseña, así que
+  // un usuario ascendido/degradado de puesto (o desactivado) seguía
+  // operando bajo su rol/estado anterior hasta que cambiara su password.
+  // Comparar contra el valor YA GUARDADO (no solo "vino en el body") es
+  // necesario porque el form de edición siempre manda puesto/activo en
+  // cada guardado, incluso sin cambiarlos -- bumpear por presencia del
+  // campo forzaría cierre de sesión en cualquier edición (ej. solo
+  // corregir el nombre), no solo cuando el valor realmente cambia.
+  const { rows: actualRows } = await db.pool.query('SELECT puesto, activo FROM usuarios WHERE id = $1', [id]);
+  if (!actualRows[0]) return res.status(404).json({ error: 'Usuario no encontrado' });
+  const cambioPuesto = puesto != null && puesto !== actualRows[0].puesto;
+  const cambioActivo = activo != null && Boolean(activo) !== actualRows[0].activo;
+  const debeInvalidarSesion = password != null || cambioPuesto || cambioActivo;
   const { rows } = await db.pool.query(
     `UPDATE usuarios SET
        nombre = COALESCE($1, nombre),
@@ -997,10 +1013,10 @@ app.put('/api/usuarios/:id', h(auth.allow('administracion')), h(async (req, res)
        activo = COALESCE($3, activo),
        password_hash = COALESCE($4, password_hash),
        must_change_password = CASE WHEN $4 IS NOT NULL THEN true ELSE must_change_password END,
-       token_valid_since = CASE WHEN $4 IS NOT NULL THEN NOW() ELSE token_valid_since END
+       token_valid_since = CASE WHEN $6 THEN NOW() ELSE token_valid_since END
      WHERE id = $5
      RETURNING id, nombre, usuario, puesto, activo, creado_en, must_change_password`,
-    [nombre?.trim() || null, puesto || null, activo != null ? Boolean(activo) : null, passwordHash, id]
+    [nombre?.trim() || null, puesto || null, activo != null ? Boolean(activo) : null, passwordHash, id, debeInvalidarSesion]
   );
   if (!rows[0]) return res.status(404).json({ error: 'Usuario no encontrado' });
   if (password) {
@@ -6538,6 +6554,70 @@ app.post('/api/projects/:id/impuestos/:periodoId/cargar', h(auth.allow()), h(req
 app.get('/api/projects/:id/conceptos', h(auth.allow('residente', 'cabo', 'compras', 'tesoreria', 'administracion', 'logistica', 'costos')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('presupuestos', 'puede_ver')), h(async (req, res) => {
   const { rows } = await db.pool.query('SELECT * FROM conceptos WHERE project_id = $1 AND activo = 1 ORDER BY orden', [req.project.id]);
   res.json(rows);
+}));
+
+// Export a Excel del catálogo de conceptos cargado + "Saldo por estimar"
+// (prompt1-export-catalogo-saldo-CORREGIDO.md, sugerencia de Rodolfo vía
+// módulo Sugerencias). "Saldo por estimar" = presupuestoTotalDe(pid) −
+// total_acumulado de la última estimación APROBADA (por folio, la fuente
+// real de "ya facturado al cliente") — a propósito NO usa Avance Valorizado
+// de getFinanzasResumenData(): esa es una métrica de avance físico que
+// puede ir adelantada respecto a lo ya facturado, confirmado con Paul que
+// mezclarlas daría un número engañoso. Si el proyecto no tiene ninguna
+// estimación aprobada todavía, total_acumulado se trata como 0 (confirmado
+// con Paul) — saldo por estimar = presupuesto total completo, sin caso
+// especial en el código. "Avance no facturado" se incluye aparte, rotulado
+// explícitamente, como columna secundaria informativa (Forbidden Action del
+// prompt: nunca como el cálculo principal).
+app.get('/api/projects/:id/export-catalogo-excel', h(auth.allow('residente', 'cabo', 'compras', 'tesoreria', 'administracion', 'logistica', 'costos')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('presupuestos', 'puede_ver')), h(async (req, res) => {
+  const pid = req.project.id;
+  const { rows: conceptos } = await db.pool.query(
+    'SELECT codigo, concepto, grupo, unidad, cantidad, precio_unitario, importe FROM conceptos WHERE project_id = $1 AND activo = 1 AND es_total = 0 ORDER BY orden',
+    [pid]
+  );
+  const [presupuestoTotal, { rows: estRows }, finanzas] = await Promise.all([
+    presupuestoTotalDe(pid),
+    db.pool.query(
+      "SELECT total_acumulado FROM estimaciones WHERE project_id = $1 AND estado = 'aprobada' ORDER BY folio DESC LIMIT 1",
+      [pid]
+    ),
+    getFinanzasResumenData(pid),
+  ]);
+  const totalAcumuladoEstimado = estRows[0] ? Number(estRows[0].total_acumulado) : 0;
+  const saldoPorEstimar = Number((presupuestoTotal - totalAcumuladoEstimado).toFixed(2));
+  const avanceNoFacturado = Number((finanzas.avance_valorizado.monto - totalAcumuladoEstimado).toFixed(2));
+
+  await sendXlsxExport(res, {
+    filename: buildExportFilename('Catalogo-Conceptos', req.project.nombre),
+    sheets: [
+      {
+        sheetName: 'Resumen',
+        columns: [
+          { header: 'Concepto', key: 'concepto', width: 45 },
+          { header: 'Valor', key: 'valor', width: 20, format: 'money' },
+        ],
+        rows: [
+          { concepto: 'Presupuesto total', valor: presupuestoTotal },
+          { concepto: 'Total acumulado (última estimación aprobada)', valor: totalAcumuladoEstimado },
+          { concepto: 'Saldo por estimar', valor: saldoPorEstimar },
+          { concepto: 'Avance no facturado (Avance Valorizado − acumulado ya facturado; métrica distinta al saldo por estimar)', valor: avanceNoFacturado },
+        ],
+      },
+      {
+        sheetName: 'Catálogo',
+        columns: [
+          { header: 'Código', key: 'codigo', width: 14 },
+          { header: 'Concepto', key: 'concepto', width: 45 },
+          { header: 'Grupo', key: 'grupo', width: 22 },
+          { header: 'Unidad', key: 'unidad', width: 10 },
+          { header: 'Cantidad', key: 'cantidad', width: 14, format: 'int' },
+          { header: 'Precio unitario', key: 'precio_unitario', width: 16, format: 'money' },
+          { header: 'Importe', key: 'importe', width: 16, format: 'money' },
+        ],
+        rows: conceptos,
+      },
+    ],
+  });
 }));
 
 // ---------------------------------------------------------------------------

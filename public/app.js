@@ -7394,10 +7394,7 @@ async function openGenerarOrdenModal(requisicion) {
 
   openModal(`
     <h3>Generar Orden de Compra</h3>
-    <p class="muted">${esc(requisicion.folio || `Requisición #${requisicion.id}`)} — puedes ordenar solo algunos items; deja en 0 los que no vayas a incluir en esta orden.</p>
-    <div class="field"><label>Proveedor *</label>
-      <select id="ocProveedor">${proveedores.map((p) => `<option value="${p.id}">${esc(p.nombre)}</option>`).join('')}</select>
-    </div>
+    <p class="muted">${esc(requisicion.folio || `Requisición #${requisicion.id}`)} — puedes ordenar solo algunos items (deja en 0 los que no vayas a incluir) y asignar un proveedor distinto a cada renglón: si usas más de un proveedor, se crea una orden de compra separada por cada uno, en una sola acción.</p>
     <div class="field"><label>Folio (opcional)</label><input id="ocFolio" placeholder="Ej. OC-2026-001" /></div>
     <div class="field"><label>Fecha</label><input id="ocFecha" type="date" value="${new Date().toISOString().slice(0, 10)}" /></div>
     <div id="ocItems"></div>
@@ -7424,6 +7421,9 @@ async function openGenerarOrdenModal(requisicion) {
     <div class="req-item-row" data-req-item="${it.id}" data-iva-tasa="${ivaTasaMap.get(it.insumo_id) ?? 16}">
       <div class="item-title">${esc(it.insumo_concepto)}</div>
       <div class="code muted">${esc(it.insumo_codigo)} · solicitado: ${fmtNum(it.cantidad_solicitada, 3)} ${esc(it.unidad || '')} a ${fmtMoney(it.precio_solicitado)}</div>
+      <div class="field"><label>Proveedor</label>
+        <select data-oc-proveedor>${proveedores.map((p) => `<option value="${p.id}">${esc(p.nombre)}</option>`).join('')}</select>
+      </div>
       <div class="qty-row">
         <div><label>Cantidad a ordenar</label><input type="number" min="0" step="any" data-oc-cantidad value="${it.cantidad_solicitada}" /></div>
         <div><label>Precio unitario</label><input type="number" min="0" step="any" data-oc-precio value="${it.precio_solicitado}" /></div>
@@ -7462,23 +7462,25 @@ async function openGenerarOrdenModal(requisicion) {
   // body se arma UNA VEZ leyendo el DOM del modal "Generar OC" — necesario
   // porque, si hay sobre-orden, mostrarConfirmacionSobreOrdenModal() abajo
   // reemplaza ese DOM por completo (openModal sobreescribe #modal) antes de
-  // reintentar: para entonces #ocItems/#ocProveedor/etc. ya no existen, así
-  // que el reintento NUNCA vuelve a leer el formulario, reusa el body ya
-  // capturado con solo `confirmar_sobreorden`/`motivo` añadidos encima.
-  async function crearOrdenCompra(body) {
-    if (!body.items.length) { toast('Indica una cantidad mayor a 0 en al menos un item', 'danger'); return; }
+  // reintentar: para entonces #ocItems/etc. ya no existen, así que el
+  // reintento NUNCA vuelve a leer el formulario, reusa el body ya capturado
+  // con solo `confirmar_sobreorden`/`motivo` añadidos encima.
+  // path/isMulti viajan junto con el body para que el reintento de
+  // sobre-orden pegue al mismo endpoint (uno o varios proveedores) que el
+  // intento original (prompt-requisicion-multi-proveedor-multi-oc.md).
+  async function crearOrdenCompra(path, body, isMulti) {
     const btn = $('#btnSaveOC');
     if (btn) { btn.disabled = true; btn.textContent = 'Creando…'; }
     try {
-      const result = await api(`/projects/${state.projectId}/requisiciones/${requisicion.id}/ordenes`, { method: 'POST', body });
+      const result = await api(path, { method: 'POST', body });
       closeModal();
-      toast(result.tiene_alertas
-        ? 'Orden de compra creada — algún item supera lo solicitado en la requisición'
-        : 'Orden de compra creada', result.tiene_alertas ? 'danger' : 'success');
+      const mensajeOk = isMulti ? `${result.ordenes.length} órdenes de compra creadas (una por proveedor)` : 'Orden de compra creada';
+      const mensajeAlerta = isMulti ? 'Órdenes de compra creadas — algún item supera lo solicitado en la requisición' : 'Orden de compra creada — algún item supera lo solicitado en la requisición';
+      toast(result.tiene_alertas ? mensajeAlerta : mensajeOk, result.tiene_alertas ? 'danger' : 'success');
       switchToView('ordenes');
     } catch (err) {
       if (err.status === 409 && err.data?.excedentes?.length) {
-        mostrarConfirmacionSobreOrdenModal(err.data.excedentes, (motivo) => crearOrdenCompra({ ...body, confirmar_sobreorden: true, motivo }));
+        mostrarConfirmacionSobreOrdenModal(err.data.excedentes, (motivo) => crearOrdenCompra(path, { ...body, confirmar_sobreorden: true, motivo }, isMulti));
         return;
       }
       toast(err.message, 'danger');
@@ -7523,19 +7525,36 @@ async function openGenerarOrdenModal(requisicion) {
   }
 
   $('#btnSaveOC').addEventListener('click', () => {
-    const items = $$('#ocItems .req-item-row').map((row) => ({
+    const rows = $$('#ocItems .req-item-row').map((row) => ({
       requisicion_item_id: Number(row.dataset.reqItem),
+      proveedor_id: Number(row.querySelector('[data-oc-proveedor]').value),
       cantidad_ordenada: Number(row.querySelector('[data-oc-cantidad]').value) || 0,
       precio_unitario: Number(row.querySelector('[data-oc-precio]').value) || 0,
     })).filter((it) => it.cantidad_ordenada > 0);
-    crearOrdenCompra({
-      proveedor_id: Number($('#ocProveedor').value),
+    if (!rows.length) { toast('Indica una cantidad mayor a 0 en al menos un item', 'danger'); return; }
+
+    const base = {
       folio: $('#ocFolio').value.trim() || null,
       fecha: $('#ocFecha').value || null,
       observaciones: $('#ocObs').value.trim() || null,
       incluye_iva: $('#ocIncluyeIva').checked,
-      items,
-    });
+    };
+    const soloItem = ({ requisicion_item_id, cantidad_ordenada, precio_unitario }) => ({ requisicion_item_id, cantidad_ordenada, precio_unitario });
+    const proveedoresUsados = [...new Set(rows.map((r) => r.proveedor_id))];
+
+    if (proveedoresUsados.length === 1) {
+      // Un solo proveedor entre los renglones con cantidad > 0 -- mismo
+      // endpoint y comportamiento de siempre, sin regresión.
+      crearOrdenCompra(`/projects/${state.projectId}/requisiciones/${requisicion.id}/ordenes`, {
+        ...base, proveedor_id: proveedoresUsados[0], items: rows.map(soloItem),
+      }, false);
+    } else {
+      const grupos = proveedoresUsados.map((pid) => ({
+        proveedor_id: pid,
+        items: rows.filter((r) => r.proveedor_id === pid).map(soloItem),
+      }));
+      crearOrdenCompra(`/projects/${state.projectId}/requisiciones/${requisicion.id}/ordenes/multi`, { ...base, grupos }, true);
+    }
   });
 }
 

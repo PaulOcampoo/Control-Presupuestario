@@ -156,3 +156,102 @@ semana completa ya no es aceptable.
    restauración real (crear una rama nueva de Neon desde el backup, o
    restaurar en una branch de Neon dedicada — nunca sobreescribir
    `production` directamente sin ese paso intermedio).
+
+## Indicadores de "Resumen del presupuesto"
+
+Endpoint: `GET /api/projects/:id/resumen` — `server/app.js:9861`.
+Render: `renderInicio()` — `public/app.js:5252-5286`.
+
+### 1. Avance Programado
+
+Valor pre-calculado de una curva "S" financiera generada una sola vez (al
+fijar/editar fechas de obra), leído por la semana cuyo rango cubre hoy.
+
+- **Runtime**: `avances_semanales.avance_financiero_programado`, fila con
+  `fecha_inicio <= hoy <= fecha_fin` (`server/app.js:9915-9917`; fallback 0
+  si hoy es antes de la primera semana, o último valor si hoy ya pasó el
+  fin de la última — `server/app.js:9925-9931`).
+- **Origen del valor** (al regenerar fechas de obra): `generatePlanning()` →
+  `buildAvanceSemanal()`, `server/planning.js:100-141`. Cada concepto se
+  reparte en el tiempo dentro de su frente de trabajo (`grupo`) proporcional
+  a su `importe` (`buildPrograma()`, `server/planning.js:47-89`); cada
+  semana suma el importe de los conceptos activos esa semana, acumula, y
+  divide entre el importe total (`server/planning.js:127-128`):
+  ```
+  pctFinanciero = min(100, (Σ importe_semanal_acumulado / importe_total) * 100)
+  ```
+  Se persiste al regenerar fechas de obra: `server/app.js:6239-6262`.
+- **Campo en `resumen`**: `avance_financiero_programado_actual`
+  (`server/app.js:9981`) → frontend `prog` (`public/app.js:5269`).
+
+### 2. Avance Ejecutado
+
+% ponderado por dinero ($-weighted) — no por conteo de conceptos.
+
+- **Runtime**: `avances_semanales.avance_financiero_real` de la semana más
+  reciente con valor no nulo (`server/app.js:9907-9912, 9943`).
+- **Fórmula** (al capturar avance semanal, endpoint de captura):
+  `server/app.js:9613-9626`
+  ```sql
+  SUM(cantidad_ejecutada * precio_unitario)   -- avance_conceptos JOIN conceptos
+  / presupuestoTotalDe(pid) * 100
+  ```
+  clamped a `[0,100]` (`server/app.js:9622`). Pesa cada concepto por
+  `precio_unitario × cantidad`, igual criterio que "Avance Programado" pesa
+  por `importe`.
+- **Nota**: esa misma línea (`server/app.js:9624`) también escribe el
+  mismo valor en `avance_fisico_real` de esa fila, pero esa columna **no**
+  alimenta el KPI "Avance Físico" del dashboard — ver comentario
+  `server/app.js:9946-9957`.
+- **Campo en `resumen`**: `avance_financiero_ejecutado_actual`
+  (`server/app.js:9982`) → frontend `ejec` (`public/app.js:5268`).
+
+### 3. Avance Físico
+
+Promedio SIMPLE (no ponderado por dinero) del % de avance de cada
+concepto — cada concepto pesa igual sin importar su tamaño en pesos.
+
+- **Cálculo**: al vuelo dentro del propio endpoint `resumen`, **nunca lee**
+  la columna `avance_fisico_real` — `server/app.js:9958-9973`:
+  ```sql
+  AVG( LEAST(100, GREATEST(0, (cantidad_ejecutada_acumulada / c.cantidad) * 100)) )
+  FROM conceptos c
+  LEFT JOIN (SUM cantidad_ejecutada por concepto, semana <= última semana con avance)
+  WHERE c.es_total = 0 AND c.activo = 1 AND c.cantidad > 0
+  ```
+  Tablas: `conceptos` + `avance_conceptos`, acumulado hasta la misma
+  `semana` que usa el financiero (`ultimoAvance.semana`,
+  `server/app.js:9967`) para que ambos números sean comparables en el
+  tiempo.
+- **Campo en `resumen`**: `avance_fisico_ejecutado_actual`
+  (`server/app.js:9983`) → frontend `fisico` (`public/app.js:5270`).
+
+### 4. Desviación vs. Programa
+
+- **Fórmula exacta** (`public/app.js:5271`):
+  ```js
+  const desviacion = ejec - prog;   // Avance Ejecutado − Avance Programado
+  ```
+  Es **Ejecutado − Programado**, ambos en su versión financiera
+  ($-weighted). "Avance Físico" **no** interviene en este cálculo, pese a
+  estar en la misma fila de KPIs.
+- Color del KPI: verde si `>= 0`, rojo si `< -10`, amarillo en medio
+  (`public/app.js:5272`).
+
+### Por qué "Ejecutado" y "Físico" difieren
+
+Ambos parten de la misma tabla base (`avance_conceptos`, cantidades
+capturadas por semana) y del mismo corte temporal (misma `semana`), pero
+difieren en la ponderación — divergencia intencional y documentada
+(`server/app.js:9946-9957`, `public/app.js:5280-5283`; referencia:
+`prompt-fase1-avance-fisico-implementacion.md`):
+
+| | Ejecutado (financiero) | Físico |
+|---|---|---|
+| Unidad de peso | `precio_unitario × cantidad` de cada concepto | cada concepto cuenta 1 vez, sin peso $ |
+| Fórmula | `Σ($ ejecutado) / $ total presupuesto` | `AVG(% avance por concepto)` |
+| Efecto | conceptos caros dominan el número | conceptos baratos pesan igual que los caros |
+
+La divergencia es la señal útil: indica, por ejemplo, que se está
+avanzando mucho en conceptos pequeños/numerosos mientras los conceptos de
+mayor peso económico van rezagados (o viceversa).

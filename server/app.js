@@ -3153,6 +3153,33 @@ app.get('/api/costos/catalogo-conceptos-global/export', h(auth.checkPermiso('cos
   });
 }));
 
+// Export respetando el filtro de Obra/buscador activos en pantalla
+// (prompt-filtro-buscador-catalogo-conceptos.md). El frontend ya tiene el
+// catálogo completo cargado (conceptosCache) y filtra ahí mismo -- en vez de
+// duplicar esa lógica de filtro en SQL, el cliente manda solo los
+// `concepto_id_origen` que sobreviven al filtro y el backend vuelve a correr
+// conceptosCatalogoQuery() sin tocarla (Forbidden Action) e intersecta contra
+// esa lista, igual que ya hace crear-presupuesto/export con `items`.
+app.post('/api/costos/catalogo-conceptos/export-filtrado', h(auth.checkPermiso('costos', 'puede_ver')), h(async (req, res) => {
+  const { cliente_id, ids } = req.body || {};
+  if (!Array.isArray(ids) || !ids.length) {
+    return res.status(400).json({ error: 'No hay conceptos que coincidan con el filtro actual para exportar' });
+  }
+  const idsSet = new Set(ids.map(Number));
+  let nombreArchivo = 'Global';
+  if (cliente_id) {
+    const { rows: clienteRows } = await db.pool.query('SELECT nombre FROM clientes WHERE id = $1', [Number(cliente_id)]);
+    if (!clienteRows[0]) return res.status(404).json({ error: 'Cliente no encontrado' });
+    nombreArchivo = clienteRows[0].nombre;
+  }
+  const rows = (await conceptosCatalogoQuery(cliente_id ? Number(cliente_id) : null))
+    .filter((r) => idsSet.has(r.concepto_id_origen));
+  await sendXlsxExport(res, {
+    filename: buildExportFilename('Catalogo-Conceptos-Filtrado', nombreArchivo),
+    sheets: [conceptosCatalogoExportSheet(rows, 'Catálogo')],
+  });
+}));
+
 // ---------------------------------------------------------------------------
 // Dashboard de Costos (prompt-dashboard-costos-basicos-implementacion.md,
 // Tarea 1) — pantalla de entrada a la sección "Costos", antes de picar

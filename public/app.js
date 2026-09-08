@@ -16484,17 +16484,31 @@ async function renderCostos(view) {
   async function showConceptos() {
     subView = 'conceptos';
     let clienteSel = null;
+    let obraSel = null;
+    let busqueda = '';
     let conceptosCache = null;
+    let filtrados = [];
     view.innerHTML = `
       <h2 class="section-title">Costos ${renderHelpBtn('costos')}</h2>
       <p class="muted">Catálogo de partidas armado a partir del precio unitario más reciente de cada concepto (por código) entre obras — selecciona un cliente o deja "Todos" para cruzar todas las obras de todos los clientes.</p>
       ${renderSubNav()}
       <div class="card mt-12">
-        <label>Cliente</label>
-        <select id="conceptosClienteSelect">
-          <option value="">Todos los clientes (global)</option>
-          ${state.clientes.map((c) => `<option value="${c.id}">${esc(c.nombre)}</option>`).join('')}
-        </select>
+        <div class="row gap-8">
+          <div class="field flex-1"><label>Cliente</label>
+            <select id="conceptosClienteSelect">
+              <option value="">Todos los clientes (global)</option>
+              ${state.clientes.map((c) => `<option value="${c.id}">${esc(c.nombre)}</option>`).join('')}
+            </select>
+          </div>
+          <div class="field flex-1"><label>Contrato/Obra</label>
+            <select id="conceptosObraSelect" disabled>
+              <option value="">Todas las obras</option>
+            </select>
+          </div>
+        </div>
+        <div class="field mt-8"><label>Buscar</label>
+          <input id="conceptosBuscar" placeholder="Código o concepto…" autocomplete="off" />
+        </div>
       </div>
       <div class="section-actions mt-12">
         <button class="btn" id="btnConceptosExport">⭳ Exportar a Excel</button>
@@ -16504,6 +16518,34 @@ async function renderCostos(view) {
     `;
     bindSubNav();
     const result = $('#conceptosResult');
+    const obraSelect = $('#conceptosObraSelect');
+
+    function poblarObras() {
+      const obras = new Map();
+      (conceptosCache || []).forEach((c) => { if (c.obra_origen_id) obras.set(c.obra_origen_id, c.obra_origen); });
+      const opciones = [...obras.entries()].sort((a, b) => a[1].localeCompare(b[1]));
+      obraSelect.innerHTML = '<option value="">Todas las obras</option>' +
+        opciones.map(([id, nombre]) => `<option value="${id}">${esc(nombre)}</option>`).join('');
+      obraSelect.disabled = !clienteSel || !opciones.length;
+      obraSel = null;
+    }
+
+    function aplicarFiltros() {
+      const q = normalizarTexto(busqueda.trim());
+      filtrados = (conceptosCache || []).filter((c) => {
+        if (obraSel && c.obra_origen_id !== obraSel) return false;
+        if (q && !normalizarTexto(`${c.codigo || ''} ${c.concepto || ''}`).includes(q)) return false;
+        return true;
+      });
+      if (!conceptosCache?.length) {
+        result.innerHTML = conceptosTablaHtml([]);
+      } else if (!filtrados.length) {
+        result.innerHTML = '<div class="empty-state">No se encontraron conceptos que coincidan.</div>';
+      } else {
+        result.innerHTML = `<p class="muted fs-08">${filtrados.length} de ${conceptosCache.length} concepto${conceptosCache.length === 1 ? '' : 's'}${clienteSel ? '' : ', de todos los clientes'}.</p>${conceptosTablaHtml(filtrados)}`;
+      }
+    }
+
     async function cargar() {
       result.innerHTML = '<div class="spinner"></div>';
       try {
@@ -16511,7 +16553,8 @@ async function renderCostos(view) {
           ? await api(`/costos/catalogo-conceptos/${clienteSel}`)
           : await api('/costos/catalogo-conceptos-global');
         conceptosCache = data.catalogo;
-        result.innerHTML = `<p class="muted fs-08">${data.catalogo.length} concepto${data.catalogo.length === 1 ? '' : 's'} con código${clienteSel ? '' : ', de todos los clientes'}.</p>${conceptosTablaHtml(data.catalogo)}`;
+        poblarObras();
+        aplicarFiltros();
       } catch (err) {
         result.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
       }
@@ -16520,14 +16563,25 @@ async function renderCostos(view) {
       clienteSel = e.target.value ? Number(e.target.value) : null;
       cargar();
     });
+    obraSelect.addEventListener('change', (e) => {
+      obraSel = e.target.value ? Number(e.target.value) : null;
+      aplicarFiltros();
+    });
+    $('#conceptosBuscar').addEventListener('input', (e) => {
+      busqueda = e.target.value;
+      aplicarFiltros();
+    });
     $('#btnConceptosExport').addEventListener('click', async () => {
+      if (!filtrados.length) { toast('No hay conceptos que coincidan con el filtro actual para exportar', ''); return; }
       try {
-        await downloadExport(clienteSel ? `/costos/catalogo-conceptos/${clienteSel}/export` : '/costos/catalogo-conceptos-global/export');
+        await downloadExport('/costos/catalogo-conceptos/export-filtrado', {
+          cliente_id: clienteSel, ids: filtrados.map((c) => c.concepto_id_origen),
+        });
       } catch (err) { toast(err.message, 'danger'); }
     });
     $('#btnConceptosGenerarPresupuesto').addEventListener('click', () => {
-      if (!conceptosCache?.length) { toast('No hay conceptos con código para armar un presupuesto todavía', ''); return; }
-      openCrearPresupuestoModal(conceptosCache);
+      if (!filtrados.length) { toast('No hay conceptos con código para armar un presupuesto todavía', ''); return; }
+      openCrearPresupuestoModal(filtrados);
     });
     await cargar();
   }

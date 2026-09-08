@@ -13008,6 +13008,7 @@ async function renderFinanzasVistaObra(body) {
     <p class="muted">Compara el avance valorizado (% ejecutado del presupuesto) contra el dinero realmente erogado — son dos números distintos a propósito, no se fusionan.</p>
     <div class="section-actions">
       <button class="btn" id="btnExportFinanzas">⭳ Exportar a Excel</button>
+      <button class="btn" id="btnExportCatalogo">⭳ Exportar catálogo a Excel</button>
     </div>
 
     <div class="kpi-grid finanzas-kpi-grid">
@@ -13042,6 +13043,7 @@ async function renderFinanzasVistaObra(body) {
   `;
 
   wireExportButton('#btnExportFinanzas', `/projects/${state.projectId}/finanzas/export${queryString(gastosFilter)}`);
+  wireExportButton('#btnExportCatalogo', `/projects/${state.projectId}/export-catalogo-excel`);
   $('#gastoFiltroCategoria').addEventListener('change', (e) => { gastosFilter.categoria = e.target.value; renderView(); });
   $('#gastoFiltroEstado').addEventListener('change', (e) => { gastosFilter.estado = e.target.value; renderView(); });
   $('#btnNuevoGasto')?.addEventListener('click', () => openGastoModal(null));

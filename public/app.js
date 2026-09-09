@@ -8418,7 +8418,7 @@ async function openAvanceConceptosModal(avance, presupuestoTotal, puedeEditar = 
           <div>
             <label>Ejecutado este periodo</label>
             <input type="number" min="0" step="0.01" data-cantidad="${c.concepto_id}"
-                   data-codigo="${esc(c.codigo)}" data-precio="${c.precio_unitario}" data-presup="${c.cantidad_presupuesto}" data-prev="${c.cantidad_acumulada_previa}"
+                   data-codigo="${esc(c.codigo)}" data-unidad="${esc(c.unidad || '')}" data-precio="${c.precio_unitario}" data-presup="${c.cantidad_presupuesto}" data-prev="${c.cantidad_acumulada_previa}"
                    value="${c.cantidad_ejecutada_periodo ?? ''}" ${(puedeEditar && !bloqueado) ? '' : 'disabled'}
                    ${bloqueado ? `title="Faltan insumos por entregar en obra: ${esc(pendientes.map((p) => p.insumo_nombre).join(', '))}"` : ''} />
           </div>
@@ -8439,8 +8439,20 @@ async function openAvanceConceptosModal(avance, presupuestoTotal, puedeEditar = 
   // igual que el backend.
   const mensajeExcesoAvc = (inp, acumActual, presup) => {
     const codigo = inp.dataset.codigo;
+    const unidad = inp.dataset.unidad || '';
     const concepto = inp.closest('.avc-row').querySelector('[data-concepto-title]').textContent;
-    const maximoPermitido = Math.max(0, Number((presup - Number(inp.dataset.prev)).toFixed(4)));
+    const prev = Number(inp.dataset.prev) || 0;
+    // Mismo criterio que server/app.js (PUT /avances/:semana/conceptos):
+    // si YA estaba sobregirado antes de esta captura (típico en conceptos
+    // que llegaron a 156.4%/153.8% antes de que existiera este candado),
+    // "máximo permitido" (presup - prev) da 0 -- ese número solo no explica
+    // qué hacer. Decisión de Paul: sin bypass de ningún rol, la única salida
+    // es una Orden de Cambio que suba cantidad_presupuestada.
+    if (prev >= presup) {
+      const exceso = Math.max(0, Number((prev - presup).toFixed(4)));
+      return `${codigo} "${concepto}": este concepto ya está ${fmtNum(exceso, 3)} ${unidad} por encima de lo presupuestado (${fmtNum(presup, 3)}). Se requiere una Orden de Cambio para continuar capturando avance.`;
+    }
+    const maximoPermitido = Math.max(0, Number((presup - prev).toFixed(4)));
     return `${codigo} "${concepto}": el acumulado (${fmtNum(acumActual, 3)}) superaría lo presupuestado (${fmtNum(presup, 3)}). Máximo permitido este periodo: ${fmtNum(maximoPermitido, 3)}`;
   };
 

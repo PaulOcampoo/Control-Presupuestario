@@ -9924,7 +9924,7 @@ app.put('/api/projects/:id/avances/:semana/conceptos', h(auth.allow('residente',
   let conceptosMap = new Map();
   if (conceptoIds.length > 0) {
     const { rows: validConceptos } = await db.pool.query(
-      'SELECT id, codigo, concepto, cantidad FROM conceptos WHERE id = ANY($1) AND project_id = $2',
+      'SELECT id, codigo, concepto, cantidad, unidad FROM conceptos WHERE id = ANY($1) AND project_id = $2',
       [conceptoIds, pid]
     );
     if (validConceptos.length !== conceptoIds.length) {
@@ -9963,24 +9963,38 @@ app.put('/api/projects/:id/avances/:semana/conceptos', h(auth.allow('residente',
       const acumuladoPrevio = acumPrevioMap.get(conceptoId) || 0;
       const acumuladoNuevo = acumuladoPrevio + cantidad;
       if (acumuladoNuevo > presup) {
+        // Caso real (2026-09-08-avance-pagos-oc-finanzas.md, seguimiento post-
+        // PR #232): el candado es nuevo, pero conceptos ya sobregirados desde
+        // ANTES de que existiera (los 156.4%/153.8% del reporte original)
+        // siguen con acumulado_previo > presup por sí solos -- ahí "máximo
+        // permitido" (presup - previo) da 0 o negativo, un mensaje que no le
+        // dice al usuario qué hacer. Decisión de Paul: sin bypass de ningún
+        // rol -- la única salida es subir cantidad_presupuestada vía Órdenes
+        // de Cambio (que sí actualiza conceptos.cantidad automáticamente al
+        // aprobarse, ver server/reintegracionPresupuesto.js:244).
+        const yaExcedidoAntes = acumuladoPrevio >= presup;
+        const excesoActual = Number((acumuladoPrevio - presup).toFixed(4));
         excedentes.push({
           concepto_id: conceptoId,
           codigo: concepto.codigo,
           concepto: concepto.concepto,
+          unidad: concepto.unidad,
           cantidad_presupuestada: presup,
           acumulado_previo: acumuladoPrevio,
           cantidad_intentada: cantidad,
           acumulado_resultante: acumuladoNuevo,
-          maximo_permitido: Math.max(0, Number((presup - acumuladoPrevio).toFixed(4))),
+          ya_excedido_antes: yaExcedidoAntes,
+          exceso_actual: yaExcedidoAntes ? Math.max(0, excesoActual) : undefined,
+          maximo_permitido: yaExcedidoAntes ? 0 : Number((presup - acumuladoPrevio).toFixed(4)),
         });
       }
     }
     if (excedentes.length > 0) {
       const primero = excedentes[0];
-      return res.status(400).json({
-        error: `${primero.codigo} "${primero.concepto}": el acumulado (${primero.acumulado_resultante}) superaría lo presupuestado (${primero.cantidad_presupuestada}). Máximo permitido este periodo: ${primero.maximo_permitido}`,
-        excedentes,
-      });
+      const mensaje = primero.ya_excedido_antes
+        ? `${primero.codigo} "${primero.concepto}": este concepto ya está ${primero.exceso_actual} ${primero.unidad || ''} por encima de lo presupuestado (${primero.cantidad_presupuestada}). Se requiere una Orden de Cambio para continuar capturando avance.`
+        : `${primero.codigo} "${primero.concepto}": el acumulado (${primero.acumulado_resultante}) superaría lo presupuestado (${primero.cantidad_presupuestada}). Máximo permitido este periodo: ${primero.maximo_permitido}`;
+      return res.status(400).json({ error: mensaje, excedentes });
     }
   }
 

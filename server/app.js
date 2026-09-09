@@ -12739,17 +12739,21 @@ app.get('/api/estimaciones', h(auth.allow()), h(async (_req, res) => {
 }));
 
 app.get('/api/projects/:id/estimaciones', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
-  // Varios residentes pueden compartir la misma obra — cada uno solo ve las
-  // que él mismo capturó (admin/dev sí ven todas, igual que en Nóminas).
-  const soloPropias = req.user.puesto === 'residente';
+  // prompt-bug-residente-no-ve-estimaciones.md: las estimaciones de una obra
+  // son visibles a cualquier usuario con acceso a esa obra (verificarAccesoObra
+  // ya lo garantiza arriba), sin importar quién las generó — antes se filtraba
+  // además por residente_id = req.user.id para puesto 'residente', tratando la
+  // columna como "ownership por creador" en vez de "ownership por obra", y
+  // dejaba invisibles las estimaciones creadas por otro usuario (ej. admin/
+  // desarrollador) en una obra compartida por varios residentes.
   const { rows } = await db.pool.query(`
     SELECT e.*, u.nombre AS residente_nombre, a.nombre AS admin_aprobador_nombre
     FROM estimaciones e
     LEFT JOIN usuarios u ON u.id = e.residente_id
     LEFT JOIN usuarios a ON a.id = e.admin_aprobador_id
-    WHERE e.project_id = $1 AND e.activo = true AND ($2::boolean = false OR e.residente_id = $3)
+    WHERE e.project_id = $1 AND e.activo = true
     ORDER BY e.folio DESC`,
-    [req.project.id, soloPropias, req.user.id]
+    [req.project.id]
   );
   res.json(rows);
 }));
@@ -12822,14 +12826,15 @@ app.get('/api/projects/:id/estimaciones/defaults-periodo', h(auth.allow('residen
 
 app.get('/api/projects/:id/estimaciones/:estId', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
   const estId = Number(req.params.estId);
-  const soloPropias = req.user.puesto === 'residente';
+  // Ver prompt-bug-residente-no-ve-estimaciones.md, mismo criterio que el
+  // listado arriba: ownership por obra, no por creador.
   const { rows: estRows } = await db.pool.query(`
     SELECT e.*, u.nombre AS residente_nombre, a.nombre AS admin_aprobador_nombre
     FROM estimaciones e
     LEFT JOIN usuarios u ON u.id = e.residente_id
     LEFT JOIN usuarios a ON a.id = e.admin_aprobador_id
-    WHERE e.id = $1 AND e.project_id = $2 AND e.activo = true AND ($3::boolean = false OR e.residente_id = $4)`,
-    [estId, req.project.id, soloPropias, req.user.id]
+    WHERE e.id = $1 AND e.project_id = $2 AND e.activo = true`,
+    [estId, req.project.id]
   );
   if (!estRows[0]) return res.status(404).json({ error: 'Estimación no encontrada' });
   const { rows: items } = await db.pool.query(`
@@ -13080,10 +13085,11 @@ app.delete('/api/projects/:id/estimaciones/:estId', h(auth.allow('residente')), 
 // Proxy del PDF (blob privado) — mismo patrón que /contrato/pdf.
 app.get('/api/projects/:id/estimaciones/:estId/pdf', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
   const estId = Number(req.params.estId);
-  const soloPropias = req.user.puesto === 'residente';
+  // Ver prompt-bug-residente-no-ve-estimaciones.md, mismo criterio que el
+  // listado y el detalle: ownership por obra, no por creador.
   const { rows } = await db.pool.query(
-    `SELECT pdf_url, folio FROM estimaciones WHERE id = $1 AND project_id = $2 AND activo = true AND ($3::boolean = false OR residente_id = $4)`,
-    [estId, req.project.id, soloPropias, req.user.id]
+    `SELECT pdf_url, folio FROM estimaciones WHERE id = $1 AND project_id = $2 AND activo = true`,
+    [estId, req.project.id]
   );
   if (!rows[0] || !rows[0].pdf_url) return res.status(404).json({ error: 'PDF no disponible para esta estimación' });
   const blobResult = await get(rows[0].pdf_url, { access: 'private' });

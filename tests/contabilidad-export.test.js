@@ -2,7 +2,12 @@
 // (prompt-contabilidad-fase5-exportacion.md). Mismo gate que Fase 1-4
 // (auth.requireContabilidadAccess: whitelist [46,8] OR admin/desarrollador).
 // Corren contra la base de datos real apuntada por DATABASE_URL, generan un
-// .xlsx real (exceljs) y lo leen de vuelta para verificar las 4 hojas.
+// .xlsx real (exceljs) y lo leen de vuelta para verificar las 5 hojas.
+// La 5a hoja, "Pagos OC", se agregó después en prompt-fase2-cierre-mensual-
+// pagos-oc.md (server/app.js ~5934) sin actualizar esta suite — quedó
+// desincronizada (fallaba con una hoja extra no esperada), sin relación con
+// el fix de pagos editar/cancelar+tope (2026-09-08-avance-pagos-oc-
+// finanzas.md, Prompt E).
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import request from 'supertest';
 import jwt from 'jsonwebtoken';
@@ -18,6 +23,7 @@ let adminToken;
 let paulToken;
 let residenteToken;
 let testProjectId;
+let testProjectNombre;
 
 let cuentaContableId;
 let polizaId; // aparece en la hoja Pólizas Y como contraparte del movimiento conciliado
@@ -26,9 +32,15 @@ let cuentaBancariaId;
 let movimientoId;
 let equipoId;
 let depreciacionId;
+let proveedorPagoOcId;
+let proveedorPagoOcNombre;
+let requisicionPagoOcId;
+let ordenCompraPagoOcId;
+let pagoOcId;
 
 const MES_PRUEBA = '2025-03';
 const MARCA = 'vitest-export-fase5';
+const OC_FOLIO_MARCA = `OC-${MARCA}`;
 
 function tokenPara(id, nombre, usuario, puesto) {
   return jwt.sign({ id, nombre, usuario, puesto }, SESSION_SECRET, { expiresIn: '15m', algorithm: 'HS256' });
@@ -66,9 +78,10 @@ beforeAll(async () => {
   if (!residenteRows[0]) throw new Error('No hay ningún usuario activo fuera de whitelist/admin/desarrollador contra el cual probar el 403.');
   residenteToken = tokenPara(residenteRows[0].id, 'RESIDENTE PRUEBA', 'residente.prueba', 'residente');
 
-  const { rows: projRows } = await db.pool.query('SELECT id FROM proyectos ORDER BY id LIMIT 1');
+  const { rows: projRows } = await db.pool.query('SELECT id, nombre FROM proyectos ORDER BY id LIMIT 1');
   if (!projRows[0]) throw new Error('No hay ningún proyecto contra el cual correr la suite.');
   testProjectId = projRows[0].id;
+  testProjectNombre = projRows[0].nombre;
 
   // Cuenta contable + póliza del mes de prueba, ligada a la obra de prueba.
   const cta = await db.pool.query(
@@ -121,9 +134,42 @@ beforeAll(async () => {
     [equipoId, `${MES_PRUEBA}-01`]
   );
   depreciacionId = dep.rows[0].id;
+
+  // OC + pago del mes de prueba, ligado a la misma obra — datos para la
+  // hoja "Pagos OC" (prompt-fase2-cierre-mensual-pagos-oc.md), sin cfdi_id
+  // asociado a propósito (para probar estado_factura = 'Sin factura').
+  const provRows = await db.pool.query('SELECT id, nombre FROM proveedores WHERE activo = 1 ORDER BY id LIMIT 1');
+  if (!provRows.rows[0]) throw new Error('Se necesita al menos 1 proveedor activo para probar la hoja Pagos OC.');
+  proveedorPagoOcId = provRows.rows[0].id;
+  proveedorPagoOcNombre = provRows.rows[0].nombre;
+
+  const reqPagoOc = await db.pool.query(
+    `INSERT INTO requisiciones (project_id, folio) VALUES ($1, $2) RETURNING id`,
+    [testProjectId, `REQ-${MARCA}`]
+  );
+  requisicionPagoOcId = reqPagoOc.rows[0].id;
+
+  const ocPagoOc = await db.pool.query(
+    `INSERT INTO ordenes_compra (project_id, requisicion_id, proveedor_id, folio, fecha)
+     VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+    [testProjectId, requisicionPagoOcId, proveedorPagoOcId, OC_FOLIO_MARCA, `${MES_PRUEBA}-05`]
+  );
+  ordenCompraPagoOcId = ocPagoOc.rows[0].id;
+
+  const pagoOc = await db.pool.query(
+    `INSERT INTO pagos (orden_compra_id, fecha, monto, metodo, referencia) VALUES ($1, $2, 2500, 'transferencia', $3) RETURNING id`,
+    [ordenCompraPagoOcId, `${MES_PRUEBA}-13`, `Pago ${MARCA}`]
+  );
+  pagoOcId = pagoOc.rows[0].id;
 });
 
 afterAll(async () => {
+  // pagos tiene ON DELETE CASCADE desde ordenes_compra, pero se borra
+  // explícito primero por claridad; ordenes_compra NO tiene cascade desde
+  // requisiciones (requisicion_id NOT NULL sin ON DELETE), por eso el orden.
+  if (pagoOcId) await db.pool.query('DELETE FROM pagos WHERE id = $1', [pagoOcId]);
+  if (ordenCompraPagoOcId) await db.pool.query('DELETE FROM ordenes_compra WHERE id = $1', [ordenCompraPagoOcId]);
+  if (requisicionPagoOcId) await db.pool.query('DELETE FROM requisiciones WHERE id = $1', [requisicionPagoOcId]);
   if (movimientoId) await db.pool.query('DELETE FROM movimientos_bancarios WHERE cuenta_bancaria_id = $1', [cuentaBancariaId]);
   if (cuentaBancariaId) await db.pool.query('DELETE FROM cuentas_bancarias WHERE id = $1', [cuentaBancariaId]);
   if (depreciacionId) await db.pool.query('DELETE FROM depreciacion_maquinaria WHERE id = $1', [depreciacionId]);
@@ -155,8 +201,8 @@ describe('Export — mes sin datos', () => {
   });
 });
 
-describe('Export — mes con datos en las 4 fuentes', () => {
-  it('genera el .xlsx con 4 hojas y las filas de prueba en cada una', async () => {
+describe('Export — mes con datos en las 5 fuentes', () => {
+  it('genera el .xlsx con 5 hojas y las filas de prueba en cada una', async () => {
     const res = await request(app)
       .get(`/api/contabilidad/export?mes=${MES_PRUEBA}`)
       .set('Authorization', `Bearer ${paulToken}`)
@@ -165,7 +211,7 @@ describe('Export — mes con datos en las 4 fuentes', () => {
     expect(res.headers['content-type']).toContain('spreadsheet');
 
     const hojas = await leerXlsx(res.body);
-    expect(Object.keys(hojas)).toEqual(['Pólizas', 'CFDI', 'Mov. Bancarios Conciliados', 'Depreciación']);
+    expect(Object.keys(hojas)).toEqual(['Pólizas', 'CFDI', 'Mov. Bancarios Conciliados', 'Depreciación', 'Pagos OC']);
 
     // Hoja Pólizas: [fecha, tipo, cuenta_codigo, cuenta_nombre, concepto, obra, monto, referencia, estatus]
     const filaPoliza = hojas['Pólizas'].find((f) => f[4] === `Poliza ${MARCA}`);
@@ -189,6 +235,14 @@ describe('Export — mes con datos en las 4 fuentes', () => {
     expect(filaDep[3]).toBe(1000);  // mensual = 24000/24
     expect(filaDep[4]).toBe(1000);  // acumulada (1 mes transcurrido)
     expect(filaDep[5]).toBe(23000); // valor en libros
+
+    // Hoja Pagos OC: [fecha, oc_folio, project_nombre, proveedor_nombre, monto, cfdi_uuid, estado_factura]
+    const filaPago = hojas['Pagos OC'].find((f) => f[1] === OC_FOLIO_MARCA);
+    expect(filaPago).toBeTruthy();
+    expect(filaPago[2]).toBe(testProjectNombre); // obra
+    expect(filaPago[3]).toBe(proveedorPagoOcNombre); // proveedor
+    expect(filaPago[4]).toBe(2500); // monto
+    expect(filaPago[6]).toBe('Sin factura'); // sin cfdi_id asociado
   });
 });
 

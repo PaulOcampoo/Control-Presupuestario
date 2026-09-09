@@ -1377,6 +1377,13 @@ body.body-scroll-locked { overflow: hidden; }
 }
 .avc-ver-mas { display: block; margin-top: var(--space-4); }
 
+/* Candado de presupuesto en Avance (2026-09-08-avance-pagos-oc-finanzas.md,
+   Prompt D) — borde rojo en el input mientras el acumulado exceda lo
+   presupuestado; el mensaje en sí vive en [data-exceso-msg] (.alert-box.danger
+   ya existente, reusado tal cual). */
+.avc-row input.input-danger { border-color: #ef4444; }
+[data-theme="light"] .avc-row input.input-danger { border-color: #dc2626; }
+
 .alert-box {
   border-radius: var(--radius-control); padding: var(--space-10) var(--space-12); font-size: var(--fs-sm); margin: var(--space-8) var(--space-0);
   border: 1px solid; display: flex; gap: var(--space-8); align-items: flex-start;

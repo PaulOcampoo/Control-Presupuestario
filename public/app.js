@@ -8418,18 +8418,31 @@ async function openAvanceConceptosModal(avance, presupuestoTotal, puedeEditar = 
           <div>
             <label>Ejecutado este periodo</label>
             <input type="number" min="0" step="0.01" data-cantidad="${c.concepto_id}"
-                   data-precio="${c.precio_unitario}" data-presup="${c.cantidad_presupuesto}" data-prev="${c.cantidad_acumulada_previa}"
+                   data-codigo="${esc(c.codigo)}" data-precio="${c.precio_unitario}" data-presup="${c.cantidad_presupuesto}" data-prev="${c.cantidad_acumulada_previa}"
                    value="${c.cantidad_ejecutada_periodo ?? ''}" ${(puedeEditar && !bloqueado) ? '' : 'disabled'}
                    ${bloqueado ? `title="Faltan insumos por entregar en obra: ${esc(pendientes.map((p) => p.insumo_nombre).join(', '))}"` : ''} />
           </div>
           <div class="muted acum-out" data-acum-out></div>
         </div>
+        <div class="alert-box danger hidden-initial mt-6" data-exceso-msg></div>
         ${bloqueado ? `<div class="muted solo-lectura-note">🔒 Falta entrega de: ${esc(pendientes.map((p) => p.insumo_nombre).join(', '))}</div>` : ''}
       </div>
       `;
       }).join('')}
     </div>
   `).join('');
+
+  // Candado duro de presupuesto (2026-09-08-avance-pagos-oc-finanzas.md,
+  // Prompt D) — mismo mensaje/fórmula que el backend (fuente de verdad,
+  // ver PUT /avances/:semana/conceptos en server/app.js), para no inventar
+  // un texto distinto en frontend. Presupuesto 0/nulo queda sin candado,
+  // igual que el backend.
+  const mensajeExcesoAvc = (inp, acumActual, presup) => {
+    const codigo = inp.dataset.codigo;
+    const concepto = inp.closest('.avc-row').querySelector('[data-concepto-title]').textContent;
+    const maximoPermitido = Math.max(0, Number((presup - Number(inp.dataset.prev)).toFixed(4)));
+    return `${codigo} "${concepto}": el acumulado (${fmtNum(acumActual, 3)}) superaría lo presupuestado (${fmtNum(presup, 3)}). Máximo permitido este periodo: ${fmtNum(maximoPermitido, 3)}`;
+  };
 
   const updateRowOutput = (inp) => {
     const prev = Number(inp.dataset.prev) || 0;
@@ -8438,6 +8451,13 @@ async function openAvanceConceptosModal(avance, presupuestoTotal, puedeEditar = 
     const presup = Number(inp.dataset.presup) || 0;
     const out = inp.closest('.qty-row').querySelector('[data-acum-out]');
     if (out) out.innerHTML = `acum: ${fmtNum(acumActual, 3)}<br>de ${fmtNum(presup, 3)} (${fmtPct(presup ? (acumActual / presup) * 100 : 0)})`;
+    const excedido = presup > 0 && acumActual > presup;
+    const msgEl = inp.closest('.avc-row').querySelector('[data-exceso-msg]');
+    if (msgEl) {
+      msgEl.classList.toggle('hidden-initial', !excedido);
+      if (excedido) msgEl.textContent = `⚠️ ${mensajeExcesoAvc(inp, acumActual, presup)}`;
+    }
+    inp.classList.toggle('input-danger', excedido);
     return acumActual;
   };
 
@@ -8503,6 +8523,25 @@ async function openAvanceConceptosModal(avance, presupuestoTotal, puedeEditar = 
   if (puedeEditar) {
     $('#btnSaveAvc').addEventListener('click', async () => {
       const btn = $('#btnSaveAvc');
+      // Candado duro (Prompt D): bloquear el submit ANTES de llamar al
+      // backend si algún renglón excede su presupuesto -- mismo cálculo/
+      // mensaje que mensajeExcesoAvc ya usa para la advertencia en vivo, no
+      // uno distinto. El backend vuelve a validar esto de todas formas
+      // (fuente de verdad real); este check es solo para no gastar un
+      // round-trip en algo que ya se sabe que va a fallar.
+      const inputExcedido = $$('[data-cantidad]').find((inp) => {
+        const presup = Number(inp.dataset.presup) || 0;
+        if (!(presup > 0)) return false;
+        const cantidad = inp.value === '' ? 0 : Math.max(0, Number(inp.value));
+        return (Number(inp.dataset.prev) || 0) + cantidad > presup;
+      });
+      if (inputExcedido) {
+        const presup = Number(inputExcedido.dataset.presup) || 0;
+        const cantidad = inputExcedido.value === '' ? 0 : Math.max(0, Number(inputExcedido.value));
+        const acumActual = (Number(inputExcedido.dataset.prev) || 0) + cantidad;
+        toast(mensajeExcesoAvc(inputExcedido, acumActual, presup), 'danger');
+        return;
+      }
       const payloadItems = $$('[data-cantidad]').map((inp) => ({
         concepto_id: Number(inp.dataset.cantidad),
         cantidad_ejecutada: inp.value === '' ? 0 : Math.max(0, Number(inp.value)),

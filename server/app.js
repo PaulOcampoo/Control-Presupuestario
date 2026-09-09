@@ -9921,13 +9921,66 @@ app.put('/api/projects/:id/avances/:semana/conceptos', h(auth.allow('residente',
 
   // Reject the entire batch if any concepto_id does not belong to this project (IDOR fix A2).
   const conceptoIds = [...new Set(items.map((it) => Number(it.concepto_id)).filter((id) => id > 0))];
+  let conceptosMap = new Map();
   if (conceptoIds.length > 0) {
     const { rows: validConceptos } = await db.pool.query(
-      'SELECT id FROM conceptos WHERE id = ANY($1) AND project_id = $2',
+      'SELECT id, codigo, concepto, cantidad FROM conceptos WHERE id = ANY($1) AND project_id = $2',
       [conceptoIds, pid]
     );
     if (validConceptos.length !== conceptoIds.length) {
       return res.status(400).json({ error: 'Uno o más conceptos no pertenecen a esta obra' });
+    }
+    conceptosMap = new Map(validConceptos.map((c) => [c.id, c]));
+  }
+
+  // Candado duro de presupuesto (2026-09-08-avance-pagos-oc-finanzas.md,
+  // Prompt D — decisión de negocio de Paul: hard block, no soft warning).
+  // acumulado_previo usa EXACTAMENTE la misma definición que ya expone
+  // GET /avances/:semana/conceptos arriba (SUM ac.semana < :semana, nunca
+  // incluye la semana que se está guardando -- ese valor se sobrescribe
+  // completo abajo). Conceptos con cantidad presupuestada 0/nula quedan
+  // sin candado (nunca deberían llegar aquí de todas formas -- el GET que
+  // alimenta el modal ya los excluye con `cantidad > 0`, ver línea ~9872 --
+  // pero un cliente que mande ese concepto_id igual no debe romperse).
+  if (conceptoIds.length > 0) {
+    const { rows: previos } = await db.pool.query(`
+      SELECT concepto_id, COALESCE(SUM(cantidad_ejecutada), 0) AS total
+      FROM avance_conceptos
+      WHERE concepto_id = ANY($1) AND semana < $2
+      GROUP BY concepto_id
+    `, [conceptoIds, semana]);
+    const acumPrevioMap = new Map(previos.map((p) => [p.concepto_id, Number(p.total)]));
+
+    const excedentes = [];
+    for (const it of items) {
+      const conceptoId = Number(it.concepto_id);
+      if (!conceptoId) continue;
+      const cantidad = it.cantidad_ejecutada == null || it.cantidad_ejecutada === ''
+        ? 0 : Math.max(0, Number(it.cantidad_ejecutada));
+      const concepto = conceptosMap.get(conceptoId);
+      const presup = concepto ? Number(concepto.cantidad) : 0;
+      if (!(presup > 0)) continue;
+      const acumuladoPrevio = acumPrevioMap.get(conceptoId) || 0;
+      const acumuladoNuevo = acumuladoPrevio + cantidad;
+      if (acumuladoNuevo > presup) {
+        excedentes.push({
+          concepto_id: conceptoId,
+          codigo: concepto.codigo,
+          concepto: concepto.concepto,
+          cantidad_presupuestada: presup,
+          acumulado_previo: acumuladoPrevio,
+          cantidad_intentada: cantidad,
+          acumulado_resultante: acumuladoNuevo,
+          maximo_permitido: Math.max(0, Number((presup - acumuladoPrevio).toFixed(4))),
+        });
+      }
+    }
+    if (excedentes.length > 0) {
+      const primero = excedentes[0];
+      return res.status(400).json({
+        error: `${primero.codigo} "${primero.concepto}": el acumulado (${primero.acumulado_resultante}) superaría lo presupuestado (${primero.cantidad_presupuestada}). Máximo permitido este periodo: ${primero.maximo_permitido}`,
+        excedentes,
+      });
     }
   }
 

@@ -9921,13 +9921,81 @@ app.put('/api/projects/:id/avances/:semana/conceptos', h(auth.allow('residente',
 
   // Reject the entire batch if any concepto_id does not belong to this project (IDOR fix A2).
   const conceptoIds = [...new Set(items.map((it) => Number(it.concepto_id)).filter((id) => id > 0))];
+  let conceptosMap = new Map();
   if (conceptoIds.length > 0) {
     const { rows: validConceptos } = await db.pool.query(
-      'SELECT id FROM conceptos WHERE id = ANY($1) AND project_id = $2',
+      'SELECT id, codigo, concepto, cantidad, unidad FROM conceptos WHERE id = ANY($1) AND project_id = $2',
       [conceptoIds, pid]
     );
     if (validConceptos.length !== conceptoIds.length) {
       return res.status(400).json({ error: 'Uno o más conceptos no pertenecen a esta obra' });
+    }
+    conceptosMap = new Map(validConceptos.map((c) => [c.id, c]));
+  }
+
+  // Candado de presupuesto (2026-09-08-avance-pagos-oc-finanzas.md, Prompt D
+  // + seguimiento post-PR232, decisión de Paul): excluye SOLO el/los
+  // concepto(s) que exceden -- mismo patrón que "insumos pendientes" abajo
+  // (omitidos), no rechaza el batch completo. Sin bypass de ningún rol.
+  // acumulado_previo usa EXACTAMENTE la misma definición que ya expone
+  // GET /avances/:semana/conceptos arriba (SUM ac.semana < :semana, nunca
+  // incluye la semana que se está guardando). Conceptos con cantidad
+  // presupuestada 0/nula quedan sin candado (nunca deberían llegar aquí --
+  // el GET que alimenta el modal ya los excluye con `cantidad > 0`, línea
+  // ~9872 -- pero un cliente que mande ese concepto_id igual no debe
+  // romperse). Mismo criterio que insumos pendientes: cantidad=0 (no
+  // capturar nada nuevo esta semana / "reducir" a 0) NUNCA se excluye por
+  // presupuesto, aunque el concepto ya venga sobregirado de antes por sí
+  // solo -- solo se excluye cuando cantidad > 0 realmente empujaría el
+  // acumulado por encima del presupuesto.
+  const excedentesPorConcepto = new Map();
+  if (conceptoIds.length > 0) {
+    const { rows: previos } = await db.pool.query(`
+      SELECT concepto_id, COALESCE(SUM(cantidad_ejecutada), 0) AS total
+      FROM avance_conceptos
+      WHERE concepto_id = ANY($1) AND semana < $2
+      GROUP BY concepto_id
+    `, [conceptoIds, semana]);
+    const acumPrevioMap = new Map(previos.map((p) => [p.concepto_id, Number(p.total)]));
+
+    for (const it of items) {
+      const conceptoId = Number(it.concepto_id);
+      if (!conceptoId) continue;
+      const cantidad = it.cantidad_ejecutada == null || it.cantidad_ejecutada === ''
+        ? 0 : Math.max(0, Number(it.cantidad_ejecutada));
+      if (!(cantidad > 0)) continue;
+      const concepto = conceptosMap.get(conceptoId);
+      const presup = concepto ? Number(concepto.cantidad) : 0;
+      if (!(presup > 0)) continue;
+      const acumuladoPrevio = acumPrevioMap.get(conceptoId) || 0;
+      const acumuladoNuevo = acumuladoPrevio + cantidad;
+      if (acumuladoNuevo > presup) {
+        // Caso real: conceptos ya sobregirados desde ANTES de que existiera
+        // este candado (los 156.4%/153.8% del reporte original) siguen con
+        // acumulado_previo >= presup por sí solos -- ahí "máximo permitido"
+        // (presup - previo) da 0, un mensaje que no le dice al usuario qué
+        // hacer. La única salida es subir cantidad_presupuestada vía Órdenes
+        // de Cambio (actualiza conceptos.cantidad automáticamente al
+        // aprobarse, ver server/reintegracionPresupuesto.js:244).
+        const yaExcedidoAntes = acumuladoPrevio >= presup;
+        const excesoActual = Math.max(0, Number((acumuladoPrevio - presup).toFixed(4)));
+        const mensaje = yaExcedidoAntes
+          ? `${concepto.codigo} "${concepto.concepto}": este concepto ya está ${excesoActual} ${concepto.unidad || ''} por encima de lo presupuestado (${presup}). Se requiere una Orden de Cambio para continuar capturando avance.`
+          : `${concepto.codigo} "${concepto.concepto}": el acumulado (${acumuladoNuevo}) superaría lo presupuestado (${presup}). Máximo permitido este periodo: ${Number((presup - acumuladoPrevio).toFixed(4))}`;
+        excedentesPorConcepto.set(conceptoId, {
+          concepto_id: conceptoId,
+          codigo: concepto.codigo,
+          concepto: concepto.concepto,
+          unidad: concepto.unidad,
+          cantidad_presupuestada: presup,
+          acumulado_previo: acumuladoPrevio,
+          cantidad_intentada: cantidad,
+          acumulado_resultante: acumuladoNuevo,
+          ya_excedido_antes: yaExcedidoAntes,
+          mensaje,
+        });
+        auth.logDenied(req, `avance omitido en concepto ${conceptoId}: excede presupuesto`);
+      }
     }
   }
 
@@ -9949,6 +10017,7 @@ app.put('/api/projects/:id/avances/:semana/conceptos', h(auth.allow('residente',
         auth.logDenied(req, `avance omitido en concepto ${conceptoId}: insumos pendientes de entrega`);
         continue;
       }
+      if (excedentesPorConcepto.has(conceptoId)) continue;
       await client.query(`
         INSERT INTO avance_conceptos (semana, concepto_id, cantidad_ejecutada)
         VALUES ($1, $2, $3)
@@ -9989,7 +10058,7 @@ app.put('/api/projects/:id/avances/:semana/conceptos', h(auth.allow('residente',
     'SELECT * FROM avances_semanales WHERE project_id = $1 AND semana = $2',
     [pid, semana]
   );
-  res.json({ ok: true, semana, avance_calculado_pct: pctReal, avance: avRows[0], items: detalle, omitidos });
+  res.json({ ok: true, semana, avance_calculado_pct: pctReal, avance: avRows[0], items: detalle, omitidos, excedentes: [...excedentesPorConcepto.values()] });
 }));
 
 // ---------------------------------------------------------------------------

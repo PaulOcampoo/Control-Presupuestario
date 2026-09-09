@@ -161,9 +161,15 @@ describe('saldoDeOrden — GET /ordenes/:ocId/pagos', () => {
     expect(res.body.saldo_pendiente).toBe(0);
   });
 
-  it('alerta_sobrepago NO se dispara falsamente para incluye_iva=false pagada exacto', () => {
+  // 'alerta_sobrepago' fue retirado del payload de POST .../pagos en
+  // ad894ef (2026-09-08-avance-pagos-oc-finanzas.md, Prompt E): el sobrepago
+  // ahora se rechaza con 400 ANTES de guardar, en vez de solo advertir y
+  // guardar igual -- el campo nunca podría ser 'true' en una respuesta
+  // exitosa, así que dejó de tener sentido devolverlo. Esta aserción
+  // documenta el retiro intencional en vez de asumir que sigue existiendo.
+  it('el campo alerta_sobrepago ya no existe en la respuesta (retirado a propósito, no es una regresión)', () => {
     expect(pagoFullResultado.saldo_pendiente).toBe(0);
-    expect(pagoFullResultado.alerta_sobrepago).toBe(false);
+    expect(pagoFullResultado.alerta_sobrepago).toBeUndefined();
   });
 });
 

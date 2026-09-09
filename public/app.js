@@ -7805,24 +7805,113 @@ async function paintOcRecepciones(ocId) {
   }
 }
 
+// prompts-maquinaria-consumibles.md ya estableció el patrón de editar/
+// eliminar (ver PR #231); 2026-09-08-avance-pagos-oc-finanzas.md Prompt E lo
+// replica aquí: un pago cancelado sigue LISTADO (con badge "Cancelado" y
+// tachado) para auditoría -- solo deja de contar en Total pagado/Saldo
+// (eso ya lo hace el backend, saldoDeOrden() filtra activo=true).
 async function paintOcPagos(ocId) {
   const box = $('#ocPagosList');
   if (!box) return;
+  const puedeGestionar = puedeRegistrarPago();
   try {
     const data = await api(`/projects/${state.projectId}/ordenes/${ocId}/pagos`);
     const pagosHtml = data.pagos.length ? data.pagos.map((p) => `
-      <div class="row between fs-084">
-        <span>${fmtDate(p.fecha)} ${p.metodo ? `· ${esc(p.metodo)}` : ''} ${p.referencia ? `· ${esc(p.referencia)}` : ''}
-          <span class="muted fs-074"> · ${p.incluye_iva ? 'con IVA' : 'sin IVA'}</span></span>
-        <span>${fmtMoney(p.monto)}</span>
+      <div class="row between fs-084${p.activo === false ? ' muted' : ''}" data-pago-row="${p.id}">
+        <span${p.activo === false ? ' style="text-decoration: line-through;"' : ''}>${fmtDate(p.fecha)} ${p.metodo ? `· ${esc(p.metodo)}` : ''} ${p.referencia ? `· ${esc(p.referencia)}` : ''}
+          <span class="muted fs-074"> · ${p.incluye_iva ? 'con IVA' : 'sin IVA'}</span>
+          ${p.activo === false ? '<span class="badge red fs-072">Cancelado</span>' : ''}</span>
+        <span class="row gap-6">
+          <span${p.activo === false ? ' style="text-decoration: line-through;"' : ''}>${fmtMoney(p.monto)}</span>
+          ${puedeGestionar && p.activo !== false ? `
+            <button class="btn small" data-editar-pago="${p.id}" title="Editar">✏️</button>
+            <button class="btn small btn-danger" data-cancelar-pago="${p.id}" title="Cancelar">🗑️</button>
+          ` : ''}
+        </span>
       </div>`).join('') : '<p class="muted fs-084">Sin pagos registrados.</p>';
     box.innerHTML = `
       ${pagosHtml}
       <div class="card-row"><span class="k">Total pagado</span><span class="v">${fmtMoney(data.total_pagado)}</span></div>
       <div class="card-row"><span class="k">Saldo pendiente</span><span class="v ${data.saldo_pendiente > 0 ? 'text-rojo' : 'text-verde'}">${fmtMoney(data.saldo_pendiente)}</span></div>
     `;
+    // onDone = openOrdenDetalle (NO paintOcPagos) -- editar/cancelar abren su
+    // propio modal (openEditarPagoModal) o el de confirmDialog() ENCIMA del
+    // detalle de OC, reemplazando por completo el #modal compartido (mismo
+    // slot único que usa todo el resto de la app) -- para cuando terminan,
+    // #ocPagosList ya no existe en el DOM. Reabrir la OC completa reconstruye
+    // todo desde cero (mismo patrón que ya usa el registrar-pago original).
+    $$('[data-editar-pago]', box).forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const pago = data.pagos.find((p) => p.id === Number(btn.dataset.editarPago));
+        openEditarPagoModal(ocId, pago, () => openOrdenDetalle(ocId));
+      });
+    });
+    $$('[data-cancelar-pago]', box).forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const pago = data.pagos.find((p) => p.id === Number(btn.dataset.cancelarPago));
+        cancelarPago(ocId, pago, () => openOrdenDetalle(ocId));
+      });
+    });
   } catch (err) {
     box.innerHTML = `<div class="alert-box danger">⚠️${esc(err.message)}</div>`;
+  }
+}
+
+function openEditarPagoModal(ocId, pago, onSaved) {
+  openModal(`
+    <h3>Editar pago</h3>
+    <div class="field"><label>Fecha</label><input id="epFecha" type="date" value="${esc(String(pago.fecha).slice(0, 10))}" /></div>
+    <div class="field"><label>Monto *</label><input id="epMonto" type="number" min="0" step="any" value="${pago.monto}" /></div>
+    <div class="field">
+      <label><input type="checkbox" id="epIncluyeIva" ${pago.incluye_iva ? 'checked' : ''} class="radio-inline" /> Este monto incluye IVA</label>
+    </div>
+    <div class="field"><label>Método</label><input id="epMetodo" value="${esc(pago.metodo || '')}" placeholder="Transferencia, efectivo, cheque…" /></div>
+    <div class="field"><label>Referencia</label><input id="epReferencia" value="${esc(pago.referencia || '')}" placeholder="Folio, número de cheque…" /></div>
+    <div class="field"><label>Observaciones</label><textarea id="epObs" rows="2">${esc(pago.observaciones || '')}</textarea></div>
+    <div class="modal-actions">
+      <button class="btn" id="btnCancelEp">Cerrar</button>
+      <button class="btn btn-primary" id="btnSaveEp">Guardar cambios</button>
+    </div>
+  `);
+  $('#btnCancelEp').addEventListener('click', closeModal);
+  $('#btnSaveEp').addEventListener('click', async () => {
+    const monto = Number($('#epMonto').value);
+    if (!monto || monto <= 0) { toast('Indica un monto mayor a 0', 'danger'); return; }
+    const btn = $('#btnSaveEp');
+    btn.disabled = true; btn.textContent = 'Guardando…';
+    try {
+      await api(`/projects/${state.projectId}/ordenes/${ocId}/pagos/${pago.id}`, {
+        method: 'PUT',
+        body: {
+          fecha: $('#epFecha').value || null, monto,
+          incluye_iva: $('#epIncluyeIva').checked,
+          metodo: $('#epMetodo').value.trim() || null,
+          referencia: $('#epReferencia').value.trim() || null,
+          observaciones: $('#epObs').value.trim() || null,
+        },
+      });
+      toast('Pago actualizado', 'success');
+      closeModal();
+      await onSaved?.();
+    } catch (err) {
+      toast(err.message, 'danger');
+      btn.disabled = false; btn.textContent = 'Guardar cambios';
+    }
+  });
+}
+
+async function cancelarPago(ocId, pago, onDone) {
+  const ok = await confirmDialog(
+    `Se cancelará el pago de ${fmtMoney(pago.monto)} del ${fmtDate(pago.fecha)}. Queda registrado como cancelado (no se borra) y deja de contar contra el saldo de la orden. Esta acción no se puede deshacer desde la app.`,
+    { titulo: 'Cancelar pago', textoAceptar: 'Cancelar pago', claseAceptar: 'btn-danger' }
+  );
+  if (!ok) return;
+  try {
+    await api(`/projects/${state.projectId}/ordenes/${ocId}/pagos/${pago.id}`, { method: 'DELETE' });
+    toast('Pago cancelado', 'success');
+    await onDone?.();
+  } catch (err) {
+    toast(err.message, 'danger');
   }
 }
 
@@ -7942,7 +8031,11 @@ function openRegistrarPagoOcModal(orden) {
     const btn = $('#btnSavePago');
     btn.disabled = true; btn.textContent = 'Guardando…';
     try {
-      const result = await api(`/projects/${state.projectId}/ordenes/${orden.id}/pagos`, {
+      // Tope al importe autorizado (2026-09-08-avance-pagos-oc-finanzas.md,
+      // Prompt E): el backend ahora RECHAZA un pago que dejaría el saldo
+      // negativo (400, ver catch abajo) en vez de solo avisar y guardar
+      // igual -- ya no existe el caso "se guardó con sobrepago".
+      await api(`/projects/${state.projectId}/ordenes/${orden.id}/pagos`, {
         method: 'POST',
         body: {
           fecha: $('#pagoFecha').value || null,
@@ -7953,9 +8046,7 @@ function openRegistrarPagoOcModal(orden) {
           observaciones: $('#pagoObs').value.trim() || null,
         },
       });
-      toast(result.alerta_sobrepago
-        ? `Pago registrado — el saldo quedó negativo (sobrepago de ${fmtMoney(Math.abs(result.saldo_pendiente))})`
-        : 'Pago registrado', result.alerta_sobrepago ? 'danger' : 'success');
+      toast('Pago registrado', 'success');
       await openOrdenDetalle(orden.id);
     } catch (err) {
       toast(err.message, 'danger');

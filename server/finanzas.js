@@ -44,7 +44,7 @@ async function getFinanzasResumenData(pid) {
     SELECT COALESCE(SUM(p.monto), 0) AS total
     FROM pagos p
     JOIN ordenes_compra oc ON oc.id = p.orden_compra_id
-    WHERE oc.project_id = $1 AND oc.estado != 'cancelada'
+    WHERE oc.project_id = $1 AND oc.estado != 'cancelada' AND p.activo = true
   `, [pid]);
   const comprasPagado = Number(comprasPagadoRows[0].total);
 
@@ -56,7 +56,7 @@ async function getFinanzasResumenData(pid) {
   // (server/app.js) y fetchOrdenesComprometiblesPorObra más abajo.
   const { rows: comprasComprometidoItemRows } = await db.pool.query(`
     SELECT oc.id AS oc_id, oc.incluye_iva, oci.importe, i.iva_tasa,
-           COALESCE((SELECT SUM(p.monto) FROM pagos p WHERE p.orden_compra_id = oc.id), 0) AS pagado
+           COALESCE((SELECT SUM(p.monto) FROM pagos p WHERE p.orden_compra_id = oc.id AND p.activo = true), 0) AS pagado
     FROM ordenes_compra oc
     LEFT JOIN orden_compra_items oci ON oci.orden_compra_id = oc.id
     LEFT JOIN requisicion_items ri ON ri.id = oci.requisicion_item_id
@@ -263,7 +263,7 @@ async function fetchOrdenesComprometiblesPorObra(pids) {
   const { rows: pagoRows } = await db.pool.query(`
     SELECT oc.id AS oc_id, COALESCE(SUM(p.monto), 0) AS pagado
     FROM ordenes_compra oc
-    LEFT JOIN pagos p ON p.orden_compra_id = oc.id
+    LEFT JOIN pagos p ON p.orden_compra_id = oc.id AND p.activo = true
     WHERE oc.project_id = ANY($1) AND oc.estado IN ${ESTATUS_COMPROMETIBLE}
     GROUP BY oc.id
   `, [pids]);
@@ -566,7 +566,7 @@ async function getErogadoRealAgregado(pids) {
     SELECT COALESCE(SUM(p.monto), 0) AS total
     FROM pagos p
     JOIN ordenes_compra oc ON oc.id = p.orden_compra_id
-    WHERE oc.project_id = ANY($1) AND oc.estado != 'cancelada'
+    WHERE oc.project_id = ANY($1) AND oc.estado != 'cancelada' AND p.activo = true
   `, [pids]);
   const comprasPagado = Number(comprasPagadoRows[0].total);
 

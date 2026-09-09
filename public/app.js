@@ -8509,18 +8509,43 @@ async function openAvanceConceptosModal(avance, presupuestoTotal, puedeEditar = 
           <div>
             <label>Ejecutado este periodo</label>
             <input type="number" min="0" step="0.01" data-cantidad="${c.concepto_id}"
-                   data-precio="${c.precio_unitario}" data-presup="${c.cantidad_presupuesto}" data-prev="${c.cantidad_acumulada_previa}"
+                   data-codigo="${esc(c.codigo)}" data-unidad="${esc(c.unidad || '')}" data-precio="${c.precio_unitario}" data-presup="${c.cantidad_presupuesto}" data-prev="${c.cantidad_acumulada_previa}"
                    value="${c.cantidad_ejecutada_periodo ?? ''}" ${(puedeEditar && !bloqueado) ? '' : 'disabled'}
                    ${bloqueado ? `title="Faltan insumos por entregar en obra: ${esc(pendientes.map((p) => p.insumo_nombre).join(', '))}"` : ''} />
           </div>
           <div class="muted acum-out" data-acum-out></div>
         </div>
+        <div class="alert-box danger hidden-initial mt-6" data-exceso-msg></div>
         ${bloqueado ? `<div class="muted solo-lectura-note">🔒 Falta entrega de: ${esc(pendientes.map((p) => p.insumo_nombre).join(', '))}</div>` : ''}
       </div>
       `;
       }).join('')}
     </div>
   `).join('');
+
+  // Candado duro de presupuesto (2026-09-08-avance-pagos-oc-finanzas.md,
+  // Prompt D) — mismo mensaje/fórmula que el backend (fuente de verdad,
+  // ver PUT /avances/:semana/conceptos en server/app.js), para no inventar
+  // un texto distinto en frontend. Presupuesto 0/nulo queda sin candado,
+  // igual que el backend.
+  const mensajeExcesoAvc = (inp, acumActual, presup) => {
+    const codigo = inp.dataset.codigo;
+    const unidad = inp.dataset.unidad || '';
+    const concepto = inp.closest('.avc-row').querySelector('[data-concepto-title]').textContent;
+    const prev = Number(inp.dataset.prev) || 0;
+    // Mismo criterio que server/app.js (PUT /avances/:semana/conceptos):
+    // si YA estaba sobregirado antes de esta captura (típico en conceptos
+    // que llegaron a 156.4%/153.8% antes de que existiera este candado),
+    // "máximo permitido" (presup - prev) da 0 -- ese número solo no explica
+    // qué hacer. Decisión de Paul: sin bypass de ningún rol, la única salida
+    // es una Orden de Cambio que suba cantidad_presupuestada.
+    if (prev >= presup) {
+      const exceso = Math.max(0, Number((prev - presup).toFixed(4)));
+      return `${codigo} "${concepto}": este concepto ya está ${fmtNum(exceso, 3)} ${unidad} por encima de lo presupuestado (${fmtNum(presup, 3)}). Se requiere una Orden de Cambio para continuar capturando avance.`;
+    }
+    const maximoPermitido = Math.max(0, Number((presup - prev).toFixed(4)));
+    return `${codigo} "${concepto}": el acumulado (${fmtNum(acumActual, 3)}) superaría lo presupuestado (${fmtNum(presup, 3)}). Máximo permitido este periodo: ${fmtNum(maximoPermitido, 3)}`;
+  };
 
   const updateRowOutput = (inp) => {
     const prev = Number(inp.dataset.prev) || 0;
@@ -8529,6 +8554,18 @@ async function openAvanceConceptosModal(avance, presupuestoTotal, puedeEditar = 
     const presup = Number(inp.dataset.presup) || 0;
     const out = inp.closest('.qty-row').querySelector('[data-acum-out]');
     if (out) out.innerHTML = `acum: ${fmtNum(acumActual, 3)}<br>de ${fmtNum(presup, 3)} (${fmtPct(presup ? (acumActual / presup) * 100 : 0)})`;
+    // cantidad > 0 (mismo criterio que el backend, seguimiento post-PR232):
+    // dejar un concepto en 0 (no capturar nada nuevo) nunca se marca como
+    // "excedido", aunque ya venga sobregirado de antes por sí solo -- eso
+    // se guarda igual, solo se excluye cuando SÍ se intenta agregar cantidad
+    // nueva que empujaría el acumulado por encima del presupuesto.
+    const excedido = presup > 0 && cantidad > 0 && acumActual > presup;
+    const msgEl = inp.closest('.avc-row').querySelector('[data-exceso-msg]');
+    if (msgEl) {
+      msgEl.classList.toggle('hidden-initial', !excedido);
+      if (excedido) msgEl.textContent = `⚠️ ${mensajeExcesoAvc(inp, acumActual, presup)}`;
+    }
+    inp.classList.toggle('input-danger', excedido);
     return acumActual;
   };
 
@@ -8594,6 +8631,13 @@ async function openAvanceConceptosModal(avance, presupuestoTotal, puedeEditar = 
   if (puedeEditar) {
     $('#btnSaveAvc').addEventListener('click', async () => {
       const btn = $('#btnSaveAvc');
+      // Seguimiento post-PR232 (decisión de Paul): el candado de presupuesto
+      // YA NO bloquea el envío completo -- excluye solo el/los concepto(s)
+      // que exceden (mismo patrón que "insumos pendientes"), el resto del
+      // lote se guarda normal. Ya no hay pre-chequeo que impida el request:
+      // se manda todo, el backend decide qué se guarda y qué se excluye, y
+      // aquí solo se reporta el resultado real (nunca "nada se guardó" si
+      // en realidad sí se guardó una parte).
       const payloadItems = $$('[data-cantidad]').map((inp) => ({
         concepto_id: Number(inp.dataset.cantidad),
         cantidad_ejecutada: inp.value === '' ? 0 : Math.max(0, Number(inp.value)),
@@ -8606,9 +8650,20 @@ async function openAvanceConceptosModal(avance, presupuestoTotal, puedeEditar = 
         const pct = result.avance_calculado_pct;
         const base = pct != null ? `Avance de la semana ${semana} guardado: ${fmtPct(pct)} calculado` : `Avance por concepto de la semana ${semana} guardado`;
         const numOmitidos = result.omitidos?.length || 0;
-        toast(numOmitidos > 0
-          ? `${base} — ${numOmitidos} actividad(es) no se guardaron: falta entrega de insumos en obra`
-          : base, numOmitidos > 0 ? 'danger' : 'success');
+        const excedentes = result.excedentes || [];
+        const partes = [];
+        if (numOmitidos > 0) partes.push(`${numOmitidos} actividad(es) no se guardaron: falta entrega de insumos en obra`);
+        if (excedentes.length > 0) {
+          partes.push(`${excedentes.length} concepto(s) no se guardaron por exceder el presupuesto: ${excedentes.map((e) => e.codigo).join(', ')}`);
+        }
+        // #toast es una sola instancia global (ver function toast() más
+        // arriba) -- no hay forma de apilar N mensajes detallados, así que
+        // el resumen trae los códigos (identifica cuáles fueron) y quien
+        // necesite el motivo completo de cada uno lo vuelve a ver reabriendo
+        // el modal (la advertencia en vivo por renglón sigue ahí, sin
+        // cambios, ya que esos conceptos siguen en 0/sin guardar).
+        const tieneExclusiones = partes.length > 0;
+        toast(tieneExclusiones ? `${base} — ${partes.join(' · ')}` : base, tieneExclusiones ? 'danger' : 'success');
         renderView();
       } catch (err) {
         toast(err.message, 'danger');

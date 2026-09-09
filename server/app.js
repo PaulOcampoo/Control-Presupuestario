@@ -5506,7 +5506,7 @@ app.post('/api/contabilidad/cfdi/confirm', h(auth.requireContabilidadAccess), h(
   // el pago_id viene mal.
   const pagoId = b.pago_id != null ? Number(b.pago_id) : null;
   if (pagoId != null) {
-    const { rows: pagoRows } = await db.pool.query('SELECT id FROM pagos WHERE id = $1', [pagoId]);
+    const { rows: pagoRows } = await db.pool.query('SELECT id FROM pagos WHERE id = $1 AND activo = true', [pagoId]);
     if (!pagoRows[0]) return res.status(400).json({ error: 'El pago indicado no existe' });
   }
   try {
@@ -5602,7 +5602,9 @@ app.get('/api/contabilidad/cfdi/:id/archivo', h(auth.requireContabilidadAccess),
 app.get('/api/contabilidad/pagos', h(auth.requireContabilidadAccess), h(async (req, res) => {
   const { project_id, con_factura, mes } = req.query;
   if (mes && !MES_YYYY_MM_RE.test(mes)) return res.status(400).json({ error: 'Indica el mes en formato YYYY-MM' });
-  const where = [];
+  // p.activo = true (Prompt E): un pago cancelado no debe aparecer para
+  // conciliar/vincular CFDI -- ya no representa dinero realmente movido.
+  const where = ['p.activo = true'];
   const params = [];
   if (project_id) { params.push(Number(project_id)); where.push(`oc.project_id = $${params.length}`); }
   if (con_factura === 'si') where.push('p.cfdi_id IS NOT NULL');
@@ -5633,7 +5635,7 @@ app.get('/api/contabilidad/pagos', h(auth.requireContabilidadAccess), h(async (r
 app.patch('/api/contabilidad/pagos/:pagoId/cfdi', h(auth.requireContabilidadAccess), h(async (req, res) => {
   const pagoId = Number(req.params.pagoId);
   const { cfdi_id } = req.body || {};
-  const { rows: pagoRows } = await db.pool.query('SELECT id FROM pagos WHERE id = $1', [pagoId]);
+  const { rows: pagoRows } = await db.pool.query('SELECT id FROM pagos WHERE id = $1 AND activo = true', [pagoId]);
   if (!pagoRows[0]) return res.status(404).json({ error: 'Pago no encontrado' });
 
   let cfdiId = null;
@@ -8541,7 +8543,7 @@ async function getOrdenesData(pid) {
       WHERE oci.orden_compra_id = $1
     `, [o.id]);
     const { rows: pagoRows } = await db.pool.query(
-      'SELECT COALESCE(SUM(monto), 0) AS total_pagado FROM pagos WHERE orden_compra_id = $1', [o.id]
+      'SELECT COALESCE(SUM(monto), 0) AS total_pagado FROM pagos WHERE orden_compra_id = $1 AND activo = true', [o.id]
     );
     const importeTotal = totalConIvaDeItems(itemRows, o.incluye_iva);
     const totalPagado = Number(pagoRows[0].total_pagado);
@@ -8943,7 +8945,7 @@ app.put('/api/projects/:id/ordenes/:ocId/estado', h(auth.allow('compras', 'tesor
   }
   const ocId = Number(req.params.ocId);
   if (estado === 'cancelada') {
-    const { rows: pagoRows } = await db.pool.query('SELECT COUNT(*) AS n FROM pagos WHERE orden_compra_id = $1', [ocId]);
+    const { rows: pagoRows } = await db.pool.query('SELECT COUNT(*) AS n FROM pagos WHERE orden_compra_id = $1 AND activo = true', [ocId]);
     if (Number(pagoRows[0].n) > 0) {
       return res.status(400).json({ error: 'No se puede cancelar una orden de compra que ya tiene pagos registrados' });
     }
@@ -9171,7 +9173,10 @@ async function saldoDeOrden(ocId) {
     WHERE oci.orden_compra_id = $1
   `, [ocId]);
   const { rows: pagoRows } = await db.pool.query(
-    'SELECT COALESCE(SUM(monto), 0) AS total_pagado FROM pagos WHERE orden_compra_id = $1', [ocId]
+    // activo=true (2026-09-08-avance-pagos-oc-finanzas.md, Prompt E): un pago
+    // cancelado (soft-delete) deja de contar contra el saldo -- sigue
+    // existiendo en la tabla para auditoría, solo no participa en la suma.
+    'SELECT COALESCE(SUM(monto), 0) AS total_pagado FROM pagos WHERE orden_compra_id = $1 AND activo = true', [ocId]
   );
   const importeTotal = totalConIvaDeItems(itemRows, incluyeIva);
   const totalPagado = Number(pagoRows[0].total_pagado);
@@ -9213,6 +9218,17 @@ app.post('/api/projects/:id/ordenes/:ocId/pagos', h(auth.allow('tesoreria')), h(
     return res.status(400).json({ error: 'El monto del pago debe ser mayor a 0' });
   }
 
+  // Tope al importe autorizado de la O.C (2026-09-08-avance-pagos-oc-
+  // finanzas.md, Prompt E, decisión de negocio de Paul) — antes esto solo
+  // generaba una alerta de "sobrepago" y dejaba guardar igual (saldo_pendiente
+  // quedaba negativo). saldoDeOrden() ya excluye pagos cancelados (activo=true).
+  const saldoAntes = await saldoDeOrden(ocId);
+  if (Number((saldoAntes.total_pagado + montoNum).toFixed(2)) > saldoAntes.importe_total) {
+    return res.status(400).json({
+      error: `El pago excede el importe autorizado de la orden. Ya pagado: ${saldoAntes.total_pagado}, autorizado: ${saldoAntes.importe_total}, máximo disponible para pagar: ${Math.max(0, Number((saldoAntes.importe_total - saldoAntes.total_pagado).toFixed(2)))}.`,
+    });
+  }
+
   const { rows } = await db.pool.query(
     `INSERT INTO pagos (orden_compra_id, fecha, monto, metodo, referencia, observaciones, incluye_iva)
      VALUES ($1, COALESCE($2::date, CURRENT_DATE), $3, $4, $5, $6, $7) RETURNING *`,
@@ -9220,10 +9236,65 @@ app.post('/api/projects/:id/ordenes/:ocId/pagos', h(auth.allow('tesoreria')), h(
   );
 
   const saldo = await saldoDeOrden(ocId);
-  res.status(201).json({ ...rows[0], ...saldo, alerta_sobrepago: saldo.saldo_pendiente < 0 });
+  res.status(201).json({ ...rows[0], ...saldo });
 }));
 
-app.delete('/api/projects/:id/ordenes/:ocId/pagos/:pagoId', h(auth.allow()), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+// Editar un pago ya registrado (2026-09-08-avance-pagos-oc-finanzas.md,
+// Prompt E) — mismo nivel de acceso que la creación (auth.allow('tesoreria'),
+// ya cubre admin/desarrollador vía el bypass de allow()). Ownership de obra
+// vía el mismo requireProject+verificarAccesoObra que ya usan GET/POST/DELETE
+// de esta misma ruta -- pagos SÍ vive bajo /projects/:id/, a diferencia de
+// Maquinaria (catálogo global, por eso ese caso necesitó usuarioPuedeOperarObra
+// en el PR #231); aquí el middleware estándar del resto del sistema ya alcanza.
+app.put('/api/projects/:id/ordenes/:ocId/pagos/:pagoId', h(auth.allow('tesoreria')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  const ocId = Number(req.params.ocId);
+  const pagoId = Number(req.params.pagoId);
+  const { rows: ocRows } = await db.pool.query(
+    'SELECT id FROM ordenes_compra WHERE id = $1 AND project_id = $2', [ocId, req.project.id]
+  );
+  if (!ocRows[0]) return res.status(404).json({ error: 'Orden de compra no encontrada' });
+
+  const { rows: pagoRows } = await db.pool.query(
+    'SELECT * FROM pagos WHERE id = $1 AND orden_compra_id = $2 AND activo = true', [pagoId, ocId]
+  );
+  if (!pagoRows[0]) return res.status(404).json({ error: 'Pago no encontrado' });
+
+  const { fecha, monto, metodo, referencia, observaciones } = req.body || {};
+  const incluyeIva = (req.body || {}).incluye_iva !== false;
+  const montoNum = Number(monto);
+  if (!Number.isFinite(montoNum) || montoNum <= 0) {
+    return res.status(400).json({ error: 'El monto del pago debe ser mayor a 0' });
+  }
+
+  // Re-validar el tope EXCLUYENDO este mismo pago de la suma ya registrada,
+  // para poder editar su propio monto sin que se cuente 2 veces contra sí mismo.
+  const saldoActual = await saldoDeOrden(ocId);
+  const totalPagadoSinEste = Number((saldoActual.total_pagado - Number(pagoRows[0].monto)).toFixed(2));
+  if (Number((totalPagadoSinEste + montoNum).toFixed(2)) > saldoActual.importe_total) {
+    return res.status(400).json({
+      error: `El pago editado excede el importe autorizado de la orden. Pagado (sin este pago): ${totalPagadoSinEste}, autorizado: ${saldoActual.importe_total}, máximo disponible: ${Math.max(0, Number((saldoActual.importe_total - totalPagadoSinEste).toFixed(2)))}.`,
+    });
+  }
+
+  const { rows: updated } = await db.pool.query(
+    `UPDATE pagos SET fecha = COALESCE($1::date, fecha), monto = $2, metodo = $3, referencia = $4, observaciones = $5, incluye_iva = $6
+     WHERE id = $7 RETURNING *`,
+    [fecha || null, montoNum, metodo?.trim() || null, referencia?.trim() || null, observaciones?.trim() || null, incluyeIva, pagoId]
+  );
+
+  const saldo = await saldoDeOrden(ocId);
+  res.json({ ...updated[0], ...saldo });
+}));
+
+// Cancelar un pago (2026-09-08-avance-pagos-oc-finanzas.md, Prompt E) --
+// CORREGIDO de DELETE físico a soft-delete: la regla del proyecto de nunca
+// borrar físicamente un registro financiero aplicaba desde antes, este
+// endpoint ya existía pero no la respetaba y además no estaba conectado a
+// ningún botón del frontend (código muerto hasta ahora). Nivel de acceso
+// alineado a auth.allow('tesoreria') -- igual que crear/editar un pago
+// (antes tenía auth.allow() sin roles, que en la práctica ya equivalía a
+// solo admin/desarrollador, pero sin incluir tesorería explícitamente).
+app.delete('/api/projects/:id/ordenes/:ocId/pagos/:pagoId', h(auth.allow('tesoreria')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
   const ocId = Number(req.params.ocId);
   const pagoId = Number(req.params.pagoId);
   // Verify the order belongs to this project before touching payments (IDOR fix A1).
@@ -9233,11 +9304,12 @@ app.delete('/api/projects/:id/ordenes/:ocId/pagos/:pagoId', h(auth.allow()), h(r
   );
   if (!ocRows[0]) return res.status(404).json({ error: 'No encontrado' });
   const { rowCount } = await db.pool.query(
-    'DELETE FROM pagos WHERE id = $1 AND orden_compra_id = $2',
+    'UPDATE pagos SET activo = false WHERE id = $1 AND orden_compra_id = $2 AND activo = true',
     [pagoId, ocId]
   );
   if (rowCount === 0) return res.status(404).json({ error: 'Pago no encontrado' });
-  res.json({ ok: true });
+  const saldo = await saldoDeOrden(ocId);
+  res.json({ ok: true, ...saldo });
 }));
 
 // ---------------------------------------------------------------------------

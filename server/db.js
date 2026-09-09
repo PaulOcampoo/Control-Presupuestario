@@ -448,6 +448,14 @@ const SCHEMA = `
   );
   CREATE INDEX IF NOT EXISTS idx_pagos_oc ON pagos(orden_compra_id);
 
+  -- 2026-09-08-avance-pagos-oc-finanzas.md, Prompt E: cancelar un pago debe
+  -- ser soft-delete (regla del proyecto: nunca borrado físico de un registro
+  -- financiero) -- esta columna no existía, el DELETE físico que ya vivía en
+  -- server/app.js (nunca conectado a un botón real) era el único mecanismo
+  -- de "reversión", y violaba esa regla. Default true: todo pago ya
+  -- existente sigue contando exactamente igual que antes de esta migración.
+  ALTER TABLE pagos ADD COLUMN IF NOT EXISTS activo BOOLEAN NOT NULL DEFAULT true;
+
   CREATE TABLE IF NOT EXISTS gastos_generales (
     id SERIAL PRIMARY KEY,
     project_id INTEGER NOT NULL REFERENCES proyectos(id) ON DELETE CASCADE,

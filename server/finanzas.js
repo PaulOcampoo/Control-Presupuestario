@@ -520,6 +520,48 @@ async function getFondoGarantiaAgregado(pids) {
 // query/fórmula (Math.max(0, importe_total_oc - pagado_oc) por OC, mismo
 // ESTATUS_COMPROMETIBLE) — reusar la función batched ya validada evita
 // duplicar ese JOIN de 3 tablas + prorrateo de IVA por tercera vez.
+//
+// prompt-corte-obra-v2-implementacion.md: extraída del cuerpo de
+// getErogadoRealAgregado (antes era una query inline aquí mismo) para que
+// server/corteObra.js pueda reusar el MISMO cálculo de Avance Valorizado
+// por-obra (mismo criterio de ponderación que /resumen-global) sin duplicar
+// la fórmula ni perder el batching (WHERE project_id = ANY($1)) — devuelve
+// el desglose POR OBRA sin agregar, a diferencia de getErogadoRealAgregado
+// que sigue reduciéndolo a un solo número igual que antes (mismo resultado,
+// centavo a centavo — la única diferencia es que la suma/reduce vive ahora
+// en el caller en vez de en esta query). avance_monto se deja SIN redondear
+// aquí (cada caller redondea a su propio criterio) para no introducir un
+// sesgo de redondeo por-obra que getErogadoRealAgregado no tenía antes.
+async function avanceValorizadoPorObra(pids) {
+  if (!pids.length) return [];
+  const { rows } = await db.pool.query(`
+    SELECT
+      p.id,
+      COALESCE(
+        (SELECT valor::DOUBLE PRECISION FROM meta WHERE project_id = p.id AND clave = 'total_sin_iva' LIMIT 1),
+        (SELECT importe FROM conceptos WHERE project_id = p.id AND es_total = 1 AND grupo IS NULL ORDER BY orden DESC LIMIT 1),
+        0
+      ) AS presupuesto_total,
+      COALESCE(
+        (SELECT avance_financiero_real FROM avances_semanales
+         WHERE project_id = p.id AND avance_financiero_real IS NOT NULL ORDER BY semana DESC LIMIT 1),
+        0
+      ) AS avance_pct
+    FROM proyectos p
+    WHERE p.id = ANY($1)
+  `, [pids]);
+  return rows.map((r) => {
+    const presupuestoTotal = Number(r.presupuesto_total);
+    const avancePct = Number(r.avance_pct);
+    return {
+      id: r.id,
+      presupuesto_total: presupuestoTotal,
+      avance_pct: avancePct,
+      avance_monto: presupuestoTotal * avancePct / 100,
+    };
+  });
+}
+
 async function getErogadoRealAgregado(pids) {
   const vacio = () => ({
     avance_valorizado: { pct: 0, monto: 0 },
@@ -536,30 +578,9 @@ async function getErogadoRealAgregado(pids) {
   });
   if (!pids.length) return vacio();
 
-  // Mismo criterio de presupuesto_total/avance valorizado que ya usan
-  // /resumen-global y /avance-por-cliente/completo (server/app.js) — misma
-  // fórmula de ponderación (Σ presupuesto_i × avance_i/100, dividido entre
-  // Σ presupuesto_i), reescrita aquí en JS en vez de SQL para reusar el
-  // mismo resultado en el cálculo de brecha más abajo sin una segunda query.
-  const { rows: obrasRows } = await db.pool.query(`
-    SELECT
-      p.id,
-      COALESCE(
-        (SELECT valor::DOUBLE PRECISION FROM meta WHERE project_id = p.id AND clave = 'total_sin_iva' LIMIT 1),
-        (SELECT importe FROM conceptos WHERE project_id = p.id AND es_total = 1 AND grupo IS NULL ORDER BY orden DESC LIMIT 1),
-        0
-      ) AS presupuesto_total,
-      COALESCE(
-        (SELECT avance_financiero_real FROM avances_semanales
-         WHERE project_id = p.id AND avance_financiero_real IS NOT NULL ORDER BY semana DESC LIMIT 1),
-        0
-      ) AS avance_pct
-    FROM proyectos p
-    WHERE p.id = ANY($1)
-  `, [pids]);
-
-  const presupuestoTotal = obrasRows.reduce((s, r) => s + Number(r.presupuesto_total), 0);
-  const montoValorizado = obrasRows.reduce((s, r) => s + Number(r.presupuesto_total) * Number(r.avance_pct) / 100, 0);
+  const obrasRows = await avanceValorizadoPorObra(pids);
+  const presupuestoTotal = obrasRows.reduce((s, r) => s + r.presupuesto_total, 0);
+  const montoValorizado = obrasRows.reduce((s, r) => s + r.avance_monto, 0);
   const pctValorizado = presupuestoTotal > 0 ? (montoValorizado / presupuestoTotal) * 100 : 0;
 
   const { rows: comprasPagadoRows } = await db.pool.query(`
@@ -698,6 +719,6 @@ module.exports = {
   getCompromisosAbiertosAgregado,
   porcentajeFondoGarantiaDe, getFondoGarantiaData, getFondoGarantiaAgregado,
   upsertPorcentajeFondoGarantia,
-  getErogadoRealPorCliente, getErogadoRealGlobal,
+  getErogadoRealPorCliente, getErogadoRealGlobal, avanceValorizadoPorObra,
   FONDO_GARANTIA_PCT_DEFAULT, FONDO_GARANTIA_PCT_MIN, FONDO_GARANTIA_PCT_MAX,
 };

@@ -1,40 +1,44 @@
 'use strict';
 
-// prompt-corte-de-obra.md: reporte comparativo Presupuesto vs Real,
-// desglosado en Mano de Obra / Materiales / Equipo y Herramienta, a una
-// fecha de corte manual. Módulo de solo lectura — no crea ni migra schema
-// (insumos.categoria y matrices_precio_unitario ya existían, confirmado en
-// Fase 0 del prompt).
+// prompt-corte-de-obra.md + prompt-corte-obra-v2-implementacion.md: reporte
+// comparativo Presupuesto vs Real, desglosado en Mano de Obra / Materiales /
+// Equipo y Herramienta, a una fecha de corte manual. Módulo de solo
+// lectura — no crea ni migra schema.
 //
-// Real: Nómina aprobada + Destajo ejecutado (mano de obra directa, mismo
-// criterio de "costo ya incurrido" que server/finanzas.js) + pagos de OC
-// prorrateados por insumos.categoria (MATERIALES/MANO DE OBRA/EQUIPO Y
-// HERRAMIENTA) — mismo prorrateo por peso de importe dentro de la OC que ya
-// usa fetchOrdenesComprometiblesPorObra en finanzas.js para "Compromisos
-// Abiertos", reescrito aquí de forma independiente (self-contained, sin
-// tocar finanzas.js — Forbidden Action del prompt) porque necesita
-// filtrar pagos por fecha_corte, algo que ningún agregador existente hace.
+// Real tiene DOS columnas (v2):
+//   - Pagado: Nómina aprobada + Destajo ejecutado (costo ya incurrido,
+//     mismo criterio que server/finanzas.js) + pagos de OC prorrateados por
+//     insumos.categoria — mismo prorrateo por peso de importe dentro de la
+//     OC que ya usa fetchOrdenesComprometiblesPorObra en finanzas.js para
+//     "Compromisos Abiertos", reescrito aquí de forma independiente
+//     (self-contained) porque necesita filtrar pagos por fecha_corte, algo
+//     que ningún agregador existente hace.
+//   - Avance Valorizado: reusa avanceValorizadoPorObra (server/finanzas.js,
+//     extraída de getErogadoRealAgregado para este propósito) — SOLO Total
+//     es calculable; por categoría es "No disponible" porque no existe
+//     ninguna vinculación poblada entre conceptos (que tienen % de avance)
+//     e insumos/categoría — concepto_insumos tiene 1 fila en toda la base y
+//     ni siquiera tiene columna `cantidad` (confirmado en Fase 0 de este
+//     prompt, y ya documentado en server/db.js).
 //
-// Presupuesto: únicamente cuando el 100% de los conceptos activos de la
-// obra tienen una matriz_precio_unitario COMPLETA (las 3 categorías con
-// subtotal, vía calcularMatrizNeodata) — un desglose parcial sería, en la
-// práctica, indistinguible de un $0 inventado (confirmado con datos reales:
-// la obra 30 tiene 2 de 27 conceptos con matriz, ambos con cantidad=0 — una
-// suma parcial ahí literalmente daría $0, el peor caso posible del "nunca
-// inventar" del prompt). "Total" de Presupuesto SÍ se muestra siempre
-// (presupuestoTotalDe, ya validado en producción) — es un número
-// independiente de las matrices, no tiene sentido ocultarlo solo porque el
-// desglose por categoría no esté completo.
-//
-// Matrices con algún renglón tipo='basico_ref' se tratan como incompletas
-// para este reporte (no se resuelve la cadena de básicos aquí, a propósito
-// — fuera de alcance, ver Forbidden Actions): ninguna obra real hoy usa
-// básicos en un análisis de concepto real, confirmado en Fase 0.
+// Presupuesto (v2) = SUM(insumos.importe_presupuesto) GROUP BY categoria —
+// reemplaza matrices_precio_unitario (diagnóstico previo: completa y
+// reconciliada solo en 1 de 7 obras reales). insumos.importe_presupuesto SÍ
+// tiene dato real en las 7 obras, pero sub-representa el Total oficial
+// entre 11% y 64% según la obra (confirmado con reconciliación fila-por-
+// fila contra el Excel original: es una limitación de la hoja "Listado de
+// insumos" del archivo fuente, no una pérdida de datos en el import/parser)
+// — por eso cada categoría expone `porcentaje_cobertura` contra el Total
+// oficial en vez de fingir que son la misma cifra. Si Σ importe_presupuesto
+// = 0 para la obra (sin insumos importados, ej. Excel con formato no
+// reconocido), las 3 categorías quedan "No disponible", igual que antes.
+// "Total" de Presupuesto SIGUE siendo presupuestoTotalDe/meta.total_sin_iva
+// (fuente ya validada) — nunca la suma de categorías, que es una fuente
+// distinta y no reconciliada a propósito (ver comentario arriba).
 
 const db = require('./db');
 const { montoSinIva, totalConIvaDeItems } = require('./calculos');
-const { calcularMatrizNeodata, MATRIZ_CATEGORIAS } = require('./matricesImport');
-const { presupuestoTotalDe } = require('./finanzas');
+const { avanceValorizadoPorObra } = require('./finanzas');
 
 const IVA_RATE = 0.16;
 const CATEGORIAS_REPORTE = ['MATERIALES', 'MANO DE OBRA', 'EQUIPO Y HERRAMIENTA'];
@@ -44,65 +48,48 @@ function initCategorias() {
 }
 
 // ---------------------------------------------------------------------------
-// Presupuesto desglosado por categoría (vía matrices_precio_unitario)
+// Presupuesto desglosado por categoría — SUM(insumos.importe_presupuesto)
+// GROUP BY categoria, project_id. Fuente directa del import de Excel (hoja
+// "Listado de insumos"), independiente de matrices_precio_unitario.
+// insumos.categoria es nullable a nivel de schema aunque hoy está 100%
+// poblada — un insumo sin categoría NUNCA se asigna a una de las 3
+// categorías del reporte (eso sería inventar el dato faltante); se excluye
+// del Σ y se reporta aparte como advertencia si tiene importe > 0.
 // ---------------------------------------------------------------------------
-async function buildDesglosePresupuesto(pids) {
+async function buildDesglosePresupuesto(pids, presupuestoTotalPorPid) {
   const resultado = new Map();
-  for (const pid of pids) resultado.set(pid, { disponible: false, categorias: null });
+  for (const pid of pids) resultado.set(pid, { disponible: false, categorias: null, sinCategoria: 0, inconsistente: false });
   if (!pids.length) return resultado;
 
-  const { rows: conceptoRows } = await db.pool.query(
-    'SELECT id, project_id, cantidad FROM conceptos WHERE project_id = ANY($1) AND es_total = 0 AND activo = 1',
-    [pids]
-  );
-  const conceptosPorProyecto = new Map();
-  for (const c of conceptoRows) {
-    if (!conceptosPorProyecto.has(c.project_id)) conceptosPorProyecto.set(c.project_id, []);
-    conceptosPorProyecto.get(c.project_id).push(c);
-  }
-  const conceptoIds = conceptoRows.map((c) => c.id);
-  if (!conceptoIds.length) return resultado; // sin conceptos activos -> "No disponible" en todas
+  const { rows } = await db.pool.query(`
+    SELECT project_id, categoria, COALESCE(SUM(importe_presupuesto), 0) AS total
+    FROM insumos
+    WHERE project_id = ANY($1)
+    GROUP BY project_id, categoria
+  `, [pids]);
 
-  const { rows: matrizRows } = await db.pool.query(
-    'SELECT * FROM matrices_precio_unitario WHERE concepto_id = ANY($1)', [conceptoIds]
-  );
-  const matrizPorConcepto = new Map(matrizRows.map((m) => [m.concepto_id, m]));
-  const matrizIds = matrizRows.map((m) => m.id);
-
-  const { rows: renglonRows } = matrizIds.length ? await db.pool.query(`
-    SELECT r.matriz_id, r.categoria, r.tipo, r.insumo_id, r.cantidad, r.operador, r.factor_referencia, r.orden,
-           i.precio_presupuesto
-    FROM matriz_precio_renglones r
-    LEFT JOIN insumos i ON i.id = r.insumo_id
-    WHERE r.matriz_id = ANY($1)
-    ORDER BY r.matriz_id, r.categoria, r.orden, r.id
-  `, [matrizIds]) : { rows: [] };
-
-  const renglonesPorMatriz = new Map();
-  const matrizConBasicoRef = new Set();
-  for (const r of renglonRows) {
-    if (r.tipo === 'basico_ref') matrizConBasicoRef.add(r.matriz_id);
-    if (!renglonesPorMatriz.has(r.matriz_id)) renglonesPorMatriz.set(r.matriz_id, []);
-    renglonesPorMatriz.get(r.matriz_id).push(r);
+  const porProyecto = new Map();
+  for (const pid of pids) porProyecto.set(pid, { categorias: initCategorias(), sinCategoria: 0 });
+  for (const r of rows) {
+    const acc = porProyecto.get(r.project_id);
+    const total = Number(r.total);
+    if (CATEGORIAS_REPORTE.includes(r.categoria)) acc.categorias[r.categoria] += total;
+    else acc.sinCategoria += total;
   }
 
   for (const pid of pids) {
-    const conceptos = conceptosPorProyecto.get(pid) || [];
-    if (!conceptos.length) continue; // ya quedó "No disponible" arriba
-    const subtot = initCategorias();
-    let todasCompletas = true;
-    for (const c of conceptos) {
-      const matriz = matrizPorConcepto.get(c.id);
-      if (!matriz || matrizConBasicoRef.has(matriz.id)) { todasCompletas = false; continue; }
-      const renglones = renglonesPorMatriz.get(matriz.id) || [];
-      const calculo = calcularMatrizNeodata(renglones, matriz);
-      if (!calculo.completa) { todasCompletas = false; continue; }
-      for (const cat of calculo.categorias) {
-        if (!CATEGORIAS_REPORTE.includes(cat.categoria)) continue;
-        subtot[cat.categoria] += (cat.subtotal || 0) * Number(c.cantidad || 0);
-      }
+    const { categorias, sinCategoria } = porProyecto.get(pid);
+    const suma = CATEGORIAS_REPORTE.reduce((s, cat) => s + categorias[cat], 0);
+    if (suma <= 0) {
+      resultado.set(pid, { disponible: false, categorias: null, sinCategoria, inconsistente: false });
+      continue;
     }
-    if (todasCompletas) resultado.set(pid, { disponible: true, categorias: subtot });
+    // Stop Condition del prompt: una categoría no puede superar el Total
+    // oficial de la obra — si pasa, es un dato inconsistente que se debe
+    // reportar explícito, nunca ocultar silenciosamente recortándolo.
+    const totalOficial = presupuestoTotalPorPid.get(pid) || 0;
+    const inconsistente = CATEGORIAS_REPORTE.some((cat) => totalOficial > 0 && categorias[cat] > totalOficial);
+    resultado.set(pid, { disponible: true, categorias, sinCategoria, inconsistente });
   }
   return resultado;
 }
@@ -222,24 +209,39 @@ async function buildDesgloseReal(pids, fechaCorte) {
   return resultado;
 }
 
-function filaComparativa(presupuesto, real, realConIva) {
+// pctCobertura: solo aplica a las 3 filas de categoría (importe_categoria /
+// Total oficial); null en la fila Total (sería 100% siempre, no informativo).
+// realAvanceValorizado: solo aplica a la fila Total (ver comentario de
+// cabecera — por categoría no existe vinculación concepto↔insumo).
+function filaComparativa(presupuesto, pctCobertura, realPagado, realPagadoConIva, realAvanceValorizado) {
   const p = presupuesto != null ? Number(presupuesto.toFixed(2)) : null;
-  const r = Number(real.toFixed(2));
+  const rp = Number(realPagado.toFixed(2));
   return {
     presupuesto: p,
-    real: r,
-    real_con_iva: Number(realConIva.toFixed(2)),
-    variacion_monto: p != null ? Number((r - p).toFixed(2)) : null,
-    variacion_pct: (p != null && p > 0) ? Number((((r - p) / p) * 100).toFixed(2)) : null,
+    presupuesto_pct_cobertura: pctCobertura != null ? Number(pctCobertura.toFixed(1)) : null,
+    real_pagado: rp,
+    real_pagado_con_iva: Number(realPagadoConIva.toFixed(2)),
+    real_avance_valorizado: realAvanceValorizado != null ? Number(realAvanceValorizado.toFixed(2)) : null,
+    variacion_monto: p != null ? Number((rp - p).toFixed(2)) : null,
+    variacion_pct: (p != null && p > 0) ? Number((((rp - p) / p) * 100).toFixed(2)) : null,
   };
 }
 
 function sumarFila(obras, key) {
-  const real = obras.reduce((s, o) => s + o.filas[key].real, 0);
-  const realConIva = obras.reduce((s, o) => s + o.filas[key].real_con_iva, 0);
+  const realPagado = obras.reduce((s, o) => s + o.filas[key].real_pagado, 0);
+  const realPagadoConIva = obras.reduce((s, o) => s + o.filas[key].real_pagado_con_iva, 0);
   const todasDisponibles = obras.length > 0 && obras.every((o) => o.filas[key].presupuesto != null);
   const presupuesto = todasDisponibles ? obras.reduce((s, o) => s + o.filas[key].presupuesto, 0) : null;
-  return filaComparativa(presupuesto, real, realConIva);
+  // Cobertura agregada = Σ categoría / Σ Total oficial (nunca promedio de %
+  // ya redondeados) — el Total oficial de cada obra vive en su propia fila
+  // "total", reusado aquí en vez de re-sumar otra fuente.
+  const totalOficialSum = obras.reduce((s, o) => s + (o.filas.total.presupuesto || 0), 0);
+  const pctCobertura = (key !== 'total' && presupuesto != null && totalOficialSum > 0)
+    ? (presupuesto / totalOficialSum) * 100 : null;
+  const realAvanceValorizado = key === 'total'
+    ? obras.reduce((s, o) => s + (o.filas[key].real_avance_valorizado || 0), 0)
+    : null;
+  return filaComparativa(presupuesto, pctCobertura, realPagado, realPagadoConIva, realAvanceValorizado);
 }
 
 // pids: obras a incluir (ya filtradas por scoping de acceso en el caller).
@@ -248,20 +250,23 @@ function sumarFila(obras, key) {
 async function getCorteObraData(pids, fechaCorte) {
   if (!pids.length) return { fecha_corte: fechaCorte, obras: [], agregado: null };
 
-  const [presupuestoMap, realMap, proyectosRows] = await Promise.all([
-    buildDesglosePresupuesto(pids),
+  const [avanceValorizadoRows, realMap, proyectosRows] = await Promise.all([
+    avanceValorizadoPorObra(pids),
     buildDesgloseReal(pids, fechaCorte),
     db.pool.query('SELECT id, nombre FROM proyectos WHERE id = ANY($1)', [pids]),
   ]);
   const nombrePorId = new Map(proyectosRows.rows.map((r) => [r.id, r.nombre]));
-  const presupuestoTotalPorPid = new Map(
-    await Promise.all(pids.map(async (pid) => [pid, await presupuestoTotalDe(pid)]))
-  );
+  const presupuestoTotalPorPid = new Map(avanceValorizadoRows.map((r) => [r.id, r.presupuesto_total]));
+  const avanceValorizadoMontoPorPid = new Map(avanceValorizadoRows.map((r) => [r.id, r.avance_monto]));
+
+  const presupuestoMap = await buildDesglosePresupuesto(pids, presupuestoTotalPorPid);
 
   const obras = pids.map((pid) => {
     const pres = presupuestoMap.get(pid);
     const real = realMap.get(pid);
+    const totalOficial = presupuestoTotalPorPid.get(pid) || 0;
     const presCat = (cat) => (pres.disponible ? pres.categorias[cat] : null);
+    const pctCobertura = (cat) => (pres.disponible && totalOficial > 0) ? (pres.categorias[cat] / totalOficial) * 100 : null;
 
     const realMO = real.categorias['MANO DE OBRA'] + real.jornal + real.destajo;
     const realMOConIva = real.categoriasConIva['MANO DE OBRA'] + real.jornal + real.destajo;
@@ -271,19 +276,28 @@ async function getCorteObraData(pids, fechaCorte) {
     const realEqConIva = real.categoriasConIva['EQUIPO Y HERRAMIENTA'];
 
     const filas = {
-      mano_de_obra: filaComparativa(presCat('MANO DE OBRA'), realMO, realMOConIva),
-      materiales: filaComparativa(presCat('MATERIALES'), realMat, realMatConIva),
-      equipo_herramienta: filaComparativa(presCat('EQUIPO Y HERRAMIENTA'), realEq, realEqConIva),
-      total: filaComparativa(presupuestoTotalPorPid.get(pid), realMO + realMat + realEq, realMOConIva + realMatConIva + realEqConIva),
+      mano_de_obra: filaComparativa(presCat('MANO DE OBRA'), pctCobertura('MANO DE OBRA'), realMO, realMOConIva, null),
+      materiales: filaComparativa(presCat('MATERIALES'), pctCobertura('MATERIALES'), realMat, realMatConIva, null),
+      equipo_herramienta: filaComparativa(presCat('EQUIPO Y HERRAMIENTA'), pctCobertura('EQUIPO Y HERRAMIENTA'), realEq, realEqConIva, null),
+      total: filaComparativa(totalOficial, null, realMO + realMat + realEq, realMOConIva + realMatConIva + realEqConIva, avanceValorizadoMontoPorPid.get(pid) || 0),
     };
+
+    const advertencias = [];
+    if (real.sinCategoria > 0.005) {
+      advertencias.push(`Se excluyeron ${real.sinCategoria.toFixed(2)} en pagos de OC cuyos insumos no tienen categoría asignada — no se le asignó ninguna de las 3 categorías del reporte.`);
+    }
+    if (pres.sinCategoria > 0.005) {
+      advertencias.push(`Se excluyeron ${pres.sinCategoria.toFixed(2)} de presupuesto de insumos sin categoría asignada en el catálogo — no se le asignó ninguna de las 3 categorías del reporte.`);
+    }
+    if (pres.inconsistente) {
+      advertencias.push('El presupuesto de al menos una categoría (vía catálogo de insumos) supera el Total oficial de la obra — dato inconsistente, revisar el catálogo de insumos de esta obra.');
+    }
 
     return {
       obra: { id: pid, nombre: nombrePorId.get(pid) || `Obra ${pid}` },
       presupuesto_desglose_disponible: pres.disponible,
       filas,
-      advertencias: real.sinCategoria > 0.005
-        ? [`Se excluyeron ${real.sinCategoria.toFixed(2)} en pagos de OC cuyos insumos no tienen categoría asignada — no se le asignó ninguna de las 3 categorías del reporte.`]
-        : [],
+      advertencias,
     };
   });
 

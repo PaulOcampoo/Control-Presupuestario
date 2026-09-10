@@ -139,6 +139,11 @@ const state = {
   // Cliente elegido para la vista "Por cliente" de Finanzas; null = mostrar
   // el picker de clientes en esa vista. Ver goToFinanzasCliente.
   finanzasClienteId: null,
+  // Filtro de la vista "Corte de Obra" (prompt-corte-de-obra.md) dentro de
+  // Finanzas — obra_id vacío = "Todas las obras asignadas". fecha_corte
+  // vacío a propósito (el prompt pide NO forzar default a hoy): la vista
+  // muestra un placeholder hasta que el usuario elige una fecha.
+  corteObraFiltro: { obra_id: '', fecha_corte: '' },
   // Mismo patrón que finanzasVista (prompt-fase1-fusionar-trabajadores-
   // nominas.md), pero solo 2 ramas: 'obra' (default) | 'global' — no hay
   // "Por cliente" para estos 2 módulos. 'global' solo es alcanzable si
@@ -13330,6 +13335,7 @@ async function renderFinanzas(view) {
       { valor: 'obra', label: 'Esta obra' },
       { valor: 'cliente', label: 'Por cliente' },
       { valor: 'global', label: 'Todas las obras' },
+      { valor: 'corte', label: 'Corte de Obra' },
     ], state.finanzasVista, 'finanzasVistaSubnav')}
     <div id="finanzasVistaBody" class="mt-12"><div class="spinner"></div></div>
   `;
@@ -13341,6 +13347,7 @@ async function renderFinanzas(view) {
   const body = $('#finanzasVistaBody');
   if (state.finanzasVista === 'cliente') { await renderFinanzasVistaCliente(body); return; }
   if (state.finanzasVista === 'global') { await renderFinanzasVistaGlobal(body); return; }
+  if (state.finanzasVista === 'corte') { await renderFinanzasVistaCorte(body); return; }
   await renderFinanzasVistaObra(body);
 }
 
@@ -13519,6 +13526,116 @@ async function renderFinanzasVistaGlobal(body) {
     paintErogadoRealDesglose('finanzasGlobal', resumen);
   } catch (err) {
     result.innerHTML = `<p class="muted">No se pudo cargar Finanzas global: ${esc(err.message)}</p>`;
+  }
+}
+
+// =========================================================================
+// VISTA: Corte de Obra (prompt-corte-de-obra.md) — comparativo Presupuesto
+// vs Real desglosado en Mano de Obra/Materiales/Equipo y Herramienta, a una
+// fecha de corte manual. Selector de obra ("Todas las obras" por defecto,
+// independiente de state.projectId — no navega ni cambia de obra actual,
+// solo filtra qué le pide al endpoint) + fecha de corte SIN default a hoy
+// (a propósito, ver state.corteObraFiltro): la vista no pide nada al
+// backend hasta que el usuario elige una fecha.
+// =========================================================================
+const CORTE_OBRA_FILAS = [
+  { key: 'mano_de_obra', label: 'Mano de Obra' },
+  { key: 'materiales', label: 'Materiales' },
+  { key: 'equipo_herramienta', label: 'Equipo y Herramienta' },
+  { key: 'total', label: 'Total' },
+];
+
+function corteObraTablaHtml(filas, presupuestoDisponible) {
+  return `
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr><th>Categoría</th><th class="num">Presupuesto</th><th class="num">Real</th><th class="num">Variación $</th><th class="num">Variación %</th></tr>
+        </thead>
+        <tbody>
+          ${CORTE_OBRA_FILAS.map(({ key, label }) => {
+            const f = filas[key];
+            const noDisp = f.presupuesto == null;
+            return `
+              <tr${key === 'total' ? ' class="fw-700"' : ''}>
+                <td>${label}</td>
+                <td class="num">${noDisp ? '<span class="muted">No disponible</span>' : fmtMoney(f.presupuesto)}</td>
+                <td class="num">${fmtMoney(f.real)}</td>
+                <td class="num">${noDisp ? '<span class="muted">No disponible</span>' : fmtMoney(f.variacion_monto)}</td>
+                <td class="num">${noDisp ? '—' : fmtPct(f.variacion_pct)}</td>
+              </tr>
+            `;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>
+    ${!presupuestoDisponible ? '<p class="muted fs-078 mt-6">Presupuesto desglosado por categoría no disponible (matrices de precio unitario incompletas o inexistentes para esta obra) — el Total de Presupuesto sí se muestra, viene de otra fuente.</p>' : ''}
+  `;
+}
+
+async function renderFinanzasVistaCorte(body) {
+  const f = state.corteObraFiltro;
+  body.innerHTML = `
+    <p class="muted">Comparativo Presupuesto vs. Real desglosado en Mano de Obra / Materiales / Equipo y Herramienta, a una fecha de corte manual.</p>
+    <div class="row finanzas-filtros-row">
+      <select id="corteObraFiltroObra" class="finanzas-filtro-select">
+        <option value="">Todas las obras</option>
+        ${state.projects.map((p) => `<option value="${p.id}" ${f.obra_id === String(p.id) ? 'selected' : ''}>${esc(p.nombre)}</option>`).join('')}
+      </select>
+      <input id="corteObraFiltroFecha" type="date" class="finanzas-filtro-select" value="${esc(f.fecha_corte)}" title="Fecha de corte" />
+    </div>
+    <div id="corteObraResult" class="mt-12"></div>
+  `;
+  $('#corteObraFiltroObra').addEventListener('change', (e) => { state.corteObraFiltro.obra_id = e.target.value; renderView(); });
+  $('#corteObraFiltroFecha').addEventListener('change', (e) => { state.corteObraFiltro.fecha_corte = e.target.value; renderView(); });
+
+  const result = $('#corteObraResult');
+  if (!f.fecha_corte) {
+    result.innerHTML = '<div class="empty-state">Elige una fecha de corte para generar el reporte.</div>';
+    return;
+  }
+  result.innerHTML = '<div class="spinner"></div>';
+  const query = { fecha_corte: f.fecha_corte };
+  if (f.obra_id) query.proyecto_id = f.obra_id;
+  try {
+    const data = await api(`/finanzas/corte-obra${queryString(query)}`);
+    // Mismo guard que el resto de vistas de Finanzas: el usuario pudo haber
+    // cambiado de vista/filtro mientras esta llamada estaba en vuelo.
+    if (!document.body.contains(body)) return;
+
+    if (!data.obras.length) {
+      result.innerHTML = '<div class="empty-state">No tienes obras asignadas para generar este reporte.</div>';
+      return;
+    }
+
+    const bloqueTablas = data.scope === 'todas' ? `
+      <h3 class="section-title">Agregado (${data.obras.length} obra${data.obras.length === 1 ? '' : 's'})</h3>
+      ${corteObraTablaHtml(data.agregado, data.obras.every((o) => o.presupuesto_desglose_disponible))}
+      <h3 class="section-title mt-16">Desglose por obra</h3>
+      ${data.obras.map((o) => `
+        <div class="card mt-8">
+          <strong>${esc(o.obra.nombre)}</strong>
+          ${corteObraTablaHtml(o.filas, o.presupuesto_desglose_disponible)}
+          ${o.advertencias.map((a) => `<p class="muted fs-078">${esc(a)}</p>`).join('')}
+        </div>
+      `).join('')}
+    ` : `
+      <h3 class="section-title">${esc(data.obras[0].obra.nombre)}</h3>
+      ${corteObraTablaHtml(data.obras[0].filas, data.obras[0].presupuesto_desglose_disponible)}
+      ${data.obras[0].advertencias.map((a) => `<p class="muted fs-078">${esc(a)}</p>`).join('')}
+    `;
+
+    result.innerHTML = `
+      <div class="section-actions">
+        <button class="btn" id="btnExportCorteXlsx">⭳ Exportar a Excel</button>
+        <button class="btn" id="btnExportCortePdf">⭳ Exportar a PDF</button>
+      </div>
+      ${bloqueTablas}
+    `;
+    wireExportButton('#btnExportCorteXlsx', `/finanzas/corte-obra/export${queryString(query)}`);
+    wireExportButton('#btnExportCortePdf', `/finanzas/corte-obra/export${queryString({ ...query, formato: 'pdf' })}`);
+  } catch (err) {
+    result.innerHTML = `<p class="muted">No se pudo cargar Corte de Obra: ${esc(err.message)}</p>`;
   }
 }
 

@@ -10598,6 +10598,100 @@ app.get('/api/projects/:id/resumen', h(auth.allow('tesoreria', 'administracion',
 }));
 
 // ---------------------------------------------------------------------------
+// Estado del Activo (prompt-gemelo-digital-lite.md) — primer nivel de
+// "gemelo digital" operativo: consolida en una sola vista datos YA
+// persistidos de Avance, Finanzas, Destajo y Maquinaria para una obra. Sin
+// BIM/IoT, solo agregación de solo lectura. Roles con acceso: la unión de
+// quienes ya pueden ver Avance/Destajo (residente/cabo/logistica) y quienes
+// ya pueden ver Finanzas (tesoreria/administracion/costos) — el bloque
+// `presupuesto` se omite por completo del JSON (no solo se oculta en el
+// frontend) para residente/cabo, mismo criterio que el resto de la app
+// (nunca confiar en el frontend para ocultar montos).
+//
+// Avance: reusa avances_semanales.avance_financiero_real (misma columna que
+// ya usa getFinanzasResumenData/getErogadoRealAgregado como "Avance
+// Ejecutado" — ver server/finanzas.js) — no se duplica el cálculo AVG de
+// Avance Físico de /resumen arriba (query no trivial aparte, fuera de
+// alcance de esta vista "lite").
+// Presupuesto: reusa getFinanzasResumenData(pid) tal cual (finanzas.js) —
+// mismo ajuste de IVA /1.16 ya implementado ahí, cero lógica nueva.
+// Destajo: total ejecutado de la ÚLTIMA semana con captura (di/avance_destajo
+// ya vinculados a project_id vía destajo_items) — "periodo actual", distinto
+// del acumulado histórico que ya muestra la pestaña Destajo.
+// Maquinaria: equipos_maquinaria.obra_id ya tiene columna `estado`
+// ('activo'/'mantenimiento'/'baja'/'en_taller') — no hace falta derivarla de
+// mantenimientos_maquinaria, una sola query trivial.
+app.get('/api/projects/:id/estado-activo', h(auth.allow('residente', 'cabo', 'logistica', 'tesoreria', 'administracion', 'costos')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  const pid = req.project.id;
+  // Mismo set de puestos que ya usa GET /api/projects/:id/resumen para
+  // decidir quién ve cifras financieras — Forbidden Action explícita del
+  // prompt: residente/cabo nunca reciben este bloque.
+  const puedeVerFinanciero = req.user.puesto === 'admin' || req.user.puesto === 'desarrollador'
+    || ['tesoreria', 'administracion', 'costos'].includes(req.user.puesto);
+
+  const [avanceRows, finanzas, destajoRows, equipoRows] = await Promise.all([
+    db.pool.query(`
+      SELECT semana, fecha_inicio, fecha_fin, avance_financiero_real
+      FROM avances_semanales
+      WHERE project_id = $1 AND avance_financiero_real IS NOT NULL
+      ORDER BY semana DESC LIMIT 1
+    `, [pid]),
+    puedeVerFinanciero ? getFinanzasResumenData(pid) : Promise.resolve(null),
+    db.pool.query(`
+      WITH ultima AS (
+        SELECT MAX(ad.semana) AS semana
+        FROM avance_destajo ad JOIN destajo_items di ON di.id = ad.destajo_item_id
+        WHERE di.project_id = $1
+      )
+      SELECT ultima.semana, COALESCE(SUM(ad.cantidad_ejecutada * di.precio_destajo), 0) AS total
+      FROM ultima
+      LEFT JOIN destajo_items di ON di.project_id = $1
+      LEFT JOIN avance_destajo ad ON ad.destajo_item_id = di.id AND ad.semana = ultima.semana
+      GROUP BY ultima.semana
+    `, [pid]),
+    db.pool.query(`
+      SELECT id, nombre, tipo, identificador, estado
+      FROM equipos_maquinaria
+      WHERE obra_id = $1 AND activo = true
+      ORDER BY nombre
+    `, [pid]),
+  ]);
+
+  const avance = avanceRows.rows[0] || null;
+  const destajo = destajoRows.rows[0] || null;
+  const equipo = equipoRows.rows;
+
+  res.json({
+    avance: {
+      semana: avance ? avance.semana : null,
+      fecha_inicio: avance ? avance.fecha_inicio : null,
+      fecha_fin: avance ? avance.fecha_fin : null,
+      pct_ejecutado: avance ? Number(avance.avance_financiero_real) : null,
+    },
+    ...(puedeVerFinanciero ? {
+      presupuesto: {
+        contrato: finanzas.presupuesto_total,
+        avance_valorizado_pct: finanzas.avance_valorizado.pct,
+        avance_valorizado_monto: finanzas.avance_valorizado.monto,
+        real_pagado: finanzas.erogado_real.total_pagado,
+        real_comprometido_no_pagado: finanzas.erogado_real.total_comprometido_no_pagado,
+        brecha_monto: finanzas.brecha.monto,
+      },
+    } : {}),
+    destajo: {
+      semana: destajo ? destajo.semana : null,
+      total_ejecutado: destajo ? Number(destajo.total) : 0,
+    },
+    maquinaria: {
+      equipo,
+      total: equipo.length,
+      activos: equipo.filter((e) => e.estado === 'activo').length,
+      en_mantenimiento: equipo.filter((e) => e.estado === 'mantenimiento' || e.estado === 'en_taller').length,
+    },
+  });
+}));
+
+// ---------------------------------------------------------------------------
 // Destajistas (piecework workers)
 // ---------------------------------------------------------------------------
 async function getDestajistasData(pid) {

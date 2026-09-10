@@ -72,8 +72,8 @@ const PERMISSIONS = {
   // secciones de permiso independientes (SECCIONES_PERMISOS, checkPermiso en
   // GET /api/trabajadores y /api/nominas, matriz de permisos granulares) —
   // esto NO cambia, solo se retira su rol como tab de navegación separado.
-  admin:          { label: 'Administrador', tabs: ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'cumplimiento', 'finanzas', 'compromisos', 'fondoGarantia', 'mapeo', 'trabajadores', 'nominas', 'estimaciones', 'ordenesCambio', 'lotes', 'modelosVivienda', 'compradores', 'apartados', 'contratosVenta', 'cobranza', 'entregas', ...MAQUINARIA_TABS_ADMIN, 'cotizador', 'costos', 'costosDashboard', 'matrices', 'avance_clientes', 'composicion_costos', 'dashboardEjecutivo', 'catalogoBasicos'] },
-  desarrollador:  { label: 'Desarrollador', tabs: ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'cumplimiento', 'finanzas', 'compromisos', 'fondoGarantia', 'mapeo', 'trabajadores', 'nominas', 'estimaciones', 'ordenesCambio', 'lotes', 'modelosVivienda', 'compradores', 'apartados', 'contratosVenta', 'cobranza', 'entregas', ...MAQUINARIA_TABS_ADMIN, 'cotizador', 'costos', 'costosDashboard', 'matrices', 'avance_clientes', 'composicion_costos', 'dashboardEjecutivo', 'catalogoBasicos'] },
+  admin:          { label: 'Administrador', tabs: ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'estadoActivo', 'usuarios', 'proveedores', 'cumplimiento', 'finanzas', 'compromisos', 'fondoGarantia', 'mapeo', 'trabajadores', 'nominas', 'estimaciones', 'ordenesCambio', 'lotes', 'modelosVivienda', 'compradores', 'apartados', 'contratosVenta', 'cobranza', 'entregas', ...MAQUINARIA_TABS_ADMIN, 'cotizador', 'costos', 'costosDashboard', 'matrices', 'avance_clientes', 'composicion_costos', 'dashboardEjecutivo', 'catalogoBasicos'] },
+  desarrollador:  { label: 'Desarrollador', tabs: ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'estadoActivo', 'usuarios', 'proveedores', 'cumplimiento', 'finanzas', 'compromisos', 'fondoGarantia', 'mapeo', 'trabajadores', 'nominas', 'estimaciones', 'ordenesCambio', 'lotes', 'modelosVivienda', 'compradores', 'apartados', 'contratosVenta', 'cobranza', 'entregas', ...MAQUINARIA_TABS_ADMIN, 'cotizador', 'costos', 'costosDashboard', 'matrices', 'avance_clientes', 'composicion_costos', 'dashboardEjecutivo', 'catalogoBasicos'] },
   // 'trabajadores' agregado aquí (prompts-cotizador-sidebar-permisos-
   // estimaciones.md, Prompt 3) para que el residente reciba la pestaña al
   // hacer login — el acceso REAL a los datos de cada obra lo sigue
@@ -94,7 +94,7 @@ const PERMISSIONS = {
   // otorga el permiso por sí solo, checkPermiso('costos', ...) sigue siendo
   // el gate real vía permisos_usuario (sin fila = 403, default-deny de
   // 'costos', ver SECCIONES_PERMISOS más abajo).
-  residente:      { label: 'Residente',     tabs: ['programa', 'avance', 'destajo', 'requisiciones', 'insumos', 'ordenes', 'nominas', 'trabajadores', 'estimaciones', 'ordenesCambio', 'lotes', 'modelosVivienda', ...MAQUINARIA_TABS_RESIDENTE, 'matrices'] },
+  residente:      { label: 'Residente',     tabs: ['programa', 'avance', 'destajo', 'estadoActivo', 'requisiciones', 'insumos', 'ordenes', 'nominas', 'trabajadores', 'estimaciones', 'ordenesCambio', 'lotes', 'modelosVivienda', ...MAQUINARIA_TABS_RESIDENTE, 'matrices'] },
   // 'trabajadores' agregado aquí (prompt-c-checkpermiso-trabajadores.md,
   // fix de visibilidad en nav). Desde prompt-limpieza-permisos-cabo.md
   // (cambio de dirección), cabo nace con trabajadores.puede_ver=true por
@@ -108,11 +108,11 @@ const PERMISSIONS = {
   // decisión de negocio de que cabo PUEDE tener Nómina. Igual que
   // 'trabajadores' arriba, cabo nace con nominas.puede_ver=true por default
   // (loop base, sin override) desde prompt-limpieza-permisos-cabo.md.
-  cabo:           { label: 'Cabo',          tabs: ['destajo', 'insumos', 'avance', 'requisiciones', ...MAQUINARIA_TABS_CABO, 'trabajadores', 'nominas', 'ordenesCambio'] },
+  cabo:           { label: 'Cabo',          tabs: ['destajo', 'insumos', 'avance', 'estadoActivo', 'requisiciones', ...MAQUINARIA_TABS_CABO, 'trabajadores', 'nominas', 'ordenesCambio'] },
   compras:        { label: 'Compras',       tabs: ['programa', 'requisiciones', 'insumos', 'ordenes', 'proveedores', 'cumplimiento', 'cotizador'] },
-  tesoreria:      { label: 'Tesorería',     tabs: ['resumen', 'finanzas', 'compromisos', 'fondoGarantia', 'ordenes', 'contrato', 'impuestos', 'proveedores', 'cumplimiento', 'dashboardEjecutivo'] },
-  administracion: { label: 'Administración',tabs: ['resumen', 'programa', 'destajo', 'ordenes', 'proveedores', 'cumplimiento', 'contrato', 'impuestos', 'mapeo'] },
-  logistica:      { label: 'Logística',     tabs: ['programa', 'avance', 'requisiciones', 'insumos', 'ordenes'] },
+  tesoreria:      { label: 'Tesorería',     tabs: ['resumen', 'finanzas', 'estadoActivo', 'compromisos', 'fondoGarantia', 'ordenes', 'contrato', 'impuestos', 'proveedores', 'cumplimiento', 'dashboardEjecutivo'] },
+  administracion: { label: 'Administración',tabs: ['resumen', 'programa', 'destajo', 'estadoActivo', 'ordenes', 'proveedores', 'cumplimiento', 'contrato', 'impuestos', 'mapeo'] },
+  logistica:      { label: 'Logística',     tabs: ['programa', 'avance', 'estadoActivo', 'requisiciones', 'insumos', 'ordenes'] },
   // Rol nuevo (prompt-modulo-maquinaria) — diseño de primer borrador, pendiente
   // de revisión: jefe_maquinaria captura combustible/mantenimiento, cabo
   // captura horas. Renombrado desde 'taller' (prompt-1-rename-operador-jefe-
@@ -161,7 +161,7 @@ const PERMISSIONS = {
   // TAB_A_SECCION).
   // Tarea 2 del mismo prompt: 'catalogoBasicos' agregado — mismo criterio
   // exacto que 'costosDashboard' (vista GLOBAL de solo lectura).
-  costos: { label: 'Costos', tabs: ['matrices', 'costos', 'costosDashboard', 'composicion_costos', 'mapeo', 'fondoGarantia', 'programa', 'resumen', 'catalogoBasicos'] },
+  costos: { label: 'Costos', tabs: ['matrices', 'costos', 'costosDashboard', 'composicion_costos', 'mapeo', 'fondoGarantia', 'programa', 'resumen', 'catalogoBasicos', 'estadoActivo'] },
 };
 const PUESTOS = Object.keys(PERMISSIONS);
 

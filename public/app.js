@@ -1398,7 +1398,7 @@ const SECTION_DEFS = {
   // así lo pidió el negocio. Ver 'costos' más abajo — sección de destino —
   // y EXCEPCIONES_TILE_SECCION (justo después de VIEW_TO_SECTION) para el
   // manejo especial que este movimiento requirió para el rol 'cabo'.
-  obra:          { label: 'Obra',           icon: 'obra',           emoji: '🏗️',  tabs: ['estadoActivo', 'programa', 'avance', 'destajo', 'estimaciones', 'lotes', 'modelosVivienda', 'infraVivienda'], proximamente: [] },
+  obra:          { label: 'Obra',           icon: 'obra',           emoji: '🏗️',  tabs: ['estadoActivo', 'programa', 'avance', 'destajo', 'estimaciones', 'presupuestoEstimaciones', 'lotes', 'modelosVivienda', 'infraVivienda'], proximamente: [] },
   // Fase 4 del roadmap "Desarrollador de Vivienda", PR A (prompt-
   // implementacion-pr-a-compradores-apartado.md, diagnóstico previo en
   // prompt-diagnostico-compradores-venta.md) — sección de nivel superior
@@ -1480,7 +1480,7 @@ const SECTION_DEFS = {
 
 const TAB_ICONS = {
   resumen: '📊', contrato: '📄', impuestos: '🧾', insumos: '📦', requisiciones: '🧾',
-  proveedores: '🏭', cumplimiento: '✅', ordenes: '🛒', programa: '🗓️', avance: '📈', destajo: '👷', estadoActivo: '🩺',
+  proveedores: '🏭', cumplimiento: '✅', ordenes: '🛒', programa: '🗓️', avance: '📈', destajo: '👷', estadoActivo: '🩺', presupuestoEstimaciones: '📐',
   finanzas: '💰', compromisos: '📌', fondoGarantia: '🔒', mapeo: '🔗', usuarios: '👤', trabajadores: '👷', nominas: '💵', estimaciones: '🧮', ordenesCambio: '📝', lotes: '🏘️', modelosVivienda: '🏡', compradores: '🧑‍🤝‍🧑', apartados: '🔖', contratosVenta: '📜', cobranza: '💵', entregas: '📦', infraVivienda: '🏙️',
   maquinaria_catalogo: '🛠️', maquinaria_horas: '⏱️', maquinaria_bitacora: '🔧', maquinaria_estado_unidad: '🚦',
   maquinaria_consumibles: '⛽', maquinaria_reportes_cliente: '📊',
@@ -1492,7 +1492,7 @@ const TAB_ICONS = {
 };
 const TAB_LABELS = {
   resumen: 'Resumen', contrato: 'Contrato', impuestos: 'Impuestos', insumos: 'Insumos', requisiciones: 'Requisiciones',
-  proveedores: 'Proveedores', cumplimiento: 'Cumplimiento', ordenes: 'Órdenes de Compra', programa: 'Programa', avance: 'Avance', destajo: 'Destajo', estadoActivo: 'Estado del Activo',
+  proveedores: 'Proveedores', cumplimiento: 'Cumplimiento', ordenes: 'Órdenes de Compra', programa: 'Programa', avance: 'Avance', destajo: 'Destajo', estadoActivo: 'Estado del Activo', presupuestoEstimaciones: 'Presupuesto vs Estimaciones',
   finanzas: 'Finanzas', compromisos: 'Compromisos Abiertos', fondoGarantia: 'Fondo de Garantía', mapeo: 'Mapeo', usuarios: 'Usuarios', trabajadores: 'Trabajadores', nominas: 'Nóminas', estimaciones: 'Estimaciones', ordenesCambio: 'Órdenes de Cambio', lotes: 'Lotes', modelosVivienda: 'Modelos de Vivienda', compradores: 'Compradores', apartados: 'Apartados', contratosVenta: 'Contrato de Venta', cobranza: 'Cobranza', entregas: 'Entregas', infraVivienda: 'Infraestructura vs. Vivienda',
   maquinaria_catalogo: 'Catálogo de equipos', maquinaria_horas: 'Horas / Pendientes de autorizar',
   maquinaria_bitacora: 'Bitácora de taller', maquinaria_estado_unidad: 'Estado de las unidades',
@@ -5105,6 +5105,7 @@ async function renderView() {
       // intercepta primero (necesitan funcionar también sin state.projectId,
       // ver VISTAS_SIN_PROYECTO) — mismo comentario que 'finanzas' arriba.
       case 'estimaciones': await renderEstimaciones(view); break;
+      case 'presupuestoEstimaciones': await renderPresupuestoVsEstimaciones(view); break;
       case 'ordenesCambio': await renderOrdenesCambio(view); break;
       case 'lotes': await renderLotes(view); break;
       case 'modelosVivienda': await renderModelosVivienda(view); break;
@@ -21489,6 +21490,79 @@ const ESTIMACION_ORDEN_OPCIONES = [
   { value: 'monto_desc', label: 'Monto (mayor a menor)' },
   { value: 'monto_asc', label: 'Monto (menor a mayor)' },
 ];
+
+// Presupuesto vs Estimaciones (prompt-presupuesto-vs-estimaciones.md) —
+// reporte nuevo, hermano de "Exportar catálogo a Excel" (Finanzas): cruza
+// cada concepto del presupuesto contra el avance ya estimado (acumulado de
+// la estimación APROBADA más reciente) y lo que falta por estimar. $0/
+// presupuesto completo cuando la obra no tiene ninguna estimación aprobada
+// es un resultado correcto — nunca se oculta la tabla ni se muestra "No
+// disponible" en ese caso (a diferencia de Corte de Obra).
+async function renderPresupuestoVsEstimaciones(view) {
+  view.innerHTML = `
+    <h2 class="section-title">Presupuesto vs Estimaciones</h2>
+    <p class="muted">Por cada concepto: presupuesto contratado, avance ya estimado (acumulado de la estimación aprobada más reciente) y lo que falta por estimar.</p>
+    <div id="presupuestoEstimacionesBody"><div class="spinner"></div></div>
+  `;
+  const body = $('#presupuestoEstimacionesBody');
+  try {
+    const data = await api(`/projects/${state.projectId}/presupuesto-vs-estimaciones`);
+    if (!document.body.contains(body)) return;
+    const est = data.estimacion_aprobada;
+    const t = data.totales;
+    body.innerHTML = `
+      ${est
+        ? `<p class="muted fs-078">Estimación aprobada usada: Folio #${est.folio} · periodo ${fmtDate(est.periodo_inicio)} al ${fmtDate(est.periodo_fin)}.</p>`
+        : `<div class="alert-box warn">Sin estimaciones aprobadas — Avance Estimado en $0, Por Estimar = presupuesto completo.</div>`}
+      <div class="section-actions">
+        <button class="btn" id="btnExportPresupuestoEstimaciones">⭳ Exportar a Excel</button>
+      </div>
+      ${!data.conceptos.length ? '<div class="empty-state">Esta obra no tiene conceptos de presupuesto.</div>' : `
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>Código</th><th>Concepto</th><th>Grupo</th><th>Unidad</th>
+              <th class="num">Cantidad (Presup.)</th><th class="num">Precio unitario</th><th class="num">Importe (Presup.)</th>
+              <th class="num">Avance Estimado — Cant.</th><th class="num">Avance Estimado — Importe</th>
+              <th class="num">Por Estimar — Cant.</th><th class="num">Por Estimar — Importe</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${data.conceptos.map((c) => `
+              <tr>
+                <td>${esc(c.codigo || '')}</td>
+                <td>${esc(c.concepto)}</td>
+                <td>${esc(c.grupo || '—')}</td>
+                <td>${esc(c.unidad || '')}</td>
+                <td class="num">${fmtNum(c.presupuesto_cantidad, 2)}</td>
+                <td class="num">${fmtMoney(c.presupuesto_precio_unitario)}</td>
+                <td class="num">${fmtMoney(c.presupuesto_importe)}</td>
+                <td class="num">${fmtNum(c.avance_estimado_cantidad, 2)}</td>
+                <td class="num">${fmtMoney(c.avance_estimado_importe)}</td>
+                <td class="num">${fmtNum(c.por_estimar_cantidad, 2)}</td>
+                <td class="num">${fmtMoney(c.por_estimar_importe)}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+          <tfoot>
+            <tr class="fw-700">
+              <td colspan="6">Total</td>
+              <td class="num">${fmtMoney(t.presupuesto_importe)}</td>
+              <td></td>
+              <td class="num">${fmtMoney(t.avance_estimado_importe)}</td>
+              <td></td>
+              <td class="num">${fmtMoney(t.por_estimar_importe)}</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>`}
+    `;
+    wireExportButton('#btnExportPresupuestoEstimaciones', `/projects/${state.projectId}/presupuesto-vs-estimaciones/export`);
+  } catch (err) {
+    body.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+  }
+}
 
 async function renderEstimaciones(view) {
   if (!puedeVerEstimaciones()) {

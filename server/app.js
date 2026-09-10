@@ -6727,6 +6727,121 @@ app.get('/api/projects/:id/export-catalogo-excel', h(auth.allow('residente', 'ca
 }));
 
 // ---------------------------------------------------------------------------
+// Presupuesto vs Estimaciones (prompt-presupuesto-vs-estimaciones.md) —
+// reporte nuevo, hermano de export-catalogo-excel (arriba): por cada
+// concepto del presupuesto, cruza Avance Estimado (acumulado de la
+// estimación APROBADA más reciente — ya incluye el histórico de aprobadas
+// previas, no se suman folios a mano) contra Por Estimar (presupuesto −
+// avance estimado). $0/presupuesto completo cuando la obra no tiene ninguna
+// estimación aprobada es un resultado correcto (Forbidden Action explícita:
+// nunca "No disponible" aquí, a diferencia de Corte de Obra donde sí aplica
+// ese caso — la fuente de este reporte, a diferencia de insumos.
+// importe_presupuesto, SÍ está diseñada para reconciliar 1:1 contra el
+// presupuesto de conceptos).
+async function getPresupuestoVsEstimacionesData(pid) {
+  const [{ rows: conceptos }, { rows: estRows }] = await Promise.all([
+    db.pool.query(
+      // cantidad > 0 AND unidad <> '' (no solo es_total=0): mismo filtro de
+      // "concepto real" que ya usa POST .../estimaciones/:estId/calcular
+      // (línea ~13087) para poblar estimacion_conceptos — necesario porque
+      // algunas obras (confirmado en obra 30 con datos reales) tienen filas
+      // de pie de página ("TOTAL DEL PRESUPUESTO...", "IVA 16%", monto en
+      // letra) persistidas con es_total=0 por una importación anterior al
+      // fix de prompt-fix-total-inflado-presupuesto.md — sin este filtro se
+      // suman como si fueran conceptos reales, inflando el Total de este
+      // reporte. Mismo filtro que ya usa /avances/:semana/conceptos.
+      'SELECT id AS concepto_id, codigo, concepto, grupo, unidad, cantidad, precio_unitario, importe FROM conceptos WHERE project_id = $1 AND es_total = 0 AND activo = 1 AND cantidad > 0 AND TRIM(COALESCE(unidad, \'\')) <> \'\' ORDER BY orden',
+      [pid]
+    ),
+    // Más reciente = mayor fecha_aprobacion (su acumulado ya incluye todo el
+    // histórico de aprobadas previas) — periodo_fin/id como desempate si dos
+    // aprobaciones cayeran en el mismo instante (no observado en datos reales).
+    db.pool.query(
+      `SELECT id, folio, periodo_inicio, periodo_fin, fecha_aprobacion FROM estimaciones
+       WHERE project_id = $1 AND estado = 'aprobada' AND activo = true
+       ORDER BY fecha_aprobacion DESC NULLS LAST, periodo_fin DESC, id DESC LIMIT 1`,
+      [pid]
+    ),
+  ]);
+
+  const estimacionAprobada = estRows[0] || null;
+  const acumPorConcepto = new Map();
+  if (estimacionAprobada) {
+    const { rows: ecRows } = await db.pool.query(
+      'SELECT concepto_id, cantidad_acumulada, importe_acumulado FROM estimacion_conceptos WHERE estimacion_id = $1',
+      [estimacionAprobada.id]
+    );
+    for (const r of ecRows) acumPorConcepto.set(r.concepto_id, { cantidad: Number(r.cantidad_acumulada), importe: Number(r.importe_acumulado) });
+  }
+
+  const filas = conceptos.map((c) => {
+    const acum = acumPorConcepto.get(c.concepto_id) || { cantidad: 0, importe: 0 };
+    return {
+      concepto_id: c.concepto_id,
+      codigo: c.codigo,
+      concepto: c.concepto,
+      grupo: c.grupo,
+      unidad: c.unidad,
+      presupuesto_cantidad: Number(c.cantidad),
+      presupuesto_precio_unitario: Number(c.precio_unitario),
+      presupuesto_importe: Number(c.importe),
+      avance_estimado_cantidad: acum.cantidad,
+      avance_estimado_importe: Number(acum.importe.toFixed(2)),
+      por_estimar_cantidad: Number((c.cantidad - acum.cantidad).toFixed(4)),
+      por_estimar_importe: Number((c.importe - acum.importe).toFixed(2)),
+    };
+  });
+
+  const totales = filas.reduce((acc, f) => ({
+    presupuesto_importe: acc.presupuesto_importe + f.presupuesto_importe,
+    avance_estimado_importe: acc.avance_estimado_importe + f.avance_estimado_importe,
+    por_estimar_importe: acc.por_estimar_importe + f.por_estimar_importe,
+  }), { presupuesto_importe: 0, avance_estimado_importe: 0, por_estimar_importe: 0 });
+  Object.keys(totales).forEach((k) => { totales[k] = Number(totales[k].toFixed(2)); });
+
+  return {
+    estimacion_aprobada: estimacionAprobada,
+    conceptos: filas,
+    totales,
+  };
+}
+
+app.get('/api/projects/:id/presupuesto-vs-estimaciones', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('presupuestos', 'puede_ver')), h(async (req, res) => {
+  res.json(await getPresupuestoVsEstimacionesData(req.project.id));
+}));
+
+app.get('/api/projects/:id/presupuesto-vs-estimaciones/export', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('presupuestos', 'puede_ver')), h(async (req, res) => {
+  const data = await getPresupuestoVsEstimacionesData(req.project.id);
+  const columns = [
+    { header: 'Código', key: 'codigo', width: 14 },
+    { header: 'Concepto', key: 'concepto', width: 40 },
+    { header: 'Grupo', key: 'grupo', width: 22 },
+    { header: 'Unidad', key: 'unidad', width: 10 },
+    { header: 'Cantidad (Presup.)', key: 'presupuesto_cantidad', width: 16, format: 'int' },
+    { header: 'Precio unitario', key: 'presupuesto_precio_unitario', width: 16, format: 'money' },
+    { header: 'Importe (Presup.)', key: 'presupuesto_importe', width: 16, format: 'money' },
+    { header: 'Avance Estimado — Cant.', key: 'avance_estimado_cantidad', width: 18, format: 'int' },
+    { header: 'Avance Estimado — Importe', key: 'avance_estimado_importe', width: 20, format: 'money' },
+    { header: 'Por Estimar — Cant.', key: 'por_estimar_cantidad', width: 16, format: 'int' },
+    { header: 'Por Estimar — Importe', key: 'por_estimar_importe', width: 18, format: 'money' },
+  ];
+  const rows = [
+    ...data.conceptos,
+    {
+      codigo: '', concepto: 'TOTAL', grupo: '', unidad: '',
+      presupuesto_cantidad: null, presupuesto_precio_unitario: null,
+      presupuesto_importe: data.totales.presupuesto_importe,
+      avance_estimado_cantidad: null, avance_estimado_importe: data.totales.avance_estimado_importe,
+      por_estimar_cantidad: null, por_estimar_importe: data.totales.por_estimar_importe,
+    },
+  ];
+  await sendXlsxExport(res, {
+    filename: buildExportFilename('Presupuesto-vs-Estimaciones', req.project.nombre),
+    sheets: [{ sheetName: 'Presupuesto vs Estimaciones', columns, rows }],
+  });
+}));
+
+// ---------------------------------------------------------------------------
 // Actualización de presupuesto preservando avance (DISEÑO-ACTUALIZACION-
 // PRESUPUESTO.md, aprobado por Paul 2026-07-21). Dos pasos: preview (nunca
 // escribe) y confirmar (aplica dentro de una transacción). auth.allow() sin

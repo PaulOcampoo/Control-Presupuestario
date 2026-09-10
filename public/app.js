@@ -1398,7 +1398,7 @@ const SECTION_DEFS = {
   // así lo pidió el negocio. Ver 'costos' más abajo — sección de destino —
   // y EXCEPCIONES_TILE_SECCION (justo después de VIEW_TO_SECTION) para el
   // manejo especial que este movimiento requirió para el rol 'cabo'.
-  obra:          { label: 'Obra',           icon: 'obra',           emoji: '🏗️',  tabs: ['programa', 'avance', 'destajo', 'estimaciones', 'lotes', 'modelosVivienda', 'infraVivienda'], proximamente: [] },
+  obra:          { label: 'Obra',           icon: 'obra',           emoji: '🏗️',  tabs: ['estadoActivo', 'programa', 'avance', 'destajo', 'estimaciones', 'lotes', 'modelosVivienda', 'infraVivienda'], proximamente: [] },
   // Fase 4 del roadmap "Desarrollador de Vivienda", PR A (prompt-
   // implementacion-pr-a-compradores-apartado.md, diagnóstico previo en
   // prompt-diagnostico-compradores-venta.md) — sección de nivel superior
@@ -1480,7 +1480,7 @@ const SECTION_DEFS = {
 
 const TAB_ICONS = {
   resumen: '📊', contrato: '📄', impuestos: '🧾', insumos: '📦', requisiciones: '🧾',
-  proveedores: '🏭', cumplimiento: '✅', ordenes: '🛒', programa: '🗓️', avance: '📈', destajo: '👷',
+  proveedores: '🏭', cumplimiento: '✅', ordenes: '🛒', programa: '🗓️', avance: '📈', destajo: '👷', estadoActivo: '🩺',
   finanzas: '💰', compromisos: '📌', fondoGarantia: '🔒', mapeo: '🔗', usuarios: '👤', trabajadores: '👷', nominas: '💵', estimaciones: '🧮', ordenesCambio: '📝', lotes: '🏘️', modelosVivienda: '🏡', compradores: '🧑‍🤝‍🧑', apartados: '🔖', contratosVenta: '📜', cobranza: '💵', entregas: '📦', infraVivienda: '🏙️',
   maquinaria_catalogo: '🛠️', maquinaria_horas: '⏱️', maquinaria_bitacora: '🔧', maquinaria_estado_unidad: '🚦',
   maquinaria_consumibles: '⛽', maquinaria_reportes_cliente: '📊',
@@ -1492,7 +1492,7 @@ const TAB_ICONS = {
 };
 const TAB_LABELS = {
   resumen: 'Resumen', contrato: 'Contrato', impuestos: 'Impuestos', insumos: 'Insumos', requisiciones: 'Requisiciones',
-  proveedores: 'Proveedores', cumplimiento: 'Cumplimiento', ordenes: 'Órdenes de Compra', programa: 'Programa', avance: 'Avance', destajo: 'Destajo',
+  proveedores: 'Proveedores', cumplimiento: 'Cumplimiento', ordenes: 'Órdenes de Compra', programa: 'Programa', avance: 'Avance', destajo: 'Destajo', estadoActivo: 'Estado del Activo',
   finanzas: 'Finanzas', compromisos: 'Compromisos Abiertos', fondoGarantia: 'Fondo de Garantía', mapeo: 'Mapeo', usuarios: 'Usuarios', trabajadores: 'Trabajadores', nominas: 'Nóminas', estimaciones: 'Estimaciones', ordenesCambio: 'Órdenes de Cambio', lotes: 'Lotes', modelosVivienda: 'Modelos de Vivienda', compradores: 'Compradores', apartados: 'Apartados', contratosVenta: 'Contrato de Venta', cobranza: 'Cobranza', entregas: 'Entregas', infraVivienda: 'Infraestructura vs. Vivienda',
   maquinaria_catalogo: 'Catálogo de equipos', maquinaria_horas: 'Horas / Pendientes de autorizar',
   maquinaria_bitacora: 'Bitácora de taller', maquinaria_estado_unidad: 'Estado de las unidades',
@@ -5086,6 +5086,7 @@ async function renderView() {
     switch (state.view) {
       case 'resumen':
       case 'inicio': await renderInicio(view); break;
+      case 'estadoActivo': await renderEstadoActivo(view); break;
       case 'contrato': await renderContrato(view); break;
       case 'impuestos': await renderImpuestos(view); break;
       case 'insumos': await renderInsumos(view); break;
@@ -5248,6 +5249,80 @@ function seccionesGridHtml() {
         </div>`;
       }).join('')}
     </div>
+  `;
+}
+
+// Estado del Activo (prompt-gemelo-digital-lite.md) — primer nivel de
+// "gemelo digital" operativo: consolida en una sola vista Avance, Finanzas,
+// Destajo y Maquinaria de la obra activa. Sin polling — fetch on-demand al
+// entrar a la vista (mismo patrón que el resto de vistas por-obra, ver
+// renderView()). `data.presupuesto` viene AUSENTE del JSON para residente/
+// cabo (server/app.js) — nunca se confía en ocultar solo aquí.
+const ESTADO_MAQ_LABELS = { activo: 'Activo', mantenimiento: 'En mantenimiento', en_taller: 'En taller', baja: 'De baja' };
+const ESTADO_MAQ_BADGE = { activo: 'green', mantenimiento: 'yellow', en_taller: 'yellow', baja: 'muted' };
+
+async function renderEstadoActivo(view) {
+  const data = await api(`/projects/${state.projectId}/estado-activo`);
+  const av = data.avance;
+  const pr = data.presupuesto; // undefined si el rol no ve montos financieros
+  const de = data.destajo;
+  const mq = data.maquinaria;
+
+  view.innerHTML = `
+    <h2 class="section-title">Estado del Activo</h2>
+    <p class="muted">Consolidado en tiempo real de Avance${pr ? ', Presupuesto' : ''}, Destajo y Maquinaria de esta obra.</p>
+    <div class="kpi-grid">
+      <div class="kpi accent">
+        <div class="label">Avance ejecutado</div>
+        <div class="value">${av.pct_ejecutado != null ? fmtPct(av.pct_ejecutado) : '—'}</div>
+        <div class="muted fs-078">${av.semana != null ? `Semana ${av.semana}${av.fecha_fin ? ` · al ${fmtDate(av.fecha_fin)}` : ''}` : 'Sin avance capturado todavía'}</div>
+      </div>
+      ${pr ? `
+      <div class="kpi ${pr.brecha_monto >= 0 ? 'green' : 'red'}">
+        <div class="label">Presupuesto — Real vs. Contrato</div>
+        <div class="value">${fmtMoney(pr.real_pagado)}</div>
+        <div class="muted fs-078">de ${fmtMoney(pr.contrato)} contratado · ${fmtPct(pr.avance_valorizado_pct)} valorizado</div>
+      </div>` : ''}
+      <div class="kpi">
+        <div class="label">Destajo — periodo actual</div>
+        <div class="value">${fmtMoney(de.total_ejecutado)}</div>
+        <div class="muted fs-078">${de.semana != null ? `Semana ${de.semana}` : 'Sin destajo capturado todavía'}</div>
+      </div>
+      <div class="kpi">
+        <div class="label">Maquinaria asignada</div>
+        <div class="value">${mq.total}</div>
+        <div class="muted fs-078">${mq.activos} activo${mq.activos === 1 ? '' : 's'} · ${mq.en_mantenimiento} en mantenimiento</div>
+      </div>
+    </div>
+
+    ${pr ? `
+    <h3 class="section-title mt-16">Presupuesto — detalle</h3>
+    <div class="card">
+      <div class="card-row"><span class="k">Contrato (sin IVA)</span><span class="v">${fmtMoney(pr.contrato)}</span></div>
+      <div class="card-row"><span class="k">Avance valorizado</span><span class="v">${fmtMoney(pr.avance_valorizado_monto)} (${fmtPct(pr.avance_valorizado_pct)})</span></div>
+      <div class="card-row"><span class="k">Real pagado</span><span class="v">${fmtMoney(pr.real_pagado)}</span></div>
+      <div class="card-row"><span class="k">Comprometido no pagado</span><span class="v">${fmtMoney(pr.real_comprometido_no_pagado)}</span></div>
+      <div class="card-row"><span class="k">Brecha (valorizado − pagado)</span><span class="v ${pr.brecha_monto >= 0 ? 'text-verde' : 'text-rojo'} fw-700">${fmtMoney(pr.brecha_monto)}</span></div>
+    </div>` : ''}
+
+    <h3 class="section-title mt-16">Maquinaria en esta obra</h3>
+    ${mq.equipo.length ? `
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>Equipo</th><th>Tipo</th><th>Identificador</th><th>Estado</th></tr></thead>
+        <tbody>
+          ${mq.equipo.map((e) => `
+            <tr>
+              <td>${esc(e.nombre)}</td>
+              <td>${esc(e.tipo)}</td>
+              <td>${esc(e.identificador || '—')}</td>
+              <td><span class="badge ${ESTADO_MAQ_BADGE[e.estado] || 'muted'}">${esc(ESTADO_MAQ_LABELS[e.estado] || e.estado)}</span></td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </div>
+    ` : '<div class="empty-state">No hay equipo de maquinaria asignado a esta obra.</div>'}
   `;
 }
 

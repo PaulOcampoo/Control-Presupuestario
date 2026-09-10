@@ -9624,24 +9624,30 @@ app.get('/api/finanzas/corte-obra/export', h(auth.allow('tesoreria')), h(auth.ch
   const filaRow = (label, fila) => ({
     categoria: label,
     presupuesto: fila.presupuesto,
-    real: fila.real,
-    real_con_iva: fila.real_con_iva,
+    cobertura_pct: fila.presupuesto_pct_cobertura,
+    real_pagado: fila.real_pagado,
+    real_pagado_con_iva: fila.real_pagado_con_iva,
+    real_avance_valorizado: fila.real_avance_valorizado,
     variacion_monto: fila.variacion_monto,
     variacion_pct: fila.variacion_pct,
   });
   const columnas = [
     { header: 'Categoría', key: 'categoria', width: 24 },
     { header: 'Presupuesto', key: 'presupuesto', width: 18, format: 'money' },
-    { header: 'Real (sin IVA, ajustado)', key: 'real', width: 20, format: 'money' },
-    { header: 'Real (con IVA)', key: 'real_con_iva', width: 18, format: 'money' },
-    { header: 'Variación $', key: 'variacion_monto', width: 18, format: 'money' },
+    { header: '% del Total capturado', key: 'cobertura_pct', width: 18, format: 'pct' },
+    { header: 'Real — Pagado (sin IVA, ajustado)', key: 'real_pagado', width: 24, format: 'money' },
+    { header: 'Real — Pagado (con IVA)', key: 'real_pagado_con_iva', width: 20, format: 'money' },
+    { header: 'Real — Avance Valorizado', key: 'real_avance_valorizado', width: 22, format: 'money' },
+    { header: 'Variación $ (vs. Pagado)', key: 'variacion_monto', width: 20, format: 'money' },
     { header: 'Variación %', key: 'variacion_pct', width: 14, format: 'pct' },
   ];
+  const NOTA_COBERTURA = 'Los montos de Presupuesto por categoría vienen del catálogo de insumos del Excel y pueden no sumar el Total oficial de la obra — no todos los conceptos se detallan a nivel insumo.';
   const filasDe = (filas) => ([
     filaRow('Mano de Obra', filas.mano_de_obra),
     filaRow('Materiales', filas.materiales),
     filaRow('Equipo y Herramienta', filas.equipo_herramienta),
     filaRow('Total', filas.total),
+    { categoria: NOTA_COBERTURA },
   ]);
 
   const sheets = [];
@@ -9653,7 +9659,8 @@ app.get('/api/finanzas/corte-obra/export', h(auth.allow('tesoreria')), h(auth.ch
       sheetName: o.obra.nombre,
       columns: columnas,
       rows: [
-        ...(!o.presupuesto_desglose_disponible ? [{ categoria: 'Presupuesto desglosado por categoría no disponible para esta obra (matrices incompletas o inexistentes) — el Total sí se muestra.' }] : []),
+        ...(!o.presupuesto_desglose_disponible ? [{ categoria: 'Presupuesto por categoría no disponible para esta obra (sin insumos importados con importe presupuestado) — el Total sí se muestra.' }] : []),
+        ...(o.advertencias || []).map((a) => ({ categoria: a })),
         ...filasDe(o.filas),
       ],
     });

@@ -13545,22 +13545,36 @@ const CORTE_OBRA_FILAS = [
   { key: 'total', label: 'Total' },
 ];
 
+const CORTE_OBRA_NOTA_COBERTURA = 'Los montos de Presupuesto por categoría vienen del catálogo de insumos del Excel y pueden no sumar el Total oficial de la obra — no todos los conceptos se detallan a nivel insumo.';
+
 function corteObraTablaHtml(filas, presupuestoDisponible) {
   return `
     <div class="table-scroll">
       <table>
         <thead>
-          <tr><th>Categoría</th><th class="num">Presupuesto</th><th class="num">Real</th><th class="num">Variación $</th><th class="num">Variación %</th></tr>
+          <tr>
+            <th>Categoría</th>
+            <th class="num">Presupuesto</th>
+            <th class="num">Real — Pagado</th>
+            <th class="num">Real — Avance Valorizado</th>
+            <th class="num">Variación $</th>
+            <th class="num">Variación %</th>
+          </tr>
         </thead>
         <tbody>
           ${CORTE_OBRA_FILAS.map(({ key, label }) => {
             const f = filas[key];
             const noDisp = f.presupuesto == null;
+            const avanceDisp = f.real_avance_valorizado != null;
             return `
               <tr${key === 'total' ? ' class="fw-700"' : ''}>
                 <td>${label}</td>
-                <td class="num">${noDisp ? '<span class="muted">No disponible</span>' : fmtMoney(f.presupuesto)}</td>
-                <td class="num">${fmtMoney(f.real)}</td>
+                <td class="num">
+                  ${noDisp ? '<span class="muted">No disponible</span>' : fmtMoney(f.presupuesto)}
+                  ${(!noDisp && f.presupuesto_pct_cobertura != null) ? `<div class="muted fs-078">${fmtPct(f.presupuesto_pct_cobertura)} del total capturado</div>` : ''}
+                </td>
+                <td class="num">${fmtMoney(f.real_pagado)}</td>
+                <td class="num">${avanceDisp ? fmtMoney(f.real_avance_valorizado) : '<span class="muted">No disponible</span>'}</td>
                 <td class="num">${noDisp ? '<span class="muted">No disponible</span>' : fmtMoney(f.variacion_monto)}</td>
                 <td class="num">${noDisp ? '—' : fmtPct(f.variacion_pct)}</td>
               </tr>
@@ -13569,7 +13583,8 @@ function corteObraTablaHtml(filas, presupuestoDisponible) {
         </tbody>
       </table>
     </div>
-    ${!presupuestoDisponible ? '<p class="muted fs-078 mt-6">Presupuesto desglosado por categoría no disponible (matrices de precio unitario incompletas o inexistentes para esta obra) — el Total de Presupuesto sí se muestra, viene de otra fuente.</p>' : ''}
+    <p class="muted fs-078 mt-6">${esc(CORTE_OBRA_NOTA_COBERTURA)}</p>
+    ${!presupuestoDisponible ? '<p class="muted fs-078 mt-6">Presupuesto por categoría no disponible para esta obra (sin insumos importados con importe presupuestado) — el Total de Presupuesto sí se muestra, viene de otra fuente.</p>' : ''}
   `;
 }
 

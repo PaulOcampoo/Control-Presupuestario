@@ -62,6 +62,8 @@ const {
   getErogadoRealPorCliente, getErogadoRealGlobal,
   FONDO_GARANTIA_PCT_MIN, FONDO_GARANTIA_PCT_MAX,
 } = require('./finanzas');
+const { getCorteObraData } = require('./corteObra');
+const { buildCorteObraPdf } = require('./corteObraPdf');
 const { calcularJornal, calcularDestajo, totalConIvaDeItems, totalConIvaEsValido, numeroALetra, calcularSplitCuentas, distribuirDestajoGrupo } = require('./calculos');
 const { validarClabe } = require('./catalogoBancos');
 const estadoResultados = require('./estadoResultados');
@@ -9553,6 +9555,112 @@ app.get('/api/projects/:id/finanzas/export', h(auth.allow('tesoreria')), h(requi
         })),
       },
     ],
+  });
+}));
+
+// ---------------------------------------------------------------------------
+// Corte de Obra (prompt-corte-de-obra.md) — comparativo Presupuesto vs Real
+// desglosado en Mano de Obra/Materiales/Equipo y Herramienta, a una fecha de
+// corte manual. No vive bajo /projects/:id/ porque proyecto_id es OPCIONAL
+// (ausente = todas las obras asignadas al usuario) — mismo criterio de
+// scoping que GET /api/projects (veTodo admin/desarrollador-sin-asignación,
+// si no filtra por usuario_proyectos), aplicado a mano aquí porque
+// requireProject/verificarAccesoObra asumen un :id de ruta que este
+// endpoint no tiene. Reusa 'finanzas'/'puede_ver' — mismo dato financiero
+// por-obra que el resto de Finanzas, sin sección nueva en el catálogo de
+// permisos granulares.
+async function resolverAlcanceCorteObra(req) {
+  const proyectoIdRaw = req.query.proyecto_id;
+  if (proyectoIdRaw != null && proyectoIdRaw !== '') {
+    const pid = Number(proyectoIdRaw);
+    if (!Number.isFinite(pid)) { const err = new Error('proyecto_id inválido'); err.status = 400; throw err; }
+    const proyecto = await db.getProject(pid);
+    if (!proyecto) { const err = new Error('Proyecto no encontrado'); err.status = 404; throw err; }
+    if (!(await auth.usuarioPuedeOperarObra(req, pid))) { const err = new Error('No tienes acceso a esta obra'); err.status = 403; throw err; }
+    return { scope: 'obra', pids: [pid] };
+  }
+  const veTodo = req.user.puesto === 'admin'
+    || (req.user.puesto === 'desarrollador' && !(await db.usuarioTieneAsignacionExplicita(req.user.id)));
+  const proyectos = veTodo
+    ? await db.listProjects()
+    : (await db.pool.query(
+        'SELECT p.* FROM proyectos p JOIN usuario_proyectos up ON up.project_id = p.id WHERE up.usuario_id = $1',
+        [req.user.id]
+      )).rows;
+  return { scope: 'todas', pids: proyectos.map((p) => p.id) };
+}
+
+function validarFechaCorte(req) {
+  const fechaCorte = req.query.fecha_corte;
+  if (!fechaCorte || !/^\d{4}-\d{2}-\d{2}$/.test(fechaCorte)) {
+    const err = new Error('fecha_corte es requerida en formato YYYY-MM-DD');
+    err.status = 400;
+    throw err;
+  }
+  return fechaCorte;
+}
+
+app.get('/api/finanzas/corte-obra', h(auth.allow('tesoreria')), h(auth.checkPermiso('finanzas', 'puede_ver')), h(async (req, res) => {
+  const fechaCorte = validarFechaCorte(req);
+  const { scope, pids } = await resolverAlcanceCorteObra(req);
+  const data = await getCorteObraData(pids, fechaCorte);
+  res.json({ ...data, scope });
+}));
+
+app.get('/api/finanzas/corte-obra/export', h(auth.allow('tesoreria')), h(auth.checkPermiso('finanzas', 'puede_ver')), h(async (req, res) => {
+  const fechaCorte = validarFechaCorte(req);
+  const { scope, pids } = await resolverAlcanceCorteObra(req);
+  const data = { ...(await getCorteObraData(pids, fechaCorte)), scope };
+  const formato = req.query.formato === 'pdf' ? 'pdf' : 'xlsx';
+  const nombreArchivo = scope === 'obra' && data.obras[0] ? data.obras[0].obra.nombre : 'TodasLasObras';
+
+  if (formato === 'pdf') {
+    const buffer = await buildCorteObraPdf(data);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${buildExportFilename('CorteDeObra', nombreArchivo).replace(/\.xlsx$/, '.pdf')}"`);
+    return res.send(buffer);
+  }
+
+  const filaRow = (label, fila) => ({
+    categoria: label,
+    presupuesto: fila.presupuesto,
+    real: fila.real,
+    real_con_iva: fila.real_con_iva,
+    variacion_monto: fila.variacion_monto,
+    variacion_pct: fila.variacion_pct,
+  });
+  const columnas = [
+    { header: 'Categoría', key: 'categoria', width: 24 },
+    { header: 'Presupuesto', key: 'presupuesto', width: 18, format: 'money' },
+    { header: 'Real (sin IVA, ajustado)', key: 'real', width: 20, format: 'money' },
+    { header: 'Real (con IVA)', key: 'real_con_iva', width: 18, format: 'money' },
+    { header: 'Variación $', key: 'variacion_monto', width: 18, format: 'money' },
+    { header: 'Variación %', key: 'variacion_pct', width: 14, format: 'pct' },
+  ];
+  const filasDe = (filas) => ([
+    filaRow('Mano de Obra', filas.mano_de_obra),
+    filaRow('Materiales', filas.materiales),
+    filaRow('Equipo y Herramienta', filas.equipo_herramienta),
+    filaRow('Total', filas.total),
+  ]);
+
+  const sheets = [];
+  if (scope === 'todas') {
+    sheets.push({ sheetName: 'Agregado', columns: columnas, rows: filasDe(data.agregado) });
+  }
+  for (const o of data.obras) {
+    sheets.push({
+      sheetName: o.obra.nombre,
+      columns: columnas,
+      rows: [
+        ...(!o.presupuesto_desglose_disponible ? [{ categoria: 'Presupuesto desglosado por categoría no disponible para esta obra (matrices incompletas o inexistentes) — el Total sí se muestra.' }] : []),
+        ...filasDe(o.filas),
+      ],
+    });
+  }
+  await sendXlsxExport(res, {
+    filename: buildExportFilename('CorteDeObra', nombreArchivo),
+    sheets,
   });
 }));
 

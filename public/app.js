@@ -8711,8 +8711,20 @@ async function openAvanceConceptosModal(avance, presupuestoTotal, puedeEditar = 
     </div>
   `;
 
-  $('#avcList').innerHTML = [...groups.entries()].map(([grupo, groupItems]) => `
+  $('#avcList').innerHTML = [...groups.entries()].map(([grupo, groupItems]) => {
+    // Breadcrumb compacto de niveles superiores (prompt-ruta-jerarquica-
+    // conceptos.md) — todo menos el último elemento de ruta_jerarquica (que
+    // ya es el propio `grupo`, mostrado arriba en el <h3> grande). Se toma
+    // del primer item con ruta_jerarquica disponible: dentro de un mismo
+    // grupo todos comparten la misma ruta salvo el caso raro y ya
+    // documentado de un concepto omitido en el backfill retroactivo (ver
+    // scripts/backfill-ruta-jerarquica.js) — no bloquea el breadcrumb del
+    // resto del grupo.
+    const rutaCompleta = groupItems.find((c) => Array.isArray(c.ruta_jerarquica) && c.ruta_jerarquica.length > 1)?.ruta_jerarquica;
+    const breadcrumb = rutaCompleta ? rutaCompleta.slice(0, -1).join(' › ') : '';
+    return `
     <div class="avc-grupo-block" data-grupo-block="${esc(grupo)}">
+      ${breadcrumb ? `<div class="muted fs-078 avc-breadcrumb">${esc(breadcrumb)}</div>` : ''}
       <h3 class="section-title mt14-mb8">${esc(grupo)}</h3>
       ${groupItems.map((c) => {
         const pendientes = c.insumos_pendientes || [];
@@ -8743,7 +8755,8 @@ async function openAvanceConceptosModal(avance, presupuestoTotal, puedeEditar = 
       `;
       }).join('')}
     </div>
-  `).join('');
+  `;
+  }).join('');
 
   // Candado duro de presupuesto (2026-09-08-avance-pagos-oc-finanzas.md,
   // Prompt D) — mismo mensaje/fórmula que el backend (fuente de verdad,

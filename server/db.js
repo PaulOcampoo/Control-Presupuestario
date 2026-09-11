@@ -47,6 +47,15 @@ const SCHEMA = `
   );
   CREATE INDEX IF NOT EXISTS idx_conceptos_project ON conceptos(project_id);
 
+  -- Jerarquía completa de secciones (prompt-ruta-jerarquica-conceptos.md):
+  -- grupo de arriba solo guarda el nivel más interno (ej. "CALLE
+  -- BARRANCAS"), perdiendo los niveles superiores (ej. "DS - RED SANITARIA").
+  -- Array ordenado nivel 1 a N; el último elemento SIEMPRE coincide con
+  -- grupo (fuente de verdad sin cambios para todo lo que ya lo consume).
+  -- Profundidad variable (4 a 7 niveles reales, confirmado contra las 7
+  -- obras reales) — nunca asumir un número fijo de niveles al leerlo.
+  ALTER TABLE conceptos ADD COLUMN IF NOT EXISTS ruta_jerarquica JSONB;
+
   -- Actualización de presupuesto preservando avance (DISEÑO-ACTUALIZACION-
   -- PRESUPUESTO.md): un concepto que ya no aparece en una carga nueva del
   -- Excel se marca activo=0 en vez de borrarse — preserva su avance

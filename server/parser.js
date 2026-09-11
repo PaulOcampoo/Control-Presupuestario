@@ -176,6 +176,20 @@ function findFirstNumberInRow(row) {
 // Budget concepts ("Presupuesto de obra"): hierarchical list of partidas /
 // conceptos with codigo, concepto, unidad, cantidad, precio_unitario, importe.
 // ---------------------------------------------------------------------------
+// prompt-diagnostico-niveles-jerarquia.md: el código de un encabezado de
+// sección no es señal confiable de nivel (varía por obra — algunas anidan
+// por prefijo tipo EPA/EPA1/EPA11, otras usan abreviaturas independientes
+// tipo RS/AP/DP sin relación entre sí), y el formato de celda tampoco (sin
+// negritas/relleno/combinación distintivas entre niveles, verificado contra
+// el Excel real de una obra). La única señal universal encontrada: cada
+// encabezado se cierra con una fila "TOTAL <mismo texto>" — un algoritmo de
+// pila (apilar al abrir, desapilar al encontrar el cierre que coincide por
+// texto) reconstruye la jerarquía completa sin ambigüedad, validado sin
+// excepciones contra las 7 obras reales (profundidad 4 a 7 niveles).
+function normGrupo(text) {
+  return String(text == null ? '' : text).normalize('NFD').replace(/[̀-ͯ]/g, '').trim().toUpperCase();
+}
+
 function parseBudgetConcepts(sheet) {
   const header = findHeaderRow(sheet);
   if (!header) return [];
@@ -183,6 +197,7 @@ function parseBudgetConcepts(sheet) {
   const items = [];
   let order = 0;
   let currentGroup = null;
+  const groupStack = []; // pila de nombres de encabezado abiertos, nivel 1..N
 
   for (let r = rowNumber + 1; r <= sheet.rowCount; r += 1) {
     const row = sheet.getRow(r);
@@ -215,6 +230,20 @@ function parseBudgetConcepts(sheet) {
 
     if (isGroupHeader) currentGroup = concepto;
 
+    // Pila de jerarquía (independiente de currentGroup arriba, que no se
+    // toca): un TOTAL desapila hasta el encabezado que cierra por texto; un
+    // encabezado nuevo apila. Un TOTAL sin encabezado abierto que coincida
+    // (no debería pasar, validado en las 7 obras reales) se ignora sin
+    // desapilar nada, para no corromper la pila con datos mal formados.
+    if (isTotalRow) {
+      const nombreCerrado = normGrupo(concepto.replace(/^TOTAL\s+/i, ''));
+      for (let i = groupStack.length - 1; i >= 0; i -= 1) {
+        if (normGrupo(groupStack[i]) === nombreCerrado) { groupStack.length = i; break; }
+      }
+    } else if (isGroupHeader) {
+      groupStack.push(concepto);
+    }
+
     order += 1;
     items.push({
       codigo,
@@ -224,6 +253,12 @@ function parseBudgetConcepts(sheet) {
       precio_unitario: precio,
       importe,
       grupo: currentGroup,
+      // Array nivel 1→N vigente al momento de leer esta fila — null para
+      // encabezados/totales (es_total=1, no son conceptos consultables),
+      // igual criterio que el backfill retroactivo (ver prompt-ruta-
+      // jerarquica-conceptos.md). Su último elemento siempre coincide con
+      // `grupo` de arriba.
+      ruta_jerarquica: (isTotalRow || isGroupHeader) ? null : [...groupStack],
       // prompt-fix-total-inflado-presupuesto.md (Capa 4): un renglón sin
       // unidad/cantidad/precio propios (isGroupHeader) nunca es una partida
       // comprable real, sin importar cómo esté redactado su texto — mismo

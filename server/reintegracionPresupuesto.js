@@ -241,18 +241,20 @@ async function aplicarCambiosConceptos(client, pid, { emparejados, nuevos, histo
       cantidad_nueva: cantidadFinal,
     });
     await client.query(
-      `UPDATE conceptos SET codigo=$1, concepto=$2, unidad=$3, cantidad=$4, precio_unitario=$5, importe=$6, grupo=$7, activo=1
-       WHERE id=$8`,
-      [nuevo.codigo || null, nuevo.concepto, nuevo.unidad, cantidadFinal, precioFinal, importe, nuevo.grupo, existente.id]
+      `UPDATE conceptos SET codigo=$1, concepto=$2, unidad=$3, cantidad=$4, precio_unitario=$5, importe=$6, grupo=$7, activo=1, ruta_jerarquica=$8
+       WHERE id=$9`,
+      [nuevo.codigo || null, nuevo.concepto, nuevo.unidad, cantidadFinal, precioFinal, importe, nuevo.grupo,
+        nuevo.ruta_jerarquica ? JSON.stringify(nuevo.ruta_jerarquica) : null, existente.id]
     );
   }
 
   for (const nuevo of nuevos) {
     const importe = Number(nuevo.cantidad) * Number(nuevo.precio_unitario);
     await client.query(
-      `INSERT INTO conceptos (project_id, codigo, concepto, unidad, cantidad, precio_unitario, importe, grupo, es_total, orden, activo)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,0,$9,1)`,
-      [pid, nuevo.codigo || null, nuevo.concepto, nuevo.unidad, nuevo.cantidad, nuevo.precio_unitario, importe, nuevo.grupo, maxOrdenExistente + nuevo.orden]
+      `INSERT INTO conceptos (project_id, codigo, concepto, unidad, cantidad, precio_unitario, importe, grupo, es_total, orden, activo, ruta_jerarquica)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,0,$9,1,$10)`,
+      [pid, nuevo.codigo || null, nuevo.concepto, nuevo.unidad, nuevo.cantidad, nuevo.precio_unitario, importe, nuevo.grupo, maxOrdenExistente + nuevo.orden,
+        nuevo.ruta_jerarquica ? JSON.stringify(nuevo.ruta_jerarquica) : null]
     );
   }
 

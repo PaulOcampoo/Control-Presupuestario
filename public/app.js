@@ -6823,24 +6823,26 @@ async function renderProgramaSuministros(view, renderSubNav, bindSubNav) {
   let filtroClienteId = '';
   let filtroDesde = '';
   let filtroHasta = '';
+  let filtroTexto = '';
+  let ultimoData = null;
 
-  async function cargarYPintar() {
-    const q = queryString({
-      desde: filtroDesde || undefined,
-      hasta: filtroHasta || undefined,
-      obra_id: filtroObraId || undefined,
-      cliente_id: filtroClienteId || undefined,
-    });
-    let data;
-    try {
-      data = await api(`/requisiciones/programa${q}`);
-    } catch (err) {
-      $('#programaBody').innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
-      return;
-    }
-    filtroDesde = data.desde; filtroHasta = data.hasta;
-    if ($('#programaDesde')) { $('#programaDesde').value = data.desde; $('#programaHasta').value = data.hasta; }
+  // Buscador de texto libre (prompt-buscador-filtro-requisiciones.md): filtra
+  // en cliente sobre lo ya cargado, sin volver a pegarle al servidor — el
+  // dataset de un periodo es chico (una semana de varias obras), no amerita
+  // un parámetro de búsqueda server-side. NO incluye folio de OC ni concepto
+  // vinculado: /api/requisiciones/programa no trae esos campos (solo
+  // oc_confirmada/en_riesgo, booleanos) — ampliarlo sería tocar el backend,
+  // fuera de alcance de este prompt. Búsqueda limitada a lo que el dataset sí
+  // trae: insumo (nombre/código) y folio de requisición.
+  function coincideBusqueda(it) {
+    if (!filtroTexto) return true;
+    const hay = normalizarTexto(`${it.insumo_concepto || ''} ${it.insumo_codigo || ''} ${it.folio || ''}`);
+    return hay.includes(filtroTexto);
+  }
 
+  function pintar() {
+    const data = ultimoData;
+    if (!data) return;
     const totalItems = data.obras.reduce((acc, o) => acc + o.fechas.reduce((a2, f) => a2 + f.items.length, 0), 0);
     const totalRiesgo = data.obras.reduce((acc, o) => acc + o.fechas.reduce((a2, f) => a2 + f.items.filter((it) => it.en_riesgo).length, 0), 0);
 
@@ -6849,9 +6851,24 @@ async function renderProgramaSuministros(view, renderSubNav, bindSubNav) {
       body.innerHTML = `<div class="empty-state"><div class="big">📦</div>Ninguna requisición con fecha de suministro en este periodo.<br>Recuerda: las requisiciones sin fecha de suministro no aparecen aquí — revisa la pestaña "Lista".</div>`;
       return;
     }
+
+    const obrasFiltradas = data.obras
+      .map((o) => ({
+        ...o,
+        fechas: o.fechas
+          .map((f) => ({ ...f, items: f.items.filter(coincideBusqueda) }))
+          .filter((f) => f.items.length),
+      }))
+      .filter((o) => o.fechas.length);
+
+    if (filtroTexto && !obrasFiltradas.length) {
+      body.innerHTML = `<div class="empty-state">Ningún renglón coincide con "${esc(filtroTexto)}".</div>`;
+      return;
+    }
+
     body.innerHTML = `
       ${totalRiesgo ? `<div class="alert-box danger">⚠️ ${totalRiesgo} renglón${totalRiesgo === 1 ? '' : 'es'} en riesgo: fecha de suministro dentro de ${data.umbral_riesgo_dias} días y la requisición aún no está autorizada o no tiene Orden de Compra confirmada.</div>` : `<div class="alert-box info">✓ Sin renglones en riesgo (umbral: ${data.umbral_riesgo_dias} días antes de la fecha de suministro).</div>`}
-      ${data.obras.map((o) => `
+      ${obrasFiltradas.map((o) => `
         <div class="card mt-12">
           <h3 class="section-title">${esc(o.obra_nombre)}${o.cliente_id != null && clientesMap.has(o.cliente_id) ? ` <span class="muted fs-08">· ${esc(clientesMap.get(o.cliente_id))}</span>` : ''}</h3>
           ${o.fechas.map((f) => `
@@ -6881,6 +6898,24 @@ async function renderProgramaSuministros(view, renderSubNav, bindSubNav) {
     `;
   }
 
+  async function cargarYPintar() {
+    const q = queryString({
+      desde: filtroDesde || undefined,
+      hasta: filtroHasta || undefined,
+      obra_id: filtroObraId || undefined,
+      cliente_id: filtroClienteId || undefined,
+    });
+    try {
+      ultimoData = await api(`/requisiciones/programa${q}`);
+    } catch (err) {
+      $('#programaBody').innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+      return;
+    }
+    filtroDesde = ultimoData.desde; filtroHasta = ultimoData.hasta;
+    if ($('#programaDesde')) { $('#programaDesde').value = ultimoData.desde; $('#programaHasta').value = ultimoData.hasta; }
+    pintar();
+  }
+
   view.innerHTML = `
     <h2 class="section-title">Requisiciones de compra ${renderHelpBtn('requisiciones')}</h2>
     ${renderSubNav()}
@@ -6899,13 +6934,43 @@ async function renderProgramaSuministros(view, renderSubNav, bindSubNav) {
       <button class="btn" id="btnProgramaFiltrar">Filtrar</button>
       <button class="btn" id="btnExportPrograma">⭳ Exportar a Excel</button>
     </div>
+    <div class="search-bar-fancy" id="programaSearchWrap">
+      <span class="search-icon">🔍</span>
+      <input id="programaBuscarInput" placeholder="Buscar insumo, código, folio…" autocomplete="off" />
+      <button type="button" class="search-clear" id="btnClearProgramaSearch" title="Limpiar búsqueda">✕</button>
+    </div>
     <div id="programaBody"><div class="spinner"></div></div>
   `;
   bindSubNav();
 
+  $('#programaBuscarInput').addEventListener('input', (e) => {
+    filtroTexto = normalizarTexto(e.target.value.trim());
+    $('#programaSearchWrap').classList.toggle('has-value', !!e.target.value.trim());
+    pintar();
+  });
+  $('#btnClearProgramaSearch').addEventListener('click', () => {
+    $('#programaBuscarInput').value = '';
+    filtroTexto = '';
+    $('#programaSearchWrap').classList.remove('has-value');
+    pintar();
+    $('#programaBuscarInput').focus();
+  });
+
   $('#btnProgramaFiltrar').addEventListener('click', () => {
-    filtroDesde = $('#programaDesde').value || '';
-    filtroHasta = $('#programaHasta').value || '';
+    const desdeInput = $('#programaDesde').value || '';
+    const hastaInput = $('#programaHasta').value || '';
+    // Bug real confirmado (prompt-buscador-filtro-requisiciones.md, Fase 0):
+    // dejar solo UNO de los dos campos de fecha vacío hacía que el backend
+    // (que solo aplica su default de "próxima semana" cuando falta CUALQUIERA
+    // de los dos) rellenara ese campo vacío con el default mientras el otro
+    // se quedaba con lo que el usuario sí escribió — resultado: un rango sin
+    // sentido (ej. 2026-01-01 a 2026-09-20) aplicado en silencio, sin avisar.
+    if ((desdeInput && !hastaInput) || (!desdeInput && hastaInput)) {
+      toast('Indica ambas fechas (Desde y Hasta), o deja las dos vacías para usar el rango por defecto.', 'warning');
+      return;
+    }
+    filtroDesde = desdeInput;
+    filtroHasta = hastaInput;
     filtroObraId = $('#programaObraSelect')?.value || '';
     filtroClienteId = $('#programaClienteSelect')?.value || '';
     cargarYPintar();
@@ -6952,6 +7017,7 @@ async function renderSeguimientoMateriales(view, renderSubNav, bindSubNav) {
   let filtroObraId = '';
   let filtroClienteId = '';
   let filtroEstatus = new Set();
+  let filtroTexto = '';
   let items = [];
 
   async function cargarYPintar() {
@@ -6969,15 +7035,27 @@ async function renderSeguimientoMateriales(view, renderSubNav, bindSubNav) {
     pintarTabla();
   }
 
+  // Buscador de texto libre (prompt-buscador-filtro-requisiciones.md):
+  // combina (intersección) con los chips de Estatus ya aplicados — no los
+  // reemplaza. Filtra en cliente sobre lo ya cargado (mismo criterio que
+  // Programa de suministros: dataset acotado a obra/cliente seleccionados,
+  // no amerita ida y vuelta al servidor por cada tecla).
+  function coincideBusqueda(it) {
+    if (!filtroTexto) return true;
+    const hay = normalizarTexto(`${it.insumo_concepto || ''} ${it.insumo_codigo || ''} ${it.requisicion_folio || ''} ${it.oc_folio || ''} ${it.concepto_vinculado || ''}`);
+    return hay.includes(filtroTexto);
+  }
+
   function pintarTabla() {
     const body = $('#seguimientoBody');
-    const visibles = filtroEstatus.size ? items.filter((it) => filtroEstatus.has(it.estatus)) : items;
+    const porEstatus = filtroEstatus.size ? items.filter((it) => filtroEstatus.has(it.estatus)) : items;
+    const visibles = porEstatus.filter(coincideBusqueda);
     if (!items.length) {
       body.innerHTML = `<div class="empty-state"><div class="big">📦</div>Sin requisiciones para mostrar en este filtro.</div>`;
       return;
     }
     if (!visibles.length) {
-      body.innerHTML = `<div class="empty-state">Ningún renglón coincide con el estatus seleccionado.</div>`;
+      body.innerHTML = `<div class="empty-state">Ningún renglón coincide con ${filtroTexto ? `"${esc(filtroTexto)}"` : 'el estatus seleccionado'}.</div>`;
       return;
     }
     body.innerHTML = `
@@ -7030,9 +7108,27 @@ async function renderSeguimientoMateriales(view, renderSubNav, bindSubNav) {
       <button class="btn" id="btnSeguimientoFiltrar">Filtrar</button>
       <button class="btn" id="btnExportSeguimiento">⭳ Exportar a Excel</button>
     </div>
+    <div class="search-bar-fancy" id="seguimientoSearchWrap">
+      <span class="search-icon">🔍</span>
+      <input id="seguimientoBuscarInput" placeholder="Buscar insumo, código, folio…" autocomplete="off" />
+      <button type="button" class="search-clear" id="btnClearSeguimientoSearch" title="Limpiar búsqueda">✕</button>
+    </div>
     <div id="seguimientoBody"><div class="spinner"></div></div>
   `;
   bindSubNav();
+
+  $('#seguimientoBuscarInput').addEventListener('input', (e) => {
+    filtroTexto = normalizarTexto(e.target.value.trim());
+    $('#seguimientoSearchWrap').classList.toggle('has-value', !!e.target.value.trim());
+    pintarTabla();
+  });
+  $('#btnClearSeguimientoSearch').addEventListener('click', () => {
+    $('#seguimientoBuscarInput').value = '';
+    filtroTexto = '';
+    $('#seguimientoSearchWrap').classList.remove('has-value');
+    pintarTabla();
+    $('#seguimientoBuscarInput').focus();
+  });
 
   $$('[data-estatus-chip]', view).forEach((btn) => {
     btn.addEventListener('click', () => {

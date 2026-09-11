@@ -1417,7 +1417,7 @@ const SECTION_DEFS = {
   // tiene tab real. Con esto se cierra el roadmap completo de Fase 4
   // "Desarrollador de Vivienda" — 'proximamente' queda vacío.
   ventas:        { label: 'Ventas',         icon: 'home',           emoji: '🏠',   tabs: ['compradores', 'apartados', 'contratosVenta', 'cobranza', 'entregas'], proximamente: [] },
-  compras:       { label: 'Compras',        icon: 'compras',        emoji: '🛒',   tabs: ['requisiciones', 'insumos', 'proveedores', 'cumplimiento', 'ordenes', 'cotizador'], proximamente: ['Subcontratos'] },
+  compras:       { label: 'Compras',        icon: 'compras',        emoji: '🛒',   tabs: ['requisiciones', 'insumos', 'proveedores', 'cumplimiento', 'ordenes', 'cotizador', 'almacen'], proximamente: ['Subcontratos'] },
   tesoreria:     { label: 'Tesorería',      icon: 'tesoreria',      emoji: '💰',   tabs: ['finanzas', 'compromisos', 'fondoGarantia', 'estadoResultados', 'estadoResultadosGlobal', 'impuestos', 'controlFinanciero'], proximamente: [] },
   // 'mapeo' vivió un tiempo aquí, luego en Presupuestos, ahora en la nueva
   // sección 'costos' (prompt-seccion-costos-implementacion.md) —
@@ -1489,6 +1489,7 @@ const TAB_ICONS = {
   cuentas: '🏦', matrices: '🧱', controlFinanciero: '💹', dashboardEjecutivo: '📊', costosDashboard: '📊', catalogoBasicos: '📚',
   contabilidadCuentas: '📒', contabilidadPolizas: '🧾', contabilidadCfdi: '📑', contabilidadPagos: '💳',
   contabilidadConciliacion: '🏦', contabilidadDepreciacion: '📉', contabilidadExport: '📤',
+  almacen: '🏬',
 };
 const TAB_LABELS = {
   resumen: 'Resumen', contrato: 'Contrato', impuestos: 'Impuestos', insumos: 'Insumos', requisiciones: 'Requisiciones',
@@ -1506,6 +1507,7 @@ const TAB_LABELS = {
   contabilidadPagos: 'Pagos de OC',
   contabilidadConciliacion: 'Conciliación Bancaria', contabilidadDepreciacion: 'Depreciación de Maquinaria',
   contabilidadExport: 'Exportar / Reporte Mensual',
+  almacen: 'Almacén',
 };
 
 const VIEW_TO_SECTION = {};
@@ -5116,6 +5118,7 @@ async function renderView() {
       case 'entregas': await renderEntregas(view); break;
       case 'infraVivienda': await renderInfraVivienda(view); break;
       case 'matrices': await renderMatrices(view); break;
+      case 'almacen': await renderAlmacen(view); break;
       default: view.innerHTML = '';
     }
   } catch (err) {
@@ -10238,6 +10241,12 @@ const PERMISOS_SECCION_LABELS = {
   // residente; puede_crear/puede_editar/puede_eliminar solo alcanzables por
   // admin/desarrollador (gate de ruta, ver ACCIONES_CON_ENFORCEMENT abajo).
   modelos_vivienda: 'Modelos de Vivienda',
+  // Almacén Fase 1 (prompt-almacen-fase1.md) — separadas a propósito, mismo
+  // criterio que maquinaria_captura/maquinaria_combustible (CN-002): compras
+  // captura Entradas, residente/cabo captura Salidas, cada uno con
+  // puede_crear solo en la suya y puede_ver en ambas (bitácora completa).
+  almacen_entradas: 'Almacén — Entradas',
+  almacen_salidas: 'Almacén — Salidas',
 };
 // Secciones que NUNCA son por-obra — no existe (ni tiene sentido) una versión
 // "para la obra X" de una vista que ya de por sí es cross-obra/cross-cliente.
@@ -10373,6 +10382,10 @@ const ACCIONES_CON_ENFORCEMENT = {
   // ordenes_cambio.puede_editar arriba (infraestructura preparada, no
   // delegable hoy — información comercial sensible).
   modelos_vivienda: ['puede_ver', 'puede_crear', 'puede_editar', 'puede_eliminar'],
+  // Solo ver/crear tienen endpoint real en Fase 1 — no existe editar ni
+  // eliminar todavía (sin dashboard/conciliación, ver prompt-almacen-fase1.md).
+  almacen_entradas: ['puede_ver', 'puede_crear'],
+  almacen_salidas: ['puede_ver', 'puede_crear'],
 };
 // Agrupa las secciones de permisos igual que SECTION_DEFS agrupa las pestañas
 // en la pantalla de inicio (Obra / Compras / Tesorería / Administración) —
@@ -10380,7 +10393,7 @@ const ACCIONES_CON_ENFORCEMENT = {
 // el resto de la app en vez de un orden alfabético/insertado sin relación.
 const PERMISOS_GRUPOS = [
   { label: 'Obra',           secciones: ['presupuestos', 'programa', 'avance', 'destajo', 'estimaciones', 'ordenes_cambio', 'lotes', 'modelos_vivienda'] },
-  { label: 'Compras',        secciones: ['requisiciones', 'insumos', 'proveedores', 'ordenes_compra', 'cotizador'] },
+  { label: 'Compras',        secciones: ['requisiciones', 'insumos', 'proveedores', 'ordenes_compra', 'cotizador', 'almacen_entradas', 'almacen_salidas'] },
   { label: 'Tesorería',      secciones: ['finanzas', 'estado_resultados', 'estado_resultados_global', 'impuestos'] },
   { label: 'Administración', secciones: ['mapeo', 'contrato', 'nominas', 'usuarios', 'trabajadores', 'trabajadores_docs', 'trabajadores_contrato', 'trabajadores_bancarios', 'trabajadores_global', 'nominas_global', 'costos'] },
   { label: 'Maquinaria',     secciones: ['maquinaria', 'maquinaria_captura', 'maquinaria_combustible', 'maquinaria_mantenimiento', 'estado_unidad', 'maquinaria_consumibles'] },
@@ -24423,6 +24436,278 @@ async function renderInfraViviendaClasificar(body) {
       toast(err.message, 'danger');
       btnGuardar.disabled = false;
       btnGuardar.textContent = 'Guardar clasificación';
+    }
+  });
+}
+
+// =========================================================================
+// VISTA: Almacén Fase 1 (prompt-almacen-fase1.md, diagnóstico previo
+// prompt-diagnostico-almacen.md) — bitácora de Entradas (compras) y Salidas
+// (residente/cabo, vinculadas manualmente a un concepto). Sin existencias en
+// tiempo real ni conciliación todavía (Fase 2/3, fuera de este prompt).
+// =========================================================================
+function puedeVerAlmacen() { return !!state.user && (isAdmin() || ['compras', 'residente', 'cabo'].includes(effectivePuesto())); }
+// Gates de rol, no de permiso granular real — mismo criterio que puedeVerLotes/
+// puedeCrearOrdenCambio: el backend (checkPermiso('almacen_entradas'/'almacen_
+// salidas', 'puede_crear')) es el gate real, esto solo evita mostrar un botón
+// que fallaría con 403 para el caso típico. Un admin puede además revocar
+// puede_crear a compras/residente/cabo desde la matriz — en ese caso el botón
+// se muestra pero el submit falla con el mensaje de error real del backend.
+function puedeCrearEntradaAlmacen() { return !!state.user && (isAdmin() || effectivePuesto() === 'compras'); }
+function puedeCrearSalidaAlmacen() { return !!state.user && (isAdmin() || ['residente', 'cabo'].includes(effectivePuesto())); }
+
+let almacenEntradasRaw = [];
+let almacenSalidasRaw = [];
+
+async function renderAlmacen(view) {
+  if (!puedeVerAlmacen()) {
+    view.innerHTML = `<div class="alert-box danger">⚠️ No tienes permiso para ver esta sección.</div>`;
+    return;
+  }
+  view.innerHTML = `
+    <h2 class="section-title">Almacén</h2>
+    <p class="muted">Bitácora de entradas y salidas de material. Sin existencias en tiempo real ni conciliación contra presupuesto todavía.</p>
+
+    <div class="row items-center mt-16">
+      <h3 class="m-0">Entradas</h3>
+      ${puedeCrearEntradaAlmacen() ? '<button class="btn btn-primary" id="btnNuevaEntradaAlmacen">+ Nueva entrada</button>' : ''}
+    </div>
+    <div id="almacenEntradasList"><div class="empty-state">Cargando…</div></div>
+
+    <div class="row items-center mt-24">
+      <h3 class="m-0">Salidas</h3>
+      ${puedeCrearSalidaAlmacen() ? '<button class="btn btn-primary" id="btnNuevaSalidaAlmacen">+ Nueva salida</button>' : ''}
+    </div>
+    <div id="almacenSalidasList"><div class="empty-state">Cargando…</div></div>
+  `;
+  $('#btnNuevaEntradaAlmacen')?.addEventListener('click', () => openEntradaAlmacenModal(loadAlmacenEntradas));
+  $('#btnNuevaSalidaAlmacen')?.addEventListener('click', () => openSalidaAlmacenModal(loadAlmacenSalidas));
+  await Promise.all([loadAlmacenEntradas(), loadAlmacenSalidas()]);
+}
+
+async function loadAlmacenEntradas() {
+  const el = $('#almacenEntradasList');
+  if (!el) return;
+  try {
+    almacenEntradasRaw = await api(`/projects/${state.projectId}/almacen/entradas`);
+    paintAlmacenEntradas();
+  } catch (err) {
+    el.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+  }
+}
+
+function paintAlmacenEntradas() {
+  const el = $('#almacenEntradasList');
+  if (!el) return;
+  if (!almacenEntradasRaw.length) { el.innerHTML = '<div class="empty-state">No hay entradas registradas.</div>'; return; }
+  el.innerHTML = `
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>Fecha</th><th>Insumo</th><th class="num">Cantidad</th><th class="num">Costo unitario</th><th>Proveedor</th><th>Folio</th><th>Foto</th><th>Capturó</th></tr></thead>
+        <tbody>
+          ${almacenEntradasRaw.map((e) => `
+            <tr>
+              <td>${fmtDate(e.fecha)}</td>
+              <td>${esc(e.insumo_codigo ? `${e.insumo_codigo} — ` : '')}${esc(e.insumo_concepto)} <span class="muted fs-075">${esc(e.unidad || '')}</span></td>
+              <td class="num">${fmtNum(e.cantidad)}</td>
+              <td class="num">${fmtMoney(e.costo_unitario)}</td>
+              <td>${esc(e.proveedor_nombre || '—')}</td>
+              <td>${esc(e.folio_factura_remision || '—')}</td>
+              <td>${e.foto_url ? `<button class="btn small" data-ver-foto-entrada="${e.id}">Descargar</button>` : '—'}</td>
+              <td>${esc(e.usuario_nombre)}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+  $$('[data-ver-foto-entrada]', el).forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      try {
+        await apiDownload(`/projects/${state.projectId}/almacen/entradas/${btn.dataset.verFotoEntrada}/foto`, `remision-${btn.dataset.verFotoEntrada}.jpg`);
+      } catch (err) { toast(err.message, 'danger'); }
+    });
+  });
+}
+
+async function loadAlmacenSalidas() {
+  const el = $('#almacenSalidasList');
+  if (!el) return;
+  try {
+    almacenSalidasRaw = await api(`/projects/${state.projectId}/almacen/salidas`);
+    paintAlmacenSalidas();
+  } catch (err) {
+    el.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+  }
+}
+
+function paintAlmacenSalidas() {
+  const el = $('#almacenSalidasList');
+  if (!el) return;
+  if (!almacenSalidasRaw.length) { el.innerHTML = '<div class="empty-state">No hay salidas registradas.</div>'; return; }
+  el.innerHTML = `
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>Fecha</th><th>Insumo</th><th class="num">Cantidad</th><th>Concepto</th><th>Responsable de retiro</th><th>Capturó</th></tr></thead>
+        <tbody>
+          ${almacenSalidasRaw.map((s) => `
+            <tr>
+              <td>${fmtDate(s.fecha)}</td>
+              <td>${esc(s.insumo_codigo ? `${s.insumo_codigo} — ` : '')}${esc(s.insumo_concepto)} <span class="muted fs-075">${esc(s.unidad || '')}</span></td>
+              <td class="num">${fmtNum(s.cantidad)}</td>
+              <td>${esc(s.concepto_nombre || '— (sin concepto)')}</td>
+              <td>${esc(s.responsable_retiro || '—')}</td>
+              <td>${esc(s.usuario_nombre)}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+async function openEntradaAlmacenModal(onSave) {
+  let insumos = []; let proveedores = [];
+  try {
+    [insumos, proveedores] = await Promise.all([
+      api(`/projects/${state.projectId}/insumos`),
+      api('/proveedores'),
+    ]);
+  } catch (err) { toast(err.message, 'danger'); }
+  const proveedoresActivos = proveedores.filter((p) => p.activo);
+
+  openModal(`
+    <h3>Nueva entrada de almacén</h3>
+    <div class="field"><label>Insumo *</label>
+      <select id="entradaInsumoId">
+        <option value="">Selecciona un insumo…</option>
+        ${insumos.map((i) => `<option value="${i.id}">${esc(i.codigo ? `${i.codigo} — ` : '')}${esc(i.concepto)} (${esc(i.unidad || 's/u')})</option>`).join('')}
+      </select>
+    </div>
+    <div class="row">
+      <div class="field"><label>Fecha</label><input id="entradaFecha" type="date" value="${new Date().toISOString().slice(0, 10)}" /></div>
+      <div class="field"><label>Cantidad *</label><input id="entradaCantidad" type="number" step="any" min="0" /></div>
+    </div>
+    <div class="row">
+      <div class="field"><label>Costo unitario</label><input id="entradaCosto" type="number" step="any" min="0" value="0" /></div>
+      <div class="field"><label>Proveedor</label>
+        <select id="entradaProveedorId">
+          <option value="">Sin proveedor</option>
+          ${proveedoresActivos.map((p) => `<option value="${p.id}">${esc(p.nombre)}</option>`).join('')}
+        </select>
+      </div>
+    </div>
+    <div class="field"><label>Folio de factura/remisión</label><input id="entradaFolio" /></div>
+    <div class="field"><label>Foto de remisión (opcional)</label><input id="entradaFoto" type="file" accept="image/*" capture="environment" /></div>
+    <div class="field"><label>Observaciones</label><textarea id="entradaObs" rows="2"></textarea></div>
+    <div class="modal-actions">
+      <button class="btn" id="btnCancelEntradaAlmacen">Cancelar</button>
+      <button class="btn btn-primary" id="btnSaveEntradaAlmacen">Guardar</button>
+    </div>
+  `);
+  $('#btnCancelEntradaAlmacen').addEventListener('click', closeModal);
+  $('#btnSaveEntradaAlmacen').addEventListener('click', async () => {
+    const btn = $('#btnSaveEntradaAlmacen');
+    const insumo_id = $('#entradaInsumoId').value;
+    const cantidad = $('#entradaCantidad').value;
+    if (!insumo_id) { toast('Selecciona un insumo', 'danger'); return; }
+    if (!cantidad || Number(cantidad) <= 0) { toast('La cantidad debe ser mayor a 0', 'danger'); return; }
+    btn.disabled = true; btn.textContent = 'Guardando…';
+    try {
+      let foto_url = null;
+      const file = $('#entradaFoto')?.files?.[0];
+      if (file) {
+        btn.textContent = 'Subiendo foto…';
+        const blob = await VercelBlobClient.upload(file.name, file, {
+          access: 'private',
+          handleUploadUrl: `/api/projects/${state.projectId}/almacen/entradas/upload-token`,
+          headers: state.token ? { Authorization: `Bearer ${state.token}` } : {},
+        });
+        foto_url = blob.url;
+      }
+      await api(`/projects/${state.projectId}/almacen/entradas`, {
+        method: 'POST',
+        body: {
+          insumo_id: Number(insumo_id),
+          fecha: $('#entradaFecha').value || null,
+          proveedor_id: $('#entradaProveedorId').value ? Number($('#entradaProveedorId').value) : null,
+          cantidad: Number(cantidad),
+          costo_unitario: Number($('#entradaCosto').value) || 0,
+          folio_factura_remision: $('#entradaFolio').value.trim() || null,
+          foto_url,
+          observaciones: $('#entradaObs').value.trim() || null,
+        },
+      });
+      toast('Entrada registrada', 'success');
+      closeModal();
+      await onSave();
+    } catch (err) {
+      toast(err.message, 'danger');
+      btn.disabled = false; btn.textContent = 'Guardar';
+    }
+  });
+}
+
+async function openSalidaAlmacenModal(onSave) {
+  let insumos = []; let conceptosSeleccionables = [];
+  try {
+    [insumos, conceptosSeleccionables] = await Promise.all([
+      api(`/projects/${state.projectId}/insumos`),
+      api(`/projects/${state.projectId}/almacen/conceptos-disponibles`),
+    ]);
+  } catch (err) { toast(err.message, 'danger'); }
+
+  openModal(`
+    <h3>Nueva salida de almacén</h3>
+    <div class="field"><label>Insumo *</label>
+      <select id="salidaInsumoId">
+        <option value="">Selecciona un insumo…</option>
+        ${insumos.map((i) => `<option value="${i.id}">${esc(i.codigo ? `${i.codigo} — ` : '')}${esc(i.concepto)} (${esc(i.unidad || 's/u')})</option>`).join('')}
+      </select>
+    </div>
+    <div class="row">
+      <div class="field"><label>Fecha</label><input id="salidaFecha" type="date" value="${new Date().toISOString().slice(0, 10)}" /></div>
+      <div class="field"><label>Cantidad *</label><input id="salidaCantidad" type="number" step="any" min="0" /></div>
+    </div>
+    <div class="field"><label>Concepto (opcional)</label>
+      <select id="salidaConceptoId">
+        <option value="">Sin concepto claro</option>
+        ${conceptosSeleccionables.map((c) => `<option value="${c.id}">${esc(c.codigo ? `${c.codigo} — ` : '')}${esc(c.concepto)}</option>`).join('')}
+      </select>
+    </div>
+    <div class="field"><label>Responsable de retiro</label><input id="salidaResponsable" placeholder="Nombre de quien retira el material" /></div>
+    <div class="field"><label>Observaciones</label><textarea id="salidaObs" rows="2"></textarea></div>
+    <div class="modal-actions">
+      <button class="btn" id="btnCancelSalidaAlmacen">Cancelar</button>
+      <button class="btn btn-primary" id="btnSaveSalidaAlmacen">Guardar</button>
+    </div>
+  `);
+  $('#btnCancelSalidaAlmacen').addEventListener('click', closeModal);
+  $('#btnSaveSalidaAlmacen').addEventListener('click', async () => {
+    const btn = $('#btnSaveSalidaAlmacen');
+    const insumo_id = $('#salidaInsumoId').value;
+    const cantidad = $('#salidaCantidad').value;
+    if (!insumo_id) { toast('Selecciona un insumo', 'danger'); return; }
+    if (!cantidad || Number(cantidad) <= 0) { toast('La cantidad debe ser mayor a 0', 'danger'); return; }
+    btn.disabled = true; btn.textContent = 'Guardando…';
+    try {
+      await api(`/projects/${state.projectId}/almacen/salidas`, {
+        method: 'POST',
+        body: {
+          insumo_id: Number(insumo_id),
+          fecha: $('#salidaFecha').value || null,
+          cantidad: Number(cantidad),
+          concepto_id: $('#salidaConceptoId').value ? Number($('#salidaConceptoId').value) : null,
+          responsable_retiro: $('#salidaResponsable').value.trim() || null,
+          observaciones: $('#salidaObs').value.trim() || null,
+        },
+      });
+      toast('Salida registrada', 'success');
+      closeModal();
+      await onSave();
+    } catch (err) {
+      toast(err.message, 'danger');
+      btn.disabled = false; btn.textContent = 'Guardar';
     }
   });
 }

@@ -6693,12 +6693,14 @@ async function renderRequisiciones(view, initialSubView) {
       <div class="nominas-subnav">
         <button class="btn ${subView === 'lista' ? 'btn-primary' : ''}" id="btnReqSubLista">Lista</button>
         <button class="btn ${subView === 'programa' ? 'btn-primary' : ''}" id="btnReqSubPrograma">Programa de suministros</button>
+        <button class="btn ${subView === 'seguimiento' ? 'btn-primary' : ''}" id="btnReqSubSeguimiento">Seguimiento de materiales</button>
       </div>
     `;
   }
   function bindSubNav() {
     $('#btnReqSubLista').addEventListener('click', showLista);
     $('#btnReqSubPrograma').addEventListener('click', showPrograma);
+    $('#btnReqSubSeguimiento').addEventListener('click', showSeguimiento);
   }
 
   async function showLista() {
@@ -6792,7 +6794,13 @@ async function renderRequisiciones(view, initialSubView) {
     await renderProgramaSuministros(view, renderSubNav, bindSubNav);
   }
 
+  async function showSeguimiento() {
+    subView = 'seguimiento';
+    await renderSeguimientoMateriales(view, renderSubNav, bindSubNav);
+  }
+
   if (subView === 'programa') await showPrograma();
+  else if (subView === 'seguimiento') await showSeguimiento();
   else await showLista();
 }
 
@@ -6913,6 +6921,139 @@ async function renderProgramaSuministros(view, renderSubNav, bindSubNav) {
       await downloadExport(`/requisiciones/programa/export${queryString({
         desde: filtroDesde || undefined, hasta: filtroHasta || undefined,
         obra_id: filtroObraId || undefined, cliente_id: filtroClienteId || undefined,
+      })}`);
+    } catch (err) {
+      toast(err.message, 'danger');
+    } finally {
+      btn.disabled = false; btn.textContent = original;
+    }
+  });
+
+  await cargarYPintar();
+}
+
+// prompt-seguimiento-materiales-oc.md: complementario al Programa de
+// suministros — a nivel renglón de insumo/OC, no de requisición completa.
+// Una fila por combinación (insumo requisitado × OC): un mismo insumo puede
+// tener más de una OC (compra dividida entre proveedores, o el caso real de
+// OC duplicada que motivó docs/cancelar-oc-duplicadas-produccion.md) — se
+// muestra cada una por separado en vez de sumarlas, para no ocultar ese tipo
+// de duplicado.
+const SEGUIMIENTO_ESTATUS_BADGE = { sin_oc: 'muted', pendiente: 'yellow', parcial: 'yellow', completo: 'green' };
+const SEGUIMIENTO_ESTATUS_LABEL = { sin_oc: 'Sin OC', pendiente: 'Pendiente', parcial: 'Parcial', completo: 'Completo' };
+
+async function renderSeguimientoMateriales(view, renderSubNav, bindSubNav) {
+  view.innerHTML = `<h2 class="section-title">Requisiciones de compra ${renderHelpBtn('requisiciones')}</h2>${renderSubNav()}<div class="spinner"></div>`;
+  bindSubNav();
+
+  const obras = obrasAccesiblesParaFiltro();
+  const clientesMap = new Map((state.clientes || []).map((c) => [c.id, c.nombre]));
+
+  let filtroObraId = '';
+  let filtroClienteId = '';
+  let filtroEstatus = new Set();
+  let items = [];
+
+  async function cargarYPintar() {
+    const q = queryString({
+      project_id: filtroObraId || undefined,
+      cliente_id: filtroClienteId || undefined,
+    });
+    try {
+      const data = await api(`/requisiciones/seguimiento-materiales${q}`);
+      items = data.items;
+    } catch (err) {
+      $('#seguimientoBody').innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+      return;
+    }
+    pintarTabla();
+  }
+
+  function pintarTabla() {
+    const body = $('#seguimientoBody');
+    const visibles = filtroEstatus.size ? items.filter((it) => filtroEstatus.has(it.estatus)) : items;
+    if (!items.length) {
+      body.innerHTML = `<div class="empty-state"><div class="big">📦</div>Sin requisiciones para mostrar en este filtro.</div>`;
+      return;
+    }
+    if (!visibles.length) {
+      body.innerHTML = `<div class="empty-state">Ningún renglón coincide con el estatus seleccionado.</div>`;
+      return;
+    }
+    body.innerHTML = `
+      <div class="table-scroll">
+        <table class="nomina-table">
+          <thead><tr>
+            <th>Obra</th><th>Folio Requisición</th><th>Insumo</th><th>Categoría</th>
+            <th>Cant. Solicitada</th><th>Folio OC</th><th>Cant. Ordenada</th><th>Cant. Recibida</th>
+            <th>Estatus</th><th>Concepto vinculado</th>
+          </tr></thead>
+          <tbody>
+            ${visibles.map((it) => `
+            <tr>
+              <td>${esc(it.obra_nombre)}${it.cliente_id != null && clientesMap.has(it.cliente_id) ? ` <span class="muted fs-08">· ${esc(clientesMap.get(it.cliente_id))}</span>` : ''}</td>
+              <td>${esc(it.requisicion_folio)}</td>
+              <td>${esc(it.insumo_concepto)} <span class="muted code">${esc(it.insumo_codigo || '')}</span></td>
+              <td>${esc(it.insumo_categoria || '—')}</td>
+              <td>${fmtNum(it.cantidad_solicitada, 3)} ${esc(it.unidad || '')}</td>
+              <td>${it.oc_folio ? esc(it.oc_folio) : '<span class="muted">—</span>'}</td>
+              <td>${it.cantidad_ordenada != null ? fmtNum(it.cantidad_ordenada, 3) : '<span class="muted">—</span>'}</td>
+              <td>${it.cantidad_recibida != null ? fmtNum(it.cantidad_recibida, 3) : '<span class="muted">—</span>'}</td>
+              <td><span class="badge ${SEGUIMIENTO_ESTATUS_BADGE[it.estatus]}">${SEGUIMIENTO_ESTATUS_LABEL[it.estatus]}</span></td>
+              <td>${it.concepto_vinculado ? esc(it.concepto_vinculado) : '<span class="muted">Sin mapeo</span>'}</td>
+            </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+    `;
+  }
+
+  view.innerHTML = `
+    <h2 class="section-title">Requisiciones de compra ${renderHelpBtn('requisiciones')}</h2>
+    ${renderSubNav()}
+    <p class="muted">Seguimiento de surtido por insumo requisitado: su Orden de Compra correspondiente y cuánto se ha recibido — estatus calculado al momento, no guardado.</p>
+    <div class="section-actions">
+      ${obras.length > 1 ? `
+      <div class="field"><label>Obra</label>
+        <select id="seguimientoObraSelect"><option value="">Todas mis obras</option>${obras.map((o) => `<option value="${o.id}">${esc(o.nombre)}</option>`).join('')}</select>
+      </div>` : ''}
+      ${(state.clientes || []).length > 1 ? `
+      <div class="field"><label>Cliente</label>
+        <select id="seguimientoClienteSelect"><option value="">Todos</option>${(state.clientes || []).map((c) => `<option value="${c.id}">${esc(c.nombre)}</option>`).join('')}</select>
+      </div>` : ''}
+      <div class="field"><label>Estatus</label>
+        <div class="row gap-6" id="seguimientoEstatusChips">
+          ${Object.keys(SEGUIMIENTO_ESTATUS_LABEL).map((e) => `<button type="button" class="btn small" data-estatus-chip="${e}">${SEGUIMIENTO_ESTATUS_LABEL[e]}</button>`).join('')}
+        </div>
+      </div>
+      <button class="btn" id="btnSeguimientoFiltrar">Filtrar</button>
+      <button class="btn" id="btnExportSeguimiento">⭳ Exportar a Excel</button>
+    </div>
+    <div id="seguimientoBody"><div class="spinner"></div></div>
+  `;
+  bindSubNav();
+
+  $$('[data-estatus-chip]', view).forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const val = btn.dataset.estatusChip;
+      if (filtroEstatus.has(val)) filtroEstatus.delete(val); else filtroEstatus.add(val);
+      btn.classList.toggle('btn-primary', filtroEstatus.has(val));
+      pintarTabla();
+    });
+  });
+  $('#btnSeguimientoFiltrar').addEventListener('click', () => {
+    filtroObraId = $('#seguimientoObraSelect')?.value || '';
+    filtroClienteId = $('#seguimientoClienteSelect')?.value || '';
+    cargarYPintar();
+  });
+  $('#btnExportSeguimiento').addEventListener('click', async () => {
+    const btn = $('#btnExportSeguimiento');
+    const original = btn.textContent;
+    btn.disabled = true; btn.textContent = 'Exportando…';
+    try {
+      await downloadExport(`/requisiciones/seguimiento-materiales/export${queryString({
+        project_id: filtroObraId || undefined, cliente_id: filtroClienteId || undefined,
       })}`);
     } catch (err) {
       toast(err.message, 'danger');

@@ -21,6 +21,13 @@
 //     ni siquiera tiene columna `cantidad` (confirmado en Fase 0 de este
 //     prompt, y ya documentado en server/db.js).
 //
+// Por Pagar (prompt-corte-obra-rediseno.md): reusa sin cambios
+// fetchOrdenesComprometiblesPorObra (server/finanzas.js) — el mismo cálculo
+// exacto que ya alimenta la pestaña "Compromisos Abiertos" (OC en estado
+// confirmada/recibida_parcial/recibida_completa, prorrateado por categoría,
+// menos lo ya pagado). Ver buildPorPagar() abajo para el porqué de no
+// filtrar por fecha_corte.
+//
 // Presupuesto (v2) = SUM(insumos.importe_presupuesto) GROUP BY categoria —
 // reemplaza matrices_precio_unitario (diagnóstico previo: completa y
 // reconciliada solo en 1 de 7 obras reales). insumos.importe_presupuesto SÍ
@@ -38,7 +45,7 @@
 
 const db = require('./db');
 const { montoSinIva, totalConIvaDeItems } = require('./calculos');
-const { avanceValorizadoPorObra } = require('./finanzas');
+const { avanceValorizadoPorObra, fetchOrdenesComprometiblesPorObra } = require('./finanzas');
 
 const IVA_RATE = 0.16;
 const CATEGORIAS_REPORTE = ['MATERIALES', 'MANO DE OBRA', 'EQUIPO Y HERRAMIENTA'];
@@ -209,11 +216,43 @@ async function buildDesgloseReal(pids, fechaCorte) {
   return resultado;
 }
 
+// ---------------------------------------------------------------------------
+// Por Pagar por categoría (prompt-corte-obra-rediseno.md, Fase 0 confirmó
+// reutilizable sin cambios en finanzas.js): mismo cálculo que ya usa
+// Compromisos Abiertos (fetchOrdenesComprometiblesPorObra — OC en estado
+// confirmada/recibida_parcial/recibida_completa, prorrateado por categoría
+// según el peso de cada una en el importe total de la OC, menos lo ya
+// pagado). A propósito NO se filtra por fecha_corte: "Por Pagar" es deuda
+// abierta HOY (mismo criterio que la pestaña Compromisos Abiertos, que
+// tampoco tiene noción de fecha de corte) — filtrar por una fecha de corte
+// pasada requeriría rehacer el prorrateo con pagos parciales a esa fecha,
+// una pieza nueva no pedida explícitamente; el caso de uso principal
+// (fecha_corte = hoy, nuevo default) coincide exactamente de cualquier forma.
+async function buildPorPagar(pids) {
+  const resultado = new Map();
+  for (const pid of pids) resultado.set(pid, { categorias: initCategorias(), sinCategoria: 0 });
+  if (!pids.length) return resultado;
+
+  const { ocMap, pagadoPorOc } = await fetchOrdenesComprometiblesPorObra(pids);
+  for (const oc of ocMap.values()) {
+    const acc = resultado.get(oc.project_id);
+    if (!acc) continue;
+    const pagadoOc = pagadoPorOc.get(oc.oc_id) || 0;
+    for (const cat of oc.categorias) {
+      const peso = oc.importe_total > 0 ? cat.importe / oc.importe_total : 0;
+      const pendienteCat = Math.max(0, cat.importe - pagadoOc * peso);
+      if (CATEGORIAS_REPORTE.includes(cat.categoria)) acc.categorias[cat.categoria] += pendienteCat;
+      else acc.sinCategoria += pendienteCat;
+    }
+  }
+  return resultado;
+}
+
 // pctCobertura: solo aplica a las 3 filas de categoría (importe_categoria /
 // Total oficial); null en la fila Total (sería 100% siempre, no informativo).
 // realAvanceValorizado: solo aplica a la fila Total (ver comentario de
 // cabecera — por categoría no existe vinculación concepto↔insumo).
-function filaComparativa(presupuesto, pctCobertura, realPagado, realPagadoConIva, realAvanceValorizado) {
+function filaComparativa(presupuesto, pctCobertura, realPagado, realPagadoConIva, realAvanceValorizado, realPorPagar) {
   const p = presupuesto != null ? Number(presupuesto.toFixed(2)) : null;
   const rp = Number(realPagado.toFixed(2));
   return {
@@ -221,6 +260,7 @@ function filaComparativa(presupuesto, pctCobertura, realPagado, realPagadoConIva
     presupuesto_pct_cobertura: pctCobertura != null ? Number(pctCobertura.toFixed(1)) : null,
     real_pagado: rp,
     real_pagado_con_iva: Number(realPagadoConIva.toFixed(2)),
+    real_por_pagar: Number(realPorPagar.toFixed(2)),
     real_avance_valorizado: realAvanceValorizado != null ? Number(realAvanceValorizado.toFixed(2)) : null,
     variacion_monto: p != null ? Number((rp - p).toFixed(2)) : null,
     variacion_pct: (p != null && p > 0) ? Number((((rp - p) / p) * 100).toFixed(2)) : null,
@@ -230,6 +270,7 @@ function filaComparativa(presupuesto, pctCobertura, realPagado, realPagadoConIva
 function sumarFila(obras, key) {
   const realPagado = obras.reduce((s, o) => s + o.filas[key].real_pagado, 0);
   const realPagadoConIva = obras.reduce((s, o) => s + o.filas[key].real_pagado_con_iva, 0);
+  const realPorPagar = obras.reduce((s, o) => s + o.filas[key].real_por_pagar, 0);
   const todasDisponibles = obras.length > 0 && obras.every((o) => o.filas[key].presupuesto != null);
   const presupuesto = todasDisponibles ? obras.reduce((s, o) => s + o.filas[key].presupuesto, 0) : null;
   // Cobertura agregada = Σ categoría / Σ Total oficial (nunca promedio de %
@@ -241,7 +282,7 @@ function sumarFila(obras, key) {
   const realAvanceValorizado = key === 'total'
     ? obras.reduce((s, o) => s + (o.filas[key].real_avance_valorizado || 0), 0)
     : null;
-  return filaComparativa(presupuesto, pctCobertura, realPagado, realPagadoConIva, realAvanceValorizado);
+  return filaComparativa(presupuesto, pctCobertura, realPagado, realPagadoConIva, realAvanceValorizado, realPorPagar);
 }
 
 // pids: obras a incluir (ya filtradas por scoping de acceso en el caller).
@@ -250,9 +291,10 @@ function sumarFila(obras, key) {
 async function getCorteObraData(pids, fechaCorte) {
   if (!pids.length) return { fecha_corte: fechaCorte, obras: [], agregado: null };
 
-  const [avanceValorizadoRows, realMap, proyectosRows] = await Promise.all([
+  const [avanceValorizadoRows, realMap, porPagarMap, proyectosRows] = await Promise.all([
     avanceValorizadoPorObra(pids),
     buildDesgloseReal(pids, fechaCorte),
+    buildPorPagar(pids),
     db.pool.query('SELECT id, nombre FROM proyectos WHERE id = ANY($1)', [pids]),
   ]);
   const nombrePorId = new Map(proyectosRows.rows.map((r) => [r.id, r.nombre]));
@@ -264,6 +306,7 @@ async function getCorteObraData(pids, fechaCorte) {
   const obras = pids.map((pid) => {
     const pres = presupuestoMap.get(pid);
     const real = realMap.get(pid);
+    const porPagar = porPagarMap.get(pid);
     const totalOficial = presupuestoTotalPorPid.get(pid) || 0;
     const presCat = (cat) => (pres.disponible ? pres.categorias[cat] : null);
     const pctCobertura = (cat) => (pres.disponible && totalOficial > 0) ? (pres.categorias[cat] / totalOficial) * 100 : null;
@@ -274,12 +317,17 @@ async function getCorteObraData(pids, fechaCorte) {
     const realMatConIva = real.categoriasConIva.MATERIALES;
     const realEq = real.categorias['EQUIPO Y HERRAMIENTA'];
     const realEqConIva = real.categoriasConIva['EQUIPO Y HERRAMIENTA'];
+    // Por Pagar de Mano de Obra: solo la porción comprada vía OC (mano de
+    // obra subcontratada con orden de compra) — Nómina/Destajo ya son costo
+    // incurrido y pagado en el mismo momento en que se captura, sin estado
+    // "pendiente de pago" en el alcance actual de la app.
+    const porPagarTotal = porPagar.categorias['MANO DE OBRA'] + porPagar.categorias.MATERIALES + porPagar.categorias['EQUIPO Y HERRAMIENTA'];
 
     const filas = {
-      mano_de_obra: filaComparativa(presCat('MANO DE OBRA'), pctCobertura('MANO DE OBRA'), realMO, realMOConIva, null),
-      materiales: filaComparativa(presCat('MATERIALES'), pctCobertura('MATERIALES'), realMat, realMatConIva, null),
-      equipo_herramienta: filaComparativa(presCat('EQUIPO Y HERRAMIENTA'), pctCobertura('EQUIPO Y HERRAMIENTA'), realEq, realEqConIva, null),
-      total: filaComparativa(totalOficial, null, realMO + realMat + realEq, realMOConIva + realMatConIva + realEqConIva, avanceValorizadoMontoPorPid.get(pid) || 0),
+      mano_de_obra: filaComparativa(presCat('MANO DE OBRA'), pctCobertura('MANO DE OBRA'), realMO, realMOConIva, null, porPagar.categorias['MANO DE OBRA']),
+      materiales: filaComparativa(presCat('MATERIALES'), pctCobertura('MATERIALES'), realMat, realMatConIva, null, porPagar.categorias.MATERIALES),
+      equipo_herramienta: filaComparativa(presCat('EQUIPO Y HERRAMIENTA'), pctCobertura('EQUIPO Y HERRAMIENTA'), realEq, realEqConIva, null, porPagar.categorias['EQUIPO Y HERRAMIENTA']),
+      total: filaComparativa(totalOficial, null, realMO + realMat + realEq, realMOConIva + realMatConIva + realEqConIva, avanceValorizadoMontoPorPid.get(pid) || 0, porPagarTotal),
     };
 
     const advertencias = [];
@@ -291,6 +339,9 @@ async function getCorteObraData(pids, fechaCorte) {
     }
     if (pres.inconsistente) {
       advertencias.push('El presupuesto de al menos una categoría (vía catálogo de insumos) supera el Total oficial de la obra — dato inconsistente, revisar el catálogo de insumos de esta obra.');
+    }
+    if (porPagar.sinCategoria > 0.005) {
+      advertencias.push(`Se excluyeron ${porPagar.sinCategoria.toFixed(2)} de Por Pagar en OC cuyos insumos no tienen categoría asignada — no se le asignó ninguna de las 3 categorías del reporte.`);
     }
 
     return {
@@ -311,4 +362,129 @@ async function getCorteObraData(pids, fechaCorte) {
   return { fecha_corte: fechaCorte, obras, agregado };
 }
 
-module.exports = { getCorteObraData };
+// ---------------------------------------------------------------------------
+// Detalle de una categoría, una obra (prompt-corte-obra-rediseno.md): lo que
+// buildDesgloseReal arriba SOLO trae agregado (confirmado en Fase 0 de este
+// prompt), aquí se listan los renglones individuales que componen esa suma —
+// mismos filtros/joins exactos que buildDesgloseReal (misma fecha_corte,
+// mismo criterio "costo ya incurrido"), pero sin sumar. Nunca recalcula un
+// número distinto al que ya muestra la tarjeta — solo expone el detalle
+// detrás de él (Forbidden Action del prompt).
+// ---------------------------------------------------------------------------
+async function getCorteObraDetalleCategoria(pid, categoria, fechaCorte) {
+  const insumosPromise = db.pool.query(`
+    SELECT codigo, concepto, unidad, cantidad_presupuesto, precio_presupuesto, importe_presupuesto
+    FROM insumos
+    WHERE project_id = $1 AND categoria = $2
+    ORDER BY importe_presupuesto DESC NULLS LAST, concepto
+  `, [pid, categoria]);
+
+  const movimientos = [];
+
+  // Nómina y Destajo solo componen "Pagado" de Mano de Obra (ver
+  // getCorteObraData arriba: realMO = categoria MANO DE OBRA vía OC + jornal
+  // + destajo) — para cualquier otra categoría no hay nada que listar aquí.
+  const nominaPromise = categoria === 'MANO DE OBRA'
+    ? db.pool.query(`
+        SELECT n.fecha_fin AS fecha, t.nombre AS concepto, ni.monto_jornal AS monto
+        FROM nomina_items ni
+        JOIN nominas n ON n.id = ni.nomina_id
+        JOIN trabajadores t ON t.id = ni.trabajador_id
+        WHERE n.project_id = $1 AND n.estado = 'aprobada' AND n.fecha_fin <= $2 AND ni.monto_jornal <> 0
+        ORDER BY n.fecha_fin DESC
+      `, [pid, fechaCorte])
+    : Promise.resolve({ rows: [] });
+
+  const destajoPromise = categoria === 'MANO DE OBRA'
+    ? db.pool.query(`
+        SELECT av.fecha_fin AS fecha, di.concepto, (ad.cantidad_ejecutada * di.precio_destajo) AS monto
+        FROM avance_destajo ad
+        JOIN destajo_items di ON di.id = ad.destajo_item_id
+        JOIN avances_semanales av ON av.project_id = di.project_id AND av.semana = ad.semana
+        WHERE di.project_id = $1 AND av.fecha_fin <= $2 AND (ad.cantidad_ejecutada * di.precio_destajo) <> 0
+        ORDER BY av.fecha_fin DESC
+      `, [pid, fechaCorte])
+    : Promise.resolve({ rows: [] });
+
+  // Pagos de OC: mismo criterio que buildDesgloseReal (estado != 'cancelada',
+  // pago activo, fecha <= fecha_corte), a nivel de pago individual — luego se
+  // prorratea cada pago por el peso de esta categoría dentro de SU orden
+  // (mismo peso, misma fórmula que arriba), no un pago completo por renglón.
+  const pagosPromise = db.pool.query(`
+    SELECT p.id AS pago_id, p.fecha, p.monto, oc.id AS oc_id, oc.folio, oc.incluye_iva
+    FROM pagos p
+    JOIN ordenes_compra oc ON oc.id = p.orden_compra_id
+    WHERE oc.project_id = $1 AND oc.estado != 'cancelada' AND p.activo = true AND p.fecha <= $2
+    ORDER BY p.fecha DESC
+  `, [pid, fechaCorte]);
+
+  const [insumosRes, nominaRes, destajoRes, pagosRes] = await Promise.all([
+    insumosPromise, nominaPromise, destajoPromise, pagosPromise,
+  ]);
+
+  for (const r of nominaRes.rows) {
+    movimientos.push({ fecha: r.fecha, origen: 'Nómina', concepto: r.concepto, monto: Number(r.monto) });
+  }
+  for (const r of destajoRes.rows) {
+    movimientos.push({ fecha: r.fecha, origen: 'Destajo', concepto: r.concepto, monto: Number(r.monto) });
+  }
+
+  if (pagosRes.rows.length) {
+    const ocIds = [...new Set(pagosRes.rows.map((r) => r.oc_id))];
+    const { rows: itemRows } = await db.pool.query(`
+      SELECT oc.id AS oc_id, i.categoria, oci.importe, i.iva_tasa
+      FROM ordenes_compra oc
+      JOIN orden_compra_items oci ON oci.orden_compra_id = oc.id
+      JOIN requisicion_items ri ON ri.id = oci.requisicion_item_id
+      JOIN insumos i ON i.id = ri.insumo_id
+      WHERE oc.id = ANY($1)
+    `, [ocIds]);
+
+    const itemsPorOcCategoria = new Map(); // oc_id -> Map(categoria -> items[])
+    for (const row of itemRows) {
+      if (!itemsPorOcCategoria.has(row.oc_id)) itemsPorOcCategoria.set(row.oc_id, new Map());
+      const porCat = itemsPorOcCategoria.get(row.oc_id);
+      if (!porCat.has(row.categoria)) porCat.set(row.categoria, []);
+      porCat.get(row.categoria).push({ importe: row.importe, iva_tasa: row.iva_tasa });
+    }
+
+    for (const pago of pagosRes.rows) {
+      const porCat = itemsPorOcCategoria.get(pago.oc_id);
+      if (!porCat) continue;
+      const importePorCat = new Map();
+      let importeTotalOc = 0;
+      for (const [cat, items] of porCat.entries()) {
+        const importe = totalConIvaDeItems(items, pago.incluye_iva);
+        importePorCat.set(cat, importe);
+        importeTotalOc += importe;
+      }
+      const importeCat = importePorCat.get(categoria) || 0;
+      if (importeCat <= 0 || importeTotalOc <= 0) continue;
+      const peso = importeCat / importeTotalOc;
+      const prorrateado = porCat.size > 1;
+      movimientos.push({
+        fecha: pago.fecha,
+        origen: 'Orden de Compra',
+        concepto: `${pago.folio || `OC #${pago.oc_id}`}${prorrateado ? ' (prorrateado por categoría)' : ''}`,
+        monto: Number((pago.monto * peso).toFixed(2)),
+      });
+    }
+  }
+
+  movimientos.sort((a, b) => (a.fecha < b.fecha ? 1 : a.fecha > b.fecha ? -1 : 0));
+
+  return {
+    categoria,
+    insumos: insumosRes.rows.map((r) => ({
+      codigo: r.codigo,
+      concepto: r.concepto,
+      unidad: r.unidad,
+      cantidad_presupuesto: Number(r.cantidad_presupuesto),
+      precio_presupuesto: Number(r.precio_presupuesto),
+      importe_presupuesto: Number(r.importe_presupuesto),
+    })),
+    movimientos,
+  };
+}
+
+module.exports = { getCorteObraData, getCorteObraDetalleCategoria, CATEGORIAS_REPORTE };

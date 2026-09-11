@@ -139,11 +139,11 @@ const state = {
   // Cliente elegido para la vista "Por cliente" de Finanzas; null = mostrar
   // el picker de clientes en esa vista. Ver goToFinanzasCliente.
   finanzasClienteId: null,
-  // Filtro de la vista "Corte de Obra" (prompt-corte-de-obra.md) dentro de
-  // Finanzas — obra_id vacío = "Todas las obras asignadas". fecha_corte
-  // vacío a propósito (el prompt pide NO forzar default a hoy): la vista
-  // muestra un placeholder hasta que el usuario elige una fecha.
-  corteObraFiltro: { obra_id: '', fecha_corte: '' },
+  // Filtro de la vista "Corte de Obra" (prompt-corte-de-obra.md, default a
+  // hoy agregado en prompt-corte-obra-rediseno.md) dentro de Finanzas —
+  // obra_id vacío = "Todas las obras asignadas". fecha_corte default = hoy
+  // (el selector se mantiene, el usuario puede cambiarla libremente).
+  corteObraFiltro: { obra_id: '', fecha_corte: new Date().toISOString().slice(0, 10) },
   // Mismo patrón que finanzasVista (prompt-fase1-fusionar-trabajadores-
   // nominas.md), pero solo 2 ramas: 'obra' (default) | 'global' — no hay
   // "Por cliente" para estos 2 módulos. 'global' solo es alcanzable si
@@ -13777,51 +13777,145 @@ const CORTE_OBRA_FILAS = [
 
 const CORTE_OBRA_NOTA_COBERTURA = 'Los montos de Presupuesto por categoría vienen del catálogo de insumos del Excel y pueden no sumar el Total oficial de la obra — no todos los conceptos se detallan a nivel insumo.';
 
-function corteObraTablaHtml(filas, presupuestoDisponible) {
+// Mapea la key interna (snake_case, usada en `filas`) al valor real de
+// `categoria` que espera el backend (server/corteObra.js CATEGORIAS_REPORTE
+// — mismas 3 cadenas ya usadas en insumos.categoria) para el endpoint de
+// detalle. Nunca se manda 'total' — ese botón no es expandible.
+const CORTE_OBRA_KEY_A_CATEGORIA = {
+  mano_de_obra: 'MANO DE OBRA',
+  materiales: 'MATERIALES',
+  equipo_herramienta: 'EQUIPO Y HERRAMIENTA',
+};
+
+// Cache de detalle-categoria por (pid, categoria, fecha_corte) — evita
+// refetch al cerrar/reabrir el mismo desglose dentro del mismo render.
+const corteObraDetalleCache = new Map();
+
+function corteObraCategoriaCardHtml(pid, key, label, f, expandible) {
+  const noDisp = f.presupuesto == null;
+  const avanceDisp = f.real_avance_valorizado != null;
+  const pctPagado = (!noDisp && f.presupuesto > 0) ? (f.real_pagado / f.presupuesto) * 100 : null;
+  const pctPorPagar = (!noDisp && f.presupuesto > 0) ? (f.real_por_pagar / f.presupuesto) * 100 : null;
+  const over = pctPagado != null && (pctPagado + (pctPorPagar || 0)) > 100;
+  const varClass = f.variacion_pct == null ? 'muted' : (f.variacion_pct >= 0 ? 'green' : (f.variacion_pct < -20 ? 'red' : 'yellow'));
+
   return `
-    <div class="table-scroll">
-      <table>
-        <thead>
-          <tr>
-            <th>Categoría</th>
-            <th class="num">Presupuesto</th>
-            <th class="num">Real — Pagado</th>
-            <th class="num">Real — Avance Valorizado</th>
-            <th class="num">Variación $</th>
-            <th class="num">Variación %</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${CORTE_OBRA_FILAS.map(({ key, label }) => {
-            const f = filas[key];
-            const noDisp = f.presupuesto == null;
-            const avanceDisp = f.real_avance_valorizado != null;
-            return `
-              <tr${key === 'total' ? ' class="fw-700"' : ''}>
-                <td>${label}</td>
-                <td class="num">
-                  ${noDisp ? '<span class="muted">No disponible</span>' : fmtMoney(f.presupuesto)}
-                  ${(!noDisp && f.presupuesto_pct_cobertura != null) ? `<div class="muted fs-078">${fmtPct(f.presupuesto_pct_cobertura)} del total capturado</div>` : ''}
-                </td>
-                <td class="num">${fmtMoney(f.real_pagado)}</td>
-                <td class="num">${avanceDisp ? fmtMoney(f.real_avance_valorizado) : '<span class="muted">No disponible</span>'}</td>
-                <td class="num">${noDisp ? '<span class="muted">No disponible</span>' : fmtMoney(f.variacion_monto)}</td>
-                <td class="num">${noDisp ? '—' : fmtPct(f.variacion_pct)}</td>
-              </tr>
-            `;
-          }).join('')}
-        </tbody>
-      </table>
+    <div class="card corte-cat-card mt-8" data-pid="${pid}" data-categoria="${esc(key)}">
+      <div class="row between">
+        <strong>${esc(label)}</strong>
+        ${!noDisp ? `<span class="badge ${varClass}">${f.variacion_pct >= 0 ? '+' : ''}${fmtPct(f.variacion_pct)} vs. presupuesto</span>` : ''}
+      </div>
+      <div class="kpi-grid corte-kpi-grid mt-8">
+        <div class="kpi"><div class="label">Presupuesto</div><div class="value">${noDisp ? '—' : fmtMoney(f.presupuesto)}</div></div>
+        <div class="kpi"><div class="label">Pagado</div><div class="value">${fmtMoney(f.real_pagado)}</div></div>
+        <div class="kpi ${f.real_por_pagar > 0 ? 'yellow' : ''}"><div class="label">Por Pagar</div><div class="value">${fmtMoney(f.real_por_pagar)}</div></div>
+        <div class="kpi accent"><div class="label">Avance Valorizado</div><div class="value">${avanceDisp ? fmtMoney(f.real_avance_valorizado) : '<span class="muted fs-078">No disponible</span>'}</div></div>
+      </div>
+      ${!noDisp ? `
+        <div class="corte-bar${over ? ' over' : ''}">
+          <span class="pagado" style="width:${Math.min(100, pctPagado)}%"></span>
+          <span class="por-pagar" style="width:${Math.max(0, Math.min(100 - Math.min(100, pctPagado), pctPorPagar))}%"></span>
+        </div>
+        <div class="muted fs-078 mt-4">
+          ${fmtPct(pctPagado)} pagado${pctPorPagar > 0 ? ` + ${fmtPct(pctPorPagar)} por pagar` : ''} del presupuesto
+          ${f.presupuesto_pct_cobertura != null ? ` · ${fmtPct(f.presupuesto_pct_cobertura)} del total capturado` : ''}
+        </div>
+      ` : '<p class="muted fs-078 mt-6">Presupuesto no disponible para esta categoría.</p>'}
+      ${expandible ? `
+        <button class="btn small mt-8" data-toggle-detalle="${esc(key)}">Ver desglose</button>
+        <div class="corte-detalle hidden-initial" data-detalle-body="${esc(key)}"></div>
+      ` : ''}
     </div>
-    <p class="muted fs-078 mt-6">${esc(CORTE_OBRA_NOTA_COBERTURA)}</p>
+  `;
+}
+
+function corteObraCategoriasHtml(pid, filas, presupuestoDisponible, expandible) {
+  return `
+    ${CORTE_OBRA_FILAS.map(({ key, label }) => corteObraCategoriaCardHtml(pid, key, label, filas[key], expandible && key !== 'total')).join('')}
+    <p class="muted fs-078 mt-8">${esc(CORTE_OBRA_NOTA_COBERTURA)}</p>
     ${!presupuestoDisponible ? '<p class="muted fs-078 mt-6">Presupuesto por categoría no disponible para esta obra (sin insumos importados con importe presupuestado) — el Total de Presupuesto sí se muestra, viene de otra fuente.</p>' : ''}
   `;
+}
+
+function corteObraDetalleTablaHtml(detalle) {
+  return `
+    <div class="mt-8">
+      <strong class="fs-086">Catálogo de insumos (${detalle.insumos.length})</strong>
+      ${!detalle.insumos.length ? '<p class="muted fs-078">Sin insumos de esta categoría en el catálogo.</p>' : `
+      <div class="table-scroll">
+        <table class="nomina-table">
+          <thead><tr><th>Código</th><th>Insumo</th><th>Unidad</th><th class="num">Cantidad</th><th class="num">Precio</th><th class="num">Importe</th></tr></thead>
+          <tbody>
+            ${detalle.insumos.map((i) => `
+              <tr>
+                <td>${esc(i.codigo || '')}</td>
+                <td>${esc(i.concepto)}</td>
+                <td>${esc(i.unidad || '')}</td>
+                <td class="num">${fmtNum(i.cantidad_presupuesto, 2)}</td>
+                <td class="num">${fmtMoney(i.precio_presupuesto)}</td>
+                <td class="num">${fmtMoney(i.importe_presupuesto)}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>`}
+    </div>
+    <div class="mt-12">
+      <strong class="fs-086">Movimientos reales que componen el Pagado (${detalle.movimientos.length})</strong>
+      ${!detalle.movimientos.length ? '<p class="muted fs-078">Sin movimientos registrados hasta esta fecha de corte.</p>' : `
+      <div class="table-scroll">
+        <table class="nomina-table">
+          <thead><tr><th>Fecha</th><th>Origen</th><th>Concepto</th><th class="num">Monto</th></tr></thead>
+          <tbody>
+            ${detalle.movimientos.map((m) => `
+              <tr>
+                <td>${fmtDate(m.fecha)}</td>
+                <td><span class="badge muted">${esc(m.origen)}</span></td>
+                <td>${esc(m.concepto)}</td>
+                <td class="num">${fmtMoney(m.monto)}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>`}
+    </div>
+  `;
+}
+
+async function toggleCorteObraDetalle(btn, fechaCorte) {
+  const pid = btn.closest('[data-pid]')?.dataset.pid;
+  const categoria = btn.dataset.toggleDetalle;
+  const body = btn.parentElement.querySelector(`[data-detalle-body="${categoria}"]`);
+  if (!body) return;
+  const abierto = !body.classList.contains('hidden-initial');
+  if (abierto) {
+    body.classList.add('hidden-initial');
+    btn.textContent = 'Ver desglose';
+    return;
+  }
+  btn.textContent = 'Ocultar desglose';
+  body.classList.remove('hidden-initial');
+  const cacheKey = `${pid}|${categoria}|${fechaCorte}`;
+  if (corteObraDetalleCache.has(cacheKey)) {
+    body.innerHTML = corteObraDetalleTablaHtml(corteObraDetalleCache.get(cacheKey));
+    return;
+  }
+  body.innerHTML = '<div class="spinner"></div>';
+  try {
+    const categoriaApi = CORTE_OBRA_KEY_A_CATEGORIA[categoria];
+    const detalle = await api(`/finanzas/corte-obra/detalle-categoria${queryString({ proyecto_id: pid, categoria: categoriaApi, fecha_corte: fechaCorte })}`);
+    corteObraDetalleCache.set(cacheKey, detalle);
+    if (!document.body.contains(body)) return;
+    body.innerHTML = corteObraDetalleTablaHtml(detalle);
+  } catch (err) {
+    body.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+  }
 }
 
 async function renderFinanzasVistaCorte(body) {
   const f = state.corteObraFiltro;
   body.innerHTML = `
-    <p class="muted">Comparativo Presupuesto vs. Real desglosado en Mano de Obra / Materiales / Equipo y Herramienta, a una fecha de corte manual.</p>
+    <p class="muted">Comparativo Presupuesto vs. Real desglosado en Mano de Obra / Materiales / Equipo y Herramienta, a una fecha de corte (hoy por defecto — puedes cambiarla).</p>
     <div class="row finanzas-filtros-row">
       <select id="corteObraFiltroObra" class="finanzas-filtro-select">
         <option value="">Todas las obras</option>
@@ -13835,10 +13929,6 @@ async function renderFinanzasVistaCorte(body) {
   $('#corteObraFiltroFecha').addEventListener('change', (e) => { state.corteObraFiltro.fecha_corte = e.target.value; renderView(); });
 
   const result = $('#corteObraResult');
-  if (!f.fecha_corte) {
-    result.innerHTML = '<div class="empty-state">Elige una fecha de corte para generar el reporte.</div>';
-    return;
-  }
   result.innerHTML = '<div class="spinner"></div>';
   const query = { fecha_corte: f.fecha_corte };
   if (f.obra_id) query.proyecto_id = f.obra_id;
@@ -13847,26 +13937,31 @@ async function renderFinanzasVistaCorte(body) {
     // Mismo guard que el resto de vistas de Finanzas: el usuario pudo haber
     // cambiado de vista/filtro mientras esta llamada estaba en vuelo.
     if (!document.body.contains(body)) return;
+    state.corteObraFiltro.fecha_corte = data.fecha_corte;
+    if ($('#corteObraFiltroFecha')) $('#corteObraFiltroFecha').value = data.fecha_corte;
 
     if (!data.obras.length) {
       result.innerHTML = '<div class="empty-state">No tienes obras asignadas para generar este reporte.</div>';
       return;
     }
 
+    // "Ver desglose" solo tiene sentido por obra puntual (el endpoint de
+    // detalle pide un proyecto_id) — el bloque "Agregado" de scope='todas'
+    // nunca es expandible.
     const bloqueTablas = data.scope === 'todas' ? `
       <h3 class="section-title">Agregado (${data.obras.length} obra${data.obras.length === 1 ? '' : 's'})</h3>
-      ${corteObraTablaHtml(data.agregado, data.obras.every((o) => o.presupuesto_desglose_disponible))}
+      ${corteObraCategoriasHtml(null, data.agregado, data.obras.every((o) => o.presupuesto_desglose_disponible), false)}
       <h3 class="section-title mt-16">Desglose por obra</h3>
       ${data.obras.map((o) => `
-        <div class="card mt-8">
-          <strong>${esc(o.obra.nombre)}</strong>
-          ${corteObraTablaHtml(o.filas, o.presupuesto_desglose_disponible)}
+        <div class="mt-8">
+          <h4 class="section-title">${esc(o.obra.nombre)}</h4>
+          ${corteObraCategoriasHtml(o.obra.id, o.filas, o.presupuesto_desglose_disponible, true)}
           ${o.advertencias.map((a) => `<p class="muted fs-078">${esc(a)}</p>`).join('')}
         </div>
       `).join('')}
     ` : `
       <h3 class="section-title">${esc(data.obras[0].obra.nombre)}</h3>
-      ${corteObraTablaHtml(data.obras[0].filas, data.obras[0].presupuesto_desglose_disponible)}
+      ${corteObraCategoriasHtml(data.obras[0].obra.id, data.obras[0].filas, data.obras[0].presupuesto_desglose_disponible, true)}
       ${data.obras[0].advertencias.map((a) => `<p class="muted fs-078">${esc(a)}</p>`).join('')}
     `;
 
@@ -13879,6 +13974,10 @@ async function renderFinanzasVistaCorte(body) {
     `;
     wireExportButton('#btnExportCorteXlsx', `/finanzas/corte-obra/export${queryString(query)}`);
     wireExportButton('#btnExportCortePdf', `/finanzas/corte-obra/export${queryString({ ...query, formato: 'pdf' })}`);
+    result.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-toggle-detalle]');
+      if (btn) toggleCorteObraDetalle(btn, data.fecha_corte);
+    });
   } catch (err) {
     result.innerHTML = `<p class="muted">No se pudo cargar Corte de Obra: ${esc(err.message)}</p>`;
   }

@@ -465,6 +465,55 @@ const SCHEMA = `
   -- existente sigue contando exactamente igual que antes de esta migración.
   ALTER TABLE pagos ADD COLUMN IF NOT EXISTS activo BOOLEAN NOT NULL DEFAULT true;
 
+  -- Almacén Fase 1 (prompt-almacen-fase1.md, diagnóstico previo prompt-
+  -- diagnostico-almacen.md): Entradas se captura de forma directa e
+  -- independiente de recepciones/recepcion_items -- ese flujo requiere
+  -- orden_compra_id obligatorio y casi no se usa en operación real (2
+  -- recepciones en las 7 obras reales al momento del diagnóstico).
+  -- orden_compra_id aquí es NULLABLE a propósito: puede referenciar una OC
+  -- si existe, nunca la requiere. proveedor_id FK a proveedores (catálogo
+  -- global, confirmado en Fase 0 de este prompt) en vez de texto libre.
+  CREATE TABLE IF NOT EXISTS almacen_entradas (
+    id SERIAL PRIMARY KEY,
+    project_id INTEGER NOT NULL REFERENCES proyectos(id) ON DELETE CASCADE,
+    insumo_id INTEGER NOT NULL REFERENCES insumos(id),
+    fecha DATE NOT NULL DEFAULT CURRENT_DATE,
+    proveedor_id INTEGER REFERENCES proveedores(id),
+    cantidad DOUBLE PRECISION NOT NULL,
+    costo_unitario DOUBLE PRECISION NOT NULL DEFAULT 0,
+    folio_factura_remision TEXT,
+    foto_url TEXT,
+    orden_compra_id INTEGER REFERENCES ordenes_compra(id),
+    observaciones TEXT,
+    usuario_id INTEGER NOT NULL REFERENCES usuarios(id),
+    activo INTEGER NOT NULL DEFAULT 1,
+    creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
+  CREATE INDEX IF NOT EXISTS idx_almacen_entradas_project ON almacen_entradas(project_id);
+  CREATE INDEX IF NOT EXISTS idx_almacen_entradas_insumo ON almacen_entradas(insumo_id);
+
+  -- concepto_id NULLABLE: concepto_insumos confirmada vacía en las 7 obras
+  -- reales (diagnóstico previo) -- no hay vínculo automático posible, el
+  -- usuario elige el concepto manualmente al capturar y puede dejarlo sin
+  -- concepto claro. responsable_retiro es texto libre (cubre residente o
+  -- subcontratista sin depender de que todos tengan usuario en el sistema);
+  -- usuario_id es quien captura, siempre un usuario real del sistema.
+  CREATE TABLE IF NOT EXISTS almacen_salidas (
+    id SERIAL PRIMARY KEY,
+    project_id INTEGER NOT NULL REFERENCES proyectos(id) ON DELETE CASCADE,
+    insumo_id INTEGER NOT NULL REFERENCES insumos(id),
+    fecha DATE NOT NULL DEFAULT CURRENT_DATE,
+    cantidad DOUBLE PRECISION NOT NULL,
+    concepto_id INTEGER REFERENCES conceptos(id),
+    responsable_retiro TEXT,
+    observaciones TEXT,
+    usuario_id INTEGER NOT NULL REFERENCES usuarios(id),
+    activo INTEGER NOT NULL DEFAULT 1,
+    creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
+  CREATE INDEX IF NOT EXISTS idx_almacen_salidas_project ON almacen_salidas(project_id);
+  CREATE INDEX IF NOT EXISTS idx_almacen_salidas_insumo ON almacen_salidas(insumo_id);
+
   CREATE TABLE IF NOT EXISTS gastos_generales (
     id SERIAL PRIMARY KEY,
     project_id INTEGER NOT NULL REFERENCES proyectos(id) ON DELETE CASCADE,
@@ -1417,7 +1466,8 @@ const SCHEMA = `
       'trabajadores_global','nominas_global','trabajadores','estado_resultados','maquinaria_captura','maquinaria_combustible',
       'costos','trabajadores_docs','trabajadores_contrato','trabajadores_bancarios',
       'cotizador','estado_resultados_global','estado_unidad','maquinaria_consumibles',
-      'ordenes_cambio','lotes','modelos_vivienda','maquinaria_mantenimiento'
+      'ordenes_cambio','lotes','modelos_vivienda','maquinaria_mantenimiento',
+      'almacen_entradas','almacen_salidas'
     )),
     puede_ver BOOLEAN NOT NULL DEFAULT false,
     puede_crear BOOLEAN NOT NULL DEFAULT false,
@@ -1472,7 +1522,8 @@ const SCHEMA = `
     'trabajadores_global','nominas_global','trabajadores','estado_resultados','maquinaria_captura','maquinaria_combustible',
     'costos','trabajadores_docs','trabajadores_contrato','trabajadores_bancarios',
     'cotizador','estado_resultados_global','estado_unidad','maquinaria_consumibles',
-    'ordenes_cambio','lotes','modelos_vivienda','maquinaria_mantenimiento'
+    'ordenes_cambio','lotes','modelos_vivienda','maquinaria_mantenimiento',
+    'almacen_entradas','almacen_salidas'
   ));
 
   -- Contador de folios por obra + tipo de documento. INSERT...ON CONFLICT DO

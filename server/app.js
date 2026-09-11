@@ -1175,7 +1175,14 @@ app.get('/api/permisos/me', h(async (req, res) => {
 //   por rol plano antes de existir checkPermiso), pero eso nunca fue una
 //   decisión consciente de darle el tab completo — no debe ganarlo como
 //   efecto colateral de este cambio (decisión explícita, prompt-p8-parte2).
-const TABS_RESUELTOS_APARTE = ['resumen', 'ordenes'];
+// 'almacen' (prompt-almacen-fase1.md) también se resuelve aparte: a
+// diferencia del resto del catálogo (1 tab -> 1 sección vía TAB_A_SECCION),
+// este tab único depende de CUALQUIERA de dos secciones separadas
+// (almacen_entradas/almacen_salidas — separación deliberada, ver
+// SECCIONES_PERMISOS en server/auth.js) — compras solo tiene puede_ver=true
+// en almacen_entradas, residente/cabo solo en almacen_salidas, y ambos deben
+// ver el tab igual.
+const TABS_RESUELTOS_APARTE = ['resumen', 'ordenes', 'almacen'];
 // seccion -> [tabs] (antes 1:1 seccion->tab; prompt-39-maquinaria-galeria-
 // subsecciones.md partió el tab único 'maquinaria' en 6 subpestañas que
 // siguen compartiendo la MISMA sección de permiso 'maquinaria' — ver
@@ -1234,6 +1241,14 @@ app.get('/api/projects/:id/nav-tabs', h(requireProject), h(auth.verificarAccesoO
   // administración/logística para ordenes) por no tener una sección
   // granular propia y exclusiva todavía.
   for (const tab of TABS_RESUELTOS_APARTE) {
+    if (tab === 'almacen') {
+      // Visible si tiene puede_ver=true en CUALQUIERA de las dos secciones
+      // (ver comentario en TABS_RESUELTOS_APARTE) — a diferencia de
+      // 'resumen'/'ordenes' abajo, que solo dependen de estar en la lista
+      // base del rol.
+      if (tabsBaseRol.has('almacen') && (puedeVer.almacen_entradas || puedeVer.almacen_salidas)) tabs.push('almacen');
+      continue;
+    }
     if (tabsBaseRol.has(tab)) tabs.push(tab);
   }
   res.json({ tabs });
@@ -9426,6 +9441,169 @@ app.post('/api/projects/:id/ordenes/:ocId/recepciones', h(auth.allow('compras'))
     estado_orden: nuevoEstado || ocRows[0].estado,
     tiene_alertas: computed.some((c) => c.alerta_faltante),
   });
+}));
+
+// ---------------------------------------------------------------------------
+// Almacén Fase 1 (prompt-almacen-fase1.md, diagnóstico previo prompt-
+// diagnostico-almacen.md): Entradas se captura de forma directa e
+// independiente de recepciones/recepcion_items (ese flujo requiere OC
+// obligatoria y casi no se usa en operación real). Salidas se vincula a un
+// concepto de forma manual únicamente — `concepto_insumos` confirmada vacía
+// en las 7 obras reales, sin automatización posible. Sin dashboard de
+// existencias ni conciliación todavía (Fase 2/3, fuera de este prompt).
+// ---------------------------------------------------------------------------
+const ALMACEN_ROLES_VER = ['residente', 'cabo', 'compras'];
+
+app.get('/api/projects/:id/almacen/entradas', h(auth.allow(...ALMACEN_ROLES_VER)), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('almacen_entradas', 'puede_ver')), h(async (req, res) => {
+  const { insumo_id, fecha_desde, fecha_hasta } = req.query;
+  const where = ['e.project_id = $1'];
+  const params = [req.project.id];
+  if (insumo_id) { params.push(Number(insumo_id)); where.push(`e.insumo_id = $${params.length}`); }
+  if (fecha_desde) { params.push(fecha_desde); where.push(`e.fecha >= $${params.length}`); }
+  if (fecha_hasta) { params.push(fecha_hasta); where.push(`e.fecha <= $${params.length}`); }
+  where.push('e.activo = 1');
+  const { rows } = await db.pool.query(`
+    SELECT e.*, i.codigo AS insumo_codigo, i.concepto AS insumo_concepto, i.unidad,
+           p.nombre AS proveedor_nombre, u.nombre AS usuario_nombre
+    FROM almacen_entradas e
+    JOIN insumos i ON i.id = e.insumo_id
+    LEFT JOIN proveedores p ON p.id = e.proveedor_id
+    JOIN usuarios u ON u.id = e.usuario_id
+    WHERE ${where.join(' AND ')}
+    ORDER BY e.fecha DESC, e.id DESC
+  `, params);
+  res.json(rows);
+}));
+
+app.post('/api/projects/:id/almacen/entradas', h(auth.allow('compras')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('almacen_entradas', 'puede_crear')), h(async (req, res) => {
+  const { insumo_id, fecha, proveedor_id, cantidad, costo_unitario, folio_factura_remision, foto_url, orden_compra_id, observaciones } = req.body || {};
+  const insumoId = Number(insumo_id);
+  const cant = Number(cantidad);
+  if (!Number.isFinite(insumoId) || !Number.isFinite(cant) || cant <= 0) {
+    return res.status(400).json({ error: 'insumo_id y cantidad (> 0) son obligatorios' });
+  }
+  const { rows: insumoRows } = await db.pool.query('SELECT id FROM insumos WHERE id = $1 AND project_id = $2', [insumoId, req.project.id]);
+  if (!insumoRows[0]) return res.status(400).json({ error: 'El insumo no pertenece a esta obra' });
+
+  let proveedorId = null;
+  if (proveedor_id != null) {
+    proveedorId = Number(proveedor_id);
+    const { rows: provRows } = await db.pool.query('SELECT id FROM proveedores WHERE id = $1', [proveedorId]);
+    if (!provRows[0]) return res.status(400).json({ error: 'Proveedor no encontrado' });
+  }
+
+  let ordenCompraId = null;
+  if (orden_compra_id != null) {
+    ordenCompraId = Number(orden_compra_id);
+    const { rows: ocRows } = await db.pool.query('SELECT id FROM ordenes_compra WHERE id = $1 AND project_id = $2', [ordenCompraId, req.project.id]);
+    if (!ocRows[0]) return res.status(400).json({ error: 'La orden de compra no pertenece a esta obra' });
+  }
+
+  const { rows } = await db.pool.query(
+    `INSERT INTO almacen_entradas
+       (project_id, insumo_id, fecha, proveedor_id, cantidad, costo_unitario, folio_factura_remision, foto_url, orden_compra_id, observaciones, usuario_id)
+     VALUES ($1,$2,COALESCE($3::date, CURRENT_DATE),$4,$5,$6,$7,$8,$9,$10,$11)
+     RETURNING *`,
+    [req.project.id, insumoId, fecha || null, proveedorId, cant, Number(costo_unitario) || 0,
+     folio_factura_remision?.trim() || null, foto_url || null, ordenCompraId, observaciones?.trim() || null, req.user.id]
+  );
+  res.status(201).json(rows[0]);
+}));
+
+app.post('/api/projects/:id/almacen/entradas/upload-token', h(auth.allow('compras')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('almacen_entradas', 'puede_crear')), h(async (req, res) => {
+  try {
+    const jsonResponse = await handleUpload({
+      body: req.body,
+      request: req,
+      onBeforeGenerateToken: async (pathname) => {
+        const ext = (pathname.split('.').pop() || '').toLowerCase();
+        const allowed = ['jpg', 'jpeg', 'png', 'heic', 'webp'];
+        if (!allowed.includes(ext)) throw new Error('Solo se admiten imágenes (JPG/PNG/HEIC/WEBP)');
+        return { access: 'private', addRandomSuffix: true, maximumSizeInBytes: 15 * 1024 * 1024 };
+      },
+    });
+    res.json(jsonResponse);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+}));
+
+// Proxy autenticado — nunca se expone la URL de Blob directa (mismo patrón
+// que /api/proveedores/documentos/:docId/descarga).
+app.get('/api/projects/:id/almacen/entradas/:entradaId/foto', h(auth.allow(...ALMACEN_ROLES_VER)), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('almacen_entradas', 'puede_ver')), h(async (req, res) => {
+  const entradaId = Number(req.params.entradaId);
+  const { rows } = await db.pool.query('SELECT foto_url FROM almacen_entradas WHERE id = $1 AND project_id = $2', [entradaId, req.project.id]);
+  if (!rows[0] || !rows[0].foto_url) return res.status(404).json({ error: 'Foto no encontrada' });
+  const blobResult = await get(rows[0].foto_url, { access: 'private' });
+  if (!blobResult) return res.status(404).json({ error: 'Archivo no encontrado en almacenamiento' });
+  const ext = (rows[0].foto_url.split('.').pop() || 'jpg').toLowerCase();
+  const mimeMap = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', heic: 'image/heic', webp: 'image/webp' };
+  res.setHeader('Content-Type', mimeMap[ext] || 'application/octet-stream');
+  res.setHeader('Content-Disposition', safeContentDisposition('inline', `remision-${entradaId}.${ext}`));
+  await pipeline(Readable.fromWeb(blobResult.stream), res);
+}));
+
+app.get('/api/projects/:id/almacen/salidas', h(auth.allow(...ALMACEN_ROLES_VER)), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('almacen_salidas', 'puede_ver')), h(async (req, res) => {
+  const { insumo_id, concepto_id, fecha_desde, fecha_hasta } = req.query;
+  const where = ['s.project_id = $1'];
+  const params = [req.project.id];
+  if (insumo_id) { params.push(Number(insumo_id)); where.push(`s.insumo_id = $${params.length}`); }
+  if (concepto_id) { params.push(Number(concepto_id)); where.push(`s.concepto_id = $${params.length}`); }
+  if (fecha_desde) { params.push(fecha_desde); where.push(`s.fecha >= $${params.length}`); }
+  if (fecha_hasta) { params.push(fecha_hasta); where.push(`s.fecha <= $${params.length}`); }
+  where.push('s.activo = 1');
+  const { rows } = await db.pool.query(`
+    SELECT s.*, i.codigo AS insumo_codigo, i.concepto AS insumo_concepto, i.unidad,
+           c.concepto AS concepto_nombre, u.nombre AS usuario_nombre
+    FROM almacen_salidas s
+    JOIN insumos i ON i.id = s.insumo_id
+    LEFT JOIN conceptos c ON c.id = s.concepto_id
+    JOIN usuarios u ON u.id = s.usuario_id
+    WHERE ${where.join(' AND ')}
+    ORDER BY s.fecha DESC, s.id DESC
+  `, params);
+  res.json(rows);
+}));
+
+// Lista mínima de conceptos (sin precio/importe) para el selector de Salida.
+// Deliberadamente NO reutiliza GET /api/projects/:id/conceptos: ese endpoint
+// gatea con checkPermiso('presupuestos', 'puede_ver'), sección que residente/
+// cabo NO tienen por default (verificado con Playwright durante la
+// implementación) — y aunque la tuvieran, expone precio_unitario/importe,
+// dato que el resto de la app oculta deliberadamente a estos roles
+// (puedeVerImportesRequisicion/puedeVerImportesAvance en public/app.js).
+app.get('/api/projects/:id/almacen/conceptos-disponibles', h(auth.allow(...ALMACEN_ROLES_VER)), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('almacen_salidas', 'puede_ver')), h(async (req, res) => {
+  const { rows } = await db.pool.query(
+    `SELECT id, codigo, concepto FROM conceptos WHERE project_id = $1 AND es_total = 0 ORDER BY orden, id`,
+    [req.project.id]
+  );
+  res.json(rows);
+}));
+
+app.post('/api/projects/:id/almacen/salidas', h(auth.allow('residente', 'cabo')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('almacen_salidas', 'puede_crear')), h(async (req, res) => {
+  const { insumo_id, fecha, cantidad, concepto_id, responsable_retiro, observaciones } = req.body || {};
+  const insumoId = Number(insumo_id);
+  const cant = Number(cantidad);
+  if (!Number.isFinite(insumoId) || !Number.isFinite(cant) || cant <= 0) {
+    return res.status(400).json({ error: 'insumo_id y cantidad (> 0) son obligatorios' });
+  }
+  const { rows: insumoRows } = await db.pool.query('SELECT id FROM insumos WHERE id = $1 AND project_id = $2', [insumoId, req.project.id]);
+  if (!insumoRows[0]) return res.status(400).json({ error: 'El insumo no pertenece a esta obra' });
+
+  let conceptoId = null;
+  if (concepto_id != null) {
+    conceptoId = Number(concepto_id);
+    const { rows: conRows } = await db.pool.query('SELECT id FROM conceptos WHERE id = $1 AND project_id = $2', [conceptoId, req.project.id]);
+    if (!conRows[0]) return res.status(400).json({ error: 'El concepto no pertenece a esta obra' });
+  }
+
+  const { rows } = await db.pool.query(
+    `INSERT INTO almacen_salidas (project_id, insumo_id, fecha, cantidad, concepto_id, responsable_retiro, observaciones, usuario_id)
+     VALUES ($1,$2,COALESCE($3::date, CURRENT_DATE),$4,$5,$6,$7,$8)
+     RETURNING *`,
+    [req.project.id, insumoId, fecha || null, cant, conceptoId, responsable_retiro?.trim() || null, observaciones?.trim() || null, req.user.id]
+  );
+  res.status(201).json(rows[0]);
 }));
 
 // ---------------------------------------------------------------------------

@@ -72,8 +72,8 @@ const PERMISSIONS = {
   // secciones de permiso independientes (SECCIONES_PERMISOS, checkPermiso en
   // GET /api/trabajadores y /api/nominas, matriz de permisos granulares) —
   // esto NO cambia, solo se retira su rol como tab de navegación separado.
-  admin:          { label: 'Administrador', tabs: ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'estadoActivo', 'presupuestoEstimaciones', 'usuarios', 'proveedores', 'cumplimiento', 'finanzas', 'compromisos', 'fondoGarantia', 'mapeo', 'trabajadores', 'nominas', 'estimaciones', 'ordenesCambio', 'lotes', 'modelosVivienda', 'compradores', 'apartados', 'contratosVenta', 'cobranza', 'entregas', ...MAQUINARIA_TABS_ADMIN, 'cotizador', 'costos', 'costosDashboard', 'matrices', 'avance_clientes', 'composicion_costos', 'dashboardEjecutivo', 'catalogoBasicos'] },
-  desarrollador:  { label: 'Desarrollador', tabs: ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'estadoActivo', 'presupuestoEstimaciones', 'usuarios', 'proveedores', 'cumplimiento', 'finanzas', 'compromisos', 'fondoGarantia', 'mapeo', 'trabajadores', 'nominas', 'estimaciones', 'ordenesCambio', 'lotes', 'modelosVivienda', 'compradores', 'apartados', 'contratosVenta', 'cobranza', 'entregas', ...MAQUINARIA_TABS_ADMIN, 'cotizador', 'costos', 'costosDashboard', 'matrices', 'avance_clientes', 'composicion_costos', 'dashboardEjecutivo', 'catalogoBasicos'] },
+  admin:          { label: 'Administrador', tabs: ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'estadoActivo', 'presupuestoEstimaciones', 'usuarios', 'proveedores', 'cumplimiento', 'finanzas', 'compromisos', 'fondoGarantia', 'mapeo', 'trabajadores', 'nominas', 'estimaciones', 'ordenesCambio', 'lotes', 'modelosVivienda', 'compradores', 'apartados', 'contratosVenta', 'cobranza', 'entregas', ...MAQUINARIA_TABS_ADMIN, 'cotizador', 'costos', 'costosDashboard', 'matrices', 'avance_clientes', 'composicion_costos', 'dashboardEjecutivo', 'catalogoBasicos', 'almacen'] },
+  desarrollador:  { label: 'Desarrollador', tabs: ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'estadoActivo', 'presupuestoEstimaciones', 'usuarios', 'proveedores', 'cumplimiento', 'finanzas', 'compromisos', 'fondoGarantia', 'mapeo', 'trabajadores', 'nominas', 'estimaciones', 'ordenesCambio', 'lotes', 'modelosVivienda', 'compradores', 'apartados', 'contratosVenta', 'cobranza', 'entregas', ...MAQUINARIA_TABS_ADMIN, 'cotizador', 'costos', 'costosDashboard', 'matrices', 'avance_clientes', 'composicion_costos', 'dashboardEjecutivo', 'catalogoBasicos', 'almacen'] },
   // 'trabajadores' agregado aquí (prompts-cotizador-sidebar-permisos-
   // estimaciones.md, Prompt 3) para que el residente reciba la pestaña al
   // hacer login — el acceso REAL a los datos de cada obra lo sigue
@@ -94,7 +94,7 @@ const PERMISSIONS = {
   // otorga el permiso por sí solo, checkPermiso('costos', ...) sigue siendo
   // el gate real vía permisos_usuario (sin fila = 403, default-deny de
   // 'costos', ver SECCIONES_PERMISOS más abajo).
-  residente:      { label: 'Residente',     tabs: ['programa', 'avance', 'destajo', 'estadoActivo', 'presupuestoEstimaciones', 'requisiciones', 'insumos', 'ordenes', 'nominas', 'trabajadores', 'estimaciones', 'ordenesCambio', 'lotes', 'modelosVivienda', ...MAQUINARIA_TABS_RESIDENTE, 'matrices'] },
+  residente:      { label: 'Residente',     tabs: ['programa', 'avance', 'destajo', 'estadoActivo', 'presupuestoEstimaciones', 'requisiciones', 'insumos', 'ordenes', 'nominas', 'trabajadores', 'estimaciones', 'ordenesCambio', 'lotes', 'modelosVivienda', ...MAQUINARIA_TABS_RESIDENTE, 'matrices', 'almacen'] },
   // 'trabajadores' agregado aquí (prompt-c-checkpermiso-trabajadores.md,
   // fix de visibilidad en nav). Desde prompt-limpieza-permisos-cabo.md
   // (cambio de dirección), cabo nace con trabajadores.puede_ver=true por
@@ -108,8 +108,8 @@ const PERMISSIONS = {
   // decisión de negocio de que cabo PUEDE tener Nómina. Igual que
   // 'trabajadores' arriba, cabo nace con nominas.puede_ver=true por default
   // (loop base, sin override) desde prompt-limpieza-permisos-cabo.md.
-  cabo:           { label: 'Cabo',          tabs: ['destajo', 'insumos', 'avance', 'estadoActivo', 'requisiciones', ...MAQUINARIA_TABS_CABO, 'trabajadores', 'nominas', 'ordenesCambio'] },
-  compras:        { label: 'Compras',       tabs: ['programa', 'requisiciones', 'insumos', 'ordenes', 'proveedores', 'cumplimiento', 'cotizador'] },
+  cabo:           { label: 'Cabo',          tabs: ['destajo', 'insumos', 'avance', 'estadoActivo', 'requisiciones', ...MAQUINARIA_TABS_CABO, 'trabajadores', 'nominas', 'ordenesCambio', 'almacen'] },
+  compras:        { label: 'Compras',       tabs: ['programa', 'requisiciones', 'insumos', 'ordenes', 'proveedores', 'cumplimiento', 'cotizador', 'almacen'] },
   tesoreria:      { label: 'Tesorería',     tabs: ['resumen', 'finanzas', 'estadoActivo', 'compromisos', 'fondoGarantia', 'ordenes', 'contrato', 'impuestos', 'proveedores', 'cumplimiento', 'dashboardEjecutivo'] },
   administracion: { label: 'Administración',tabs: ['resumen', 'programa', 'destajo', 'estadoActivo', 'ordenes', 'proveedores', 'cumplimiento', 'contrato', 'impuestos', 'mapeo'] },
   logistica:      { label: 'Logística',     tabs: ['programa', 'avance', 'estadoActivo', 'requisiciones', 'insumos', 'ordenes'] },
@@ -307,6 +307,18 @@ const SECCIONES_PERMISOS = [
   // server/app.js, no vía checkPermiso) — mismo patrón que aprobar/rechazar
   // en ordenes_cambio.
   'modelos_vivienda',
+  // Almacén Fase 1 (prompt-almacen-fase1.md) — Entradas y Salidas separadas
+  // en dos secciones a propósito, mismo criterio y misma justificación que
+  // 'maquinaria_captura'/'maquinaria_combustible' (CN-002, ver arriba): son
+  // roles distintos capturando cosas distintas (compras→Entradas,
+  // residente/cabo→Salidas) bajo un mismo tab de navegación 'almacen'; una
+  // sola sección compartida habría dejado a cualquiera con puede_crear
+  // POSTear en el endpoint del otro. Sin entrada en TAB_A_SECCION a
+  // propósito: el tab 'almacen' se resuelve aparte (ver
+  // TABS_RESUELTOS_APARTE en server/app.js) porque un solo tab depende de
+  // CUALQUIERA de las dos secciones, no de una sola como el resto del
+  // catálogo (que es 1 tab -> 1 sección).
+  'almacen_entradas', 'almacen_salidas',
 ];
 const ACCIONES_PERMISOS = ['puede_ver', 'puede_crear', 'puede_editar', 'puede_editar_precios', 'puede_eliminar'];
 
@@ -487,6 +499,21 @@ function defaultPermisosParaRol(puesto) {
       seccion: 'maquinaria_mantenimiento', puede_ver: true, puede_crear: false,
       puede_editar: false, puede_editar_precios: false, puede_eliminar: false,
     });
+    // Almacén Fase 1 (prompt-almacen-fase1.md): residente captura Salidas
+    // (consumo en obra), y solo lee Entradas para tener la bitácora completa
+    // del almacén — mismo criterio de lectura cruzada que 'proveedores'
+    // arriba (residente/cabo leen el catálogo que compras administra).
+    // No pasan por TAB_A_SECCION (el tab 'almacen' se resuelve aparte, ver
+    // SECCIONES_PERMISOS más arriba), por eso van con push() directo en vez
+    // de porSeccion.x.
+    filas.push({
+      seccion: 'almacen_entradas', puede_ver: true, puede_crear: false,
+      puede_editar: false, puede_editar_precios: false, puede_eliminar: false,
+    });
+    filas.push({
+      seccion: 'almacen_salidas', puede_ver: true, puede_crear: true,
+      puede_editar: false, puede_editar_precios: false, puede_eliminar: false,
+    });
   }
   if (puesto === 'cabo') {
     if (porSeccion.destajo) { porSeccion.destajo.puede_editar = true; }
@@ -556,6 +583,16 @@ function defaultPermisosParaRol(puesto) {
     });
     // Mismo criterio que residente arriba (prompt-ordenes-cambio.md).
     if (porSeccion.ordenes_cambio) { porSeccion.ordenes_cambio.puede_crear = true; }
+    // Almacén Fase 1 (prompt-almacen-fase1.md): mismo criterio exacto que
+    // residente arriba — cabo captura Salidas, solo lee Entradas.
+    filas.push({
+      seccion: 'almacen_entradas', puede_ver: true, puede_crear: false,
+      puede_editar: false, puede_editar_precios: false, puede_eliminar: false,
+    });
+    filas.push({
+      seccion: 'almacen_salidas', puede_ver: true, puede_crear: true,
+      puede_editar: false, puede_editar_precios: false, puede_eliminar: false,
+    });
   }
   if (puesto === 'compras') {
     // compras podía crear/editar/eliminar requisiciones de cualquier obra por
@@ -572,6 +609,18 @@ function defaultPermisosParaRol(puesto) {
     // en borrador (puede_eliminar) sin restricción adicional — este default
     // preserva esa capacidad (prompt-checkpermiso-ordenes-compra.md).
     if (porSeccion.ordenes_compra) { porSeccion.ordenes_compra.puede_crear = true; porSeccion.ordenes_compra.puede_editar = true; porSeccion.ordenes_compra.puede_eliminar = true; }
+    // Almacén Fase 1 (prompt-almacen-fase1.md): compras captura Entradas
+    // (recepción de material), y solo lee Salidas para tener la bitácora
+    // completa del almacén — mismo criterio de lectura cruzada que
+    // residente/cabo arriba, en espejo.
+    filas.push({
+      seccion: 'almacen_entradas', puede_ver: true, puede_crear: true,
+      puede_editar: false, puede_editar_precios: false, puede_eliminar: false,
+    });
+    filas.push({
+      seccion: 'almacen_salidas', puede_ver: true, puede_crear: false,
+      puede_editar: false, puede_editar_precios: false, puede_eliminar: false,
+    });
   }
   if (puesto === 'tesoreria') {
     // auth.allow('compras', 'tesoreria') ya le permitía cambiar el estado de

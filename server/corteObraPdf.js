@@ -9,13 +9,14 @@
 const PDFDocument = require('pdfkit');
 
 const COLS = [
-  { key: 'label', label: 'Categoría', width: 140, align: 'left' },
-  { key: 'presupuesto', label: 'Presupuesto', width: 105, align: 'right' },
-  { key: 'cobertura', label: 'Cobertura', width: 75, align: 'right' },
-  { key: 'real_pagado', label: 'Real — Pagado', width: 105, align: 'right' },
-  { key: 'real_avance', label: 'Real — Avance Valorizado', width: 105, align: 'right' },
-  { key: 'variacion_monto', label: 'Variación $', width: 90, align: 'right' },
-  { key: 'variacion_pct', label: 'Variación %', width: 75, align: 'right' },
+  { key: 'label', label: 'Categoría', width: 120, align: 'left' },
+  { key: 'presupuesto', label: 'Presupuesto', width: 95, align: 'right' },
+  { key: 'cobertura', label: 'Cobertura', width: 60, align: 'right' },
+  { key: 'real_pagado', label: 'Real — Pagado', width: 90, align: 'right' },
+  { key: 'real_por_pagar', label: 'Real — Por Pagar', width: 85, align: 'right' },
+  { key: 'real_avance', label: 'Real — Avance Valorizado', width: 90, align: 'right' },
+  { key: 'variacion_monto', label: 'Variación $', width: 80, align: 'right' },
+  { key: 'variacion_pct', label: 'Variación %', width: 60, align: 'right' },
 ];
 const TABLE_LEFT = 40;
 const PAGE_BOTTOM = 540;
@@ -49,6 +50,7 @@ function drawFilasTable(doc, yInicial, filas) {
       presupuesto: money(row.presupuesto),
       cobertura: row.presupuesto_pct_cobertura == null ? '—' : pct(row.presupuesto_pct_cobertura),
       real_pagado: money(row.real_pagado),
+      real_por_pagar: money(row.real_por_pagar),
       real_avance: row.real_avance_valorizado == null ? 'No disponible' : money(row.real_avance_valorizado),
       variacion_monto: row.presupuesto == null ? 'No disponible' : money(row.variacion_monto),
       variacion_pct: row.presupuesto == null ? '—' : pct(row.variacion_pct),

@@ -1221,6 +1221,19 @@ label { display: block; font-size: var(--fs-sm); color: var(--text-secondary); m
 .progress-bar > span { display: block; height: 100%; background: var(--accent-gold); border-radius: var(--radius-pill); }
 .progress-bar.over > span { background: var(--red); }
 
+/* Corte de Obra (prompt-corte-obra-rediseno.md): barra de 2 segmentos
+   (Pagado sólido + Por Pagar rayado) sobre el mismo track que .progress-bar,
+   para mostrar cuánto del Presupuesto ya se pagó vs. cuánto está
+   comprometido pero pendiente, en una sola barra. */
+.corte-bar { display: flex; height: 8px; border-radius: var(--radius-pill); background: var(--bg-surface-2); overflow: hidden; margin-top: var(--space-4); }
+.corte-bar > .pagado { background: var(--accent-gold); }
+.corte-bar > .por-pagar { background: repeating-linear-gradient(45deg, var(--yellow), var(--yellow) 4px, transparent 4px, transparent 8px); opacity: .8; }
+.corte-bar.over > .pagado { background: var(--red); }
+.corte-cat-card .kpi { padding: var(--space-8); }
+.corte-cat-card .kpi .label { font-size: var(--fs-xs); }
+.corte-cat-card .kpi .value { font-size: var(--fs-md); }
+.corte-detalle { border-top: 1px solid var(--border-color); margin-top: var(--space-10); padding-top: var(--space-10); }
+
 table { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }
 th, td { text-align: left; padding: var(--space-8) var(--space-6); border-bottom: 1px solid var(--border-color); }
 th { color: var(--text-secondary); font-weight: 600; font-size: var(--fs-xs); text-transform: uppercase; }

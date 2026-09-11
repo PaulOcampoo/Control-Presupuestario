@@ -62,7 +62,7 @@ const {
   getErogadoRealPorCliente, getErogadoRealGlobal,
   FONDO_GARANTIA_PCT_MIN, FONDO_GARANTIA_PCT_MAX,
 } = require('./finanzas');
-const { getCorteObraData } = require('./corteObra');
+const { getCorteObraData, getCorteObraDetalleCategoria, CATEGORIAS_REPORTE } = require('./corteObra');
 const { buildCorteObraPdf } = require('./corteObraPdf');
 const { calcularJornal, calcularDestajo, totalConIvaDeItems, totalConIvaEsValido, numeroALetra, calcularSplitCuentas, distribuirDestajoGrupo } = require('./calculos');
 const { validarClabe } = require('./catalogoBancos');
@@ -9867,25 +9867,57 @@ async function resolverAlcanceCorteObra(req) {
   return { scope: 'todas', pids: proyectos.map((p) => p.id) };
 }
 
-function validarFechaCorte(req) {
+// prompt-corte-obra-rediseno.md: default = hoy si no se especifica (antes
+// exigía la fecha explícita, 400 si faltaba) — calculado en SQL (CURRENT_DATE)
+// en vez de `new Date()` de Node, mismo criterio ya usado en
+// /api/requisiciones/programa para no depender de la zona horaria del
+// proceso. El selector de fecha en frontend se mantiene, solo cambia el
+// default con el que arranca.
+async function validarFechaCorte(req) {
   const fechaCorte = req.query.fecha_corte;
-  if (!fechaCorte || !/^\d{4}-\d{2}-\d{2}$/.test(fechaCorte)) {
-    const err = new Error('fecha_corte es requerida en formato YYYY-MM-DD');
-    err.status = 400;
-    throw err;
+  if (fechaCorte) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(fechaCorte)) {
+      const err = new Error('fecha_corte debe tener formato YYYY-MM-DD');
+      err.status = 400;
+      throw err;
+    }
+    return fechaCorte;
   }
-  return fechaCorte;
+  const { rows } = await db.pool.query('SELECT CURRENT_DATE::text AS hoy');
+  return rows[0].hoy;
 }
 
 app.get('/api/finanzas/corte-obra', h(auth.allow('tesoreria')), h(auth.checkPermiso('finanzas', 'puede_ver')), h(async (req, res) => {
-  const fechaCorte = validarFechaCorte(req);
+  const fechaCorte = await validarFechaCorte(req);
   const { scope, pids } = await resolverAlcanceCorteObra(req);
   const data = await getCorteObraData(pids, fechaCorte);
   res.json({ ...data, scope });
 }));
 
+// Detalle de una categoría de una obra (prompt-corte-obra-rediseno.md):
+// catálogo de insumos + movimientos individuales (Nómina/Destajo/OC) detrás
+// del "Pagado" que ya muestra la tarjeta — nunca recalcula un número
+// distinto, solo expone el detalle. Requiere proyecto_id explícito (no tiene
+// sentido "detalle de todas las obras" en una sola tabla) — mismo chequeo de
+// acceso que resolverAlcanceCorteObra usa para su rama de una sola obra.
+app.get('/api/finanzas/corte-obra/detalle-categoria', h(auth.allow('tesoreria')), h(auth.checkPermiso('finanzas', 'puede_ver')), h(async (req, res) => {
+  const fechaCorte = await validarFechaCorte(req);
+  const pid = Number(req.query.proyecto_id);
+  if (!Number.isFinite(pid)) return res.status(400).json({ error: 'proyecto_id es requerido' });
+  const categoria = req.query.categoria;
+  if (!CATEGORIAS_REPORTE.includes(categoria)) {
+    return res.status(400).json({ error: `categoria debe ser una de: ${CATEGORIAS_REPORTE.join(', ')}` });
+  }
+  const proyecto = await db.getProject(pid);
+  if (!proyecto) return res.status(404).json({ error: 'Proyecto no encontrado' });
+  if (!(await auth.usuarioPuedeOperarObra(req, pid))) return res.status(403).json({ error: 'No tienes acceso a esta obra' });
+
+  const data = await getCorteObraDetalleCategoria(pid, categoria, fechaCorte);
+  res.json({ ...data, fecha_corte: fechaCorte, proyecto_id: pid });
+}));
+
 app.get('/api/finanzas/corte-obra/export', h(auth.allow('tesoreria')), h(auth.checkPermiso('finanzas', 'puede_ver')), h(async (req, res) => {
-  const fechaCorte = validarFechaCorte(req);
+  const fechaCorte = await validarFechaCorte(req);
   const { scope, pids } = await resolverAlcanceCorteObra(req);
   const data = { ...(await getCorteObraData(pids, fechaCorte)), scope };
   const formato = req.query.formato === 'pdf' ? 'pdf' : 'xlsx';
@@ -9904,6 +9936,7 @@ app.get('/api/finanzas/corte-obra/export', h(auth.allow('tesoreria')), h(auth.ch
     cobertura_pct: fila.presupuesto_pct_cobertura,
     real_pagado: fila.real_pagado,
     real_pagado_con_iva: fila.real_pagado_con_iva,
+    real_por_pagar: fila.real_por_pagar,
     real_avance_valorizado: fila.real_avance_valorizado,
     variacion_monto: fila.variacion_monto,
     variacion_pct: fila.variacion_pct,
@@ -9914,6 +9947,7 @@ app.get('/api/finanzas/corte-obra/export', h(auth.allow('tesoreria')), h(auth.ch
     { header: '% del Total capturado', key: 'cobertura_pct', width: 18, format: 'pct' },
     { header: 'Real — Pagado (sin IVA, ajustado)', key: 'real_pagado', width: 24, format: 'money' },
     { header: 'Real — Pagado (con IVA)', key: 'real_pagado_con_iva', width: 20, format: 'money' },
+    { header: 'Real — Por Pagar', key: 'real_por_pagar', width: 18, format: 'money' },
     { header: 'Real — Avance Valorizado', key: 'real_avance_valorizado', width: 22, format: 'money' },
     { header: 'Variación $ (vs. Pagado)', key: 'variacion_monto', width: 20, format: 'money' },
     { header: 'Variación %', key: 'variacion_pct', width: 14, format: 'pct' },
@@ -9942,6 +9976,46 @@ app.get('/api/finanzas/corte-obra/export', h(auth.allow('tesoreria')), h(auth.ch
       ],
     });
   }
+
+  // Hoja de detalle por categoría (prompt-corte-obra-rediseno.md): solo para
+  // una obra puntual — para "todas las obras" serían 3 categorías × N obras
+  // hojas, no razonable en un solo archivo (Target State: "si es razonable").
+  // Catálogo de insumos + movimientos combinados en una tabla (columna Tipo
+  // distingue cada renglón) para reusar sendXlsxExport tal cual, sin
+  // necesitar un layout de dos tablas por hoja.
+  if (scope === 'obra' && data.obras[0]) {
+    const detalleColumnas = [
+      { header: 'Tipo', key: 'tipo', width: 20 },
+      { header: 'Fecha', key: 'fecha', width: 14 },
+      { header: 'Código', key: 'codigo', width: 16 },
+      { header: 'Concepto', key: 'concepto', width: 45 },
+      { header: 'Unidad', key: 'unidad', width: 10 },
+      { header: 'Cantidad (Presup.)', key: 'cantidad_presupuesto', width: 16 },
+      { header: 'Precio (Presup.)', key: 'precio_presupuesto', width: 16, format: 'money' },
+      { header: 'Importe (Presup.)', key: 'importe_presupuesto', width: 16, format: 'money' },
+      { header: 'Monto (movimiento)', key: 'monto', width: 18, format: 'money' },
+    ];
+    for (const categoria of CATEGORIAS_REPORTE) {
+      const detalle = await getCorteObraDetalleCategoria(data.obras[0].obra.id, categoria, fechaCorte);
+      const rows = [
+        ...detalle.insumos.map((i) => ({
+          tipo: 'Catálogo', fecha: '', codigo: i.codigo, concepto: i.concepto, unidad: i.unidad,
+          cantidad_presupuesto: i.cantidad_presupuesto, precio_presupuesto: i.precio_presupuesto,
+          importe_presupuesto: i.importe_presupuesto, monto: '',
+        })),
+        ...detalle.movimientos.map((m) => ({
+          tipo: m.origen, fecha: m.fecha, codigo: '', concepto: m.concepto, unidad: '',
+          cantidad_presupuesto: '', precio_presupuesto: '', importe_presupuesto: '', monto: m.monto,
+        })),
+      ];
+      sheets.push({
+        sheetName: `Detalle ${categoria.slice(0, 22)}`,
+        columns: detalleColumnas,
+        rows,
+      });
+    }
+  }
+
   await sendXlsxExport(res, {
     filename: buildExportFilename('CorteDeObra', nombreArchivo),
     sheets,

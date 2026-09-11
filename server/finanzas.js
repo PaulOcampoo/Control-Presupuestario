@@ -716,7 +716,7 @@ async function getErogadoRealGlobal() {
 
 module.exports = {
   metaToObject, presupuestoTotalDe, getFinanzasResumenData, getCompromisosAbiertosData,
-  getCompromisosAbiertosAgregado,
+  getCompromisosAbiertosAgregado, fetchOrdenesComprometiblesPorObra,
   porcentajeFondoGarantiaDe, getFondoGarantiaData, getFondoGarantiaAgregado,
   upsertPorcentajeFondoGarantia,
   getErogadoRealPorCliente, getErogadoRealGlobal, avanceValorizadoPorObra,

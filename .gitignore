@@ -15,3 +15,12 @@ uploads/
 *.p12
 *.pfx
 id_rsa*
+
+# Artefactos/caché generados por herramientas locales, config de IDE, y
+# archivos de trabajo ad-hoc (scripts SQL de un solo uso, xlsx sueltos de
+# presupuestos) — ver inventario de 2026-09-11 (limpieza de untracked files).
+graphify-out/
+.claude/launch.json
+scripts/*.sql
+*.xlsx
+!tests/fixtures/*.xlsx

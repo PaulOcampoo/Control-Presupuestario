@@ -41,8 +41,11 @@ async function ingest(client, projectId, parsed, userId = null) {
 
   await batchInsert(
     client, 'conceptos',
-    ['project_id', 'codigo', 'concepto', 'unidad', 'cantidad', 'precio_unitario', 'importe', 'grupo', 'es_total', 'orden'],
-    parsed.conceptos.map((c) => [projectId, c.codigo, c.concepto, c.unidad, c.cantidad, c.precio_unitario, c.importe, c.grupo, c.es_total, c.orden])
+    ['project_id', 'codigo', 'concepto', 'unidad', 'cantidad', 'precio_unitario', 'importe', 'grupo', 'es_total', 'orden', 'ruta_jerarquica'],
+    parsed.conceptos.map((c) => [
+      projectId, c.codigo, c.concepto, c.unidad, c.cantidad, c.precio_unitario, c.importe, c.grupo, c.es_total, c.orden,
+      c.ruta_jerarquica ? JSON.stringify(c.ruta_jerarquica) : null,
+    ])
   );
 
   await batchInsert(

@@ -10404,7 +10404,7 @@ app.get('/api/projects/:id/avances/:semana/conceptos', h(auth.allow('residente',
   if (!existRows[0]) return res.status(404).json({ error: 'Semana no encontrada' });
 
   const { rows: conceptos } = await db.pool.query(`
-    SELECT id AS concepto_id, codigo, concepto, unidad, grupo,
+    SELECT id AS concepto_id, codigo, concepto, unidad, grupo, ruta_jerarquica,
            cantidad AS cantidad_presupuesto, precio_unitario, importe AS importe_presupuesto
     FROM conceptos
     WHERE project_id = $1 AND es_total = 0 AND activo = 1 AND cantidad > 0 AND TRIM(COALESCE(unidad, '')) <> ''

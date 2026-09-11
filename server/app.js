@@ -8587,6 +8587,168 @@ app.get('/api/requisiciones/programa/export', h(auth.allow('residente', 'cabo', 
   });
 }));
 
+// ---------------------------------------------------------------------------
+// Seguimiento de materiales por OC (prompt-seguimiento-materiales-oc.md):
+// complementario a /requisiciones/programa — a nivel renglón de insumo
+// requisitado, no a nivel requisición completa. Cruza cada requisicion_item
+// con su(s) orden_compra_item(s) y calcula el estatus de surtido al vuelo
+// (nunca persistido), mismo criterio que "Avance Físico" en el resumen de
+// presupuesto (server/app.js, endpoint /resumen).
+//
+// Diagnóstico previo (real, no teórico) confirmó que un mismo
+// requisicion_item puede tener MÁS de una orden_compra_item — compra
+// dividida entre proveedores, o (caso real detectado) una OC duplicada
+// pendiente de cancelar (ver docs/cancelar-oc-duplicadas-produccion.md).
+// Decisión explícita: una fila por combinación (requisicion_item × OC), NO
+// colapsar/sumar entre OCs — sumar ocultaría exactamente ese tipo de
+// duplicado en vez de exponerlo.
+// ---------------------------------------------------------------------------
+const SEGUIMIENTO_ESTATUS_LABEL = {
+  sin_oc: 'Sin OC',
+  pendiente: 'Pendiente',
+  parcial: 'Parcial',
+  completo: 'Completo',
+};
+
+async function getSeguimientoMaterialesData(req) {
+  const esAdmin = req.user.puesto === 'admin'
+    || (req.user.puesto === 'desarrollador' && !(await db.usuarioTieneAsignacionExplicita(req.user.id)));
+  const { project_id, cliente_id } = req.query;
+
+  if (project_id && !esAdmin) {
+    const { rows } = await db.pool.query(
+      'SELECT 1 FROM usuario_proyectos WHERE usuario_id = $1 AND project_id = $2',
+      [req.user.id, Number(project_id)]
+    );
+    if (!rows.length) {
+      const err = new Error('No tienes acceso a esta obra');
+      err.status = 403;
+      throw err;
+    }
+  }
+
+  const params = [];
+  let join = '';
+  if (!esAdmin) {
+    params.push(req.user.id);
+    join = `JOIN usuario_proyectos up ON up.project_id = p.id AND up.usuario_id = $${params.length}`;
+  }
+  let where = '';
+  if (project_id) { params.push(Number(project_id)); where += ` AND p.id = $${params.length}`; }
+  if (cliente_id) { params.push(Number(cliente_id)); where += ` AND p.cliente_id = $${params.length}`; }
+
+  const { rows } = await db.pool.query(`
+    SELECT p.id AS project_id, p.nombre AS obra_nombre, p.cliente_id,
+           r.id AS requisicion_id, r.folio AS requisicion_folio,
+           ri.id AS requisicion_item_id, i.codigo AS insumo_codigo, i.concepto AS insumo_concepto,
+           i.categoria AS insumo_categoria, i.unidad, ri.cantidad_solicitada,
+           oc.id AS oc_id, oc.folio AS oc_folio, oc.estado AS oc_estado,
+           oci.id AS orden_compra_item_id, oci.cantidad_ordenada,
+           COALESCE(rec_agg.cantidad_recibida, 0) AS cantidad_recibida,
+           ci.conceptos_nombres
+    FROM requisiciones r
+    JOIN proyectos p ON p.id = r.project_id
+    JOIN requisicion_items ri ON ri.requisicion_id = r.id
+    JOIN insumos i ON i.id = ri.insumo_id
+    LEFT JOIN orden_compra_items oci ON oci.requisicion_item_id = ri.id
+    LEFT JOIN ordenes_compra oc ON oc.id = oci.orden_compra_id
+    LEFT JOIN LATERAL (
+      SELECT SUM(rcpi.cantidad_recibida) AS cantidad_recibida
+      FROM recepcion_items rcpi WHERE rcpi.orden_compra_item_id = oci.id
+    ) rec_agg ON true
+    LEFT JOIN LATERAL (
+      SELECT string_agg(DISTINCT c.concepto, ', ' ORDER BY c.concepto) AS conceptos_nombres
+      FROM concepto_insumos cins
+      JOIN conceptos c ON c.id = cins.concepto_id
+      WHERE cins.insumo_id = i.id AND c.activo = 1
+    ) ci ON true
+    ${join}
+    WHERE 1=1 ${where}
+    ORDER BY p.nombre, r.folio, ri.id, oc.id
+  `, params);
+
+  const items = rows.map((row) => {
+    let estatus;
+    if (!row.oc_id) estatus = 'sin_oc';
+    else if (Number(row.cantidad_recibida) <= 0) estatus = 'pendiente';
+    else if (Number(row.cantidad_recibida) < Number(row.cantidad_ordenada)) estatus = 'parcial';
+    else estatus = 'completo';
+    return {
+      project_id: row.project_id,
+      obra_nombre: row.obra_nombre,
+      cliente_id: row.cliente_id,
+      requisicion_id: row.requisicion_id,
+      requisicion_folio: row.requisicion_folio || `Requisición #${row.requisicion_id}`,
+      insumo_codigo: row.insumo_codigo,
+      insumo_concepto: row.insumo_concepto,
+      insumo_categoria: row.insumo_categoria || null,
+      unidad: row.unidad,
+      cantidad_solicitada: Number(row.cantidad_solicitada),
+      oc_id: row.oc_id,
+      oc_folio: row.oc_id ? (row.oc_folio || `OC #${row.oc_id}`) : null,
+      oc_estado: row.oc_estado,
+      cantidad_ordenada: row.oc_id ? Number(row.cantidad_ordenada) : null,
+      cantidad_recibida: row.oc_id ? Number(row.cantidad_recibida) : null,
+      concepto_vinculado: row.conceptos_nombres || null,
+      estatus,
+    };
+  });
+
+  return { items };
+}
+
+app.get('/api/requisiciones/seguimiento-materiales', h(auth.allow('residente', 'cabo', 'compras', 'logistica')), h(auth.checkPermiso('requisiciones', 'puede_ver')), h(async (req, res) => {
+  try {
+    res.json(await getSeguimientoMaterialesData(req));
+  } catch (err) {
+    res.status(err.status || 400).json({ error: err.message });
+  }
+}));
+
+app.get('/api/requisiciones/seguimiento-materiales/export', h(auth.allow('residente', 'cabo', 'compras', 'logistica')), h(auth.checkPermiso('requisiciones', 'puede_ver')), h(async (req, res) => {
+  let data;
+  try {
+    data = await getSeguimientoMaterialesData(req);
+  } catch (err) {
+    return res.status(err.status || 400).json({ error: err.message });
+  }
+  const rows = data.items.map((it) => ({
+    obra: it.obra_nombre,
+    requisicion_folio: it.requisicion_folio,
+    insumo_codigo: it.insumo_codigo || '',
+    insumo_concepto: it.insumo_concepto,
+    insumo_categoria: it.insumo_categoria || '',
+    unidad: it.unidad || '',
+    cantidad_solicitada: it.cantidad_solicitada,
+    oc_folio: it.oc_folio || 'Sin OC',
+    cantidad_ordenada: it.cantidad_ordenada ?? '',
+    cantidad_recibida: it.cantidad_recibida ?? '',
+    estatus: SEGUIMIENTO_ESTATUS_LABEL[it.estatus] || it.estatus,
+    concepto_vinculado: it.concepto_vinculado || 'Sin mapeo',
+  }));
+  await sendXlsxExport(res, {
+    filename: `Seguimiento-Materiales-OC_${new Date().toISOString().slice(0, 10)}.xlsx`,
+    sheets: [{
+      sheetName: 'Seguimiento',
+      columns: [
+        { header: 'Obra', key: 'obra', width: 24 },
+        { header: 'Folio Requisición', key: 'requisicion_folio', width: 18 },
+        { header: 'Código', key: 'insumo_codigo', width: 14 },
+        { header: 'Insumo', key: 'insumo_concepto', width: 32 },
+        { header: 'Categoría', key: 'insumo_categoria', width: 16 },
+        { header: 'Unidad', key: 'unidad', width: 10 },
+        { header: 'Cant. Solicitada', key: 'cantidad_solicitada', width: 16 },
+        { header: 'Folio OC', key: 'oc_folio', width: 16 },
+        { header: 'Cant. Ordenada', key: 'cantidad_ordenada', width: 16 },
+        { header: 'Cant. Recibida', key: 'cantidad_recibida', width: 16 },
+        { header: 'Estatus', key: 'estatus', width: 14 },
+        { header: 'Concepto vinculado', key: 'concepto_vinculado', width: 30 },
+      ],
+      rows,
+    }],
+  });
+}));
+
 // Historial de qué hicieron residente/cabo sobre las requisiciones de esta
 // obra (crear/editar/cambiar estado/eliminar) — pedido explícito de control
 // administrativo. Solo administracion/admin/desarrollador, no residente/cabo

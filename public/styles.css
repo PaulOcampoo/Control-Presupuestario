@@ -1390,6 +1390,24 @@ body.body-scroll-locked { overflow: hidden; }
 }
 .avc-ver-mas { display: block; margin-top: var(--space-4); }
 
+/* Breadcrumb de ruta jerárquica, estilo explorador de archivos
+   (prompt-mejora-breadcrumb-avance.md) — antes un solo <div class="muted
+   fs-078"> con "›" incrustado en el texto, ilegible (0.72rem, .fs-078 gana
+   la cascada sobre .muted por orden de declaración). Segmentos y
+   separador ahora son nodos independientes (armados en app.js) para poder
+   truncar solo los segmentos largos, no la fila completa. */
+.avc-breadcrumb {
+  display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-4);
+  margin-bottom: var(--space-4);
+}
+.avc-breadcrumb-seg {
+  font-size: var(--fs-sm); color: var(--text-secondary);
+  max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.avc-breadcrumb-sep {
+  font-size: var(--fs-base); line-height: 1; color: var(--text-secondary); opacity: 0.85;
+}
+
 /* Candado de presupuesto en Avance (2026-09-08-avance-pagos-oc-finanzas.md,
    Prompt D) — borde rojo en el input mientras el acumulado exceda lo
    presupuestado; el mensaje en sí vive en [data-exceso-msg] (.alert-box.danger

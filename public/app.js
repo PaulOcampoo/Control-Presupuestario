@@ -8724,10 +8724,17 @@ async function openAvanceConceptosModal(avance, presupuestoTotal, puedeEditar = 
     // scripts/backfill-ruta-jerarquica.js) — no bloquea el breadcrumb del
     // resto del grupo.
     const rutaCompleta = groupItems.find((c) => Array.isArray(c.ruta_jerarquica) && c.ruta_jerarquica.length > 1)?.ruta_jerarquica;
-    const breadcrumb = rutaCompleta ? rutaCompleta.slice(0, -1).join(' › ') : '';
+    const segmentosRuta = rutaCompleta ? rutaCompleta.slice(0, -1) : [];
+    // Estilo explorador de archivos (prompt-mejora-breadcrumb-avance.md):
+    // cada segmento y separador es su propio nodo (no un solo string con
+    // "›" incrustado) para poder truncar segmentos largos con ellipsis +
+    // title (tooltip nativo del navegador) sin romper el layout, y darle al
+    // separador más contraste/tamaño que el texto — ver .avc-breadcrumb* en
+    // styles.css.
+    const breadcrumbHtml = segmentosRuta.map((seg, i) => `${i > 0 ? '<span class="avc-breadcrumb-sep" aria-hidden="true">›</span>' : ''}<span class="avc-breadcrumb-seg" title="${esc(seg)}">${esc(seg)}</span>`).join('');
     return `
     <div class="avc-grupo-block" data-grupo-block="${esc(grupo)}">
-      ${breadcrumb ? `<div class="muted fs-078 avc-breadcrumb">${esc(breadcrumb)}</div>` : ''}
+      ${segmentosRuta.length ? `<div class="avc-breadcrumb">${breadcrumbHtml}</div>` : ''}
       <h3 class="section-title mt14-mb8">${esc(grupo)}</h3>
       ${groupItems.map((c) => {
         const pendientes = c.insumos_pendientes || [];

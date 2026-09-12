@@ -9606,6 +9606,68 @@ app.post('/api/projects/:id/almacen/salidas', h(auth.allow('residente', 'cabo'))
   res.status(201).json(rows[0]);
 }));
 
+// Almacén Fase 2 (prompt-almacen-fase2.md): existencias calculadas al vuelo
+// (entradas − salidas por insumo), nunca persistidas — mismo patrón que
+// Avance Físico/Corte de Obra. Fase 0 de este prompt confirmó por código que
+// costo_unitario NO estaba realmente restringido en /almacen/entradas pese a
+// asumirse resuelto en Fase 1; decisión de producto para esta vista: solo
+// compras/admin/desarrollador ven valor_estimado, residente/cabo solo
+// cantidades — el campo se omite de la respuesta para esos roles, no solo se
+// oculta en frontend. valor_estimado usa costo promedio ponderado de todas
+// las entradas históricas del insumo (no hay costeo FIFO/LIFO en el sistema).
+// existencia_actual < 0 se marca (`inconsistente: true`) sin bloquear nada —
+// confirmado por código que POST /almacen/salidas no valida contra
+// existencia disponible.
+app.get('/api/projects/:id/almacen/existencias', h(auth.allow(...ALMACEN_ROLES_VER)), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('almacen_entradas', 'puede_ver')), h(auth.checkPermiso('almacen_salidas', 'puede_ver')), h(async (req, res) => {
+  const puedeVerCosto = ['admin', 'desarrollador', 'compras'].includes(req.user.puesto);
+  const { rows } = await db.pool.query(`
+    WITH movs AS (
+      SELECT insumo_id FROM almacen_entradas WHERE project_id = $1 AND activo = 1
+      UNION
+      SELECT insumo_id FROM almacen_salidas WHERE project_id = $1 AND activo = 1
+    ),
+    ent AS (
+      SELECT insumo_id, SUM(cantidad) AS total_entradas, SUM(cantidad * costo_unitario) AS valor_entradas
+      FROM almacen_entradas WHERE project_id = $1 AND activo = 1 GROUP BY insumo_id
+    ),
+    sal AS (
+      SELECT insumo_id, SUM(cantidad) AS total_salidas
+      FROM almacen_salidas WHERE project_id = $1 AND activo = 1 GROUP BY insumo_id
+    )
+    SELECT i.id AS insumo_id, i.codigo AS insumo_codigo, i.concepto AS insumo_concepto,
+           i.unidad, i.categoria,
+           COALESCE(ent.total_entradas, 0) AS total_entradas,
+           COALESCE(sal.total_salidas, 0) AS total_salidas,
+           COALESCE(ent.valor_entradas, 0) AS valor_entradas
+    FROM movs m
+    JOIN insumos i ON i.id = m.insumo_id
+    LEFT JOIN ent ON ent.insumo_id = m.insumo_id
+    LEFT JOIN sal ON sal.insumo_id = m.insumo_id
+    ORDER BY i.concepto, i.id
+  `, [req.project.id]);
+
+  const resultado = rows.map((r) => {
+    const totalEntradas = Number(r.total_entradas);
+    const totalSalidas = Number(r.total_salidas);
+    const existenciaActual = totalEntradas - totalSalidas;
+    const costoPromedio = totalEntradas > 0 ? Number(r.valor_entradas) / totalEntradas : 0;
+    const out = {
+      insumo_id: r.insumo_id,
+      insumo_codigo: r.insumo_codigo,
+      insumo_concepto: r.insumo_concepto,
+      unidad: r.unidad,
+      categoria: r.categoria,
+      total_entradas: totalEntradas,
+      total_salidas: totalSalidas,
+      existencia_actual: existenciaActual,
+      inconsistente: existenciaActual < 0,
+    };
+    if (puedeVerCosto) out.valor_estimado = existenciaActual * costoPromedio;
+    return out;
+  });
+  res.json(resultado);
+}));
+
 // ---------------------------------------------------------------------------
 // Pagos a proveedor — lectura para residente/admin, alta/baja solo admin
 // (mismo patrón que proveedores). No bloquea sobre-pago, solo advierte.

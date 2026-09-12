@@ -24458,15 +24458,47 @@ function puedeCrearSalidaAlmacen() { return !!state.user && (isAdmin() || ['resi
 
 let almacenEntradasRaw = [];
 let almacenSalidasRaw = [];
+let almacenExistenciasRaw = [];
+let almacenSubView = 'movimientos';
+let almacenView = null;
+
+// puedeVerCostoAlmacen: decisión de producto de Fase 2 (prompt-almacen-
+// fase2.md) — solo compras/admin/desarrollador ven valor_estimado en
+// Existencias; residente/cabo solo cantidades. El backend ya omite el campo
+// para esos roles (server/app.js, GET .../almacen/existencias); este gate
+// solo evita pintar una columna que nunca llegaría con datos.
+function puedeVerCostoAlmacen() { return !!state.user && (isAdmin() || effectivePuesto() === 'compras'); }
+
+function renderAlmacenSubNav() {
+  return `
+    <div class="nominas-subnav">
+      <button class="btn ${almacenSubView === 'movimientos' ? 'btn-primary' : ''}" id="btnAlmacenSubMovimientos">Entradas y salidas</button>
+      <button class="btn ${almacenSubView === 'existencias' ? 'btn-primary' : ''}" id="btnAlmacenSubExistencias">Existencias</button>
+    </div>
+  `;
+}
+function bindAlmacenSubNav() {
+  $('#btnAlmacenSubMovimientos').addEventListener('click', showAlmacenMovimientos);
+  $('#btnAlmacenSubExistencias').addEventListener('click', showAlmacenExistencias);
+}
 
 async function renderAlmacen(view) {
   if (!puedeVerAlmacen()) {
     view.innerHTML = `<div class="alert-box danger">⚠️ No tienes permiso para ver esta sección.</div>`;
     return;
   }
+  almacenView = view;
+  if (almacenSubView === 'existencias') await showAlmacenExistencias();
+  else await showAlmacenMovimientos();
+}
+
+async function showAlmacenMovimientos() {
+  almacenSubView = 'movimientos';
+  const view = almacenView;
   view.innerHTML = `
     <h2 class="section-title">Almacén</h2>
-    <p class="muted">Bitácora de entradas y salidas de material. Sin existencias en tiempo real ni conciliación contra presupuesto todavía.</p>
+    <p class="muted">Bitácora de entradas y salidas de material. Existencias calculadas en la sub-vista "Existencias".</p>
+    ${renderAlmacenSubNav()}
 
     <div class="row items-center mt-16">
       <h3 class="m-0">Entradas</h3>
@@ -24480,9 +24512,118 @@ async function renderAlmacen(view) {
     </div>
     <div id="almacenSalidasList"><div class="empty-state">Cargando…</div></div>
   `;
+  bindAlmacenSubNav();
   $('#btnNuevaEntradaAlmacen')?.addEventListener('click', () => openEntradaAlmacenModal(loadAlmacenEntradas));
   $('#btnNuevaSalidaAlmacen')?.addEventListener('click', () => openSalidaAlmacenModal(loadAlmacenSalidas));
   await Promise.all([loadAlmacenEntradas(), loadAlmacenSalidas()]);
+}
+
+async function showAlmacenExistencias() {
+  almacenSubView = 'existencias';
+  const view = almacenView;
+  view.innerHTML = `
+    <h2 class="section-title">Almacén</h2>
+    <p class="muted">Existencia actual por insumo (Entradas − Salidas), calculada al vuelo. Sin conciliación contra presupuesto todavía.</p>
+    ${renderAlmacenSubNav()}
+    <div id="almacenExistenciasBody"><div class="empty-state">Cargando…</div></div>
+  `;
+  bindAlmacenSubNav();
+  await loadAlmacenExistencias();
+}
+
+async function loadAlmacenExistencias() {
+  const body = $('#almacenExistenciasBody');
+  if (!body) return;
+  try {
+    almacenExistenciasRaw = await api(`/projects/${state.projectId}/almacen/existencias`);
+    paintAlmacenExistencias();
+  } catch (err) {
+    body.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+  }
+}
+
+function paintAlmacenExistencias() {
+  const body = $('#almacenExistenciasBody');
+  if (!body) return;
+  const items = almacenExistenciasRaw;
+  const verCosto = puedeVerCostoAlmacen();
+  const numInconsistentes = items.filter((i) => i.inconsistente).length;
+  const valorTotal = verCosto ? items.reduce((acc, i) => acc + (Number(i.valor_estimado) || 0), 0) : null;
+
+  if (!items.length) {
+    body.innerHTML = `<div class="empty-state">Aún no hay movimientos de almacén en esta obra.</div>`;
+    return;
+  }
+
+  body.innerHTML = `
+    <div class="kpi-grid">
+      <div class="kpi accent"><div class="label">Insumos con movimiento</div><div class="value">${items.length}</div></div>
+      <div class="kpi ${numInconsistentes ? 'red' : 'green'}"><div class="label">Existencias negativas</div><div class="value">${numInconsistentes}</div></div>
+      ${verCosto ? `<div class="kpi"><div class="label">Valor estimado en existencia</div><div class="value">${fmtMoney(valorTotal)}</div></div>` : ''}
+    </div>
+    <div class="search-bar-fancy" id="existSearchWrap">
+      <span class="search-icon">🔍</span>
+      <input id="existSearchInput" placeholder="Buscar por insumo o código…" autocomplete="off" />
+      <button type="button" class="search-clear" id="btnClearExistSearch" title="Limpiar búsqueda">✕</button>
+    </div>
+    <div id="existTableWrap"></div>
+  `;
+
+  const tableWrap = $('#existTableWrap');
+
+  function pintarTabla(rows) {
+    if (!rows.length) {
+      tableWrap.innerHTML = `<div class="empty-state">Sin resultados.</div>`;
+      return;
+    }
+    tableWrap.innerHTML = `
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>Insumo</th><th>Categoría</th><th>Unidad</th>
+              <th class="num">Total entradas</th><th class="num">Total salidas</th>
+              <th class="num">Existencia actual</th>
+              ${verCosto ? '<th class="num">Valor estimado</th>' : ''}
+            </tr>
+          </thead>
+          <tbody>
+            ${rows.map((i) => `
+              <tr class="${i.inconsistente ? 'danger' : ''}">
+                <td>${esc(i.insumo_codigo ? `${i.insumo_codigo} — ` : '')}${esc(i.insumo_concepto)}</td>
+                <td>${esc(i.categoria || '—')}</td>
+                <td>${esc(i.unidad || '—')}</td>
+                <td class="num">${fmtNum(i.total_entradas)}</td>
+                <td class="num">${fmtNum(i.total_salidas)}</td>
+                <td class="num">
+                  ${fmtNum(i.existencia_actual)}
+                  ${i.inconsistente ? ' <span class="badge red" title="Salidas superan a Entradas — revisar captura">⚠️ negativa</span>' : ''}
+                </td>
+                ${verCosto ? `<td class="num">${fmtMoney(i.valor_estimado)}</td>` : ''}
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+    `;
+  }
+
+  function aplicarExistFiltro(raw) {
+    const q = raw.trim();
+    $('#existSearchWrap').classList.toggle('has-value', !!q);
+    if (!q) { pintarTabla(items); return; }
+    const norm = normalizarTexto(q);
+    const filtrados = items.filter((i) => normalizarTexto(`${i.insumo_codigo || ''} ${i.insumo_concepto || ''}`).includes(norm));
+    pintarTabla(filtrados);
+  }
+
+  pintarTabla(items);
+  $('#existSearchInput').addEventListener('input', (e) => aplicarExistFiltro(e.target.value));
+  $('#btnClearExistSearch').addEventListener('click', () => {
+    $('#existSearchInput').value = '';
+    aplicarExistFiltro('');
+    $('#existSearchInput').focus();
+  });
 }
 
 async function loadAlmacenEntradas() {

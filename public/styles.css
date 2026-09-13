@@ -1408,6 +1408,44 @@ body.body-scroll-locked { overflow: hidden; }
   font-size: var(--fs-base); line-height: 1; color: var(--text-secondary); opacity: 0.85;
 }
 
+/* Separación entre bloques de sección (prompt-navegacion-secciones-avance.md)
+   — sin esto, el breadcrumb+<h3> de una sección nueva queda pegado a la
+   última tarjeta de la sección anterior: .avc-row:last-child (arriba)
+   elimina su padding/margin/border inferior a propósito (para no dejar un
+   borde colgante al final del grupo), pero eso deja el bloque siguiente sin
+   ningún espacio antes de él. La primera sección no lleva este espacio ni
+   borde extra porque no hay nada arriba con qué separarse. */
+.avc-grupo-block:not(:first-child) {
+  margin-top: var(--space-24);
+  padding-top: var(--space-16);
+  border-top: 1px solid var(--border-color);
+}
+
+/* Encabezado de sección clicable para colapsar/expandir (punto 3 del mismo
+   prompt) — el chevron gira con la clase .is-collapsed, y el contenido se
+   oculta con display:none (.avc-collapsed) SIN desmontar el DOM, para no
+   perder valores ya tecleados en "Ejecutado este periodo" de esa sección. */
+.avc-grupo-toggle {
+  display: flex; align-items: center; gap: var(--space-6);
+  cursor: pointer; user-select: none;
+}
+.avc-grupo-toggle:hover { color: var(--text-primary); }
+.avc-chevron {
+  display: inline-block; font-size: var(--fs-sm);
+  transition: transform 0.15s ease;
+}
+.avc-grupo-toggle.is-collapsed .avc-chevron { transform: rotate(-90deg); }
+.avc-grupo-items.avc-collapsed { display: none; }
+
+/* Selector "Ir a sección" (mismo prompt) — barra separada de los chips de
+   filtro (.chip-row / #avcGrupoChips ya existentes, que ocultan secciones)
+   porque esta es pura navegación: nunca oculta contenido, solo hace scroll. */
+.avc-jump-row {
+  display: flex; align-items: center; gap: var(--space-8); flex-wrap: wrap;
+}
+.avc-jump-row label { font-size: var(--fs-sm); color: var(--text-secondary); white-space: nowrap; }
+.avc-jump-row select { max-width: 100%; }
+
 /* Candado de presupuesto en Avance (2026-09-08-avance-pagos-oc-finanzas.md,
    Prompt D) — borde rojo en el input mientras el acumulado exceda lo
    presupuestado; el mensaje en sí vive en [data-exceso-msg] (.alert-box.danger

@@ -8703,6 +8703,13 @@ async function openAvanceConceptosModal(avance, presupuestoTotal, puedeEditar = 
       <div class="chip-row" id="avcGrupoChips">
         <button type="button" class="chip active" data-grupo="">Todos</button>
         ${gruposUnicos.map((g) => `<button type="button" class="chip" data-grupo="${esc(g)}">${esc(g)}</button>`).join('')}
+      </div>
+      <div class="avc-jump-row mt-6">
+        <label for="avcJump">Ir a sección</label>
+        <select id="avcJump">
+          <option value="">Seleccionar…</option>
+          ${gruposUnicos.map((g) => `<option value="${esc(g)}">${esc(g)}</option>`).join('')}
+        </select>
       </div>` : ''}
       <div class="a11y-switch mt-6">
         <span class="a11y-switch-label">Solo pendientes por capturar</span>
@@ -8735,7 +8742,10 @@ async function openAvanceConceptosModal(avance, presupuestoTotal, puedeEditar = 
     return `
     <div class="avc-grupo-block" data-grupo-block="${esc(grupo)}">
       ${segmentosRuta.length ? `<div class="avc-breadcrumb">${breadcrumbHtml}</div>` : ''}
-      <h3 class="section-title mt14-mb8">${esc(grupo)}</h3>
+      <h3 class="section-title mt14-mb8 avc-grupo-toggle" data-toggle-grupo="${esc(grupo)}" aria-expanded="true">
+        <span class="avc-chevron" aria-hidden="true">▾</span>${esc(grupo)}
+      </h3>
+      <div class="avc-grupo-items" data-grupo-items="${esc(grupo)}">
       ${groupItems.map((c) => {
         const pendientes = c.insumos_pendientes || [];
         const bloqueado = pendientes.length > 0;
@@ -8764,6 +8774,7 @@ async function openAvanceConceptosModal(avance, presupuestoTotal, puedeEditar = 
       </div>
       `;
       }).join('')}
+      </div>
     </div>
   `;
   }).join('');
@@ -8859,13 +8870,50 @@ async function openAvanceConceptosModal(avance, presupuestoTotal, puedeEditar = 
     aplicarFiltrosAvc();
   });
   $('#avcSoloPendientes').addEventListener('change', aplicarFiltrosAvc);
+
+  // Colapsar/expandir por sección (prompt-navegacion-secciones-avance.md) —
+  // estado solo en memoria de este cierre del modal (no persiste al cerrar y
+  // reabrir, no es requisito). display:none nunca desmonta [data-cantidad],
+  // así que un valor tecleado en "Ejecutado este periodo" sobrevive a
+  // colapsar/expandir la sección las veces que sea.
+  const gruposColapsados = new Set();
+  const setGrupoColapsado = (grupo, colapsado) => {
+    if (colapsado) gruposColapsados.add(grupo); else gruposColapsados.delete(grupo);
+    const itemsEl = $$('[data-grupo-items]').find((el) => el.dataset.grupoItems === grupo);
+    const toggleEl = $$('[data-toggle-grupo]').find((el) => el.dataset.toggleGrupo === grupo);
+    itemsEl?.classList.toggle('avc-collapsed', colapsado);
+    toggleEl?.classList.toggle('is-collapsed', colapsado);
+    toggleEl?.setAttribute('aria-expanded', String(!colapsado));
+  };
+
   $('#avcList').addEventListener('click', (e) => {
-    const btn = e.target.closest('[data-toggle-desc]');
-    if (!btn) return;
-    const title = btn.previousElementSibling;
-    const debeClamparse = !title.classList.contains('avc-clamp');
-    title.classList.toggle('avc-clamp', debeClamparse);
-    btn.textContent = debeClamparse ? 'Ver más' : 'Ver menos';
+    const descBtn = e.target.closest('[data-toggle-desc]');
+    if (descBtn) {
+      const title = descBtn.previousElementSibling;
+      const debeClamparse = !title.classList.contains('avc-clamp');
+      title.classList.toggle('avc-clamp', debeClamparse);
+      descBtn.textContent = debeClamparse ? 'Ver más' : 'Ver menos';
+      return;
+    }
+    const toggleGrupo = e.target.closest('[data-toggle-grupo]');
+    if (toggleGrupo) {
+      const grupo = toggleGrupo.dataset.toggleGrupo;
+      setGrupoColapsado(grupo, !gruposColapsados.has(grupo));
+    }
+  });
+
+  // Selector "Ir a sección" (mismo prompt) — scroll suave directo al inicio
+  // del bloque; si estaba colapsada la expande primero para que el salto
+  // no aterrice en un encabezado sin contenido visible debajo.
+  $('#avcJump')?.addEventListener('change', (e) => {
+    const grupo = e.target.value;
+    if (!grupo) return;
+    const block = $$('[data-grupo-block]').find((el) => el.dataset.grupoBlock === grupo);
+    if (block) {
+      setGrupoColapsado(grupo, false);
+      block.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+    e.target.value = '';
   });
 
   $('#avcSummary').classList.remove('hidden-initial'); // ver .hidden-initial en styles.css

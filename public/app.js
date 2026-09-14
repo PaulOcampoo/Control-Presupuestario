@@ -8679,11 +8679,20 @@ async function openAvanceConceptosModal(avance, presupuestoTotal, puedeEditar = 
     return;
   }
 
+  // Clave de agrupación por ruta_jerarquica completa, no por c.grupo (último
+  // segmento) — ver prompt-diagnostico-breadcrumb-movil.md: el mismo nombre
+  // de nivel (ej. una calle) puede repetirse idéntico bajo padres distintos
+  // (ej. la misma calle bajo "RED DE DISTRIBUCION", "RED SANITARIA" y "RED
+  // PLUVIAL"), y agrupar solo por c.grupo colapsaba esas partidas en un solo
+  // bloque sin separador. Fallback a c.grupo solo si ruta_jerarquica no está
+  // poblada (concepto no backfillado) — mismo comportamiento tolerante que
+  // tenía el código anterior para ese caso raro.
   const groups = new Map();
   items.forEach((c) => {
-    const key = c.grupo || 'General';
-    if (!groups.has(key)) groups.set(key, []);
-    groups.get(key).push(c);
+    const ruta = Array.isArray(c.ruta_jerarquica) && c.ruta_jerarquica.length ? c.ruta_jerarquica : null;
+    const key = ruta ? ruta.join('␟') : (c.grupo || 'General');
+    if (!groups.has(key)) groups.set(key, { label: c.grupo || 'General', ruta, items: [] });
+    groups.get(key).items.push(c);
   });
 
   // Buscador + filtro de grupo + toggle "solo pendientes" (prompt-mejora-
@@ -8693,7 +8702,11 @@ async function openAvanceConceptosModal(avance, presupuestoTotal, puedeEditar = 
   // sticky roto en iOS Safari. Puramente cliente: filtra ocultando filas
   // (.hidden-initial), nunca re-renderiza #avcList, para no perder valores
   // ya tecleados en otros conceptos mientras se busca/filtra.
-  const gruposUnicos = [...groups.keys()];
+  // gruposUnicos: {key, label} — key identifica la ruta_jerarquica completa
+  // (única por sección real), label es el nombre legible (c.grupo) que se
+  // muestra en el chip/opción. Dos secciones distintas pueden compartir label
+  // (ej. la misma calle en dos redes) pero nunca key.
+  const gruposUnicos = [...groups.entries()].map(([key, { label }]) => ({ key, label }));
   $('#avcFiltros').innerHTML = `
     <div class="avc-sticky-bar">
       <div class="search-bar">
@@ -8702,13 +8715,13 @@ async function openAvanceConceptosModal(avance, presupuestoTotal, puedeEditar = 
       ${gruposUnicos.length > 1 ? `
       <div class="chip-row" id="avcGrupoChips">
         <button type="button" class="chip active" data-grupo="">Todos</button>
-        ${gruposUnicos.map((g) => `<button type="button" class="chip" data-grupo="${esc(g)}">${esc(g)}</button>`).join('')}
+        ${gruposUnicos.map((g) => `<button type="button" class="chip" data-grupo="${esc(g.key)}">${esc(g.label)}</button>`).join('')}
       </div>
       <div class="avc-jump-row mt-6">
         <label for="avcJump">Ir a sección</label>
         <select id="avcJump">
           <option value="">Seleccionar…</option>
-          ${gruposUnicos.map((g) => `<option value="${esc(g)}">${esc(g)}</option>`).join('')}
+          ${gruposUnicos.map((g) => `<option value="${esc(g.key)}">${esc(g.label)}</option>`).join('')}
         </select>
       </div>` : ''}
       <div class="a11y-switch mt-6">
@@ -8721,17 +8734,15 @@ async function openAvanceConceptosModal(avance, presupuestoTotal, puedeEditar = 
     </div>
   `;
 
-  $('#avcList').innerHTML = [...groups.entries()].map(([grupo, groupItems]) => {
+  $('#avcList').innerHTML = [...groups.entries()].map(([key, { label, ruta, items: groupItems }]) => {
     // Breadcrumb compacto de niveles superiores (prompt-ruta-jerarquica-
     // conceptos.md) — todo menos el último elemento de ruta_jerarquica (que
-    // ya es el propio `grupo`, mostrado arriba en el <h3> grande). Se toma
-    // del primer item con ruta_jerarquica disponible: dentro de un mismo
-    // grupo todos comparten la misma ruta salvo el caso raro y ya
-    // documentado de un concepto omitido en el backfill retroactivo (ver
-    // scripts/backfill-ruta-jerarquica.js) — no bloquea el breadcrumb del
-    // resto del grupo.
-    const rutaCompleta = groupItems.find((c) => Array.isArray(c.ruta_jerarquica) && c.ruta_jerarquica.length > 1)?.ruta_jerarquica;
-    const segmentosRuta = rutaCompleta ? rutaCompleta.slice(0, -1) : [];
+    // ya es el propio `label`, mostrado arriba en el <h3> grande). `ruta` ya
+    // es la ruta real de ESTE grupo (misma para todos sus items, porque la
+    // clave del Map ahora es la ruta completa — ver derivación de `key` más
+    // arriba), no la del "primer item visto" de un grupo potencialmente
+    // mezclado.
+    const segmentosRuta = ruta ? ruta.slice(0, -1) : [];
     // Estilo explorador de archivos (prompt-mejora-breadcrumb-avance.md):
     // cada segmento y separador es su propio nodo (no un solo string con
     // "›" incrustado) para poder truncar segmentos largos con ellipsis +
@@ -8740,18 +8751,18 @@ async function openAvanceConceptosModal(avance, presupuestoTotal, puedeEditar = 
     // styles.css.
     const breadcrumbHtml = segmentosRuta.map((seg, i) => `${i > 0 ? '<span class="avc-breadcrumb-sep" aria-hidden="true">›</span>' : ''}<span class="avc-breadcrumb-seg" title="${esc(seg)}">${esc(seg)}</span>`).join('');
     return `
-    <div class="avc-grupo-block" data-grupo-block="${esc(grupo)}">
+    <div class="avc-grupo-block" data-grupo-block="${esc(key)}">
       ${segmentosRuta.length ? `<div class="avc-breadcrumb">${breadcrumbHtml}</div>` : ''}
-      <h3 class="section-title mt14-mb8 avc-grupo-toggle" data-toggle-grupo="${esc(grupo)}" aria-expanded="true">
-        <span class="avc-chevron" aria-hidden="true">▾</span>${esc(grupo)}
+      <h3 class="section-title mt14-mb8 avc-grupo-toggle" data-toggle-grupo="${esc(key)}" aria-expanded="true">
+        <span class="avc-chevron" aria-hidden="true">▾</span>${esc(label)}
       </h3>
-      <div class="avc-grupo-items" data-grupo-items="${esc(grupo)}">
+      <div class="avc-grupo-items" data-grupo-items="${esc(key)}">
       ${groupItems.map((c) => {
         const pendientes = c.insumos_pendientes || [];
         const bloqueado = pendientes.length > 0;
         const esLarga = (c.concepto || '').length > 90;
         return `
-      <div class="req-item-row avc-row" data-avc-row data-grupo="${esc(grupo)}" data-search="${esc(normalizarTexto(`${c.codigo || ''} ${c.concepto || ''}`))}">
+      <div class="req-item-row avc-row" data-avc-row data-grupo="${esc(key)}" data-search="${esc(normalizarTexto(`${c.codigo || ''} ${c.concepto || ''}`))}">
         <div class="fw600-fs086 avc-concepto-title${esLarga ? ' avc-clamp' : ''}" data-concepto-title>${esc(c.concepto)}</div>
         ${esLarga ? '<button type="button" class="link-btn avc-ver-mas" data-toggle-desc>Ver más</button>' : ''}
         <div class="code muted">${esc(c.codigo)} · presup: ${fmtNum(c.cantidad_presupuesto, 3)} ${esc(c.unidad || '')} a ${fmtMoney(c.precio_unitario)}/u</div>

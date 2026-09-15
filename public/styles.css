@@ -1455,8 +1455,28 @@ body.body-scroll-locked { overflow: hidden; }
 /* Control por-obra de nivel_ubicacion_jerarquia junto al checklist de
    asignación de obras (mismo prompt) — la fila combina el checkbox de
    asignación (sin cambios) con un <select> de configuración de la OBRA,
-   independiente de si este usuario en particular la tiene marcada. */
-.uproyectos-obra-row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-8); flex-wrap: wrap; }
+   independiente de si este usuario en particular la tiene marcada.
+   prompt-mejora-selector-nivel-usuarios.md: antes era flex-wrap en una sola
+   fila -- con nombres de obra largos el select se caía a su propia línea
+   en unas filas sí y en otras no (según cupiera), sin alineación
+   consistente. Ahora SIEMPRE en columna (checkbox arriba, select abajo en
+   su propia línea completa) en todos los anchos -- un solo patrón, nunca
+   dos comportamientos distintos según el ancho disponible. Separador entre
+   obras (border-bottom) para que el bloque de cada una se distinga del
+   siguiente con 10+ obras en la lista. */
+.uproyectos-obra-row {
+  display: flex; flex-direction: column; gap: var(--space-6);
+  padding-bottom: var(--space-10); margin-bottom: var(--space-10);
+  border-bottom: 1px solid var(--border-color);
+}
+.uproyectos-obra-row:last-child { border-bottom: none; padding-bottom: var(--space-0); margin-bottom: var(--space-0); }
+.uproyectos-nivel-field { padding-left: var(--space-10); max-width: 320px; }
+.uproyectos-nivel-label {
+  display: block; font-size: var(--fs-sm); color: var(--text-secondary); margin-bottom: var(--space-4);
+}
+/* Select/trigger a tamaño cómodo (hereda font-size: var(--fs-base) y el
+   padding estándar de input/select/.custom-select-trigger -- ya consistente
+   con el resto de controles del modal, no hace falta un tamaño especial). */
 
 /* Candado de presupuesto en Avance (2026-09-08-avance-pagos-oc-finanzas.md,
    Prompt D) — borde rojo en el input mientras el acumulado exceda lo

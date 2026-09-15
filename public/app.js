@@ -23,7 +23,7 @@ function nivelUbicacionSelectHtml(idAttr, valorActual) {
   const opciones = Array.from({ length: NIVEL_UBICACION_MAX_NIVELES }, (_, i) => i)
     .map((nivel0) => `<option value="${nivel0}" ${valorActual === nivel0 ? 'selected' : ''}>Nivel ${nivel0 + 1}</option>`)
     .join('');
-  return `<select id="${idAttr}" class="w-auto">
+  return `<select id="${idAttr}">
     <option value="" ${valorActual == null ? 'selected' : ''}>Sin eje de ubicación</option>
     ${opciones}
   </select>`;
@@ -11415,9 +11415,10 @@ async function openUsuarioModal(usuario) {
               <label class="checkbox-row-fw400 checkbox-row-indent">
                 <input type="checkbox" value="${p.id}" class="w-auto" ${selectedProjectIds.has(p.id) ? 'checked' : ''} /> ${esc(p.nombre)}
               </label>
-              <span class="muted fs-08" title="Nivel de ruta_jerarquica que representa Ubicación en esta obra — independiente de si este usuario tiene la obra asignada. Ver prompt-filtro-ubicacion-partida.md.">
+              <div class="uproyectos-nivel-field" title="Nivel de ruta_jerarquica que representa Ubicación en esta obra — independiente de si este usuario tiene la obra asignada. Ver prompt-filtro-ubicacion-partida.md.">
+                <label class="uproyectos-nivel-label" for="uNivelUbic-${p.id}">Nivel de Ubicación</label>
                 ${nivelUbicacionSelectHtml(`uNivelUbic-${p.id}`, p.nivel_ubicacion_jerarquia ?? null)}
-              </span>
+              </div>
             </div>`).join('')}
         </div>`)
       .join('');

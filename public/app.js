@@ -8905,20 +8905,22 @@ async function openAvanceConceptosModal(avance, presupuestoTotal, puedeEditar = 
   // segmentos se pasan según el nivel que lo llama, ver abajo).
   const renderBreadcrumb = (segmentos) => segmentos.map((seg, i) => `${i > 0 ? '<span class="avc-breadcrumb-sep" aria-hidden="true">›</span>' : ''}<span class="avc-breadcrumb-seg" title="${esc(seg)}">${esc(seg)}</span>`).join('');
 
-  // Bloque simple (sin anidar) — comportamiento IDÉNTICO al de antes de
-  // prompt-anidar-partida-en-ubicacion.md: usado para obras sin
-  // nivel_ubicacion_jerarquia (ubicacion siempre null) y para los bloques
-  // con jerarquía ambigua ya excluidos del eje Ubicación/Partida (ver
-  // exclusión más arriba) — deben seguir viéndose exactamente igual.
+  // Bloque simple (sin anidar) — usado para obras sin nivel_ubicacion_
+  // jerarquia (ubicacion siempre null) y para los bloques con jerarquía
+  // ambigua ya excluidos del eje Ubicación/Partida (ver exclusión más
+  // arriba). prompt-todo-colapsado-avance.md: ya NO es un caso especial
+  // que se queda expandido -- mismo tratamiento colapsado-por-default que
+  // el resto, para que la vista inicial sea siempre una lista corta de
+  // títulos sin excepciones.
   const renderBloqueSimple = ([key, { label, ruta, items: groupItems, ubicacion, partida }]) => {
     const segmentosRuta = ruta ? ruta.slice(0, -1) : [];
     return `
     <div class="avc-grupo-block" data-grupo-block="${esc(key)}">
       ${segmentosRuta.length ? `<div class="avc-breadcrumb">${renderBreadcrumb(segmentosRuta)}</div>` : ''}
-      <h3 class="section-title mt14-mb8 avc-grupo-toggle" data-toggle-grupo="${esc(key)}" aria-expanded="true">
+      <h3 class="section-title mt14-mb8 avc-grupo-toggle is-collapsed" data-toggle-grupo="${esc(key)}" aria-expanded="false">
         <span class="avc-chevron" aria-hidden="true">▾</span>${esc(label)}
       </h3>
-      <div class="avc-grupo-items" data-grupo-items="${esc(key)}">
+      <div class="avc-grupo-items avc-collapsed" data-grupo-items="${esc(key)}">
         ${renderFilas(groupItems, key, ubicacion, partida)}
       </div>
     </div>
@@ -8933,13 +8935,18 @@ async function openAvanceConceptosModal(avance, presupuestoTotal, puedeEditar = 
   // que está POR ENCIMA de la Partida (la Partida misma ya es el propio
   // encabezado del sub-bloque, y la Ubicación ya es el encabezado del nivel
   // 1 -- repetir cualquiera de las dos en el breadcrumb sería redundante).
-  const renderSubbloquePartida = ([key, { ruta, items: groupItems, ubicacion, partida }]) => {
+  // `label` como fallback del encabezado (prompt-todo-colapsado-avance.md):
+  // reusado también para anidar visualmente los bloques ambiguos dentro de
+  // su Ubicación aparente -- ahí `partida` es null (siguen excluidos del
+  // filtro Ubicación/Partida) pero sí tienen `label` (el nombre del grupo,
+  // ej. "DESCARGAS SANITARIAS").
+  const renderSubbloquePartida = ([key, { label, ruta, items: groupItems, ubicacion, partida }]) => {
     const segmentosSobrePartida = ruta ? ruta.slice(0, Math.max(0, nivelUbicacion - 1)) : [];
     return `
     <div class="avc-partida-subblock" data-grupo-block="${esc(key)}">
       ${segmentosSobrePartida.length ? `<div class="avc-breadcrumb">${renderBreadcrumb(segmentosSobrePartida)}</div>` : ''}
       <h4 class="avc-partida-toggle avc-grupo-toggle is-collapsed" data-toggle-grupo="${esc(key)}" aria-expanded="false">
-        <span class="avc-chevron" aria-hidden="true">▾</span>${esc(partida || '')}
+        <span class="avc-chevron" aria-hidden="true">▾</span>${esc(partida || label || '')}
       </h4>
       <div class="avc-grupo-items avc-collapsed" data-grupo-items="${esc(key)}">
         ${renderFilas(groupItems, key, ubicacion, partida)}
@@ -8949,10 +8956,9 @@ async function openAvanceConceptosModal(avance, presupuestoTotal, puedeEditar = 
   };
 
   // Reparte los grupos ya calculados en: bloques agrupables por Ubicación
-  // (nivel 1 nuevo) vs. bloques simples (ubicacion null -- obra sin eje
-  // configurado, o bloque ambiguo excluido). Sin nivel_ubicacion_jerarquia,
-  // TODOS caen en bloquesSimples -- comportamiento anterior preservado
-  // exactamente, sin ninguna rama nueva involucrada.
+  // (nivel 1) vs. bloques simples (ubicacion null -- obra sin eje
+  // configurado, o bloque ambiguo excluido del filtro). Sin
+  // nivel_ubicacion_jerarquia, TODOS caen en bloquesSimples.
   const ubicacionGroups = new Map(); // ubicacion -> [[key, g], ...] en orden de aparición
   const bloquesSimples = [];
   groups.forEach((g, key) => {
@@ -8964,29 +8970,51 @@ async function openAvanceConceptosModal(avance, presupuestoTotal, puedeEditar = 
     }
   });
 
-  // Default expandido/colapsado del nivel 1 (Stop Condition del prompt,
-  // resuelta con Paul: automático según cuántas Ubicaciones tenga la obra —
-  // pocas se ven de un vistazo sin saturar, muchas arrancan colapsadas para
-  // no abrumar con "N ubicaciones × M partidas cada una" de entrada).
-  const UBICACION_AUTO_EXPAND_MAX = 4;
-  const ubicacionExpandidaPorDefault = ubicacionesUnicas.length > 0 && ubicacionesUnicas.length <= UBICACION_AUTO_EXPAND_MAX;
+  // prompt-todo-colapsado-avance.md: los bloques ambiguos (ubicacion null,
+  // excluidos del filtro por jerarquía no confiable -- ver exclusión más
+  // arriba) aparecían sueltos a nivel superior, aunque su breadcrumb sí
+  // mencionaba una calle real -- confuso, parecía que esa calle estaba
+  // "duplicada y dispersa" por la obra. Ahora se anidan visualmente DENTRO
+  // del bloque de esa misma Ubicación (segmento inmediato padre de su ruta,
+  // el mismo que ya usa labelDesambiguado para el chip/dropdown), como una
+  // sub-sección colapsable más junto a las Partidas normales -- SOLO
+  // reordenamiento visual, `ubicacion`/`partida` siguen null, así que
+  // jamás participan del filtro Ubicación/Partida ni de sus chips.
+  // Stop Condition del prompt: si el nombre padre no calza EXACTO con
+  // ninguna Ubicación real, no se inventa dónde anidarlo -- se queda como
+  // bloque simple suelto de siempre (fallback seguro, sin perder el bloque).
+  const bloquesSimplesResiduales = [];
+  bloquesSimples.forEach(([key, g]) => {
+    const ubicacionAparente = Array.isArray(g.ruta) && g.ruta.length >= 2 ? g.ruta[g.ruta.length - 2] : null;
+    if (ubicacionAparente && ubicacionGroups.has(ubicacionAparente)) {
+      ubicacionGroups.get(ubicacionAparente).push([key, g]);
+    } else {
+      bloquesSimplesResiduales.push([key, g]);
+    }
+  });
 
+  // prompt-todo-colapsado-avance.md: se quita el umbral automático por
+  // cantidad de Ubicaciones (PR #252) -- no resolvía el problema real, que
+  // es el VOLUMEN de contenido (pocas Ubicaciones con muchas Partidas/
+  // conceptos largos igual generaban una pantalla larguísima). Nivel 1
+  // ahora arranca colapsado siempre, sin excepción -- misma regla simple
+  // que ya rige nivel 2 desde PR #253 y los bloques simples/ambiguos desde
+  // este mismo prompt.
   const ubicacionesHtml = ubicacionesUnicas.map((ubicacion) => {
     const secciones = ubicacionGroups.get(ubicacion) || [];
-    const colapsadoInicial = !ubicacionExpandidaPorDefault;
     return `
     <div class="avc-ubicacion-block" data-ubicacion-block="${esc(ubicacion)}">
-      <h3 class="section-title mt14-mb8 avc-grupo-toggle${colapsadoInicial ? ' is-collapsed' : ''}" data-toggle-ubicacion="${esc(ubicacion)}" aria-expanded="${String(!colapsadoInicial)}">
+      <h3 class="section-title mt14-mb8 avc-grupo-toggle is-collapsed" data-toggle-ubicacion="${esc(ubicacion)}" aria-expanded="false">
         <span class="avc-chevron" aria-hidden="true">▾</span>${esc(ubicacion)}
       </h3>
-      <div class="avc-ubicacion-items${colapsadoInicial ? ' avc-collapsed' : ''}" data-ubicacion-items="${esc(ubicacion)}">
+      <div class="avc-ubicacion-items avc-collapsed" data-ubicacion-items="${esc(ubicacion)}">
         ${secciones.map(renderSubbloquePartida).join('')}
       </div>
     </div>
   `;
   }).join('');
 
-  $('#avcList').innerHTML = ubicacionesHtml + bloquesSimples.map(renderBloqueSimple).join('');
+  $('#avcList').innerHTML = ubicacionesHtml + bloquesSimplesResiduales.map(renderBloqueSimple).join('');
 
   // Candado duro de presupuesto (2026-09-08-avance-pagos-oc-finanzas.md,
   // Prompt D) — mismo mensaje/fórmula que el backend (fuente de verdad,
@@ -9102,11 +9130,13 @@ async function openAvanceConceptosModal(avance, presupuestoTotal, puedeEditar = 
     }
     if ($('#avcSoloPendientes')) $('#avcSoloPendientes').checked = false;
     aplicarFiltrosAvc();
+    sincronizarColapsoConFiltro(); // sin ningún filtro activo: todo vuelve a colapsado (estado de reposo)
   };
 
   $('#avcBuscar').addEventListener('input', (e) => {
     filtroTexto = e.target.value;
     aplicarFiltrosAvc();
+    sincronizarColapsoConFiltro();
   });
   $('#avcGrupoChips')?.addEventListener('click', (e) => {
     const chip = e.target.closest('.chip');
@@ -9114,15 +9144,13 @@ async function openAvanceConceptosModal(avance, presupuestoTotal, puedeEditar = 
     $$('.chip', $('#avcGrupoChips')).forEach((c) => c.classList.remove('active'));
     chip.classList.add('active');
     filtroGrupo = chip.dataset.grupo;
-    // prompt-anidar-partida-en-ubicacion.md: si el chip elegido es una
-    // Ubicación real (no "Todos" ni un bloque ambiguo/sin eje), su bloque de
-    // nivel 1 puede haber arrancado colapsado (ver ubicacionExpandidaPorDefault
-    // más arriba) -- expandirlo para que el filtro no quede "escondido"
-    // detrás de un encabezado colapsado.
-    if (filtroGrupo && ubicacionesUnicas.includes(filtroGrupo)) setUbicacionColapsada(filtroGrupo, false);
     aplicarFiltrosAvc();
+    sincronizarColapsoConFiltro();
   });
-  $('#avcSoloPendientes').addEventListener('change', aplicarFiltrosAvc);
+  $('#avcSoloPendientes').addEventListener('change', () => {
+    aplicarFiltrosAvc();
+    sincronizarColapsoConFiltro();
+  });
 
   // Ubicación→Partida (prompt-filtro-ubicacion-partida.md): elegir Ubicación
   // repuebla el sub-select de Partida solo con las partidas que realmente
@@ -9138,10 +9166,12 @@ async function openAvanceConceptosModal(avance, presupuestoTotal, puedeEditar = 
     partidaSel.innerHTML = `<option value="">Todas las partidas</option>${partidas.map((p) => `<option value="${esc(p)}">${esc(p)}</option>`).join('')}`;
     partidaSel.disabled = !filtroUbicacion;
     aplicarFiltrosAvc();
+    sincronizarColapsoConFiltro();
   });
   $('#avcFiltroPartida')?.addEventListener('change', (e) => {
     filtroPartida = e.target.value;
     aplicarFiltrosAvc();
+    sincronizarColapsoConFiltro();
   });
 
   // Colapsar/expandir por sección (prompt-navegacion-secciones-avance.md) —
@@ -9150,16 +9180,13 @@ async function openAvanceConceptosModal(avance, presupuestoTotal, puedeEditar = 
   // así que un valor tecleado en "Ejecutado este periodo" sobrevive a
   // colapsar/expandir la sección las veces que sea.
   //
-  // prompt-fix-dropdown-y-chips-avance.md: nivel 2 (Partida) arranca
-  // colapsado por default -- pendiente real de la petición original de
-  // Paul que PR #252 nunca implementó (renderSubbloquePartida seguía
-  // marcando aria-expanded="true" a mano). Pre-poblar el Set con las claves
-  // de TODOS los sub-bloques de Partida anidados (no las de bloques
-  // simples/ambiguos, que siguen expandidos por default sin cambios) para
-  // que el primer toggle manual sobre cualquiera de ellos parta de un
-  // estado consistente con lo ya renderizado.
-  const clavesPartidaAnidada = [...ubicacionGroups.values()].flat().map(([key]) => key);
-  const gruposColapsados = new Set(clavesPartidaAnidada);
+  // prompt-todo-colapsado-avance.md: TODO arranca colapsado sin excepciones
+  // -- Partidas normales, bloques ambiguos ya anidados (ambos viven en
+  // ubicacionGroups) Y bloques simples residuales (obras sin eje, o
+  // ambiguos sin Ubicación aparente que calce). Pre-poblar con TODAS las
+  // keys de `groups` para que el primer toggle manual sobre cualquiera
+  // parta de un estado consistente con lo ya renderizado.
+  const gruposColapsados = new Set(groups.keys());
   const setGrupoColapsado = (grupo, colapsado) => {
     if (colapsado) gruposColapsados.add(grupo); else gruposColapsados.delete(grupo);
     const itemsEl = $$('[data-grupo-items]').find((el) => el.dataset.grupoItems === grupo);
@@ -9174,11 +9201,11 @@ async function openAvanceConceptosModal(avance, presupuestoTotal, puedeEditar = 
   // clase, nunca desmonta el DOM), en un Set y unos data-attributes
   // separados (data-toggle-ubicacion/data-ubicacion-items) para no
   // interferir con el colapso de nivel 2 de cada Partida dentro.
-  // ubicacionesColapsadas arranca pre-poblado con TODAS las ubicaciones si
-  // el default fue colapsado (ver ubicacionExpandidaPorDefault más arriba),
-  // para que el primer toggle manual sobre cualquiera de ellas parta de un
-  // estado consistente con lo que ya se ve en pantalla.
-  const ubicacionesColapsadas = new Set(ubicacionExpandidaPorDefault ? [] : ubicacionesUnicas);
+  // ubicacionesColapsadas arranca pre-poblado con TODAS las ubicaciones
+  // (prompt-todo-colapsado-avance.md: nivel 1 siempre colapsado, sin
+  // umbral) para que el primer toggle manual sobre cualquiera de ellas
+  // parta de un estado consistente con lo que ya se ve en pantalla.
+  const ubicacionesColapsadas = new Set(ubicacionesUnicas);
   const setUbicacionColapsada = (ubicacion, colapsado) => {
     if (colapsado) ubicacionesColapsadas.add(ubicacion); else ubicacionesColapsadas.delete(ubicacion);
     const itemsEl = $$('[data-ubicacion-items]').find((el) => el.dataset.ubicacionItems === ubicacion);
@@ -9188,10 +9215,44 @@ async function openAvanceConceptosModal(avance, presupuestoTotal, puedeEditar = 
     toggleEl?.setAttribute('aria-expanded', String(!colapsado));
   };
 
-  // key de sección -> Ubicación dueña (o null si es un bloque simple) --
-  // usado por "Ir a sección" para saber qué nivel 1 expandir antes de
-  // saltar a un nivel 2 puntual dentro de él.
-  const ubicacionDeSeccion = new Map([...groups.entries()].map(([key, g]) => [key, g.ubicacion || null]));
+  // prompt-todo-colapsado-avance.md: con TODO colapsado por default, el
+  // buscador/chips/Ubicación-Partida/"Solo pendientes" dejarían de servir
+  // para algo si solo ocultan FILAS (hidden-initial) sin tocar el colapso
+  // (avc-collapsed) del contenedor que las envuelve -- una fila que sí
+  // matchea seguiría invisible detrás de un encabezado cerrado. Se llama
+  // EXPLÍCITAMENTE desde cada handler de filtro (nunca desde dentro de
+  // aplicarFiltrosAvc() en sí, que también se dispara en cada tecla de
+  // "Ejecutado este periodo" vía recalc() -- eso NO debe colapsar la
+  // sección que el usuario está capturando en ese momento).
+  // Sin ningún filtro activo: vuelve al estado de reposo (todo colapsado,
+  // decisión ya confirmada por Paul para "Solo pendientes" y generalizada
+  // aquí al resto de filtros por consistencia). Con algún filtro activo:
+  // expande exactamente lo que aplicarFiltrosAvc() ya determinó visible
+  // (hidden-initial ya calculado ahí), colapsa el resto.
+  const hayFiltroAvcActivo = () => !!(
+    filtroTexto.trim() || filtroGrupo || filtroUbicacion || filtroPartida || $('#avcSoloPendientes')?.checked
+  );
+  const sincronizarColapsoConFiltro = () => {
+    const activo = hayFiltroAvcActivo();
+    $$('[data-grupo-block]').forEach((block) => {
+      setGrupoColapsado(block.dataset.grupoBlock, activo ? block.classList.contains('hidden-initial') : true);
+    });
+    $$('[data-ubicacion-block]').forEach((block) => {
+      setUbicacionColapsada(block.dataset.ubicacionBlock, activo ? block.classList.contains('hidden-initial') : true);
+    });
+  };
+
+  // key de sección -> Ubicación dueña EN EL ÁRBOL VISUAL (no en el filtro:
+  // esto incluye tanto Partidas normales como bloques ambiguos ya anidados
+  // -- ver ubicacionGroups más arriba, que junta ambos) -- usado por "Ir a
+  // sección" para saber qué nivel 1 expandir antes de saltar a un nivel 2
+  // puntual dentro de él. Una key ausente aquí (bloques simples
+  // residuales, sin Ubicación aparente que calce) devuelve undefined,
+  // tratado igual que null.
+  const ubicacionDeSeccion = new Map();
+  ubicacionGroups.forEach((secciones, ubicacion) => {
+    secciones.forEach(([key]) => ubicacionDeSeccion.set(key, ubicacion));
+  });
 
   $('#avcList').addEventListener('click', (e) => {
     const descBtn = e.target.closest('[data-toggle-desc]');

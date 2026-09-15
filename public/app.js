@@ -6276,7 +6276,7 @@ function paintInsumos(insumos) {
 
   $$('.progress-bar > span[data-pct]', list).forEach((span) => { span.style.width = span.dataset.pct + '%'; });
 
-  $$('[data-add]', list).forEach((btn) => btn.addEventListener('click', () => addToDraft(Number(btn.dataset.add), insumos)));
+  $$('[data-add]', list).forEach((btn) => btn.addEventListener('click', () => addToDraft(Number(btn.dataset.add), insumos, btn)));
 
   $$('[data-iva-input]', list).forEach((inp) => {
     inp.addEventListener('blur', async () => {
@@ -6686,16 +6686,36 @@ function getDraft() {
   bucket.draft = bucket.draft || [];
   return bucket.draft;
 }
-function addToDraft(insumoId, insumosList) {
+function addToDraft(insumoId, insumosList, sourceEl) {
   const draft = getDraft();
   const insumo = insumosList.find((i) => i.id === insumoId);
   if (!insumo) return;
   let entry = draft.find((d) => d.insumo_id === insumoId);
+  const yaEstaba = !!entry;
   if (!entry) {
     entry = { insumo_id: insumoId, insumo, cantidad_solicitada: 1, precio_solicitado: insumo.precio_presupuesto };
     draft.push(entry);
   }
-  toast(`${insumo.concepto} agregado al borrador de requisición (${draft.length} insumo${draft.length === 1 ? '' : 's'})`, 'success');
+  // prompt-feedback-agregar-requisicion.md: causa raíz real de "no se ve
+  // confirmación al agregar" — YA existía un toast() aquí antes de este
+  // prompt, pero el listener global 'click' en document (línea ~2683,
+  // `if (!e.target.closest('#toast')) { ...className = 'toast'; }`, pensado
+  // para descartar el toast si el usuario hace clic en otro lado) también
+  // se dispara con este MISMO click al burbujear — como esta llamada a
+  // toast() es síncrona dentro del propio handler del botón, el navegador
+  // nunca llega a pintar el frame con el toast visible antes de que ese
+  // listener lo oculte de nuevo, todo en el mismo tick. setTimeout(...,0)
+  // difiere el toast a después de que termine de burbujear el click actual.
+  setTimeout(() => {
+    toast(
+      yaEstaba
+        ? `${insumo.concepto} ya está en tu borrador (${draft.length} insumo${draft.length === 1 ? '' : 's'})`
+        : `${insumo.concepto} agregado al borrador de requisición (${draft.length} insumo${draft.length === 1 ? '' : 's'})`,
+      'success'
+    );
+  }, 0);
+  animateAddToDraft(sourceEl);
+  updateFabBadge();
 }
 
 // =========================================================================
@@ -7129,7 +7149,10 @@ function openDraftModal() {
   if (!draft.length) { toast('El borrador está vacío', 'danger'); return; }
 
   const render = () => `
-    <h3>Nueva requisición</h3>
+    <div class="row between">
+      <h3>Nueva requisición</h3>
+      <button type="button" class="btn small btn-ghost" id="btnGoReqTabFromDraft">Ver Requisiciones →</button>
+    </div>
     <div class="field"><label>Folio (opcional)</label><input id="reqFolio" placeholder="Ej. REQ-2026-001" /></div>
     <div class="field"><label>Fecha</label><input id="reqFecha" type="date" value="${new Date().toISOString().slice(0, 10)}" /></div>
     <div class="field">
@@ -7147,6 +7170,10 @@ function openDraftModal() {
     </div>
   `;
   openModal(render());
+  $('#btnGoReqTabFromDraft').addEventListener('click', () => {
+    closeModal();
+    switchToView('requisiciones');
+  });
 
   function paintItems() {
     $('#draftItems').innerHTML = draft.map((d, idx) => {
@@ -7182,6 +7209,7 @@ function openDraftModal() {
     $$('[data-remove]', $('#draftItems')).forEach((btn) => {
       btn.addEventListener('click', () => {
         draft.splice(Number(btn.dataset.remove), 1);
+        updateFabBadge();
         if (!draft.length) { closeModal(); renderView(); return; }
         paintItems();
         schedulePreview();
@@ -15151,13 +15179,36 @@ fab.addEventListener('click', () => {
     if (getDraft().length) openDraftModal();
     else { switchToView('insumos'); toast('Agrega insumos desde el catálogo primero', ''); }
   } else if (state.view === 'insumos') {
-    if (getDraft().length) { switchToView('requisiciones'); }
+    // prompt-feedback-agregar-requisicion.md: antes cambiaba a la pestaña
+    // Requisiciones (perdiendo el filtro/scroll de Insumos) — abre el mismo
+    // panel de borrador (openDraftModal, ya reutilizado por el FAB en la
+    // pestaña Requisiciones arriba) directo encima de Insumos.
+    if (getDraft().length) openDraftModal();
+    else toast('Agrega insumos desde el catálogo para armar tu requisición', '');
   } else if (state.view === 'destajo') {
     if (isAdmin() || (state.user && effectivePuesto() === 'residente')) openNuevoDestajistaModal();
   } else if (isAdmin()) {
     promptUpload();
   }
 });
+// prompt-feedback-agregar-requisicion.md: badge numérico sobre el FAB con el
+// número de insumos distintos en el borrador en curso — se llama desde
+// syncFab() (cambios de vista) y desde cualquier mutación del borrador que
+// no dispare un renderView() completo (addToDraft, quitar renglón).
+function updateFabBadge() {
+  const count = state.projectId ? getDraft().length : 0;
+  let badge = fab.querySelector('.fab-badge');
+  if (count > 0) {
+    if (!badge) {
+      badge = document.createElement('span');
+      badge.className = 'fab-badge';
+      fab.appendChild(badge);
+    }
+    badge.textContent = count > 9 ? '9+' : String(count);
+  } else if (badge) {
+    badge.remove();
+  }
+}
 function syncFab() {
   const noFabViews = ['usuarios', 'proveedores', 'ordenes', 'finanzas', 'compromisos', 'fondoGarantia', 'estadoResultados', 'estadoResultadosGlobal', 'mapeo', 'avance'];
   const hasAction = ['requisiciones', 'insumos', 'destajo'].includes(state.view);
@@ -15166,6 +15217,36 @@ function syncFab() {
   if (state.view === 'requisiciones' || state.view === 'insumos') fab.textContent = '🧾';
   else if (state.view === 'destajo') fab.textContent = '👷';
   else fab.textContent = '+';
+  updateFabBadge();
+}
+// prompt-feedback-agregar-requisicion.md: animación ligera (sin dependencias
+// nuevas) de un puntito volando desde el botón "+ Agregar a requisición"
+// clickeado hasta el FAB, para confirmar visualmente a dónde fue el insumo.
+// Solo corre si el FAB está visible (siempre lo está en Insumos, pero por
+// si acaso) — si no, no pasa nada, el toast de addToDraft ya avisa.
+function animateAddToDraft(sourceEl) {
+  if (!sourceEl || fab.style.display === 'none') return;
+  const srcRect = sourceEl.getBoundingClientRect();
+  const fabRect = fab.getBoundingClientRect();
+  const dot = document.createElement('div');
+  dot.className = 'fab-fly-dot';
+  dot.textContent = '🧾';
+  dot.style.left = `${srcRect.left + srcRect.width / 2 - 12}px`;
+  dot.style.top = `${srcRect.top + srcRect.height / 2 - 12}px`;
+  document.body.appendChild(dot);
+  const dx = (fabRect.left + fabRect.width / 2) - (srcRect.left + srcRect.width / 2);
+  const dy = (fabRect.top + fabRect.height / 2) - (srcRect.top + srcRect.height / 2);
+  requestAnimationFrame(() => {
+    dot.style.transform = `translate(${dx}px, ${dy}px) scale(0.25)`;
+    dot.style.opacity = '0';
+  });
+  const cleanup = () => {
+    dot.remove();
+    fab.classList.add('fab-pulse');
+    setTimeout(() => fab.classList.remove('fab-pulse'), 400);
+  };
+  dot.addEventListener('transitionend', cleanup, { once: true });
+  setTimeout(cleanup, 700); // respaldo si transitionend no dispara (reduce-motion, tab en background)
 }
 
 // ---------------------------------------------------------------------------

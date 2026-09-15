@@ -1281,6 +1281,28 @@ tr.row-pendiente { background: color-mix(in srgb, var(--yellow) 10%, transparent
   box-shadow: 0 8px 24px color-mix(in srgb, var(--accent-gold) 45%, transparent); z-index: 30;
 }
 .fab:active { transform: scale(0.94); }
+/* prompt-feedback-agregar-requisicion.md: badge con el número de insumos en
+   el borrador de requisición en curso — mismo criterio visual que
+   .notif-badge, .fab ya es position:fixed así que sirve de contenedor de
+   posicionamiento sin necesitar position:relative aparte. */
+.fab-badge {
+  position: absolute; top: -3px; right: -3px; min-width: 20px; height: 20px; padding: 0 var(--space-4);
+  border-radius: var(--radius-pill); background: var(--red); color: #fff; font-size: var(--fs-2xs); font-weight: 700;
+  display: flex; align-items: center; justify-content: center; line-height: 1; pointer-events: none;
+  border: 2px solid var(--bg-primary);
+}
+@keyframes fab-pulse { 0% { transform: scale(1); } 35% { transform: scale(1.18); } 65% { transform: scale(0.95); } 100% { transform: scale(1); } }
+.fab.fab-pulse { animation: fab-pulse 0.4s var(--ease-out); }
+/* Puntito que "vuela" del botón "+ Agregar a requisición" clickeado hasta el
+   FAB — confirma visualmente a dónde fue el insumo (animateAddToDraft en
+   app.js). z-index por encima de todo lo demás (incluido el modal, 170) ya
+   que puede iniciar desde cualquier tarjeta de Insumos. */
+.fab-fly-dot {
+  position: fixed; width: 24px; height: 24px; border-radius: var(--radius-circle);
+  background: var(--accent-gold); color: #04212f; font-size: 12px; font-weight: 700;
+  display: flex; align-items: center; justify-content: center; z-index: 200; pointer-events: none;
+  transition: transform 0.45s var(--ease-out), opacity 0.45s var(--ease-out);
+}
 
 /* Drawer */
 .overlay {

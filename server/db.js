@@ -2656,6 +2656,18 @@ const SCHEMA = `
   );
   CREATE INDEX IF NOT EXISTS idx_catalogo_matrices_archivo ON catalogo_matrices(archivo_id);
   CREATE INDEX IF NOT EXISTS idx_catalogo_matrices_concepto ON catalogo_matrices(concepto_id);
+
+  -- Filtro Ubicación/Partida en Avance (prompt-diagnostico-filtro-ubicacion-
+  -- partida.md + prompt-filtro-ubicacion-partida.md): diagnóstico contra las
+  -- 7 obras reales confirmó que NINGUNA heurística automática (repetición de
+  -- valores por nivel, vocabulario) detecta de forma confiable cuál índice
+  -- de ruta_jerarquica representa "Ubicación" -- 5/7 obras ni siquiera tienen
+  -- ese eje, y el orden no es fijo entre obras que sí lo tienen (a veces
+  -- Partida está arriba de Ubicación, a veces al revés). Se etiqueta a mano,
+  -- una vez por obra. Nullable a propósito: la mayoría de las obras no tiene
+  -- este eje y deben quedar sin el filtro, no forzadas a un valor por
+  -- defecto incorrecto. Índice base 0 sobre ruta_jerarquica (nivel 1 = 0).
+  ALTER TABLE proyectos ADD COLUMN IF NOT EXISTS nivel_ubicacion_jerarquia INTEGER;
 `;
 
 // prompt-fix-error-permiso-trabajadores.md → el diagnóstico de ese prompt no

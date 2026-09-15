@@ -13541,6 +13541,33 @@ function estadoUnidadBadgeHtml(estado) {
   return `<span class="eu-mini-badge ${estado}">${esc(ESTADO_ITEM_LABELS[estado] || estado)}</span>`;
 }
 
+// Badge con nombre del ítem al lado (prompt-detalle-estado-unidades-maquinaria.md)
+// — un badge de color solo dice "Atención" sin decir de qué punto del
+// checklist. item.etiqueta ya viene guardada desde la captura (POST
+// /api/maquinaria/estado-unidad normaliza clave+etiqueta+estado+nota,
+// server/app.js), no hace falta resolverla contra el catálogo del frontend.
+function estadoUnidadBadgeEtiquetaHtml(item) {
+  const etiqueta = item.etiqueta || item.clave;
+  const titulo = item.nota ? ` title="${esc(item.nota)}"` : '';
+  return `<span class="eu-mini-badge ${item.estado}"${titulo}>${esc(etiqueta)}: ${esc(ESTADO_ITEM_LABELS[item.estado] || item.estado)}</span>`;
+}
+
+// Columna "Último estado" de la tabla de supervisión: prioriza mostrar SOLO
+// los ítems que NO están en OK, cada uno con su nombre. Si todo está OK,
+// colapsa a un solo indicador en vez de 9 badges verdes repetidos.
+const EU_TABLA_MAX_VISIBLE = 3;
+function estadoUnidadResumenTablaHtml(u) {
+  const items = Array.isArray(u.items) ? u.items : [];
+  const problemas = items.filter((it) => it.estado !== 'ok');
+  if (!problemas.length) return '<span class="eu-mini-badge ok">Todo OK</span>';
+  const visibles = problemas.slice(0, EU_TABLA_MAX_VISIBLE);
+  const restantes = problemas.length - visibles.length;
+  return `<div class="eu-mini-badges">
+    ${visibles.map(estadoUnidadBadgeEtiquetaHtml).join('')}
+    ${restantes > 0 ? `<span class="eu-mini-badge muted" data-ver-historico-eu="${u.equipo_id}" data-nombre-eu="${esc(u.equipo_nombre)}">+${restantes} más</span>` : ''}
+  </div>`;
+}
+
 // equipos ya viene filtrado a solo los asignados a este operador (mismo
 // criterio que equipoSelectOptions/openHorasMaqModal, vía listEquipos(operadorId)
 // en el backend) — el <select> no necesita filtrar de nuevo.
@@ -13666,7 +13693,7 @@ function paintEstadoUnidadMaq(list, { puedeSupervisarEstadoUnidad, esOperador })
               <tr class="${u.tiene_critico ? 'eu-row-critico' : ''}">
                 <td>${esc(u.equipo_nombre)}</td>
                 <td>${u.categoria === 'camioneta' ? 'Camioneta' : 'Máquina'}</td>
-                <td>${u.estado_id ? `<div class="eu-mini-badges">${(u.items || []).map((it) => estadoUnidadBadgeHtml(it.estado)).join('')}</div>` : '<span class="muted">Sin captura</span>'}</td>
+                <td>${u.estado_id ? estadoUnidadResumenTablaHtml(u) : '<span class="muted">Sin captura</span>'}</td>
                 <td>${u.estado_id ? fmtDate(u.fecha) : '—'}</td>
                 <td>${esc(u.operador_nombre || '—')}</td>
                 <td>${u.estado_id ? `<button class="btn small" data-ver-historico-eu="${u.equipo_id}" data-nombre-eu="${esc(u.equipo_nombre)}">Histórico</button>` : ''}</td>
@@ -13705,7 +13732,7 @@ async function openHistoricoEstadoUnidadMaqModal(equipoId, equipoNombre) {
               <tr class="${h.tiene_critico ? 'eu-row-critico' : ''}">
                 <td>${fmtDate(h.fecha)}</td>
                 <td>${esc(h.operador_nombre || '—')}</td>
-                <td><div class="eu-mini-badges">${(h.items || []).map((it) => estadoUnidadBadgeHtml(it.estado)).join('')}</div></td>
+                <td><div class="eu-mini-badges">${(h.items || []).map(estadoUnidadBadgeEtiquetaHtml).join('')}</div></td>
                 <td class="num">${fmtNum(h.lectura, 1)}</td>
                 <td>${esc(h.observaciones || '—')}</td>
               </tr>

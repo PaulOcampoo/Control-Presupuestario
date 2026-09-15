@@ -3107,6 +3107,7 @@ function openModal(html) {
 function closeModal() {
   $('#modal').classList.remove('show');
   $('#modal').classList.remove('modal-wide'); // ver openVerEstimacionModal — no debe pegarse a otros modales
+  $('#modal').classList.remove('eu-historico-modal'); // ver openHistoricoEstadoUnidadMaqModal — mismo criterio
   $('#modalOverlay').classList.remove('show');
   $('#modal').innerHTML = '';
   unlockBodyScroll('modal');
@@ -13718,7 +13719,12 @@ function paintEstadoUnidadMaq(list, { puedeSupervisarEstadoUnidad, esOperador })
 // columnas con "Checklist" (badges) y "Observaciones" (texto libre) que
 // pueden desbordar el .modal base de 520px en desktop.
 async function openHistoricoEstadoUnidadMaqModal(equipoId, equipoNombre) {
-  $('#modal').classList.add('modal-wide');
+  // prompt-mejora-modal-historico-maquinaria.md: clase propia además de
+  // .modal-wide (no ensancha ni el resto de modales que usan .modal-wide
+  // ni cambia el tamaño de los badges eu-mini-badge en la tabla/tarjetas de
+  // fuera de este modal) — se limpia en closeModal, mismo criterio que
+  // .modal-wide (comentario en closeModal).
+  $('#modal').classList.add('modal-wide', 'eu-historico-modal');
   openModal(`<h3>Histórico — ${esc(equipoNombre)}</h3><div id="euHistoricoBody"><p class="muted">Cargando…</p></div><div class="modal-actions"><button class="btn" id="btnCerrarEuHistorico">Cerrar</button></div>`);
   $('#btnCerrarEuHistorico').addEventListener('click', closeModal);
   try {
@@ -13726,7 +13732,7 @@ async function openHistoricoEstadoUnidadMaqModal(equipoId, equipoNombre) {
     $('#euHistoricoBody').innerHTML = !historico.length ? '<p class="muted">Sin capturas todavía.</p>' : `
       <div class="table-scroll">
         <table>
-          <thead><tr><th>Fecha</th><th>Operador</th><th>Checklist</th><th>Lectura</th><th>Observaciones</th></tr></thead>
+          <thead><tr><th>Fecha</th><th>Operador</th><th class="eu-th-center">Checklist</th><th>Lectura</th><th>Observaciones</th></tr></thead>
           <tbody>
             ${historico.map((h) => `
               <tr class="${h.tiene_critico ? 'eu-row-critico' : ''}">

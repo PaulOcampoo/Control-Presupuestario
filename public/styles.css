@@ -1370,6 +1370,10 @@ body.body-scroll-locked { overflow: hidden; }
    antes (94vw ya es lo más ancho que tiene sentido en una pantalla chica). */
 @media (min-width: 861px) {
   .modal.modal-wide { width: min(90vw, 920px); }
+  /* prompt-mejora-modal-historico-maquinaria.md: más ancho que el resto de
+     modales .modal-wide — necesita espacio extra para los 9 badges del
+     checklist (nombre + estado) sin que se vean apretados. */
+  .modal.modal-wide.eu-historico-modal { width: min(94vw, 1140px); }
 }
 
 /* Buscador + chips de grupo + toggle "solo pendientes" del modal "Avance
@@ -4061,11 +4065,19 @@ body.a11y-reduce-motion *::after {
 .eu-card-title { font-weight: 700; }
 .eu-card-sin-captura { color: var(--text-secondary); font-size: var(--fs-sm); }
 .eu-mini-badges { display: flex; gap: var(--space-4); flex-wrap: wrap; margin-top: var(--space-2); }
-.eu-mini-badge { font-size: var(--fs-2xs); font-weight: 700; padding: 1px var(--space-8); border-radius: var(--radius-pill); }
+.eu-mini-badge { font-size: var(--fs-2xs); font-weight: 700; padding: 1px var(--space-8); border-radius: var(--radius-pill); white-space: nowrap; }
 .eu-mini-badge.ok { background: rgba(34,197,94,0.15); color: var(--green); }
 .eu-mini-badge.atencion { background: rgba(234,179,8,0.18); color: var(--yellow); }
 .eu-mini-badge.critico { background: rgba(239,68,68,0.18); color: var(--red); }
 .eu-mini-badge.muted { background: rgba(148,163,184,0.15); color: var(--text-secondary); }
 .eu-mini-badge[data-ver-historico-eu] { cursor: pointer; }
+/* prompt-mejora-modal-historico-maquinaria.md: badges del checklist casi
+   ilegibles a --fs-2xs (pensado para contadores chicos, no para texto de
+   lectura). Escalado solo dentro del modal Histórico — la tabla de
+   supervisión y las tarjetas del operador siguen igual de compactas, a
+   propósito, con varios badges por fila. */
+.eu-historico-modal .eu-mini-badges { gap: var(--space-6); }
+.eu-historico-modal .eu-mini-badge { font-size: var(--fs-sm); padding: var(--space-4) var(--space-10); }
+.eu-th-center { text-align: center; }
 .eu-cards-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: var(--space-10); }
 tr.eu-row-critico td { background: color-mix(in srgb, var(--red) 9%, transparent); }

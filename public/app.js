@@ -8769,11 +8769,52 @@ async function openAvanceConceptosModal(avance, presupuestoTotal, puedeEditar = 
   // sticky roto en iOS Safari. Puramente cliente: filtra ocultando filas
   // (.hidden-initial), nunca re-renderiza #avcList, para no perder valores
   // ya tecleados en otros conceptos mientras se busca/filtra.
-  // gruposUnicos: {key, label} — key identifica la ruta_jerarquica completa
-  // (única por sección real), label es el nombre legible (c.grupo) que se
-  // muestra en el chip/opción. Dos secciones distintas pueden compartir label
-  // (ej. la misma calle en dos redes) pero nunca key.
-  const gruposUnicos = [...groups.entries()].map(([key, { label }]) => ({ key, label }));
+  // prompt-dedup-chips-ubicacion.md: los chips superiores y el dropdown "Ir
+  // a sección" tenían el mismo problema que el breadcrumb antes de PR #248
+  // pero al revés -- ahí cada SECCIÓN (Ubicación+Partida) es una entrada
+  // legítima y distinta, pero cuando una obra tiene nivel_ubicacion_jerarquia
+  // configurado, una misma Ubicación (ej. "CALLE BARRANCAS") aparecía 3
+  // veces como chip idéntico (una por Partida), sin forma de distinguirlas.
+  //
+  // Bloques ambiguos excluidos (ubicacion/partida null) NO deben volver a
+  // caer en el mismo problema que este prompt corrige: si varios de ellos
+  // comparten el mismo label (grupo) bajo padres distintos -- exactamente
+  // "DESCARGAS SANITARIAS"/"TOMAS DOMICILIARIAS" bajo 3 calles distintas en
+  // obra 24, el mismo caso que quedó fuera del filtro Ubicación/Partida --
+  // se desambiguan con el segmento padre inmediato de ruta_jerarquica (el
+  // que en estos bloques sí es único, aunque no sepamos si es "ubicación" o
+  // "partida"). Solo aplica cuando la obra tiene nivel_ubicacion_jerarquia
+  // configurado -- en obras sin ese eje, label se queda tal cual (sin
+  // cambios respecto a antes de este prompt).
+  const labelDesambiguado = (g) => (
+    nivelUbicacion != null && !g.ubicacion && Array.isArray(g.ruta) && g.ruta.length >= 2
+      ? `${g.ruta[g.ruta.length - 2]} · ${g.label}`
+      : g.label
+  );
+
+  // chipsUnicos: deduplicados por Ubicación cuando existe (varias secciones/
+  // Partidas distintas comparten chipKey a propósito, para que un solo chip
+  // muestre TODAS sus secciones agrupadas al filtrar); sin Ubicación
+  // configurada, o en los bloques ambiguos ya excluidos (ubicacion null —
+  // ver exclusión más arriba), cae a un chip por sección (key) con label
+  // desambiguado.
+  const chipsMap = new Map(); // chipKey -> label
+  groups.forEach((g, key) => {
+    const chipKey = g.ubicacion || key;
+    if (!chipsMap.has(chipKey)) chipsMap.set(chipKey, g.ubicacion || labelDesambiguado(g));
+  });
+  const chipsUnicos = [...chipsMap.entries()].map(([chipKey, label]) => ({ chipKey, label }));
+
+  // seccionesParaJump: uno por sección real (nunca deduplicado -- "Ir a
+  // sección" salta a un bloque físico concreto, no puede colapsar varios en
+  // una sola opción), con etiqueta enriquecida "Ubicación — Partida" cuando
+  // ambas están disponibles, para distinguir secciones que comparten
+  // Ubicación (mismo caso "CALLE BARRANCAS" x3); en bloques ambiguos, mismo
+  // desambiguado que los chips en vez de repetir el label sin contexto.
+  const seccionesParaJump = [...groups.entries()].map(([key, g]) => ({
+    key,
+    label: (g.ubicacion && g.partida) ? `${g.ubicacion} — ${g.partida}` : labelDesambiguado(g),
+  }));
   $('#avcFiltros').innerHTML = `
     <div class="avc-sticky-bar">
       <div class="search-bar">
@@ -8795,16 +8836,17 @@ async function openAvanceConceptosModal(avance, presupuestoTotal, puedeEditar = 
           </select>
         </div>
       </div>` : ''}
-      ${gruposUnicos.length > 1 ? `
+      ${chipsUnicos.length > 1 ? `
       <div class="chip-row" id="avcGrupoChips">
         <button type="button" class="chip active" data-grupo="">Todos</button>
-        ${gruposUnicos.map((g) => `<button type="button" class="chip" data-grupo="${esc(g.key)}">${esc(g.label)}</button>`).join('')}
-      </div>
+        ${chipsUnicos.map((g) => `<button type="button" class="chip" data-grupo="${esc(g.chipKey)}">${esc(g.label)}</button>`).join('')}
+      </div>` : ''}
+      ${seccionesParaJump.length > 1 ? `
       <div class="avc-jump-row mt-6">
         <label for="avcJump">Ir a sección</label>
         <select id="avcJump">
           <option value="">Seleccionar…</option>
-          ${gruposUnicos.map((g) => `<option value="${esc(g.key)}">${esc(g.label)}</option>`).join('')}
+          ${seccionesParaJump.map((g) => `<option value="${esc(g.key)}">${esc(g.label)}</option>`).join('')}
         </select>
       </div>` : ''}
       <div class="a11y-switch mt-6">
@@ -8845,7 +8887,7 @@ async function openAvanceConceptosModal(avance, presupuestoTotal, puedeEditar = 
         const bloqueado = pendientes.length > 0;
         const esLarga = (c.concepto || '').length > 90;
         return `
-      <div class="req-item-row avc-row" data-avc-row data-grupo="${esc(key)}" data-ubicacion="${esc(ubicacion || '')}" data-partida="${esc(partida || '')}" data-search="${esc(normalizarTexto(`${c.codigo || ''} ${c.concepto || ''}`))}">
+      <div class="req-item-row avc-row" data-avc-row data-grupo="${esc(ubicacion || key)}" data-ubicacion="${esc(ubicacion || '')}" data-partida="${esc(partida || '')}" data-search="${esc(normalizarTexto(`${c.codigo || ''} ${c.concepto || ''}`))}">
         <div class="fw600-fs086 avc-concepto-title${esLarga ? ' avc-clamp' : ''}" data-concepto-title>${esc(c.concepto)}</div>
         ${esLarga ? '<button type="button" class="link-btn avc-ver-mas" data-toggle-desc>Ver más</button>' : ''}
         <div class="code muted">${esc(c.codigo)} · presup: ${fmtNum(c.cantidad_presupuesto, 3)} ${esc(c.unidad || '')} a ${fmtMoney(c.precio_unitario)}/u</div>

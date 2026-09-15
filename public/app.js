@@ -8792,16 +8792,24 @@ async function openAvanceConceptosModal(avance, presupuestoTotal, puedeEditar = 
       : g.label
   );
 
-  // chipsUnicos: deduplicados por Ubicación cuando existe (varias secciones/
-  // Partidas distintas comparten chipKey a propósito, para que un solo chip
-  // muestre TODAS sus secciones agrupadas al filtrar); sin Ubicación
-  // configurada, o en los bloques ambiguos ya excluidos (ubicacion null —
-  // ver exclusión más arriba), cae a un chip por sección (key) con label
-  // desambiguado.
+  // chipsUnicos (prompt-fix-dropdown-y-chips-avance.md): con eje de
+  // Ubicación configurado, la barra de chips muestra SOLO Ubicaciones
+  // principales -- los bloques con jerarquía ambigua (ubicacion null, ver
+  // exclusión más arriba) ya NO tienen chip propio aquí, para no ensuciar
+  // la barra con entradas sueltas tipo "PASEO PUNTA CUERNA · DESCARGAS
+  // SANITARIAS". Siguen siendo accesibles por otras vías sin tocar: la
+  // vista "Todos" los sigue mostrando en el cuerpo del modal (no se les
+  // quita el acceso, solo el chip), y "Ir a sección" conserva su entrada
+  // (ver seccionesParaJump más abajo, sin cambios). Sin Ubicación
+  // configurada, cae al comportamiento de siempre: un chip por sección.
   const chipsMap = new Map(); // chipKey -> label
   groups.forEach((g, key) => {
-    const chipKey = g.ubicacion || key;
-    if (!chipsMap.has(chipKey)) chipsMap.set(chipKey, g.ubicacion || labelDesambiguado(g));
+    if (nivelUbicacion != null) {
+      if (!g.ubicacion) return;
+      if (!chipsMap.has(g.ubicacion)) chipsMap.set(g.ubicacion, g.ubicacion);
+      return;
+    }
+    if (!chipsMap.has(key)) chipsMap.set(key, g.label);
   });
   const chipsUnicos = [...chipsMap.entries()].map(([chipKey, label]) => ({ chipKey, label }));
 
@@ -8930,10 +8938,10 @@ async function openAvanceConceptosModal(avance, presupuestoTotal, puedeEditar = 
     return `
     <div class="avc-partida-subblock" data-grupo-block="${esc(key)}">
       ${segmentosSobrePartida.length ? `<div class="avc-breadcrumb">${renderBreadcrumb(segmentosSobrePartida)}</div>` : ''}
-      <h4 class="avc-partida-toggle avc-grupo-toggle" data-toggle-grupo="${esc(key)}" aria-expanded="true">
+      <h4 class="avc-partida-toggle avc-grupo-toggle is-collapsed" data-toggle-grupo="${esc(key)}" aria-expanded="false">
         <span class="avc-chevron" aria-hidden="true">▾</span>${esc(partida || '')}
       </h4>
-      <div class="avc-grupo-items" data-grupo-items="${esc(key)}">
+      <div class="avc-grupo-items avc-collapsed" data-grupo-items="${esc(key)}">
         ${renderFilas(groupItems, key, ubicacion, partida)}
       </div>
     </div>
@@ -9072,6 +9080,30 @@ async function openAvanceConceptosModal(avance, presupuestoTotal, puedeEditar = 
     $('#avcEmptyState').classList.toggle('hidden-initial', visibles > 0);
   };
 
+  // prompt-fix-dropdown-y-chips-avance.md (seguimiento, repro real de Paul):
+  // "Ir a sección" nació como pura navegación -- "nunca oculta contenido,
+  // solo hace scroll" -- pero el filtro Ubicación/Partida (agregado
+  // después) oculta bloques vía hidden-initial de forma independiente al
+  // colapso, y el salto nunca lo revertía: con un filtro activo que no
+  // coincidiera con el destino elegido, el bloque seguía con display:none y
+  // el salto "no hacía nada". Resetear TODOS los filtros que puedan ocultar
+  // contenido antes de saltar restaura esa garantía -- cualquier opción del
+  // dropdown SIEMPRE lleva a algún lado, sin importar qué filtro estuviera
+  // activo.
+  const resetearFiltrosAvc = () => {
+    filtroTexto = '';
+    if ($('#avcBuscar')) $('#avcBuscar').value = '';
+    filtroGrupo = '';
+    $$('.chip', $('#avcGrupoChips')).forEach((c) => c.classList.toggle('active', c.dataset.grupo === ''));
+    const ubicSel = $('#avcFiltroUbicacion');
+    if (ubicSel && ubicSel.value) {
+      ubicSel.value = '';
+      ubicSel.dispatchEvent(new Event('change', { bubbles: true })); // resetea Partida en cascada (mismo listener de siempre) y ya llama aplicarFiltrosAvc()
+    }
+    if ($('#avcSoloPendientes')) $('#avcSoloPendientes').checked = false;
+    aplicarFiltrosAvc();
+  };
+
   $('#avcBuscar').addEventListener('input', (e) => {
     filtroTexto = e.target.value;
     aplicarFiltrosAvc();
@@ -9117,7 +9149,17 @@ async function openAvanceConceptosModal(avance, presupuestoTotal, puedeEditar = 
   // reabrir, no es requisito). display:none nunca desmonta [data-cantidad],
   // así que un valor tecleado en "Ejecutado este periodo" sobrevive a
   // colapsar/expandir la sección las veces que sea.
-  const gruposColapsados = new Set();
+  //
+  // prompt-fix-dropdown-y-chips-avance.md: nivel 2 (Partida) arranca
+  // colapsado por default -- pendiente real de la petición original de
+  // Paul que PR #252 nunca implementó (renderSubbloquePartida seguía
+  // marcando aria-expanded="true" a mano). Pre-poblar el Set con las claves
+  // de TODOS los sub-bloques de Partida anidados (no las de bloques
+  // simples/ambiguos, que siguen expandidos por default sin cambios) para
+  // que el primer toggle manual sobre cualquiera de ellos parta de un
+  // estado consistente con lo ya renderizado.
+  const clavesPartidaAnidada = [...ubicacionGroups.values()].flat().map(([key]) => key);
+  const gruposColapsados = new Set(clavesPartidaAnidada);
   const setGrupoColapsado = (grupo, colapsado) => {
     if (colapsado) gruposColapsados.add(grupo); else gruposColapsados.delete(grupo);
     const itemsEl = $$('[data-grupo-items]').find((el) => el.dataset.grupoItems === grupo);
@@ -9181,6 +9223,7 @@ async function openAvanceConceptosModal(avance, presupuestoTotal, puedeEditar = 
   $('#avcJump')?.addEventListener('change', (e) => {
     const grupo = e.target.value;
     if (!grupo) return;
+    resetearFiltrosAvc();
     const ubicacionPadre = ubicacionDeSeccion.get(grupo);
     if (ubicacionPadre) setUbicacionColapsada(ubicacionPadre, false);
     const block = $$('[data-grupo-block]').find((el) => el.dataset.grupoBlock === grupo);

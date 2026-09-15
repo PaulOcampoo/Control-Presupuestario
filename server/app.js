@@ -6173,6 +6173,11 @@ app.get('/api/projects', h(auth.allow('residente', 'cabo', 'compras', 'tesoreria
       creado_en: p.creado_en,
       obra: meta.obra || null,
       lugar: meta.lugar || null,
+      // Nivel de ruta_jerarquica etiquetado a mano como "Ubicación" (prompt-
+      // filtro-ubicacion-partida.md) — no es dato sensible como los importes
+      // de abajo, se manda a todos los roles: el modal de Avance lo necesita
+      // para residente/cabo también, no solo admin.
+      nivel_ubicacion_jerarquia: p.nivel_ubicacion_jerarquia ?? null,
       ...(puedeVerImportes ? {
         inicio_obra: meta.inicio_obra || null,
         fin_obra: meta.fin_obra || null,
@@ -6333,6 +6338,28 @@ app.patch('/api/projects/:id/nombre', h(auth.allow()), h(requireProject), h(auth
   const { rows } = await db.pool.query(
     'UPDATE proyectos SET nombre = $1 WHERE id = $2 RETURNING id, nombre',
     [nombre, req.project.id]
+  );
+  res.json(rows[0]);
+}));
+
+// Etiquetado manual de qué índice de ruta_jerarquica representa "Ubicación"
+// (prompt-diagnostico-filtro-ubicacion-partida.md + prompt-filtro-ubicacion-
+// partida.md): diagnóstico contra las 7 obras reales descartó cualquier
+// heurística automática (repetición por nivel, vocabulario) -- 5/7 obras no
+// tienen este eje y el orden no es fijo entre las que sí lo tienen. admin/
+// desarrollador-only vía auth.allow() sin argumentos (mismo patrón que
+// /cliente y /nombre arriba) -- ningún otro rol puede escribirlo. nivel es
+// el índice 0-based sobre ruta_jerarquica; null = "sin eje de ubicación"
+// (default, y estado esperado para la mayoría de las obras).
+app.put('/api/projects/:id/nivel-ubicacion-jerarquia', h(auth.allow()), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  const raw = req.body?.nivel;
+  const nivel = (raw === null || raw === '' || raw === undefined) ? null : Number(raw);
+  if (nivel !== null && (!Number.isInteger(nivel) || nivel < 0)) {
+    return res.status(400).json({ error: 'nivel debe ser un entero >= 0, o null para quitar el eje de ubicación' });
+  }
+  const { rows } = await db.pool.query(
+    'UPDATE proyectos SET nivel_ubicacion_jerarquia = $1 WHERE id = $2 RETURNING id, nivel_ubicacion_jerarquia',
+    [nivel, req.project.id]
   );
   res.json(rows[0]);
 }));

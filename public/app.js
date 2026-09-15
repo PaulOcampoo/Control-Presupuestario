@@ -11,6 +11,24 @@ const PUESTO_LABELS = {
   jefe_maquinaria: 'Jefe de Maquinaria', operador: 'Operador', costos: 'Costos',
 };
 
+// Filtro Ubicación/Partida en Avance (prompt-filtro-ubicacion-partida.md):
+// etiquetado manual por obra de qué nivel (1-based para el humano, se guarda
+// 0-based) de ruta_jerarquica representa "Ubicación" — diagnóstico contra
+// las 7 obras reales descartó heurística automática (ver prompt-diagnostico-
+// filtro-ubicacion-partida.md). 8 niveles cubre la profundidad máxima real
+// observada (7, obra 36) con margen. Reusado en el selector de Usuarios y en
+// el modal post-carga de presupuesto — misma función, sin duplicar el HTML.
+const NIVEL_UBICACION_MAX_NIVELES = 8;
+function nivelUbicacionSelectHtml(idAttr, valorActual) {
+  const opciones = Array.from({ length: NIVEL_UBICACION_MAX_NIVELES }, (_, i) => i)
+    .map((nivel0) => `<option value="${nivel0}" ${valorActual === nivel0 ? 'selected' : ''}>Nivel ${nivel0 + 1}</option>`)
+    .join('');
+  return `<select id="${idAttr}" class="w-auto">
+    <option value="" ${valorActual == null ? 'selected' : ''}>Sin eje de ubicación</option>
+    ${opciones}
+  </select>`;
+}
+
 // Mirror de PERMISSIONS en server/auth.js — para calcular allowedTabs en vista simulada.
 // Actualizar aquí si se agregan roles o pestañas en auth.js.
 // Subsecciones de Maquinaria (prompt-39-maquinaria-galeria-subsecciones.md) —
@@ -8695,6 +8713,55 @@ async function openAvanceConceptosModal(avance, presupuestoTotal, puedeEditar = 
     groups.get(key).items.push(c);
   });
 
+  // Filtro Ubicación→Partida (prompt-filtro-ubicacion-partida.md): solo para
+  // obras con nivel_ubicacion_jerarquia etiquetado a mano (diagnóstico
+  // descartó heurística automática — ver prompt-diagnostico-filtro-
+  // ubicacion-partida.md). "Partida" es el segmento inmediato padre del
+  // nivel de Ubicación (confirmado contra obra 24: nivel 3 = Ubicación,
+  // ej. "CALLE BARRANCAS"; nivel 2 = Partida, ej. "AP - RED DE
+  // DISTRIBUCION"). Sin nivel configurado, ubicacion/partida quedan null en
+  // todos los grupos y el bloque de filtro ni se renderiza más abajo.
+  //
+  // EXCLUSIÓN DE BLOQUES AMBIGUOS (Paul, tras ver el hallazgo de obra 24):
+  // un mismo nivel_ubicacion_jerarquia fijo por obra asume una sola forma de
+  // jerarquía. En obra 24, 4 de 13 bloques (grupo "DESCARGAS SANITARIAS" /
+  // "TOMAS DOMICILIARIAS", bajo "PASEO PUNTA CUERNA" en vez de bajo AP/DS/
+  // DP) tienen el orden invertido -- la calle vive en el nivel 2, no el 3 --
+  // así que ahí "partida" saldría un nombre de calle en vez de una red.
+  // Señal para detectarlo sin vocabulario hardcodeado (mismo criterio que
+  // descartó la heurística automática en el diagnóstico: nada de listas de
+  // palabras por obra): una "partida" real nunca debería coincidir con un
+  // valor que en otro bloque de la MISMA obra funciona como "ubicación" --
+  // si coincide, es la señal de que ese bloque tiene los niveles
+  // intercambiados. Se resuelve en dos pasadas: 1) derivar ubicacion/partida
+  // normal por bloque, 2) anular ambos en cualquier bloque cuya partida
+  // aparezca en el conjunto de valores usados como ubicación en otro lado.
+  // Preferible a mostrar una etiqueta que se sabe incorrecta -- esos bloques
+  // simplemente no participan del filtro y siguen viéndose como hoy
+  // (agrupados solo por grupo/breadcrumb, sin Ubicación/Partida).
+  const nivelUbicacion = state.projects.find((p) => p.id === state.projectId)?.nivel_ubicacion_jerarquia;
+  const partidasPorUbicacion = new Map(); // ubicacion -> Set(partida)
+  if (nivelUbicacion != null) {
+    groups.forEach((g) => {
+      g.ubicacion = g.ruta && g.ruta.length > nivelUbicacion ? g.ruta[nivelUbicacion] : null;
+      g.partida = g.ruta && nivelUbicacion > 0 && g.ruta.length > nivelUbicacion - 1 ? g.ruta[nivelUbicacion - 1] : null;
+    });
+    const valoresUsadosComoUbicacion = new Set([...groups.values()].map((g) => g.ubicacion).filter(Boolean));
+    groups.forEach((g) => {
+      if (g.partida && valoresUsadosComoUbicacion.has(g.partida)) {
+        g.ubicacion = null;
+        g.partida = null;
+      }
+    });
+    groups.forEach((g) => {
+      if (g.ubicacion) {
+        if (!partidasPorUbicacion.has(g.ubicacion)) partidasPorUbicacion.set(g.ubicacion, new Set());
+        if (g.partida) partidasPorUbicacion.get(g.ubicacion).add(g.partida);
+      }
+    });
+  }
+  const ubicacionesUnicas = [...partidasPorUbicacion.keys()].sort((a, b) => a.localeCompare(b));
+
   // Buscador + filtro de grupo + toggle "solo pendientes" (prompt-mejora-
   // modal-avance.md) — sticky respecto al propio .modal (ya es scroll
   // container, overflow-y:auto) sin wrapper intermedio con overflow propio
@@ -8712,6 +8779,22 @@ async function openAvanceConceptosModal(avance, presupuestoTotal, puedeEditar = 
       <div class="search-bar">
         <input type="search" id="avcBuscar" placeholder="Buscar por código o concepto…" autocomplete="off" />
       </div>
+      ${ubicacionesUnicas.length > 1 ? `
+      <div class="avc-ubicacion-row mt-6">
+        <div class="field">
+          <label for="avcFiltroUbicacion">Ubicación</label>
+          <select id="avcFiltroUbicacion">
+            <option value="">Todas las ubicaciones</option>
+            ${ubicacionesUnicas.map((u) => `<option value="${esc(u)}">${esc(u)}</option>`).join('')}
+          </select>
+        </div>
+        <div class="field">
+          <label for="avcFiltroPartida">Partida</label>
+          <select id="avcFiltroPartida" disabled>
+            <option value="">Todas las partidas</option>
+          </select>
+        </div>
+      </div>` : ''}
       ${gruposUnicos.length > 1 ? `
       <div class="chip-row" id="avcGrupoChips">
         <button type="button" class="chip active" data-grupo="">Todos</button>
@@ -8734,7 +8817,7 @@ async function openAvanceConceptosModal(avance, presupuestoTotal, puedeEditar = 
     </div>
   `;
 
-  $('#avcList').innerHTML = [...groups.entries()].map(([key, { label, ruta, items: groupItems }]) => {
+  $('#avcList').innerHTML = [...groups.entries()].map(([key, { label, ruta, items: groupItems, ubicacion, partida }]) => {
     // Breadcrumb compacto de niveles superiores (prompt-ruta-jerarquica-
     // conceptos.md) — todo menos el último elemento de ruta_jerarquica (que
     // ya es el propio `label`, mostrado arriba en el <h3> grande). `ruta` ya
@@ -8762,7 +8845,7 @@ async function openAvanceConceptosModal(avance, presupuestoTotal, puedeEditar = 
         const bloqueado = pendientes.length > 0;
         const esLarga = (c.concepto || '').length > 90;
         return `
-      <div class="req-item-row avc-row" data-avc-row data-grupo="${esc(key)}" data-search="${esc(normalizarTexto(`${c.codigo || ''} ${c.concepto || ''}`))}">
+      <div class="req-item-row avc-row" data-avc-row data-grupo="${esc(key)}" data-ubicacion="${esc(ubicacion || '')}" data-partida="${esc(partida || '')}" data-search="${esc(normalizarTexto(`${c.codigo || ''} ${c.concepto || ''}`))}">
         <div class="fw600-fs086 avc-concepto-title${esLarga ? ' avc-clamp' : ''}" data-concepto-title>${esc(c.concepto)}</div>
         ${esLarga ? '<button type="button" class="link-btn avc-ver-mas" data-toggle-desc>Ver más</button>' : ''}
         <div class="code muted">${esc(c.codigo)} · presup: ${fmtNum(c.cantidad_presupuesto, 3)} ${esc(c.unidad || '')} a ${fmtMoney(c.precio_unitario)}/u</div>
@@ -8848,6 +8931,8 @@ async function openAvanceConceptosModal(avance, presupuestoTotal, puedeEditar = 
 
   let filtroTexto = '';
   let filtroGrupo = '';
+  let filtroUbicacion = '';
+  let filtroPartida = '';
   const aplicarFiltrosAvc = () => {
     const q = normalizarTexto(filtroTexto.trim());
     const soloPendientes = $('#avcSoloPendientes')?.checked || false;
@@ -8857,9 +8942,11 @@ async function openAvanceConceptosModal(avance, presupuestoTotal, puedeEditar = 
       $$('[data-avc-row]', block).forEach((row) => {
         const matchTexto = !q || row.dataset.search.includes(q);
         const matchGrupo = !filtroGrupo || row.dataset.grupo === filtroGrupo;
+        const matchUbicacion = !filtroUbicacion || row.dataset.ubicacion === filtroUbicacion;
+        const matchPartida = !filtroPartida || row.dataset.partida === filtroPartida;
         const inp = row.querySelector('[data-cantidad]');
         const matchPendiente = !soloPendientes || !inp.value;
-        const visible = matchTexto && matchGrupo && matchPendiente;
+        const visible = matchTexto && matchGrupo && matchUbicacion && matchPartida && matchPendiente;
         row.classList.toggle('hidden-initial', !visible);
         if (visible) { visibles += 1; grupoTieneVisibles = true; }
       });
@@ -8881,6 +8968,26 @@ async function openAvanceConceptosModal(avance, presupuestoTotal, puedeEditar = 
     aplicarFiltrosAvc();
   });
   $('#avcSoloPendientes').addEventListener('change', aplicarFiltrosAvc);
+
+  // Ubicación→Partida (prompt-filtro-ubicacion-partida.md): elegir Ubicación
+  // repuebla el sub-select de Partida solo con las partidas que realmente
+  // existen bajo esa ubicación (partidasPorUbicacion, calculado arriba junto
+  // con groups) — no todas las partidas de la obra. Cambiar de ubicación
+  // resetea la partida elegida, porque la anterior puede no aplicar a la
+  // nueva ubicación.
+  $('#avcFiltroUbicacion')?.addEventListener('change', (e) => {
+    filtroUbicacion = e.target.value;
+    filtroPartida = '';
+    const partidaSel = $('#avcFiltroPartida');
+    const partidas = filtroUbicacion ? [...(partidasPorUbicacion.get(filtroUbicacion) || [])].sort((a, b) => a.localeCompare(b)) : [];
+    partidaSel.innerHTML = `<option value="">Todas las partidas</option>${partidas.map((p) => `<option value="${esc(p)}">${esc(p)}</option>`).join('')}`;
+    partidaSel.disabled = !filtroUbicacion;
+    aplicarFiltrosAvc();
+  });
+  $('#avcFiltroPartida')?.addEventListener('change', (e) => {
+    filtroPartida = e.target.value;
+    aplicarFiltrosAvc();
+  });
 
   // Colapsar/expandir por sección (prompt-navegacion-secciones-avance.md) —
   // estado solo en memoria de este cierre del modal (no persiste al cerrar y
@@ -9727,6 +9834,11 @@ function openPostUploadModal(result) {
       <div class="field"><label>Inicio de obra</label><input id="postUploadInicio" type="date" value="${esc(inicio)}" /></div>
       <div class="field"><label>Fin de obra</label><input id="postUploadFin" type="date" value="${esc(fin)}" /></div>
     </div>
+    <div class="section-divider-14">
+      <h4 class="m0-0-6">Nivel de Ubicación (opcional)</h4>
+      <p class="muted fs078-mb10">Si esta obra tiene un nivel de jerarquía que representa ubicación (ej. una calle o frente que se repite bajo distintas partidas), indícalo aquí para habilitar el filtro Ubicación→Partida en Avance. Puede dejarse sin eje y configurarse después desde Usuarios.</p>
+      <div class="field">${nivelUbicacionSelectHtml('postUploadNivelUbic', null)}</div>
+    </div>
     <div class="modal-actions">
       <button class="btn" id="btnSkipFechasPost">Omitir</button>
       <button class="btn btn-primary" id="btnGuardarFechasPost">Guardar</button>
@@ -9745,8 +9857,20 @@ function openPostUploadModal(result) {
     }
   }
 
+  async function guardarNivelUbicacionSiCambio() {
+    const raw = $('#postUploadNivelUbic')?.value;
+    if (raw === '' || raw == null) return; // sin eje — queda NULL, nada que guardar
+    const nivel = Number(raw);
+    try {
+      await api(`/projects/${result.id}/nivel-ubicacion-jerarquia`, { method: 'PUT', body: { nivel } });
+      const p = state.projects.find((x) => x.id === result.id);
+      if (p) p.nivel_ubicacion_jerarquia = nivel;
+    } catch (_) { /* no bloquea el flujo — se puede fijar después desde Usuarios */ }
+  }
+
   $('#btnSkipFechasPost').addEventListener('click', async () => {
     await renombrarSiCambio();
+    await guardarNivelUbicacionSiCambio();
     closeModal();
     toast(`"${result.nombre}" cargado: ${result.conceptos} conceptos, ${result.insumos} insumos${destMsg}`, 'success');
   });
@@ -9759,6 +9883,7 @@ function openPostUploadModal(result) {
     btn.disabled = true; btn.textContent = 'Guardando…';
     try {
       await renombrarSiCambio();
+      await guardarNivelUbicacionSiCambio();
       await api(`/projects/${result.id}/fechas-obra`, { method: 'PUT', body: { inicio_obra, fin_obra } });
       closeModal();
       invalidate('resumen');
@@ -11244,9 +11369,14 @@ async function openUsuarioModal(usuario) {
         <div class="uproyectos-grupo">
           <p class="checkbox-list-group-title">${esc(nombreCliente)}</p>
           ${proyectos.map((p) => `
-            <label class="checkbox-row-fw400 checkbox-row-indent">
-              <input type="checkbox" value="${p.id}" class="w-auto" ${selectedProjectIds.has(p.id) ? 'checked' : ''} /> ${esc(p.nombre)}
-            </label>`).join('')}
+            <div class="uproyectos-obra-row">
+              <label class="checkbox-row-fw400 checkbox-row-indent">
+                <input type="checkbox" value="${p.id}" class="w-auto" ${selectedProjectIds.has(p.id) ? 'checked' : ''} /> ${esc(p.nombre)}
+              </label>
+              <span class="muted fs-08" title="Nivel de ruta_jerarquica que representa Ubicación en esta obra — independiente de si este usuario tiene la obra asignada. Ver prompt-filtro-ubicacion-partida.md.">
+                ${nivelUbicacionSelectHtml(`uNivelUbic-${p.id}`, p.nivel_ubicacion_jerarquia ?? null)}
+              </span>
+            </div>`).join('')}
         </div>`)
       .join('');
     $$('#uProyectosList input[type="checkbox"]', list).forEach((cb) => {
@@ -11256,6 +11386,28 @@ async function openUsuarioModal(usuario) {
         renderProyectosResumen();
       });
     });
+    // Setting de la OBRA, no del usuario que se está editando — se guarda de
+    // inmediato al cambiar (no espera a "Guardar cambios" del usuario, que ni
+    // siquiera toca este campo). allProjects/state.projects se actualizan en
+    // memoria para que el valor sobreviva a un re-render de este mismo modal.
+    gruposObras
+      .filter(([nombreCliente]) => selectedClientes.has(nombreCliente))
+      .forEach(([, proyectos]) => proyectos.forEach((p) => {
+        $(`#uNivelUbic-${p.id}`)?.addEventListener('change', async (e) => {
+          const raw = e.target.value;
+          const nivel = raw === '' ? null : Number(raw);
+          try {
+            await api(`/projects/${p.id}/nivel-ubicacion-jerarquia`, { method: 'PUT', body: { nivel } });
+            p.nivel_ubicacion_jerarquia = nivel;
+            const enState = state.projects.find((sp) => sp.id === p.id);
+            if (enState) enState.nivel_ubicacion_jerarquia = nivel;
+            toast(`Nivel de ubicación de "${p.nombre}" actualizado`, 'success');
+          } catch (err) {
+            toast(err.message, 'danger');
+            e.target.value = p.nivel_ubicacion_jerarquia ?? '';
+          }
+        });
+      }));
   }
   $$('#uClientesChecklist input[type="checkbox"]').forEach((cb) => {
     cb.addEventListener('change', () => {

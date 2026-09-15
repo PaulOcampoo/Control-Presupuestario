@@ -1446,6 +1446,18 @@ body.body-scroll-locked { overflow: hidden; }
 .avc-jump-row label { font-size: var(--fs-sm); color: var(--text-secondary); white-space: nowrap; }
 .avc-jump-row select { max-width: 100%; }
 
+/* Filtro Ubicación→Partida (prompt-filtro-ubicacion-partida.md) — mismo
+   patrón visual que .avc-jump-row, dos <select> en vez de uno; solo se
+   renderiza cuando la obra tiene nivel_ubicacion_jerarquia configurado. */
+.avc-ubicacion-row { display: flex; gap: var(--space-8); flex-wrap: wrap; }
+.avc-ubicacion-row .field { flex: 1 1 160px; margin-bottom: var(--space-0); }
+
+/* Control por-obra de nivel_ubicacion_jerarquia junto al checklist de
+   asignación de obras (mismo prompt) — la fila combina el checkbox de
+   asignación (sin cambios) con un <select> de configuración de la OBRA,
+   independiente de si este usuario en particular la tiene marcada. */
+.uproyectos-obra-row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-8); flex-wrap: wrap; }
+
 /* Candado de presupuesto en Avance (2026-09-08-avance-pagos-oc-finanzas.md,
    Prompt D) — borde rojo en el input mientras el acumulado exceda lo
    presupuestado; el mensaje en sí vive en [data-exceso-msg] (.alert-box.danger

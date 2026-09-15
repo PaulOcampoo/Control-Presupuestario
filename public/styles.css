@@ -1437,6 +1437,35 @@ body.body-scroll-locked { overflow: hidden; }
 .avc-grupo-toggle.is-collapsed .avc-chevron { transform: rotate(-90deg); }
 .avc-grupo-items.avc-collapsed { display: none; }
 
+/* Anidado Ubicación (nivel 1) > Partida (nivel 2), prompt-anidar-partida-
+   en-ubicacion.md — antes cada combinación Ubicación+Partida era un bloque
+   independiente al mismo nivel, repitiendo la Ubicación como título una vez
+   por cada Partida. Nivel 1 reusa el mismo look que un bloque simple
+   (mismo tamaño de encabezado, mismo separador superior) porque a efectos
+   visuales SIGUE siendo "el próximo bloque grande" de la lista -- solo que
+   ahora puede contener más de una Partida adentro. */
+.avc-ubicacion-block:not(:first-child) {
+  margin-top: var(--space-24);
+  padding-top: var(--space-16);
+  border-top: 1px solid var(--border-color);
+}
+.avc-ubicacion-items.avc-collapsed { display: none; }
+.avc-ubicacion-items { margin-top: var(--space-8); padding-left: var(--space-16); }
+
+/* Nivel 2 (Partida) dentro de un bloque de Ubicación ya expandido -- más
+   chico y con separador más sutil (punteado) que el de nivel 1, para que la
+   jerarquía se lea de un vistazo sin necesitar leer el texto. */
+.avc-partida-subblock:not(:first-child) {
+  margin-top: var(--space-16);
+  padding-top: var(--space-12);
+  border-top: 1px dashed var(--border-color);
+}
+.avc-partida-toggle {
+  font-size: var(--fs-sm); font-weight: 700; color: var(--text-secondary);
+  text-transform: uppercase; letter-spacing: 0.03em;
+  margin: var(--space-0) var(--space-0) var(--space-8);
+}
+
 /* Selector "Ir a sección" (mismo prompt) — barra separada de los chips de
    filtro (.chip-row / #avcGrupoChips ya existentes, que ocultan secciones)
    porque esta es pura navegación: nunca oculta contenido, solo hace scroll. */

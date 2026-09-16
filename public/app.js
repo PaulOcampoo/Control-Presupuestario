@@ -9310,6 +9310,11 @@ async function openAvanceConceptosModal(avance, presupuestoTotal, puedeEditar = 
   // si estaba colapsado lo expande primero (nivel 2, y su nivel 1 dueño si
   // aplica) para que el salto no aterrice en un encabezado sin contenido
   // visible debajo.
+  // prompt-fix-selector-ir-a-seccion.md: ya NO se limpia e.target.value tras
+  // saltar -- ese reset hacía que el <select> volviera a mostrar
+  // "Seleccionar…" aunque el salto sí hubiera ocurrido, pareciendo que no
+  // había nada elegido. Se deja el value tal cual para que el select
+  // conserve visible la opción elegida (mismo texto "Ubicación — Partida").
   $('#avcJump')?.addEventListener('change', (e) => {
     const grupo = e.target.value;
     if (!grupo) return;
@@ -9321,7 +9326,6 @@ async function openAvanceConceptosModal(avance, presupuestoTotal, puedeEditar = 
       setGrupoColapsado(grupo, false);
       block.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
-    e.target.value = '';
   });
 
   $('#avcSummary').classList.remove('hidden-initial'); // ver .hidden-initial en styles.css

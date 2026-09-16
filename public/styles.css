@@ -2223,6 +2223,13 @@ html[data-palette="dorada"]:not([data-theme="light"]) .welcome-card {
   .global-chart-kpis { grid-template-columns: repeat(2, 1fr); width: 100%; }
 }
 
+/* prompt-rediseno-dashboard-costos.md: frase de cobertura en lenguaje simple
+   bajo la dona (color = semáforo, misma clase text-verde/text-amarillo/
+   text-rojo ya usada en el resto de la app) y botón "Ver más" centrado para
+   las listas/tablas colapsadas del Dashboard de Costos. */
+.costos-dash-frase { margin-top: var(--space-10); font-weight: 600; }
+.costos-dash-vermas { text-align: center; margin-top: var(--space-10); }
+
 /* ── Dashboard "Avance por cliente" (prompt-dashboard-favoritos-layout.md,
    Fase 4) — agregado por cliente, top 4, junto a Resumen Global en
    .dashboards-row. Mismo lenguaje visual que .global-kpi (label chico

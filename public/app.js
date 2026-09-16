@@ -8879,7 +8879,7 @@ async function openAvanceConceptosModal(avance, presupuestoTotal, puedeEditar = 
         ${chipsUnicos.map((g) => `<button type="button" class="chip" data-grupo="${esc(g.chipKey)}">${esc(g.label)}</button>`).join('')}
       </div>` : ''}
       ${seccionesParaJump.length > 1 ? `
-      <div class="avc-jump-row mt-6">
+      <div class="avc-jump-row mt-12">
         <label for="avcJump">Ir a sección</label>
         <select id="avcJump">
           <option value="">Seleccionar…</option>

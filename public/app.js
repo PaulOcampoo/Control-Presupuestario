@@ -8835,25 +8835,22 @@ async function openAvanceConceptosModal(avance, presupuestoTotal, puedeEditar = 
       : g.label
   );
 
-  // chipsUnicos (prompt-fix-dropdown-y-chips-avance.md): con eje de
-  // Ubicación configurado, la barra de chips muestra SOLO Ubicaciones
-  // principales -- los bloques con jerarquía ambigua (ubicacion null, ver
-  // exclusión más arriba) ya NO tienen chip propio aquí, para no ensuciar
-  // la barra con entradas sueltas tipo "PASEO PUNTA CUERNA · DESCARGAS
-  // SANITARIAS". Siguen siendo accesibles por otras vías sin tocar: la
-  // vista "Todos" los sigue mostrando en el cuerpo del modal (no se les
-  // quita el acceso, solo el chip), y "Ir a sección" conserva su entrada
-  // (ver seccionesParaJump más abajo, sin cambios). Sin Ubicación
-  // configurada, cae al comportamiento de siempre: un chip por sección.
+  // chipsUnicos: un chip por sección (Grupo), SOLO para obras SIN
+  // Ubicación configurada -- ahí no hay select "Ubicación"/"Partida" (el
+  // bloque completo de arriba tampoco se renderiza, ver
+  // `ubicacionesUnicas.length > 1` más abajo) y este chip-row es la única
+  // forma de filtrar. prompt-simplificar-filtros-avance.md: con Ubicación
+  // configurada, esta barra mostraba solo las Ubicaciones principales
+  // (Todos/CALLE BARRANCAS/...) -- exactamente redundante con el select
+  // "Ubicación" que ya cubre lo mismo (incluyendo su propio "Todas las
+  // ubicaciones") por un segundo camino confuso; decisión de Paul: se
+  // elimina esa rama por completo, el select queda como único filtro real.
   const chipsMap = new Map(); // chipKey -> label
-  groups.forEach((g, key) => {
-    if (nivelUbicacion != null) {
-      if (!g.ubicacion) return;
-      if (!chipsMap.has(g.ubicacion)) chipsMap.set(g.ubicacion, g.ubicacion);
-      return;
-    }
-    if (!chipsMap.has(key)) chipsMap.set(key, g.label);
-  });
+  if (nivelUbicacion == null) {
+    groups.forEach((g, key) => {
+      if (!chipsMap.has(key)) chipsMap.set(key, g.label);
+    });
+  }
   const chipsUnicos = [...chipsMap.entries()].map(([chipKey, label]) => ({ chipKey, label }));
 
   // seccionesParaJump: uno por sección real (nunca deduplicado -- "Ir a
@@ -8862,10 +8859,56 @@ async function openAvanceConceptosModal(avance, presupuestoTotal, puedeEditar = 
   // ambas están disponibles, para distinguir secciones que comparten
   // Ubicación (mismo caso "CALLE BARRANCAS" x3); en bloques ambiguos, mismo
   // desambiguado que los chips en vez de repetir el label sin contexto.
-  const seccionesParaJump = [...groups.entries()].map(([key, g]) => ({
-    key,
-    label: (g.ubicacion && g.partida) ? `${g.ubicacion} — ${g.partida}` : labelDesambiguado(g),
-  }));
+  //
+  // prompt-fix-ir-a-seccion-respeta-filtro.md: extraído a función porque el
+  // listado ya NO es estático -- se recalcula cada vez que cambia Ubicación
+  // y/o Partida (antes se calculaba una sola vez con el catálogo completo,
+  // por lo que "Ir a sección" seguía ofreciendo las 3 ubicaciones aunque el
+  // filtro de arriba ya redujera la obra a una sola). Sin filtro (ambos ''),
+  // devuelve el catálogo completo -- mismo comportamiento de siempre para
+  // ese caso. Con Ubicación fijada, solo entran los grupos cuya g.ubicacion
+  // calza exacto (los bloques ambiguos, g.ubicacion===null, quedan fuera
+  // igual que ya quedan fuera del árbol vía matchUbicacion en
+  // aplicarFiltrosAvc -- mismo criterio, ambos deben mostrar/ocultar lo
+  // mismo). Con Partida también fijada, típicamente sobra 0-1 sección y la
+  // fila se oculta sola por la regla de "> 1 para mostrarse" ya existente
+  // (más simple que un caso especial: si no aporta nada para elegir, no
+  // tiene sentido mostrar el selector).
+  const seccionesParaJump = (filtroUb, filtroPart) => [...groups.entries()]
+    .filter(([, g]) => (!filtroUb || g.ubicacion === filtroUb) && (!filtroPart || g.partida === filtroPart))
+    .map(([key, g]) => ({
+      key,
+      label: (g.ubicacion && g.partida) ? `${g.ubicacion} — ${g.partida}` : labelDesambiguado(g),
+    }));
+  // Reconstruye <select id="avcJump"> completo (nunca solo sus <option>) para
+  // que un valor ya no vigente no quede "fantasma" seleccionado -- un
+  // <select> nuevo sin ningún <option selected> cae solo en el primero
+  // ("Seleccionar…"), sin necesitar manejo de error aparte. Si el valor
+  // previo SIGUE existiendo en el nuevo filtro, se preserva (mismo espíritu
+  // que prompt-fix-selector-ir-a-seccion.md: no perder una selección válida
+  // sin necesidad). El <select> se recrea por completo en cada llamada, así
+  // que su listener de 'change' se vuelve a enganchar cada vez (wireAvcJump).
+  const renderAvcJump = (filtroUb, filtroPart) => {
+    const row = $('#avcJumpRow');
+    if (!row) return;
+    const secciones = seccionesParaJump(filtroUb, filtroPart);
+    if (secciones.length <= 1) {
+      row.innerHTML = '';
+      row.classList.add('hidden-initial');
+      return;
+    }
+    const valorPrevio = $('#avcJump')?.value || '';
+    const sigueVigente = secciones.some((s) => s.key === valorPrevio);
+    row.innerHTML = `
+      <label for="avcJump">Ir a sección</label>
+      <select id="avcJump">
+        <option value="">Seleccionar…</option>
+        ${secciones.map((g) => `<option value="${esc(g.key)}" ${sigueVigente && g.key === valorPrevio ? 'selected' : ''}>${esc(g.label)}</option>`).join('')}
+      </select>
+    `;
+    row.classList.remove('hidden-initial');
+    wireAvcJump();
+  };
   $('#avcFiltros').innerHTML = `
     <div class="avc-sticky-bar">
       <div class="search-bar">
@@ -8892,14 +8935,7 @@ async function openAvanceConceptosModal(avance, presupuestoTotal, puedeEditar = 
         <button type="button" class="chip active" data-grupo="">Todos</button>
         ${chipsUnicos.map((g) => `<button type="button" class="chip" data-grupo="${esc(g.chipKey)}">${esc(g.label)}</button>`).join('')}
       </div>` : ''}
-      ${seccionesParaJump.length > 1 ? `
-      <div class="avc-jump-row mt-12">
-        <label for="avcJump">Ir a sección</label>
-        <select id="avcJump">
-          <option value="">Seleccionar…</option>
-          ${seccionesParaJump.map((g) => `<option value="${esc(g.key)}">${esc(g.label)}</option>`).join('')}
-        </select>
-      </div>` : ''}
+      <div class="avc-jump-row mt-12 hidden-initial" id="avcJumpRow"></div>
       <div class="a11y-switch mt-6">
         <span class="a11y-switch-label">Solo pendientes por capturar</span>
         <label class="a11y-switch-toggle">
@@ -8909,6 +8945,7 @@ async function openAvanceConceptosModal(avance, presupuestoTotal, puedeEditar = 
       </div>
     </div>
   `;
+  renderAvcJump('', ''); // estado inicial: sin filtro, catálogo completo
 
   // Filas de conceptos — extraído a helper (prompt-anidar-partida-en-
   // ubicacion.md) porque ahora se usa desde dos niveles de bloque distintos
@@ -9165,7 +9202,11 @@ async function openAvanceConceptosModal(avance, presupuestoTotal, puedeEditar = 
     filtroTexto = '';
     if ($('#avcBuscar')) $('#avcBuscar').value = '';
     filtroGrupo = '';
-    $$('.chip', $('#avcGrupoChips')).forEach((c) => c.classList.toggle('active', c.dataset.grupo === ''));
+    // prompt-simplificar-filtros-avance.md: #avcGrupoChips ya no existe en
+    // obras con Ubicación configurada (chip-row eliminado) -- $$ con root
+    // null revienta ("Cannot read properties of null"), de ahí el guard.
+    const grupoChipsEl = $('#avcGrupoChips');
+    if (grupoChipsEl) $$('.chip', grupoChipsEl).forEach((c) => c.classList.toggle('active', c.dataset.grupo === ''));
     const ubicSel = $('#avcFiltroUbicacion');
     if (ubicSel && ubicSel.value) {
       ubicSel.value = '';
@@ -9208,11 +9249,13 @@ async function openAvanceConceptosModal(avance, presupuestoTotal, puedeEditar = 
     const partidas = filtroUbicacion ? [...(partidasPorUbicacion.get(filtroUbicacion) || [])].sort((a, b) => a.localeCompare(b)) : [];
     partidaSel.innerHTML = `<option value="">Todas las partidas</option>${partidas.map((p) => `<option value="${esc(p)}">${esc(p)}</option>`).join('')}`;
     partidaSel.disabled = !filtroUbicacion;
+    renderAvcJump(filtroUbicacion, filtroPartida);
     aplicarFiltrosAvc();
     sincronizarColapsoConFiltro();
   });
   $('#avcFiltroPartida')?.addEventListener('change', (e) => {
     filtroPartida = e.target.value;
+    renderAvcJump(filtroUbicacion, filtroPartida);
     aplicarFiltrosAvc();
     sincronizarColapsoConFiltro();
   });
@@ -9329,18 +9372,27 @@ async function openAvanceConceptosModal(avance, presupuestoTotal, puedeEditar = 
   // "Seleccionar…" aunque el salto sí hubiera ocurrido, pareciendo que no
   // había nada elegido. Se deja el value tal cual para que el select
   // conserve visible la opción elegida (mismo texto "Ubicación — Partida").
-  $('#avcJump')?.addEventListener('change', (e) => {
-    const grupo = e.target.value;
-    if (!grupo) return;
-    resetearFiltrosAvc();
-    const ubicacionPadre = ubicacionDeSeccion.get(grupo);
-    if (ubicacionPadre) setUbicacionColapsada(ubicacionPadre, false);
-    const block = $$('[data-grupo-block]').find((el) => el.dataset.grupoBlock === grupo);
-    if (block) {
-      setGrupoColapsado(grupo, false);
-      block.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }
-  });
+  //
+  // prompt-fix-ir-a-seccion-respeta-filtro.md: extraído a function
+  // declaration (hoisted, a diferencia de un const/arrow) porque
+  // renderAvcJump() la vuelve a invocar cada vez que reconstruye el <select>
+  // desde cero (un <select> recreado por innerHTML pierde cualquier listener
+  // anterior) -- incluida la primerísima vez, antes de que este bloque se
+  // ejecute en orden textual. El hoisting la deja disponible desde ya.
+  function wireAvcJump() {
+    $('#avcJump')?.addEventListener('change', (e) => {
+      const grupo = e.target.value;
+      if (!grupo) return;
+      resetearFiltrosAvc();
+      const ubicacionPadre = ubicacionDeSeccion.get(grupo);
+      if (ubicacionPadre) setUbicacionColapsada(ubicacionPadre, false);
+      const block = $$('[data-grupo-block]').find((el) => el.dataset.grupoBlock === grupo);
+      if (block) {
+        setGrupoColapsado(grupo, false);
+        block.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    });
+  }
 
   $('#avcSummary').classList.remove('hidden-initial'); // ver .hidden-initial en styles.css
   $('#avcSummary').style.display = '';

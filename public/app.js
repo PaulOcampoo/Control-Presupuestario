@@ -17644,6 +17644,20 @@ function costosDashActividadDetalleHtml(item) {
   return '';
 }
 
+// prompt-rediseno-dashboard-costos.md: defaults de lectura visual — el
+// prompt los propone como "ej." explícitos (umbral de cobertura 70%, cortes
+// de severidad 50%/20%), se adoptan tal cual sin pausar por Stop Condition
+// porque ya vienen como valor concreto, no como pregunta abierta.
+const COSTOS_DASH_COBERTURA_UMBRAL = 70;
+const COSTOS_DASH_INSUMOS_PASO = 10;
+const COSTOS_DASH_ACTIVIDAD_INICIAL = 6;
+
+function costosDashSeveridadClase(pctDiff) {
+  if (pctDiff > 50) return 'red';
+  if (pctDiff >= 20) return 'yellow';
+  return 'muted';
+}
+
 async function renderCostosDashboard(view) {
   view.innerHTML = `
     <h2 class="section-title">Dashboard de Costos ${renderHelpBtn('costosDashboard')}</h2>
@@ -17666,23 +17680,37 @@ async function renderCostosDashboard(view) {
   const coberturaWrap = $('#costosDashCobertura');
   if (!cob.total_conceptos) {
     coberturaWrap.innerHTML = `
-      <div class="bienvenida-summary-title">Cobertura de matrices</div>
-      <div class="empty-state">Todavía no hay conceptos con precio en el catálogo global — nada que medir aquí por ahora.</div>
+      <div class="card">
+        <div class="bienvenida-summary-title">Cobertura de matrices</div>
+        <div class="empty-state">Todavía no hay conceptos con precio en el catálogo global — nada que medir aquí por ahora.</div>
+      </div>
     `;
   } else {
+    const coberturaClase = cob.pct_cobertura >= COSTOS_DASH_COBERTURA_UMBRAL
+      ? 'text-verde'
+      : (cob.pct_cobertura >= COSTOS_DASH_COBERTURA_UMBRAL / 2 ? 'text-amarillo' : 'text-rojo');
+    const plConceptos = cob.total_conceptos === 1 ? '' : 's';
+    const plTiene = cob.total_conceptos === 1 ? 'tiene' : 'tienen';
+    const frase = cob.sin_matriz > 0
+      ? `${cob.con_matriz} de ${cob.total_conceptos} concepto${plConceptos} ${plTiene} matriz de precio — falta cargar ${cob.sin_matriz}.`
+      : `${cob.con_matriz} de ${cob.total_conceptos} concepto${plConceptos} ${plTiene} matriz de precio — cobertura completa.`;
     coberturaWrap.innerHTML = `
-      <div class="global-chart-section">
-        <div class="bienvenida-summary-title">Cobertura de matrices — ${cob.total_conceptos} concepto${cob.total_conceptos === 1 ? '' : 's'} en el catálogo global</div>
-        <div class="global-chart-wrap">
-          <div class="global-chart-canvas-wrap">
-            <canvas id="costosDashCoberturaChart" width="140" height="140"></canvas>
-            <div class="global-chart-pct">${fmtPct(cob.pct_cobertura)}</div>
+      <div class="card">
+        <div class="bienvenida-summary-title">Cobertura de matrices</div>
+        <p class="muted fs-08">De todos los conceptos con precio del catálogo global, cuántos ya tienen matriz de precio unitario capturada.</p>
+        <div class="global-chart-section">
+          <div class="global-chart-wrap">
+            <div class="global-chart-canvas-wrap">
+              <canvas id="costosDashCoberturaChart" width="140" height="140"></canvas>
+              <div class="global-chart-pct">${fmtPct(cob.pct_cobertura)}</div>
+            </div>
+            <div class="global-chart-kpis">
+              <div class="global-kpi"><span class="global-kpi-label">Con matriz</span><span class="global-kpi-value text-verde">${cob.con_matriz}</span></div>
+              <div class="global-kpi"><span class="global-kpi-label">Sin matriz</span><span class="global-kpi-value text-secondary-color">${cob.sin_matriz}</span></div>
+              <div class="global-kpi"><span class="global-kpi-label">Cobertura</span><span class="global-kpi-value accent">${fmtPct(cob.pct_cobertura)}</span></div>
+            </div>
           </div>
-          <div class="global-chart-kpis">
-            <div class="global-kpi"><span class="global-kpi-label">Con matriz</span><span class="global-kpi-value text-verde">${cob.con_matriz}</span></div>
-            <div class="global-kpi"><span class="global-kpi-label">Sin matriz</span><span class="global-kpi-value text-secondary-color">${cob.sin_matriz}</span></div>
-            <div class="global-kpi"><span class="global-kpi-label">Cobertura</span><span class="global-kpi-value accent">${fmtPct(cob.pct_cobertura)}</span></div>
-          </div>
+          <p class="costos-dash-frase ${coberturaClase}">${frase}</p>
         </div>
       </div>
     `;
@@ -17715,33 +17743,77 @@ async function renderCostosDashboard(view) {
 
   // --- Insumos con precio inconsistente entre obras ----------------------
   const insumosWrap = $('#costosDashInsumos');
-  const insumos = data.insumos_inconsistentes;
-  if (!insumos.length) {
+  const insumosTodos = data.insumos_inconsistentes;
+  if (!insumosTodos.length) {
     insumosWrap.innerHTML = `
-      <div class="bienvenida-summary-title">Insumos con precio inconsistente entre obras</div>
-      <div class="empty-state">Sin diferencias mayores al 5% entre obras por ahora.</div>
+      <div class="card">
+        <div class="bienvenida-summary-title">Insumos con precio inconsistente entre obras</div>
+        <div class="empty-state">Sin diferencias mayores al 5% entre obras por ahora.</div>
+      </div>
     `;
   } else {
     insumosWrap.innerHTML = `
-      <div class="bienvenida-summary-title">Insumos con precio inconsistente entre obras — ${insumos.length}</div>
-      <p class="muted fs-08">Mismo código de insumo, precio más reciente distinto entre obras (margen &gt;5%, para filtrar diferencias de redondeo).</p>
-      <div class="table-scroll">
-        <table>
-          <thead><tr><th>Código</th><th class="num">Precio mín.</th><th class="num">Precio máx.</th><th class="num">Obras</th><th class="num">Diferencia</th></tr></thead>
-          <tbody>
-            ${insumos.map((it) => `
-              <tr>
-                <td>${esc(it.codigo)}</td>
-                <td class="num">${fmtMoney(it.min_precio)}</td>
-                <td class="num">${fmtMoney(it.max_precio)}</td>
-                <td class="num">${it.n_obras}</td>
-                <td class="num">${fmtPct(it.pct_diff)}</td>
-              </tr>
-            `).join('')}
-          </tbody>
-        </table>
+      <div class="card">
+        <div class="bienvenida-summary-title">Insumos con precio inconsistente entre obras — ${insumosTodos.length}</div>
+        <p class="muted fs-08">Mismo código de insumo, precio más reciente distinto entre obras (margen &gt;5%, para filtrar diferencias de redondeo). Diferencia en rojo &gt;50%, ámbar 20-50%.</p>
+        <div class="search-bar mt-6">
+          <input type="search" id="costosDashInsumosBuscar" placeholder="Buscar por código…" autocomplete="off" />
+        </div>
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th>Código</th><th class="num">Precio mín.</th><th class="num">Precio máx.</th><th class="num">Obras</th><th class="num">Diferencia</th></tr></thead>
+            <tbody id="costosDashInsumosBody"></tbody>
+          </table>
+        </div>
+        <div class="costos-dash-vermas" id="costosDashInsumosVerMasWrap"></div>
       </div>
     `;
+
+    const body = $('#costosDashInsumosBody');
+    const verMasWrap = $('#costosDashInsumosVerMasWrap');
+    let query = '';
+    let visibles = COSTOS_DASH_INSUMOS_PASO;
+
+    const filtrados = () => {
+      if (!query) return insumosTodos;
+      const q = normalizarTexto(query);
+      return insumosTodos.filter((it) => normalizarTexto(it.codigo).includes(q));
+    };
+
+    const pintar = () => {
+      const lista = filtrados();
+      if (!lista.length) {
+        body.innerHTML = `<tr><td colspan="5"><div class="empty-state empty-state-compact">Sin resultados para "${esc(query)}".</div></td></tr>`;
+        verMasWrap.innerHTML = '';
+        return;
+      }
+      const mostrados = lista.slice(0, visibles);
+      body.innerHTML = mostrados.map((it) => `
+        <tr>
+          <td>${esc(it.codigo)}</td>
+          <td class="num">${fmtMoney(it.min_precio)}</td>
+          <td class="num">${fmtMoney(it.max_precio)}</td>
+          <td class="num">${it.n_obras}</td>
+          <td class="num"><span class="badge ${costosDashSeveridadClase(it.pct_diff)}">${fmtPct(it.pct_diff)}</span></td>
+        </tr>
+      `).join('');
+      const restantes = lista.length - mostrados.length;
+      verMasWrap.innerHTML = restantes > 0
+        ? `<button type="button" class="link-btn" id="costosDashInsumosVerMas">Ver más (${restantes} restante${restantes === 1 ? '' : 's'})</button>`
+        : '';
+      $('#costosDashInsumosVerMas')?.addEventListener('click', () => {
+        visibles += COSTOS_DASH_INSUMOS_PASO;
+        pintar();
+      });
+    };
+
+    $('#costosDashInsumosBuscar').addEventListener('input', debounce((e) => {
+      query = e.target.value.trim();
+      visibles = COSTOS_DASH_INSUMOS_PASO;
+      pintar();
+    }, 200));
+
+    pintar();
   }
 
   // --- Actividad reciente --------------------------------------------------
@@ -17749,25 +17821,47 @@ async function renderCostosDashboard(view) {
   const actividad = data.actividad_reciente;
   if (!actividad.length) {
     actWrap.innerHTML = `
-      <div class="bienvenida-summary-title">Actividad reciente</div>
-      <div class="empty-state">Sin actividad reciente en Costos (importación de matrices o creación de presupuestos desde el catálogo).</div>
+      <div class="card">
+        <div class="bienvenida-summary-title">Actividad reciente</div>
+        <div class="empty-state">Sin actividad reciente en Costos (importación de matrices o creación de presupuestos desde el catálogo).</div>
+      </div>
     `;
   } else {
     actWrap.innerHTML = `
-      <div class="bienvenida-summary-title">Actividad reciente</div>
-      <div class="project-list gap-6">
-        ${actividad.map((a) => `
-          <div class="project-item" style="cursor:default;">
-            <div>
-              <strong>${esc(a.actor_usuario)}</strong> ${esc(COSTOS_DASH_ACCION_LABEL[a.accion] || a.accion)}
-              ${a.obra_nombre ? `en <strong>${esc(a.obra_nombre)}</strong>` : `(obra #${a.target_id})`}
-            </div>
-            <div class="muted fs-078">${costosDashActividadDetalleHtml(a)}</div>
-            <div class="muted fs-078">${new Date(a.creado_en).toLocaleString('es-MX', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</div>
-          </div>
-        `).join('')}
+      <div class="card">
+        <div class="bienvenida-summary-title">Actividad reciente</div>
+        <div class="project-list gap-6" id="costosDashActividadLista"></div>
+        <div class="costos-dash-vermas" id="costosDashActividadVerMasWrap"></div>
       </div>
     `;
+
+    const lista = $('#costosDashActividadLista');
+    const verMasWrap = $('#costosDashActividadVerMasWrap');
+    let visiblesAct = COSTOS_DASH_ACTIVIDAD_INICIAL;
+
+    const pintarAct = () => {
+      const mostrados = actividad.slice(0, visiblesAct);
+      lista.innerHTML = mostrados.map((a) => `
+        <div class="project-item" style="cursor:default;">
+          <div>
+            <strong>${esc(a.actor_usuario)}</strong> ${esc(COSTOS_DASH_ACCION_LABEL[a.accion] || a.accion)}
+            ${a.obra_nombre ? `en <strong>${esc(a.obra_nombre)}</strong>` : `(obra #${a.target_id})`}
+          </div>
+          <div class="muted fs-078">${costosDashActividadDetalleHtml(a)}</div>
+          <div class="muted fs-078">${new Date(a.creado_en).toLocaleString('es-MX', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</div>
+        </div>
+      `).join('');
+      const restantes = actividad.length - mostrados.length;
+      verMasWrap.innerHTML = restantes > 0
+        ? `<button type="button" class="link-btn" id="costosDashActividadVerMas">Ver más (${restantes} más)</button>`
+        : '';
+      $('#costosDashActividadVerMas')?.addEventListener('click', () => {
+        visiblesAct += COSTOS_DASH_ACTIVIDAD_INICIAL;
+        pintarAct();
+      });
+    };
+
+    pintarAct();
   }
 }
 

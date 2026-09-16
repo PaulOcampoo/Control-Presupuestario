@@ -15228,7 +15228,10 @@ function updateFabBadge() {
   }
 }
 function syncFab() {
-  const noFabViews = ['usuarios', 'proveedores', 'ordenes', 'finanzas', 'compromisos', 'fondoGarantia', 'estadoResultados', 'estadoResultadosGlobal', 'mapeo', 'avance'];
+  // prompt-fix-legibilidad-presupuesto-vs-estimaciones.md: el FAB "+" de
+  // Admin (promptUpload) quedaba encima de la fila Total de esta tabla,
+  // tapándola — esta vista no tiene ninguna acción de FAB propia.
+  const noFabViews = ['usuarios', 'proveedores', 'ordenes', 'finanzas', 'compromisos', 'fondoGarantia', 'estadoResultados', 'estadoResultadosGlobal', 'mapeo', 'avance', 'presupuestoEstimaciones'];
   const hasAction = ['requisiciones', 'insumos', 'destajo'].includes(state.view);
   const esGaleria = state.view.endsWith('_gallery');
   const visible = !esGaleria && !noFabViews.includes(state.view) && state.projectId && (hasAction || isAdmin());
@@ -22490,6 +22493,61 @@ const ESTIMACION_ORDEN_OPCIONES = [
 // es un resultado correcto — nunca se oculta la tabla ni se muestra "No
 // disponible" en ese caso (a diferencia de Corte de Obra).
 //
+// prompt-fix-legibilidad-presupuesto-vs-estimaciones.md: -webkit-line-clamp
+// (usado por .pve-concepto) corta el texto donde cae el borde de la 2ª línea
+// sin respetar espacios — es una limitación del propio line-clamp, no un bug
+// de esta app, y no tiene solución puramente CSS. Se recalcula aquí el punto
+// de corte real con Canvas 2D (measureText, sin reflow) retrocediendo por
+// palabra completa hasta que la línea + "…" quepa en el ancho disponible —
+// nunca corta una palabra a la mitad salvo que esa palabra sola ya exceda el
+// ancho completo de la columna (caso límite inevitable, igual que el propio
+// wrap nativo del navegador tampoco rompe palabras sueltas).
+function truncarTextoDosLineas(texto, anchoPx, fontCss) {
+  const canvas = truncarTextoDosLineas._canvas || (truncarTextoDosLineas._canvas = document.createElement('canvas'));
+  const ctx = canvas.getContext('2d');
+  ctx.font = fontCss;
+  const ELLIPSIS = '…';
+  const palabras = texto.split(' ');
+  const lineas = [''];
+  let consumidas = 0;
+  for (const palabra of palabras) {
+    const idx = lineas.length - 1;
+    const candidata = lineas[idx] ? `${lineas[idx]} ${palabra}` : palabra;
+    if (lineas[idx] && ctx.measureText(candidata).width > anchoPx) {
+      if (lineas.length === 2) break; // ya hay 2 líneas completas, el resto sobra
+      lineas.push(palabra);
+    } else {
+      lineas[idx] = candidata;
+    }
+    consumidas++;
+  }
+  if (consumidas >= palabras.length) return texto; // cupo completo, sin truncar
+  let segunda = lineas[1] || '';
+  while (segunda && ctx.measureText(segunda + ELLIPSIS).width > anchoPx) {
+    const corte = segunda.lastIndexOf(' ');
+    segunda = corte >= 0 ? segunda.slice(0, corte) : segunda.slice(0, -1);
+  }
+  return `${lineas[0]} ${segunda}${ELLIPSIS}`.trim();
+}
+// Aplica el truncado de arriba a todas las celdas .pve-concepto ya insertadas
+// en el DOM (una sola lectura de layout sobre la primera celda — todas
+// comparten el mismo ancho de columna y fuente, evita layout thrashing por
+// fila). Guarda el texto corto en data-short para que el click-to-expand
+// pueda colapsar de vuelta sin recalcular.
+function aplicarTruncadoConcepto(tableEl) {
+  const celdas = tableEl.querySelectorAll('.pve-concepto');
+  if (!celdas.length) return;
+  const muestra = celdas[0];
+  const cs = getComputedStyle(muestra);
+  const anchoDisponible = muestra.clientWidth - parseFloat(cs.paddingLeft || 0) - parseFloat(cs.paddingRight || 0);
+  const fontCss = `${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+  celdas.forEach((td) => {
+    const full = td.dataset.full || '';
+    const corto = truncarTextoDosLineas(full, anchoDisponible, fontCss);
+    td.dataset.short = corto;
+    td.textContent = corto;
+  });
+}
 // Rediseño (prompt-rediseno-presupuesto-vs-estimaciones.md): ancho completo
 // (.view-wide, ver #view en styles.css — quitado al salir de esta vista por
 // el reset en renderView()), buscador + chips de Grupo + "solo pendientes"
@@ -22550,8 +22608,10 @@ async function renderPresupuestoVsEstimaciones(view) {
           </div>
         </div>
       </div>
-      <div class="table-scroll">
-        <table class="pve-table" id="pveTable"></table>
+      <div class="pve-table-wrap">
+        <div class="table-scroll">
+          <table class="pve-table" id="pveTable"></table>
+        </div>
       </div>
       <div class="empty-state empty-state-compact hidden-initial" id="pveSinResultados">Sin conceptos para ese filtro.</div>
       `}
@@ -22593,7 +22653,7 @@ async function renderPresupuestoVsEstimaciones(view) {
       const filaHtml = (c) => detalleCompleto ? `
               <tr>
                 <td>${esc(c.codigo || '')}</td>
-                <td class="pve-concepto" title="${esc(c.concepto)}">${esc(c.concepto)}</td>
+                <td class="pve-concepto" data-full="${esc(c.concepto)}" title="${esc(c.concepto)}">${esc(c.concepto)}</td>
                 <td>${esc(c.grupo || '—')}</td>
                 <td>${esc(c.unidad || '')}</td>
                 <td class="num">${fmtNum(c.presupuesto_cantidad, 2)}</td>
@@ -22607,7 +22667,7 @@ async function renderPresupuestoVsEstimaciones(view) {
             ` : `
               <tr>
                 <td>${esc(c.codigo || '')}</td>
-                <td class="pve-concepto" title="${esc(c.concepto)}">${esc(c.concepto)}</td>
+                <td class="pve-concepto" data-full="${esc(c.concepto)}" title="${esc(c.concepto)}">${esc(c.concepto)}</td>
                 <td>${esc(c.grupo || '—')}</td>
                 <td class="num">${fmtMoney(c.presupuesto_importe)}</td>
                 <td class="num">${fmtMoney(c.avance_estimado_importe)}</td>
@@ -22659,6 +22719,7 @@ async function renderPresupuestoVsEstimaciones(view) {
             </tr>
           </tfoot>
       `;
+      aplicarTruncadoConcepto(tableEl);
     };
 
     $('#pveBuscar').addEventListener('input', debounce((e) => { query = e.target.value.trim(); pintar(); }, 220));
@@ -22669,6 +22730,17 @@ async function renderPresupuestoVsEstimaciones(view) {
     }));
     $('#pveSoloPendientes').addEventListener('change', (e) => { soloPendientes = e.target.checked; pintar(); });
     $('#pveDetalleCompleto').addEventListener('change', (e) => { detalleCompleto = e.target.checked; pintar(); });
+    // Click en el texto truncado expande esa celda puntual (no depende del
+    // toggle global "Mostrar detalle completo", que solo cambia columnas).
+    // Delegado sobre tableEl (nunca se re-crea entre llamadas a pintar(), a
+    // diferencia de las <td> internas) — se registra una sola vez.
+    tableEl.addEventListener('click', (e) => {
+      const td = e.target.closest('.pve-concepto');
+      if (!td) return;
+      const expandir = !td.classList.contains('pve-concepto--expanded');
+      td.classList.toggle('pve-concepto--expanded', expandir);
+      td.textContent = expandir ? td.dataset.full : td.dataset.short || td.dataset.full;
+    });
 
     pintar();
     wireExportButton('#btnExportPresupuestoEstimaciones', `/projects/${state.projectId}/presupuesto-vs-estimaciones/export`);

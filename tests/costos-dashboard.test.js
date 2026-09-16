@@ -140,3 +140,33 @@ describe('GET /api/costos/dashboard', () => {
     }
   });
 });
+
+// prompt-accesos-dashboard-costos-global.md: /api/costos/dashboard-global
+// comparte la misma función de datos que /api/costos/dashboard (arriba) pero
+// con un gate distinto — auth.allow() sin roles extra, es decir SOLO admin/
+// desarrollador, sin importar qué diga permisos_usuario. El usuario temporal
+// de este archivo es 'residente' con costos.puede_ver=true GLOBAL (ver
+// beforeAll): a propósito, para probar que ese permiso granular —que sí le
+// abre /api/costos/dashboard— NO le abre la puerta global.
+describe('GET /api/costos/dashboard-global', () => {
+  it('requiere autenticación', async () => {
+    const res = await request(app).get('/api/costos/dashboard-global');
+    expect(res.status).toBe(401);
+  });
+
+  it('residente con costos.puede_ver=true global igual recibe 403 (solo admin/desarrollador)', async () => {
+    await setPermisoCostos(tempUserId, true);
+    const res = await request(app)
+      .get('/api/costos/dashboard-global')
+      .set('Authorization', `Bearer ${tempToken}`);
+    expect(res.status).toBe(403);
+  });
+
+  it('admin recibe 200 con la misma forma de datos que la vista por obra', async () => {
+    const res = await request(app).get('/api/costos/dashboard-global').set('Authorization', `Bearer ${adminToken}`);
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveProperty('cobertura_matrices');
+    expect(res.body).toHaveProperty('insumos_inconsistentes');
+    expect(res.body).toHaveProperty('actividad_reciente');
+  });
+});

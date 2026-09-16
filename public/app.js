@@ -5001,6 +5001,11 @@ function destroyCharts() {
 async function renderView() {
   destroyCharts();
   const view = $('#view');
+  // .view-wide (prompt-rediseno-presupuesto-vs-estimaciones.md): reset en
+  // cada navegación — solo renderPresupuestoVsEstimaciones la vuelve a
+  // agregar, para que el ancho ampliado no se quede "pegado" al pasar a
+  // otra vista.
+  view.classList.remove('view-wide');
   if (state.view === 'usuarios' || state.view === 'proveedores' || state.view === 'cumplimiento' || MAQUINARIA_TABS_ADMIN.includes(state.view) || state.view === 'cotizador' || state.view === 'estadoResultadosGlobal' || state.view === 'costos' || state.view === 'avance_clientes' || state.view === 'finanzas' || state.view === 'trabajadores' || state.view === 'nominas' || state.view === 'composicion_costos' || state.view === 'cuentas' || state.view === 'controlFinanciero' || state.view === 'dashboardEjecutivo' || state.view === 'costosDashboard' || state.view === 'catalogoBasicos' || state.view === 'clientes_archivados' || state.view === 'clientes_completados' || SECTION_DEFS.contabilidad.tabs.includes(state.view)) {
     try {
       if (state.view === 'usuarios') { await renderUsuarios(view, state.usuariosSubView); state.usuariosSubView = null; }
@@ -22466,7 +22471,20 @@ const ESTIMACION_ORDEN_OPCIONES = [
 // presupuesto completo cuando la obra no tiene ninguna estimación aprobada
 // es un resultado correcto — nunca se oculta la tabla ni se muestra "No
 // disponible" en ese caso (a diferencia de Corte de Obra).
+//
+// Rediseño (prompt-rediseno-presupuesto-vs-estimaciones.md): ancho completo
+// (.view-wide, ver #view en styles.css — quitado al salir de esta vista por
+// el reset en renderView()), buscador + chips de Grupo + "solo pendientes"
+// filtrando client-side sobre `data.conceptos` ya cargado completo (nunca
+// se vuelve a pedir al servidor), y un toggle "Mostrar detalle completo"
+// que decide cuántas columnas pintar — Cantidad/Precio Unitario/Unidad y
+// las columnas "— Cant." quedan ocultas por default (siguen accesibles vía
+// el toggle, nunca se pierden). El Total del <tfoot> se recalcula sobre las
+// filas visibles (mismos valores por fila que ya entrega la API, solo se
+// re-suman) y se etiqueta "(filtrado)" cuando hay algún filtro activo, para
+// no confundirlo con el gran total sin filtrar.
 async function renderPresupuestoVsEstimaciones(view) {
+  view.classList.add('view-wide');
   view.innerHTML = `
     <h2 class="section-title">Presupuesto vs Estimaciones</h2>
     <p class="muted">Por cada concepto: presupuesto contratado, avance ya estimado (acumulado de la estimación aprobada más reciente) y lo que falta por estimar.</p>
@@ -22477,7 +22495,9 @@ async function renderPresupuestoVsEstimaciones(view) {
     const data = await api(`/projects/${state.projectId}/presupuesto-vs-estimaciones`);
     if (!document.body.contains(body)) return;
     const est = data.estimacion_aprobada;
-    const t = data.totales;
+    const conceptosTodos = data.conceptos;
+    const grupos = [...new Set(conceptosTodos.map((c) => c.grupo).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'es'));
+
     body.innerHTML = `
       ${est
         ? `<p class="muted fs-078">Estimación aprobada usada: Folio #${est.folio} · periodo ${fmtDate(est.periodo_inicio)} al ${fmtDate(est.periodo_fin)}.</p>`
@@ -22485,22 +22505,77 @@ async function renderPresupuestoVsEstimaciones(view) {
       <div class="section-actions">
         <button class="btn" id="btnExportPresupuestoEstimaciones">⭳ Exportar a Excel</button>
       </div>
-      ${!data.conceptos.length ? '<div class="empty-state">Esta obra no tiene conceptos de presupuesto.</div>' : `
+      ${!conceptosTodos.length ? '<div class="empty-state">Esta obra no tiene conceptos de presupuesto.</div>' : `
+      <div class="sticky-filters">
+        <div class="search-bar">
+          <input type="search" id="pveBuscar" placeholder="Buscar por código o concepto…" autocomplete="off" />
+        </div>
+        ${grupos.length > 1 ? `
+        <div class="chip-row" id="pveGrupoChips">
+          <button type="button" class="chip active" data-grupo="">Todos</button>
+          ${grupos.map((g) => `<button type="button" class="chip" data-grupo="${esc(g)}">${esc(g)}</button>`).join('')}
+        </div>` : ''}
+        <div class="row between mt-8">
+          <div class="a11y-switch">
+            <span class="a11y-switch-label">Solo pendientes por estimar</span>
+            <label class="a11y-switch-toggle">
+              <input type="checkbox" id="pveSoloPendientes" />
+              <span class="a11y-switch-track"><span class="a11y-switch-thumb"></span></span>
+            </label>
+          </div>
+          <div class="a11y-switch">
+            <span class="a11y-switch-label">Mostrar detalle completo</span>
+            <label class="a11y-switch-toggle">
+              <input type="checkbox" id="pveDetalleCompleto" />
+              <span class="a11y-switch-track"><span class="a11y-switch-thumb"></span></span>
+            </label>
+          </div>
+        </div>
+      </div>
       <div class="table-scroll">
-        <table>
-          <thead>
-            <tr>
-              <th>Código</th><th>Concepto</th><th>Grupo</th><th>Unidad</th>
-              <th class="num">Cantidad (Presup.)</th><th class="num">Precio unitario</th><th class="num">Importe (Presup.)</th>
-              <th class="num">Avance Estimado — Cant.</th><th class="num">Avance Estimado — Importe</th>
-              <th class="num">Por Estimar — Cant.</th><th class="num">Por Estimar — Importe</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${data.conceptos.map((c) => `
+        <table class="pve-table" id="pveTable"></table>
+      </div>
+      <div class="empty-state empty-state-compact hidden-initial" id="pveSinResultados">Sin conceptos para ese filtro.</div>
+      `}
+    `;
+
+    if (!conceptosTodos.length) return;
+
+    const tableEl = $('#pveTable');
+    const sinResultadosEl = $('#pveSinResultados');
+    let query = '';
+    let grupoActivo = '';
+    let soloPendientes = false;
+    let detalleCompleto = false;
+
+    const pintar = () => {
+      let filas = conceptosTodos;
+      if (grupoActivo) filas = filas.filter((c) => (c.grupo || '') === grupoActivo);
+      if (soloPendientes) filas = filas.filter((c) => Math.abs(c.por_estimar_importe) > 0.005);
+      if (query) {
+        const q = normalizarTexto(query);
+        filas = filas.filter((c) => normalizarTexto(`${c.codigo || ''} ${c.concepto || ''}`).includes(q));
+      }
+
+      if (!filas.length) {
+        tableEl.innerHTML = '';
+        sinResultadosEl.classList.remove('hidden-initial');
+        return;
+      }
+      sinResultadosEl.classList.add('hidden-initial');
+
+      const hayFiltroActivo = !!(grupoActivo || soloPendientes || query);
+      const tf = filas.reduce((acc, f) => ({
+        presupuesto_importe: acc.presupuesto_importe + f.presupuesto_importe,
+        avance_estimado_importe: acc.avance_estimado_importe + f.avance_estimado_importe,
+        por_estimar_importe: acc.por_estimar_importe + f.por_estimar_importe,
+      }), { presupuesto_importe: 0, avance_estimado_importe: 0, por_estimar_importe: 0 });
+      const tituloTotal = `Total${hayFiltroActivo ? ' (filtrado)' : ''}`;
+
+      const filaHtml = (c) => detalleCompleto ? `
               <tr>
                 <td>${esc(c.codigo || '')}</td>
-                <td>${esc(c.concepto)}</td>
+                <td class="pve-concepto" title="${esc(c.concepto)}">${esc(c.concepto)}</td>
                 <td>${esc(c.grupo || '—')}</td>
                 <td>${esc(c.unidad || '')}</td>
                 <td class="num">${fmtNum(c.presupuesto_cantidad, 2)}</td>
@@ -22511,21 +22586,73 @@ async function renderPresupuestoVsEstimaciones(view) {
                 <td class="num">${fmtNum(c.por_estimar_cantidad, 2)}</td>
                 <td class="num">${fmtMoney(c.por_estimar_importe)}</td>
               </tr>
-            `).join('')}
-          </tbody>
+            ` : `
+              <tr>
+                <td>${esc(c.codigo || '')}</td>
+                <td class="pve-concepto" title="${esc(c.concepto)}">${esc(c.concepto)}</td>
+                <td>${esc(c.grupo || '—')}</td>
+                <td class="num">${fmtMoney(c.presupuesto_importe)}</td>
+                <td class="num">${fmtMoney(c.avance_estimado_importe)}</td>
+                <td class="num">${fmtMoney(c.por_estimar_importe)}</td>
+              </tr>
+            `;
+
+      tableEl.innerHTML = detalleCompleto ? `
+          <thead>
+            <tr>
+              <th rowspan="2">Código</th><th rowspan="2">Concepto</th><th rowspan="2">Grupo</th><th rowspan="2">Unidad</th>
+              <th colspan="3" class="pve-th-group">Presupuestado</th>
+              <th colspan="2" class="pve-th-group">Avance Estimado</th>
+              <th colspan="2" class="pve-th-group">Por Estimar</th>
+            </tr>
+            <tr>
+              <th class="num">Cantidad</th><th class="num">Precio unitario</th><th class="num">Importe</th>
+              <th class="num">Cant.</th><th class="num">Importe</th>
+              <th class="num">Cant.</th><th class="num">Importe</th>
+            </tr>
+          </thead>
+          <tbody>${filas.map(filaHtml).join('')}</tbody>
           <tfoot>
             <tr class="fw-700">
-              <td colspan="6">Total</td>
-              <td class="num">${fmtMoney(t.presupuesto_importe)}</td>
+              <td colspan="6">${tituloTotal}</td>
+              <td class="num">${fmtMoney(tf.presupuesto_importe)}</td>
               <td></td>
-              <td class="num">${fmtMoney(t.avance_estimado_importe)}</td>
+              <td class="num">${fmtMoney(tf.avance_estimado_importe)}</td>
               <td></td>
-              <td class="num">${fmtMoney(t.por_estimar_importe)}</td>
+              <td class="num">${fmtMoney(tf.por_estimar_importe)}</td>
             </tr>
           </tfoot>
-        </table>
-      </div>`}
-    `;
+      ` : `
+          <thead>
+            <tr>
+              <th>Código</th><th>Concepto</th><th>Grupo</th>
+              <th class="num">Importe Presupuestado</th>
+              <th class="num">Avance Estimado</th>
+              <th class="num">Por Estimar</th>
+            </tr>
+          </thead>
+          <tbody>${filas.map(filaHtml).join('')}</tbody>
+          <tfoot>
+            <tr class="fw-700">
+              <td colspan="3">${tituloTotal}</td>
+              <td class="num">${fmtMoney(tf.presupuesto_importe)}</td>
+              <td class="num">${fmtMoney(tf.avance_estimado_importe)}</td>
+              <td class="num">${fmtMoney(tf.por_estimar_importe)}</td>
+            </tr>
+          </tfoot>
+      `;
+    };
+
+    $('#pveBuscar').addEventListener('input', debounce((e) => { query = e.target.value.trim(); pintar(); }, 220));
+    $$('#pveGrupoChips .chip').forEach((chip) => chip.addEventListener('click', () => {
+      grupoActivo = chip.dataset.grupo;
+      $$('#pveGrupoChips .chip').forEach((c) => c.classList.toggle('active', c === chip));
+      pintar();
+    }));
+    $('#pveSoloPendientes').addEventListener('change', (e) => { soloPendientes = e.target.checked; pintar(); });
+    $('#pveDetalleCompleto').addEventListener('change', (e) => { detalleCompleto = e.target.checked; pintar(); });
+
+    pintar();
     wireExportButton('#btnExportPresupuestoEstimaciones', `/projects/${state.projectId}/presupuesto-vs-estimaciones/export`);
   } catch (err) {
     body.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;

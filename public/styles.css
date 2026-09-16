@@ -795,6 +795,12 @@ button, a, select, label,
 }
 
 #view { flex: 1; padding: var(--space-14); padding-bottom: calc(var(--space-28) + var(--safe-bottom)); max-width: 980px; width: 100%; margin: 0 auto; }
+/* prompt-rediseno-presupuesto-vs-estimaciones.md: única vista que hoy pide
+   ancho completo (tabla densa de 11 columnas) — opt-in vía clase en vez de
+   subir el max-width global de #view, para no afectar el resto de vistas
+   (que se leen mejor centradas/angostas). renderView() la resetea en cada
+   navegación; renderPresupuestoVsEstimaciones() es la única que la agrega. */
+#view.view-wide { max-width: none; }
 
 h2.section-title { margin: var(--space-4) var(--space-0) var(--space-12); font-size: var(--fs-md); }
 h3.section-title { margin: var(--space-16) var(--space-0) var(--space-10); font-size: var(--fs-base); color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.04em; }
@@ -1257,6 +1263,23 @@ thead th {
 }
 td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+/* prompt-rediseno-presupuesto-vs-estimaciones.md: zebra striping (tabla
+   larga, monótona con solo bordes) y encabezados de grupo del modo "detalle
+   completo" (Presupuestado/Avance Estimado/Por Estimar cubriendo varias
+   columnas) — clase propia (.pve-table) para no afectar el resto de tablas
+   de la app. */
+.pve-table tbody tr:nth-child(even) { background: color-mix(in srgb, var(--text-primary) 4%, transparent); }
+.pve-th-group { text-align: center; }
+.pve-concepto {
+  max-width: 320px;
+  white-space: normal;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  line-clamp: 2;
+}
 tr.row-click { cursor: pointer; }
 /* Hover solo en filas realmente clicables (tr.row-click) — no en toda la
    tabla, para no insinuar interactividad donde no la hay. (hover: hover)

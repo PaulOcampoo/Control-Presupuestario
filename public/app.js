@@ -15217,10 +15217,20 @@ function syncFab() {
   const noFabViews = ['usuarios', 'proveedores', 'ordenes', 'finanzas', 'compromisos', 'fondoGarantia', 'estadoResultados', 'estadoResultadosGlobal', 'mapeo', 'avance'];
   const hasAction = ['requisiciones', 'insumos', 'destajo'].includes(state.view);
   const esGaleria = state.view.endsWith('_gallery');
-  fab.style.display = !esGaleria && !noFabViews.includes(state.view) && state.projectId && (hasAction || isAdmin()) ? 'flex' : 'none';
+  const visible = !esGaleria && !noFabViews.includes(state.view) && state.projectId && (hasAction || isAdmin());
+  fab.style.display = visible ? 'flex' : 'none';
   if (state.view === 'requisiciones' || state.view === 'insumos') fab.textContent = '🧾';
   else if (state.view === 'destajo') fab.textContent = '👷';
   else fab.textContent = '+';
+  // prompt-fab-requisicion-movil.md: el FAB está oculto en móvil por diseño
+  // (.fab{display:none!important} en @media max-width:860px — en móvil las
+  // acciones rápidas van en el "+" de la barra inferior, ver
+  // openQuickActionMenu()). El badge/animación del borrador de requisición
+  // solo tiene sentido en Insumos/Requisiciones -- esta clase reactiva el
+  // FAB (reposicionado arriba del bottom nav, ver .fab-mobile-visible en
+  // styles.css) únicamente en esas dos vistas, sin afectar Destajo ni el
+  // FAB de carga de presupuesto de Admin, que en móvil siguen ocultos.
+  document.body.classList.toggle('fab-mobile-visible', visible && (state.view === 'requisiciones' || state.view === 'insumos'));
   updateFabBadge();
 }
 // prompt-feedback-agregar-requisicion.md: animación ligera (sin dependencias

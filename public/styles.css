@@ -2850,6 +2850,18 @@ html[data-palette="dorada"]:not([data-theme="light"]) .welcome-card {
   /* Ocultar el FAB de escritorio — en móvil las acciones rápidas van en el
      botón "+" de la barra inferior; sin esto el FAB asoma sobre la nav bar */
   .fab { display: none !important; }
+  /* prompt-fab-requisicion-movil.md: excepción acotada a Insumos/
+     Requisiciones -- ahí SÍ el FAB tiene una función propia (abrir el
+     borrador de requisición, con badge de conteo) que el "+" de la barra
+     inferior no cubre (ese abre el sheet de accesos rápidos genérico, no el
+     borrador). body.fab-mobile-visible la pone syncFab() solo en esas dos
+     vistas -- Destajo y el FAB de carga de presupuesto (Admin) siguen
+     ocultos en móvil, sin cambios. Reposicionado arriba de .mobile-nav,
+     mismo offset ya usado por #proximamenteTooltip para lo mismo. */
+  body.fab-mobile-visible .fab {
+    display: flex !important;
+    bottom: calc(var(--mobile-nav-h) + var(--mobile-nav-clear) + 16px);
+  }
 }
 
 /* ── Tooltip "próximamente" ────────────────────────────────────────────── */

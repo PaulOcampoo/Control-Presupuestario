@@ -1844,6 +1844,14 @@ function updateGalleryDrawerGlobalLinks() {
   const links = [
     ['btnGalleryGoUsuarios', puedeVer('usuarios')],
     ['btnGalleryGoDashboardEjecutivo', puedeVer('dashboardEjecutivo')],
+    // Dashboard de Costos Global (prompt-accesos-dashboard-costos-global.md):
+    // admin/desarrollador únicamente — a diferencia del resto de esta lista,
+    // deliberadamente NO usa puedeVer('costosDashboard') porque ese tab lo
+    // puede tener cualquier rol con el permiso granular 'costos' asignado a
+    // UNA obra (para ver el tile dentro de esa obra); el acceso GLOBAL (sin
+    // obra) se restringe más, isAdmin() directo, con el mismo gate real del
+    // lado del servidor (GET /api/costos/dashboard-global).
+    ['btnGalleryGoDashboardCostos', isAdmin()],
     // 'trabajadores_global'/'nominas_global' retirados de allowedTabs
     // (prompt-fase1-fusionar-trabajadores-nominas.md) — mismo criterio que
     // "Permisos"/Archivar-completar clientes arriba: isAdmin() directo.
@@ -4581,6 +4589,7 @@ $('#btnMiCuentaGalleryDrawer').addEventListener('click', () => { closeGalleryDra
 $('#btnLogoutGalleryDrawer').addEventListener('click', () => { closeGalleryDrawer(); logout(); });
 $('#btnGalleryGoUsuarios').addEventListener('click', () => goToGlobalAdminView('usuarios'));
 $('#btnGalleryGoDashboardEjecutivo').addEventListener('click', () => goToGlobalAdminView('dashboardEjecutivo'));
+$('#btnGalleryGoDashboardCostos').addEventListener('click', () => goToGlobalAdminView('costosDashboard'));
 // Ya no navegan a un tab propio 'trabajadores_global'/'nominas_global'
 // (prompt-fase1-fusionar-trabajadores-nominas.md) — preseleccionan la rama
 // "Todas las obras" del selector interno, mismo patrón que
@@ -17664,9 +17673,18 @@ function costosDashSeveridadClase(pctDiff) {
 }
 
 async function renderCostosDashboard(view) {
+  // prompt-accesos-dashboard-costos-global.md: mismos datos (el endpoint por
+  // obra ya era cross-obra/cross-cliente desde su implementación original,
+  // ver comentario en SECTION_DEFS.costos más arriba), pero la entrada
+  // "Global" desde la galería de clientes (sin obra seleccionada, ver
+  // goToGlobalAdminView) pega a un endpoint hermano con gate admin/
+  // desarrollador real en el backend (auth.allow() sin roles extra) — la
+  // entrada por obra (dentro del sidebar de una obra) sigue igual, con su
+  // checkPermiso('costos','puede_ver') de siempre, sin tocar su alcance.
+  const esGlobal = !state.projectId;
   view.innerHTML = `
-    <h2 class="section-title">Dashboard de Costos ${renderHelpBtn('costosDashboard')}</h2>
-    <p class="muted">Vista consolidada del módulo Costos: cobertura de matrices de precio unitario, insumos con precio inconsistente entre obras y actividad reciente.</p>
+    <h2 class="section-title">Dashboard de Costos${esGlobal ? ' — Global' : ''} ${renderHelpBtn('costosDashboard')}</h2>
+    <p class="muted">Vista consolidada del módulo Costos: cobertura de matrices de precio unitario, insumos con precio inconsistente entre obras y actividad reciente.${esGlobal ? ' Agrega todas las obras de todos los clientes.' : ''}</p>
     <div id="costosDashCobertura"><div class="spinner"></div></div>
     <div id="costosDashInsumos" class="mt-12"></div>
     <div id="costosDashActividad" class="mt-12"></div>
@@ -17674,7 +17692,7 @@ async function renderCostosDashboard(view) {
 
   let data;
   try {
-    data = await api('/costos/dashboard');
+    data = await api(esGlobal ? '/costos/dashboard-global' : '/costos/dashboard');
   } catch (err) {
     view.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
     return;

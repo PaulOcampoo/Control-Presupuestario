@@ -192,6 +192,13 @@
       <label class="ajustes-tema-label hidden-initial" id="galleryDrawerAdminLabel">Administración</label>
       <button id="btnGalleryGoUsuarios" class="btn full hidden-initial">👤 Usuarios</button>
       <button id="btnGalleryGoDashboardEjecutivo" class="btn full hidden-initial">📊 Dashboard Ejecutivo</button>
+      <!-- prompt-accesos-dashboard-costos-global.md: mismo Dashboard de Costos
+           que ya existe dentro de cada obra (Costos → Dashboard de Costos),
+           pero entrando sin obra seleccionada — admin/desarrollador only,
+           gate real en updateGalleryDrawerGlobalLinks() (isAdmin()) y en el
+           backend (GET /api/costos/dashboard-global, auth.allow() sin roles
+           extra = solo admin/desarrollador). -->
+      <button id="btnGalleryGoDashboardCostos" class="btn full hidden-initial">📊 Dashboard de Costos (Global)</button>
       <button id="btnGalleryGoTrabajadoresGlobal" class="btn full hidden-initial">👷 Trabajadores (Todas las Obras)</button>
       <button id="btnGalleryGoNominasGlobal" class="btn full hidden-initial">💵 Nóminas (Todas las Obras)</button>
       <button id="btnGalleryGoPermisos" class="btn full hidden-initial">🔐 Permisos</button>

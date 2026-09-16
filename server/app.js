@@ -3318,7 +3318,14 @@ app.post('/api/costos/catalogo-conceptos/export-filtrado', h(auth.checkPermiso('
 //      catálogo), así que un solo LEFT JOIN a proyectos por target_id cubre
 //      ambas acciones.
 // ---------------------------------------------------------------------------
-app.get('/api/costos/dashboard', h(auth.checkPermiso('costos', 'puede_ver')), h(async (req, res) => {
+// Extraído a función propia (prompt-accesos-dashboard-costos-global.md) para
+// que /api/costos/dashboard (por obra, checkPermiso granular) y
+// /api/costos/dashboard-global (galería de clientes, admin/desarrollador
+// only) devuelvan exactamente los mismos datos sin duplicar las 3 queries —
+// el resultado YA era cross-obra/cross-cliente desde la implementación
+// original (nunca filtró por proyecto), así que no hay lógica de agregación
+// nueva que escribir, solo dos puertas de entrada con gates distintos.
+async function getCostosDashboardData() {
   const [coberturaResult, insumosResult, actividadResult] = await Promise.all([
     db.pool.query(`
       WITH catalogo AS (
@@ -3375,7 +3382,7 @@ app.get('/api/costos/dashboard', h(auth.checkPermiso('costos', 'puede_ver')), h(
     };
   });
 
-  res.json({
+  return {
     cobertura_matrices: {
       total_conceptos: total,
       con_matriz: conMatriz,
@@ -3390,7 +3397,22 @@ app.get('/api/costos/dashboard', h(auth.checkPermiso('costos', 'puede_ver')), h(
       pct_diff: Number(r.pct_diff),
     })),
     actividad_reciente: actividad,
-  });
+  };
+}
+
+app.get('/api/costos/dashboard', h(auth.checkPermiso('costos', 'puede_ver')), h(async (req, res) => {
+  res.json(await getCostosDashboardData());
+}));
+
+// Dashboard de Costos Global (prompt-accesos-dashboard-costos-global.md):
+// mismo dato que /api/costos/dashboard (arriba), pero alcanzable desde la
+// galería de clientes SIN obra seleccionada — checkPermiso('costos', ...)
+// no aplica ahí (permite cualquier rol con el permiso granular asignado a
+// una obra puntual), así que este acceso usa auth.allow() sin roles extra:
+// solo admin/desarrollador pasan, gate real de servidor, no solo ocultar el
+// botón en el frontend (ver updateGalleryDrawerGlobalLinks() en app.js).
+app.get('/api/costos/dashboard-global', h(auth.allow()), h(async (req, res) => {
+  res.json(await getCostosDashboardData());
 }));
 
 // Crea un proyecto nuevo directo desde el catálogo agregado (ya revisado/

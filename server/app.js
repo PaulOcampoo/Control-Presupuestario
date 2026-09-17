@@ -64,7 +64,7 @@ const {
 } = require('./finanzas');
 const { getCorteObraData, getCorteObraDetalleCategoria, CATEGORIAS_REPORTE } = require('./corteObra');
 const { buildCorteObraPdf } = require('./corteObraPdf');
-const { calcularJornal, calcularDestajo, totalConIvaDeItems, totalConIvaEsValido, numeroALetra, calcularSplitCuentas, distribuirDestajoGrupo } = require('./calculos');
+const { calcularJornal, calcularDestajo, totalConIvaDeItems, totalConIvaEsValido, numeroALetra, calcularSplitCuentas, distribuirDestajoGrupo, calcularSubtotalRenglon } = require('./calculos');
 const { validarClabe } = require('./catalogoBancos');
 const estadoResultados = require('./estadoResultados');
 const contabilidad = require('./contabilidad');
@@ -14286,6 +14286,225 @@ app.get('/api/projects/:id/estimaciones/:estId/pdf', h(auth.allow('residente')),
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', `inline; filename="Estimacion_${rows[0].folio}.pdf"`);
   await pipeline(Readable.fromWeb(blobResult.stream), res);
+}));
+
+// ---------------------------------------------------------------------------
+// Generadores de Obra (prompt-generadores-de-obra.md, Fase 1) — captura de
+// números generadores/volumetría por concepto REAL de la obra (a diferencia
+// del Generador de Presupuestos, ver diagnóstico de Fase 0). Mismo patrón de
+// ownership-por-obra (no por creador) para lectura, y ownership-por-creador
+// para mutaciones, que Estimaciones (server/app.js, sección arriba) — sin
+// checkPermiso vía permisos_usuario, sección "informativa" (ver
+// SECCIONES_PERMISOS en server/auth.js).
+// ---------------------------------------------------------------------------
+const ESTADOS_GENERADOR_OBRA = ['borrador', 'enviada', 'aprobada', 'rechazada'];
+
+// Fetch + ownership check reusado por las 4 mutaciones de abajo (renglones
+// crear/editar/eliminar + estado) — mismo criterio que Estimaciones: admin/
+// desarrollador siempre pueden, un residente solo sobre lo que él creó
+// (residente_id), 404 (no 403) si no aplica para no filtrar existencia.
+async function generadorObraEditable(pid, genId, req) {
+  const { rows } = await db.pool.query(
+    'SELECT * FROM generadores_obra WHERE id = $1 AND project_id = $2 AND activo = true',
+    [genId, pid]
+  );
+  if (!rows[0]) return { error: 404, msg: 'Generador no encontrado' };
+  const esAdmin = req.user.puesto === 'admin' || req.user.puesto === 'desarrollador';
+  if (!esAdmin && rows[0].residente_id !== req.user.id) return { error: 404, msg: 'Generador no encontrado' };
+  return { gen: rows[0], esAdmin };
+}
+
+async function fetchRenglonConConcepto(renglonId) {
+  const { rows } = await db.pool.query(
+    `SELECT r.*, c.codigo, c.concepto, c.unidad, c.grupo, c.ruta_jerarquica
+     FROM generador_obra_renglones r JOIN conceptos c ON c.id = r.concepto_id
+     WHERE r.id = $1`,
+    [renglonId]
+  );
+  return rows[0];
+}
+
+app.get('/api/projects/:id/generadores-obra', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  const { rows } = await db.pool.query(`
+    SELECT g.*, u.nombre AS residente_nombre, a.nombre AS admin_aprobador_nombre,
+      (SELECT COUNT(*)::int FROM generador_obra_renglones r WHERE r.generador_id = g.id) AS total_renglones
+    FROM generadores_obra g
+    LEFT JOIN usuarios u ON u.id = g.residente_id
+    LEFT JOIN usuarios a ON a.id = g.admin_aprobador_id
+    WHERE g.project_id = $1 AND g.activo = true
+    ORDER BY g.folio DESC`,
+    [req.project.id]
+  );
+  res.json(rows);
+}));
+
+app.post('/api/projects/:id/generadores-obra', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  const { periodo_inicio, periodo_fin, nombre } = req.body || {};
+  if (!periodo_inicio || !periodo_fin) return res.status(400).json({ error: 'periodo_inicio y periodo_fin son requeridos' });
+  if (periodo_fin < periodo_inicio) return res.status(400).json({ error: 'periodo_fin debe ser igual o posterior a periodo_inicio' });
+
+  const generador = await db.withTransaction(async (client) => {
+    const { rows: folioRows } = await client.query(
+      `INSERT INTO folio_counters (project_id, tipo, ultimo_folio) VALUES ($1, 'generador_obra', 1)
+       ON CONFLICT (project_id, tipo) DO UPDATE SET ultimo_folio = folio_counters.ultimo_folio + 1
+       RETURNING ultimo_folio`,
+      [req.project.id]
+    );
+    const folio = folioRows[0].ultimo_folio;
+    const { rows } = await client.query(
+      `INSERT INTO generadores_obra (project_id, folio, periodo_inicio, periodo_fin, residente_id, nombre)
+       VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
+      [req.project.id, folio, periodo_inicio, periodo_fin, req.user.id, nombre?.trim() || null]
+    );
+    return rows[0];
+  });
+  res.status(201).json(generador);
+}));
+
+// Registrado ANTES de /generadores-obra/:genId para que Express no lo
+// confunda con un id numérico — mismo truco que /estimaciones/defaults-periodo.
+// Mismo filtro de "concepto real" que Avance/Estimaciones (confirmado en
+// Fase 0). ruta_jerarquica va incluida para que el frontend agrupe por
+// Partida/Subpartida igual que ya hace el modal de captura de Avance.
+app.get('/api/projects/:id/generadores-obra/conceptos-disponibles', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  const { rows } = await db.pool.query(
+    `SELECT id, codigo, concepto, unidad, grupo, ruta_jerarquica, orden FROM conceptos
+     WHERE project_id = $1 AND es_total = 0 AND activo = 1 AND cantidad > 0 AND TRIM(COALESCE(unidad, '')) <> ''
+     ORDER BY orden`,
+    [req.project.id]
+  );
+  res.json(rows);
+}));
+
+app.get('/api/projects/:id/generadores-obra/:genId', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  const genId = Number(req.params.genId);
+  const { rows: genRows } = await db.pool.query(`
+    SELECT g.*, u.nombre AS residente_nombre, a.nombre AS admin_aprobador_nombre
+    FROM generadores_obra g
+    LEFT JOIN usuarios u ON u.id = g.residente_id
+    LEFT JOIN usuarios a ON a.id = g.admin_aprobador_id
+    WHERE g.id = $1 AND g.project_id = $2 AND g.activo = true`,
+    [genId, req.project.id]
+  );
+  if (!genRows[0]) return res.status(404).json({ error: 'Generador no encontrado' });
+
+  const { rows: renglones } = await db.pool.query(
+    `SELECT r.*, c.codigo, c.concepto, c.unidad, c.grupo, c.ruta_jerarquica, c.orden AS concepto_orden
+     FROM generador_obra_renglones r JOIN conceptos c ON c.id = r.concepto_id
+     WHERE r.generador_id = $1 ORDER BY c.orden, r.orden, r.id`,
+    [genId]
+  );
+  res.json({ ...genRows[0], renglones });
+}));
+
+app.post('/api/projects/:id/generadores-obra/:genId/renglones', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  const genId = Number(req.params.genId);
+  const check = await generadorObraEditable(req.project.id, genId, req);
+  if (check.error) return res.status(check.error).json({ error: check.msg });
+  if (!['borrador', 'rechazada'].includes(check.gen.estado)) {
+    return res.status(409).json({ error: 'Solo se pueden agregar renglones a un generador en borrador o rechazado' });
+  }
+
+  const { concepto_id, descripcion, tramo, largo, ancho, alto, pzas } = req.body || {};
+  const conceptoId = Number(concepto_id);
+  if (!conceptoId) return res.status(400).json({ error: 'concepto_id es requerido' });
+  const { rows: conRows } = await db.pool.query('SELECT id FROM conceptos WHERE id = $1 AND project_id = $2', [conceptoId, req.project.id]);
+  if (!conRows[0]) return res.status(400).json({ error: 'El concepto no pertenece a esta obra' });
+
+  // subtotal SIEMPRE se calcula server-side — nunca confiar en un valor
+  // mandado por el cliente (ver calcularSubtotalRenglon en server/calculos.js).
+  const subtotal = calcularSubtotalRenglon({ largo, ancho, alto, pzas });
+  const { rows: ordenRows } = await db.pool.query('SELECT COUNT(*)::int AS n FROM generador_obra_renglones WHERE generador_id = $1', [genId]);
+  const { rows } = await db.pool.query(
+    `INSERT INTO generador_obra_renglones (generador_id, concepto_id, descripcion, tramo, largo, ancho, alto, pzas, subtotal, orden)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id`,
+    [genId, conceptoId, descripcion?.trim() || null, tramo?.trim() || null,
+      largo ?? null, ancho ?? null, alto ?? null, pzas ?? null, subtotal, ordenRows[0].n]
+  );
+  res.status(201).json(await fetchRenglonConConcepto(rows[0].id));
+}));
+
+app.put('/api/projects/:id/generadores-obra/:genId/renglones/:renglonId', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  const genId = Number(req.params.genId);
+  const renglonId = Number(req.params.renglonId);
+  const check = await generadorObraEditable(req.project.id, genId, req);
+  if (check.error) return res.status(check.error).json({ error: check.msg });
+  if (!['borrador', 'rechazada'].includes(check.gen.estado)) {
+    return res.status(409).json({ error: 'Solo se pueden editar renglones de un generador en borrador o rechazado' });
+  }
+
+  const { descripcion, tramo, largo, ancho, alto, pzas } = req.body || {};
+  const subtotal = calcularSubtotalRenglon({ largo, ancho, alto, pzas });
+  const { rows } = await db.pool.query(
+    `UPDATE generador_obra_renglones SET descripcion = $1, tramo = $2, largo = $3, ancho = $4, alto = $5, pzas = $6, subtotal = $7
+     WHERE id = $8 AND generador_id = $9 RETURNING id`,
+    [descripcion?.trim() || null, tramo?.trim() || null, largo ?? null, ancho ?? null, alto ?? null, pzas ?? null, subtotal, renglonId, genId]
+  );
+  if (!rows[0]) return res.status(404).json({ error: 'Renglón no encontrado' });
+  res.json(await fetchRenglonConConcepto(rows[0].id));
+}));
+
+app.delete('/api/projects/:id/generadores-obra/:genId/renglones/:renglonId', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  const genId = Number(req.params.genId);
+  const renglonId = Number(req.params.renglonId);
+  const check = await generadorObraEditable(req.project.id, genId, req);
+  if (check.error) return res.status(check.error).json({ error: check.msg });
+  if (!['borrador', 'rechazada'].includes(check.gen.estado)) {
+    return res.status(409).json({ error: 'Solo se pueden eliminar renglones de un generador en borrador o rechazado' });
+  }
+  const { rowCount } = await db.pool.query('DELETE FROM generador_obra_renglones WHERE id = $1 AND generador_id = $2', [renglonId, genId]);
+  if (!rowCount) return res.status(404).json({ error: 'Renglón no encontrado' });
+  res.json({ ok: true });
+}));
+
+app.put('/api/projects/:id/generadores-obra/:genId/estado', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  const genId = Number(req.params.genId);
+  const { estado, comentario_rechazo } = req.body || {};
+  if (!ESTADOS_GENERADOR_OBRA.includes(estado)) return res.status(400).json({ error: 'Estado inválido' });
+
+  const check = await generadorObraEditable(req.project.id, genId, req);
+  if (check.error) return res.status(check.error).json({ error: check.msg });
+  const { gen, esAdmin } = check;
+
+  // Mismo patrón que Estimaciones: desde 'rechazada' se reenvía directo (la
+  // UI no ofrece un paso intermedio a 'borrador').
+  const transicionesPermitidas = {
+    borrador:  { enviada: true },
+    enviada:   { aprobada: esAdmin, rechazada: esAdmin },
+    rechazada: { enviada: true },
+    aprobada:  {},
+  };
+  if (!transicionesPermitidas[gen.estado]?.[estado]) {
+    return res.status(403).json({ error: `No puedes cambiar de '${gen.estado}' a '${estado}'` });
+  }
+  if (estado === 'rechazada' && !comentario_rechazo?.trim()) {
+    return res.status(400).json({ error: 'El comentario de rechazo es obligatorio' });
+  }
+  if (estado === 'enviada') {
+    const { rows: renglonCount } = await db.pool.query('SELECT COUNT(*)::int AS n FROM generador_obra_renglones WHERE generador_id = $1', [genId]);
+    if (!renglonCount[0].n) return res.status(400).json({ error: 'Agrega al menos un renglón de medición antes de enviarlo' });
+  }
+
+  if (estado === 'aprobada') {
+    const { rows } = await db.pool.query(
+      `UPDATE generadores_obra SET estado = $1, admin_aprobador_id = $2, fecha_aprobacion = NOW(), comentario_rechazo = NULL WHERE id = $3 RETURNING *`,
+      [estado, req.user.id, genId]
+    );
+    return res.json(rows[0]);
+  }
+
+  const { rows } = await db.pool.query(
+    `UPDATE generadores_obra SET estado = $1, comentario_rechazo = $2 WHERE id = $3 RETURNING *`,
+    [estado, estado === 'rechazada' ? comentario_rechazo.trim() : null, genId]
+  );
+
+  if (estado === 'enviada') {
+    await notificarAdmins(req.project.id, 'generador_obra_pendiente', genId, `${req.user.nombre} envió el Generador de Obra #${gen.folio} para aprobación`);
+  }
+  if (estado === 'rechazada' && gen.residente_id) {
+    await crearNotificacion(gen.residente_id, req.project.id, 'generador_obra_rechazado', genId, `Tu Generador de Obra #${gen.folio} fue rechazado: ${comentario_rechazo.trim()}`);
+  }
+  res.json(rows[0]);
 }));
 
 // ---------------------------------------------------------------------------

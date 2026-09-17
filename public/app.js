@@ -19166,6 +19166,17 @@ async function renderMatrices(view) {
         <span class="v"><input id="matDefUtilidad" type="number" step="0.01" min="0" class="matriz-input-num" value="${defaultsObra.pct_utilidad}" /> %</span>
       </div>
       <p class="muted fs-08 mt-6">Solo prellena matrices NUEVAS de esta obra — nunca cambia una matriz ya creada. Referencia PR#48 (10% combinado, set global único, no por obra): ${defaultsObra.referencia_pr48_combinado != null ? fmtPct(defaultsObra.referencia_pr48_combinado) : '—'}.</p>
+      <div class="card-row">
+        <span class="k">% Impuesto sobre mano de obra</span>
+        <span class="v"><input id="matDefImpuestoManoObra" type="number" step="0.01" min="0" max="100" class="matriz-input-num" value="${defaultsObra.pct_impuesto_mano_obra}" /> %</span>
+      </div>
+      <!-- prompt-generador-presupuestos.md (Fase 1): a diferencia de los 3 de
+           arriba, este % no lo usa "Matrices de precio unitario" (no se
+           snapshotea en ninguna matriz) -- lo usará el Generador de
+           Presupuestos (Costos) para Mano de Obra Neta. Vive en la misma
+           tarjeta/tabla porque es la misma config "por obra, reutilizable
+           entre presupuestos" que pide ese prompt, no un dato nuevo. -->
+      <p class="muted fs-08 mt-6">Usado por el Generador de Presupuestos (Costos) para calcular Mano de Obra Neta — se lee en vivo, no se guarda un snapshot por presupuesto.</p>
       <div class="row end mt-8"><button class="btn" id="btnMatDefaultsGuardar">Guardar</button></div>
     </div>
 
@@ -19175,6 +19186,10 @@ async function renderMatrices(view) {
       <button class="btn" id="btnMatricesBasicos">🧱 Básicos</button>
       <button class="btn" id="btnMatricesImportar" ${matrices.length ? '' : 'disabled'} title="${matrices.length ? '' : 'Esta obra necesita conceptos cargados primero (Actualizar presupuesto / alta de obra) antes de poder importar Matrices'}">⭱ Importar Matrices desde Excel</button>
       <button class="btn" id="btnReprocesarDestajoMatrices" ${matrices.length ? '' : 'disabled'} title="${matrices.length ? 'Sube el mismo Excel original de esta obra para completar Destajo y Matrices sin tocar Presupuesto/Insumos ya cargados' : 'Esta obra necesita conceptos cargados primero'}">🔄 Reprocesar Destajo/Matrices</button>
+      <!-- prompt-generador-presupuestos.md (Fase 2): vive aquí (no en una
+           pestaña nueva) por la misma razón que la tarjeta de % de arriba —
+           evita tocar los mapas de tabs por rol en 3 archivos más. -->
+      <button class="btn" id="btnGeneradorCatalogoImportar">📥 Generador de Presupuestos — Cargar catálogo</button>
     </div>
 
     ${matrices.length ? `
@@ -19211,6 +19226,7 @@ async function renderMatrices(view) {
           pct_indirecto: Number($('#matDefIndirecto').value) || 0,
           pct_utilidad: Number($('#matDefUtilidad').value) || 0,
           pct_financiamiento: Number($('#matDefFinanciamiento').value) || 0,
+          pct_impuesto_mano_obra: Number($('#matDefImpuestoManoObra').value) || 0,
         },
       });
       invalidate('matricesDefaultsObra');
@@ -19225,6 +19241,7 @@ async function renderMatrices(view) {
   $('#btnMatricesBasicos').addEventListener('click', () => openBasicosListModal(view));
   $('#btnMatricesImportar')?.addEventListener('click', () => openImportarMatricesModal(view));
   $('#btnReprocesarDestajoMatrices')?.addEventListener('click', () => openReprocesarDestajoMatricesModal(view));
+  $('#btnGeneradorCatalogoImportar')?.addEventListener('click', () => openImportarCatalogoGeneradorModal());
 
   $$('.matSelCheck').forEach((chk) => {
     chk.addEventListener('click', (e) => e.stopPropagation());
@@ -19275,6 +19292,269 @@ async function renderMatrices(view) {
   });
 
   await paintMatrizDetalle(view);
+}
+
+// Generador de Presupuestos (prompt-generador-presupuestos.md, Fase 2) —
+// carga de catálogo externo (Concepto/Unidad/Cantidad, con o sin Precio
+// Unitario). Mismo patrón visual que Lotes (openImportarLotesModal): input
+// file .xlsx → VercelBlobClient.upload → preview (nunca escribe nada,
+// Fase 2 no persiste todavía — eso es Fase 3/4). Vive dentro de "Matrices de
+// precio unitario" (botón en su .section-actions) en vez de una pestaña
+// nueva propia, decisión de Fase 2 para no ampliar esta fase a los mapas de
+// tabs por rol de public/app.js + server/auth.js (más de 3 archivos).
+function openImportarCatalogoGeneradorModal() {
+  openModal(`
+    <h3>Generador de Presupuestos — Cargar catálogo</h3>
+    <p class="muted fs-08">Lee un catálogo de conceptos (columnas Concepto, Unidad, Cantidad y, opcionalmente, Precio Unitario) — soporta el formato "por columnas" con Partida/Nombre Partida en cada fila (ej. catálogos tipo Oaxaca), no solo el formato estándar de Presupuesto de obra. Nada se guarda todavía en esta vista previa.</p>
+    <input type="file" id="catalogoGeneradorImportFile" accept=".xlsx" />
+    <div class="modal-actions">
+      <button class="btn" id="btnCancelCatalogoGeneradorImport">Cerrar</button>
+    </div>
+  `);
+  $('#btnCancelCatalogoGeneradorImport').addEventListener('click', closeModal);
+  $('#catalogoGeneradorImportFile').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    if (!/\.xlsx$/i.test(file.name)) { toast('Solo se admiten archivos .xlsx', 'danger'); return; }
+    openModal(`<h3>Subiendo y analizando…</h3><div class="spinner"></div>`);
+    try {
+      const blob = await VercelBlobClient.upload(file.name, file, {
+        access: 'private',
+        handleUploadUrl: `/api/projects/${state.projectId}/generador-presupuestos/catalogo/upload-token`,
+        headers: state.token ? { Authorization: `Bearer ${state.token}` } : {},
+      });
+      const preview = await api(`/projects/${state.projectId}/generador-presupuestos/catalogo/preview`, {
+        method: 'POST',
+        body: { archivo_url: blob.url },
+      });
+      pintarPreviewCatalogoGenerador(preview, blob.url, file.name.replace(/\.xlsx$/i, ''));
+    } catch (err) {
+      closeModal();
+      toast(err.message, 'danger');
+    }
+  });
+}
+
+function pintarPreviewCatalogoGenerador(preview, archivoUrl, nombreSugerido) {
+  const filaHtml = (it) => `
+    <tr>
+      <td>${esc(it.partida || '—')}</td>
+      <td>${esc(it.grupo || '—')}</td>
+      <td>${esc(it.concepto)}</td>
+      <td>${esc(it.unidad)}</td>
+      <td class="num">${fmtNum(it.cantidad, 3)}</td>
+      <td class="num">${it.precio_unitario > 0 ? fmtMoney(it.precio_unitario) : '—'}</td>
+      <td>${esc(it.categoria || '—')}</td>
+    </tr>
+  `;
+  openModal(`
+    <h3>Preview del catálogo</h3>
+    <p class="muted">Nada se ha guardado — esta es solo la vista previa de lo que se leyó del archivo (hoja "${esc(preview.sheet_name || '')}").</p>
+    <div class="card">
+      <div class="row between"><span>Conceptos detectados</span><strong>${preview.total_conceptos}</strong></div>
+      <div class="row between"><span>¿Trae precios?</span><strong>${preview.tiene_precios ? 'Sí' : 'No — se generará Análisis de Precio Unitario desde cero (Fase 3B)'}</strong></div>
+    </div>
+    <div class="field"><label>Nombre de este presupuesto generado</label><input id="catalogoGeneradorNombre" value="${esc(nombreSugerido || '')}" /></div>
+    <div class="table-scroll mt-12">
+      <table>
+        <thead><tr><th>Partida</th><th>Nombre Partida</th><th>Concepto</th><th>Unidad</th><th class="num">Cantidad</th><th class="num">P.U.</th><th>Categoría</th></tr></thead>
+        <tbody>${preview.items.map(filaHtml).join('')}</tbody>
+      </table>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" id="btnCerrarPreviewCatalogoGenerador">Cerrar</button>
+      <button class="btn btn-primary" id="btnConfirmarCatalogoGenerador">Confirmar y continuar</button>
+    </div>
+  `);
+  $('#btnCerrarPreviewCatalogoGenerador').addEventListener('click', closeModal);
+  $('#btnConfirmarCatalogoGenerador').addEventListener('click', async () => {
+    const nombre = $('#catalogoGeneradorNombre').value.trim();
+    if (!nombre) { toast('Dale un nombre a este presupuesto generado', 'danger'); return; }
+    const btn = $('#btnConfirmarCatalogoGenerador');
+    btn.disabled = true; btn.textContent = 'Guardando…';
+    try {
+      const result = await api(`/projects/${state.projectId}/generador-presupuestos`, {
+        method: 'POST',
+        body: { archivo_url: archivoUrl, nombre },
+      });
+      toast(`Catálogo cargado: ${result.total_conceptos} conceptos`, 'success');
+      await abrirListaConceptosGenerador(result.generador_id);
+    } catch (err) {
+      toast(err.message, 'danger');
+      btn.disabled = false; btn.textContent = 'Confirmar y continuar';
+    }
+  });
+}
+
+// prompt-generador-presupuestos.md (Fase 3B): un concepto sin insumos
+// vinculados todavía no tiene nada que calcular -- "Vincular insumos" es el
+// único punto de entrada, mismo criterio de affordance que "Ver detalle" en
+// Estado de las unidades (botón explícito, no un badge disimulado).
+async function abrirListaConceptosGenerador(generadorId) {
+  openModal(`<h3>Cargando…</h3><div class="spinner"></div>`);
+  try {
+    const data = await api(`/projects/${state.projectId}/generador-presupuestos/${generadorId}`);
+    pintarListaConceptosGenerador(generadorId, data);
+  } catch (err) {
+    closeModal();
+    toast(err.message, 'danger');
+  }
+}
+
+function pintarListaConceptosGenerador(generadorId, data) {
+  const filaHtml = (c) => `
+    <tr>
+      <td>${esc(c.concepto)}</td>
+      <td>${esc(c.unidad || '')}</td>
+      <td class="num">${fmtNum(c.cantidad, 3)}</td>
+      <td class="num">${c.tiene_renglones ? fmtMoney(c.costo_directo) : '—'}</td>
+      <td class="num">${c.tiene_renglones ? fmtMoney(c.precio_venta) : '—'}</td>
+      <td class="num">${c.tiene_renglones ? fmtMoney(c.mano_obra_neta) : '—'}</td>
+      <td><button class="btn small" data-vincular-generador-concepto="${c.id}">${c.tiene_renglones ? 'Editar insumos' : 'Vincular insumos'}</button></td>
+    </tr>
+  `;
+  $('#modal').classList.add('modal-wide');
+  openModal(`
+    <h3>${esc(data.generador.nombre)}</h3>
+    <p class="muted fs-08">% de la obra usados en el cálculo: Indirecto ${fmtPct(data.pcts_obra.pct_indirecto)}, Utilidad ${fmtPct(data.pcts_obra.pct_utilidad)}, Impuesto sobre mano de obra ${fmtPct(data.pcts_obra.pct_impuesto_mano_obra)} — editables desde "Matrices de precio unitario" arriba.</p>
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>Concepto</th><th>Unidad</th><th class="num">Cantidad</th><th class="num">Costo Directo</th><th class="num">Precio de Venta</th><th class="num">Mano de Obra Neta</th><th></th></tr></thead>
+        <tbody>${data.conceptos.map(filaHtml).join('')}</tbody>
+      </table>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" id="btnCerrarListaConceptosGenerador">Cerrar</button>
+      <button class="btn btn-primary" id="btnExportarGenerador">⭳ Exportar a Excel</button>
+    </div>
+  `);
+  $('#btnCerrarListaConceptosGenerador').addEventListener('click', closeModal);
+  // prompt-generador-presupuestos.md (Fase 4): mismo helper downloadExport()
+  // ya usado por el resto de "Exportar a Excel" de la app (Matrices,
+  // Insumos, Presupuesto vs Estimaciones) -- sin librería ni mecanismo nuevo.
+  $('#btnExportarGenerador').addEventListener('click', async () => {
+    try { await downloadExport(`/projects/${state.projectId}/generador-presupuestos/${generadorId}/export`); }
+    catch (err) { toast(err.message, 'danger'); }
+  });
+  $$('[data-vincular-generador-concepto]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const concepto = data.conceptos.find((c) => c.id === Number(btn.dataset.vincularGeneradorConcepto));
+      openVincularInsumosGeneradorModal(generadorId, concepto);
+    });
+  });
+}
+
+// Buscador de insumos + captura de rendimiento por insumo, mismo patrón de
+// búsqueda que "Mapeo" (api /insumos?q=...) pero contra insumos YA
+// CARGADOS de esta obra (no el "Catálogo de Básicos" global -- ver
+// comentario en server/db.js sobre por qué esa tabla no sirve aquí: no
+// tiene categoría ni es un catálogo buscable). Guardar reemplaza TODOS los
+// renglones del concepto (mismo criterio que Matrices reales).
+function openVincularInsumosGeneradorModal(generadorId, concepto) {
+  let renglones = []; // { insumo_id, codigo, nombre, categoria, rendimiento, precio_presupuesto }
+  $('#modal').classList.add('modal-wide');
+  openModal(`
+    <h3>Vincular insumos — ${esc(concepto.concepto)}</h3>
+    <p class="muted fs-08">${esc(concepto.unidad || '')} · Cantidad presupuestada: ${fmtNum(concepto.cantidad, 3)}. El rendimiento es la cantidad de insumo POR UNIDAD de este concepto.</p>
+    <div class="search-bar"><input type="search" id="genVincularBuscar" placeholder="Buscar insumo por código o nombre…" /></div>
+    <div id="genVincularResultados"></div>
+    <div id="genVincularRenglones" class="mt-12"></div>
+    <div id="genVincularCalculo" class="card mt-12 hidden-initial"></div>
+    <div class="modal-actions">
+      <button class="btn" id="btnCerrarVincularGenerador">Cerrar</button>
+      <button class="btn btn-primary" id="btnGuardarVincularGenerador">Guardar</button>
+    </div>
+  `);
+  $('#btnCerrarVincularGenerador').addEventListener('click', closeModal);
+
+  const pintarRenglones = () => {
+    const el = $('#genVincularRenglones');
+    if (!renglones.length) { el.innerHTML = '<p class="muted">Sin insumos vinculados todavía.</p>'; return; }
+    el.innerHTML = `
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Insumo</th><th>Categoría</th><th class="num">Rendimiento</th><th class="num">Precio</th><th></th></tr></thead>
+          <tbody>
+            ${renglones.map((r, i) => `
+              <tr>
+                <td>${esc(r.codigo)} — ${esc(r.nombre)}</td>
+                <td>
+                  <select data-renglon-categoria="${i}">
+                    ${['MATERIALES', 'MANO DE OBRA', 'EQUIPO Y HERRAMIENTA'].map((cat) => `<option value="${cat}" ${r.categoria === cat ? 'selected' : ''}>${cat}</option>`).join('')}
+                  </select>
+                </td>
+                <td class="num"><input type="number" step="any" min="0" data-renglon-rendimiento="${i}" value="${r.rendimiento}" class="w-84-right" /></td>
+                <td class="num">${fmtMoney(r.precio_presupuesto)}</td>
+                <td><button type="button" class="btn small btn-danger" data-renglon-quitar="${i}">Quitar</button></td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+    `;
+    $$('[data-renglon-categoria]', el).forEach((sel) => sel.addEventListener('change', (e) => {
+      renglones[Number(e.target.dataset.renglonCategoria)].categoria = e.target.value;
+    }));
+    $$('[data-renglon-rendimiento]', el).forEach((inp) => inp.addEventListener('input', (e) => {
+      renglones[Number(e.target.dataset.renglonRendimiento)].rendimiento = Number(e.target.value) || 0;
+    }));
+    $$('[data-renglon-quitar]', el).forEach((btn) => btn.addEventListener('click', () => {
+      renglones.splice(Number(btn.dataset.renglonQuitar), 1);
+      pintarRenglones();
+    }));
+  };
+  pintarRenglones();
+
+  $('#genVincularBuscar').addEventListener('input', debounce(async (e) => {
+    const q = e.target.value.trim();
+    const results = $('#genVincularResultados');
+    if (!q) { results.innerHTML = ''; return; }
+    try {
+      // incluirManoObra:1 -- a diferencia de Mapeo (que excluye MO* por
+      // default, ver comentario en server/app.js), aquí SÍ necesitamos poder
+      // vincular insumos de Mano de Obra (mismo criterio ya usado por
+      // Matrices/Básicos, que también calculan esa categoría).
+      const found = await api(`/projects/${state.projectId}/insumos${queryString({ q, incluirManoObra: 1 })}`);
+      results.innerHTML = found.slice(0, 8).map((i) => `
+        <div class="project-item" data-add-insumo="${i.id}" data-codigo="${esc(i.codigo || '')}" data-nombre="${esc(i.concepto)}" data-precio="${i.precio_presupuesto || 0}" data-categoria="${esc(i.categoria || 'MATERIALES')}">
+          <span class="pname">${esc(i.concepto)}</span>
+          <span class="pmeta">${esc(i.codigo || '')} · ${esc(i.unidad || '')} · ${fmtMoney(i.precio_presupuesto)}</span>
+        </div>`).join('') || '<p class="muted">Sin resultados.</p>';
+      $$('[data-add-insumo]', results).forEach((row) => row.addEventListener('click', () => {
+        const insumoId = Number(row.dataset.addInsumo);
+        if (renglones.some((r) => r.insumo_id === insumoId)) { toast('Ese insumo ya está vinculado', ''); return; }
+        const categoriaSugerida = ['MATERIALES', 'MANO DE OBRA', 'EQUIPO Y HERRAMIENTA'].includes(row.dataset.categoria) ? row.dataset.categoria : 'MATERIALES';
+        renglones.push({ insumo_id: insumoId, codigo: row.dataset.codigo, nombre: row.dataset.nombre, categoria: categoriaSugerida, rendimiento: 1, precio_presupuesto: Number(row.dataset.precio) });
+        pintarRenglones();
+        e.target.value = '';
+        results.innerHTML = '';
+      }));
+    } catch (err) { toast(err.message, 'danger'); }
+  }, 280));
+
+  $('#btnGuardarVincularGenerador').addEventListener('click', async () => {
+    if (!renglones.length) { toast('Vincula al menos un insumo', 'danger'); return; }
+    const btn = $('#btnGuardarVincularGenerador');
+    btn.disabled = true; btn.textContent = 'Guardando…';
+    try {
+      const result = await api(`/projects/${state.projectId}/generador-presupuestos/conceptos/${concepto.id}/renglones`, {
+        method: 'PUT',
+        body: { renglones: renglones.map((r) => ({ insumo_id: r.insumo_id, categoria: r.categoria, rendimiento: r.rendimiento })) },
+      });
+      const calc = $('#genVincularCalculo');
+      calc.classList.remove('hidden-initial');
+      calc.innerHTML = `
+        <div class="row between"><span>Costo Directo</span><strong>${fmtMoney(result.costo_directo)}</strong></div>
+        <div class="row between"><span>Precio de Venta (indirecto + utilidad)</span><strong>${fmtMoney(result.precio_venta)}</strong></div>
+        <div class="row between"><span>Mano de Obra Neta (de impuestos)</span><strong>${fmtMoney(result.mano_obra_neta)}</strong></div>
+      `;
+      toast('Insumos guardados', 'success');
+      await abrirListaConceptosGenerador(generadorId);
+    } catch (err) {
+      toast(err.message, 'danger');
+      btn.disabled = false; btn.textContent = 'Guardar';
+    }
+  });
 }
 
 // Importador de la hoja "Matrices" (prompt-importador-matrices-

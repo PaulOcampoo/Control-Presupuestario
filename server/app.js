@@ -37,7 +37,7 @@ function trackServerEvent(distinctId, event, properties = {}) {
 }
 
 const db = require('./db');
-const { parseWorkbook } = require('./parser');
+const { parseWorkbook, parseCatalogoGeneradorWorkbook } = require('./parser');
 const { ingest } = require('./ingest');
 const { parseArchivo4Hojas, resumenParaPreview } = require('./crearPresupuestoImport');
 const { generatePlanning } = require('./planning');
@@ -4553,29 +4553,40 @@ app.get('/api/projects/:id/matrices/export', h(auth.allow('residente', 'costos')
 app.get('/api/projects/:id/matrices/porcentajes-obra', h(auth.allow('residente', 'costos')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('costos', 'puede_ver')), h(async (req, res) => {
   const pid = req.project.id;
   const [{ rows }, { rows: refRows }] = await Promise.all([
-    db.pool.query('SELECT pct_indirecto, pct_utilidad, pct_financiamiento FROM porcentajes_matriz_obra WHERE project_id = $1', [pid]),
+    db.pool.query('SELECT pct_indirecto, pct_utilidad, pct_financiamiento, pct_impuesto_mano_obra FROM porcentajes_matriz_obra WHERE project_id = $1', [pid]),
     db.pool.query("SELECT porcentaje FROM porcentajes_referencia_costo WHERE categoria = 'indirecto_utilidad'"),
   ]);
   res.json({
     pct_indirecto: rows[0]?.pct_indirecto ?? 0,
     pct_utilidad: rows[0]?.pct_utilidad ?? 0,
     pct_financiamiento: rows[0]?.pct_financiamiento ?? 0,
+    // prompt-generador-presupuestos.md (Fase 1): a diferencia de los 3 de
+    // arriba, esta NO se snapshotea en ninguna matriz -- la lee en vivo el
+    // Generador de Presupuestos (ver ALTER en server/db.js).
+    pct_impuesto_mano_obra: rows[0]?.pct_impuesto_mano_obra ?? 0,
     referencia_pr48_combinado: refRows[0] ? Number(refRows[0].porcentaje) : null,
   });
 }));
 
 app.put('/api/projects/:id/matrices/porcentajes-obra', h(auth.allow('residente', 'costos')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('costos', 'puede_editar_precios')), h(async (req, res) => {
   const pid = req.project.id;
-  const { pct_indirecto, pct_utilidad, pct_financiamiento } = req.body || {};
+  const { pct_indirecto, pct_utilidad, pct_financiamiento, pct_impuesto_mano_obra } = req.body || {};
   if (!(Number(pct_indirecto) >= 0) || !(Number(pct_utilidad) >= 0) || !(Number(pct_financiamiento) >= 0)) {
     return res.status(400).json({ error: 'pct_indirecto, pct_utilidad y pct_financiamiento deben ser números >= 0' });
   }
+  // Rango 0-100 (a diferencia de los 3 de arriba, que no tienen tope porque
+  // son porcentajes de margen/costo sin límite superior natural): es una
+  // tasa de impuesto sobre un importe ya devengado, >100% no tiene sentido
+  // de negocio (descontaría más de lo que hay).
+  if (!(Number(pct_impuesto_mano_obra) >= 0) || Number(pct_impuesto_mano_obra) > 100) {
+    return res.status(400).json({ error: 'pct_impuesto_mano_obra debe ser un número entre 0 y 100' });
+  }
   await db.pool.query(`
-    INSERT INTO porcentajes_matriz_obra (project_id, pct_indirecto, pct_utilidad, pct_financiamiento, actualizado_por)
-    VALUES ($1,$2,$3,$4,$5)
-    ON CONFLICT (project_id) DO UPDATE SET pct_indirecto=$2, pct_utilidad=$3, pct_financiamiento=$4, actualizado_por=$5, actualizado_en=NOW()
-  `, [pid, Number(pct_indirecto), Number(pct_utilidad), Number(pct_financiamiento), req.user.id]);
-  res.json({ pct_indirecto: Number(pct_indirecto), pct_utilidad: Number(pct_utilidad), pct_financiamiento: Number(pct_financiamiento) });
+    INSERT INTO porcentajes_matriz_obra (project_id, pct_indirecto, pct_utilidad, pct_financiamiento, pct_impuesto_mano_obra, actualizado_por)
+    VALUES ($1,$2,$3,$4,$5,$6)
+    ON CONFLICT (project_id) DO UPDATE SET pct_indirecto=$2, pct_utilidad=$3, pct_financiamiento=$4, pct_impuesto_mano_obra=$5, actualizado_por=$6, actualizado_en=NOW()
+  `, [pid, Number(pct_indirecto), Number(pct_utilidad), Number(pct_financiamiento), Number(pct_impuesto_mano_obra), req.user.id]);
+  res.json({ pct_indirecto: Number(pct_indirecto), pct_utilidad: Number(pct_utilidad), pct_financiamiento: Number(pct_financiamiento), pct_impuesto_mano_obra: Number(pct_impuesto_mano_obra) });
 }));
 
 app.put('/api/projects/:id/matrices/porcentajes/lote', h(auth.allow('residente', 'costos')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('costos', 'puede_editar_precios')), h(async (req, res) => {
@@ -4923,6 +4934,306 @@ app.post('/api/projects/:id/matrices/import/confirm', h(auth.allow('residente', 
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
+}));
+
+// ---------------------------------------------------------------------------
+// Generador de Presupuestos (prompt-generador-presupuestos.md, Fase 2) —
+// carga de catálogo externo (Concepto/Unidad/Cantidad, con o sin Precio
+// Unitario). Mismo patrón upload-token→preview que /lotes/importar (subida
+// directa a Blob desde el navegador, preview NUNCA guarda nada). Vive dentro
+// de "Matrices de precio unitario" (mismo gate 'costos') en vez de una
+// pestaña nueva -- decisión de Fase 2 para no tocar los mapas de tabs por
+// rol en public/app.js + server/auth.js, que habría llevado esta fase a más
+// de 3 archivos. Fase 3/4 (persistencia + export) todavía no están aquí.
+app.post('/api/projects/:id/generador-presupuestos/catalogo/upload-token', h(auth.allow('residente', 'costos')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('costos', 'puede_crear')), h(async (req, res) => {
+  try {
+    const jsonResponse = await handleUpload({
+      body: req.body,
+      request: req,
+      onBeforeGenerateToken: async (pathname) => {
+        if (!/\.xlsx$/i.test(pathname)) throw new Error('Solo se admiten archivos .xlsx');
+        return {
+          access: 'private',
+          allowedContentTypes: ['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'],
+          addRandomSuffix: true,
+          maximumSizeInBytes: 15 * 1024 * 1024,
+        };
+      },
+    });
+    res.json(jsonResponse);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+}));
+
+app.post('/api/projects/:id/generador-presupuestos/catalogo/preview', h(auth.allow('residente', 'costos')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('costos', 'puede_ver')), h(async (req, res) => {
+  const { archivo_url } = req.body || {};
+  if (!archivo_url) return res.status(400).json({ error: 'Sube un archivo .xlsx de catálogo primero' });
+  const tmpPath = path.join(os.tmpdir(), `catalogo-generador-${Date.now()}-${Math.round(Math.random() * 1e9)}.xlsx`);
+  try {
+    await descargarBlobXlsxATmp(archivo_url, tmpPath);
+    const { items, sheetName } = await parseCatalogoGeneradorWorkbook(tmpPath);
+    if (!items.length) {
+      return res.status(400).json({ error: 'No se reconoció ningún concepto válido en el archivo. Verifica que tenga columnas Concepto, Unidad y Cantidad.' });
+    }
+    const tienePrecios = items.some((it) => it.precio_unitario > 0);
+    res.json({ items, sheet_name: sheetName, tiene_precios: tienePrecios, total_conceptos: items.length });
+  } catch (err) {
+    res.status(err.status || 400).json({ error: err.message });
+  } finally {
+    fs.rm(tmpPath, () => {});
+  }
+}));
+
+// Confirmar carga (Fase 3): re-parsea el mismo archivo (nunca confía en lo
+// que mandó el preview del frontend, mismo criterio que "Actualizar
+// presupuesto"/Importar Matrices) y persiste en las tablas AISLADAS de
+// arriba -- generador_presupuestos/conceptos, nunca conceptos/insumos reales.
+app.post('/api/projects/:id/generador-presupuestos', h(auth.allow('residente', 'costos')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('costos', 'puede_crear')), h(async (req, res) => {
+  const pid = req.project.id;
+  const { archivo_url, nombre } = req.body || {};
+  if (!archivo_url) return res.status(400).json({ error: 'Sube un archivo .xlsx de catálogo primero' });
+  if (!nombre?.trim()) return res.status(400).json({ error: 'Dale un nombre a este presupuesto generado' });
+  const tmpPath = path.join(os.tmpdir(), `catalogo-generador-${Date.now()}-${Math.round(Math.random() * 1e9)}.xlsx`);
+  try {
+    await descargarBlobXlsxATmp(archivo_url, tmpPath);
+    const { items } = await parseCatalogoGeneradorWorkbook(tmpPath);
+    if (!items.length) return res.status(400).json({ error: 'No se reconoció ningún concepto válido en el archivo.' });
+    let generadorId;
+    await db.withTransaction(async (client) => {
+      const { rows } = await client.query(
+        `INSERT INTO generador_presupuestos (project_id, nombre, archivo_url, creado_por) VALUES ($1,$2,$3,$4) RETURNING id`,
+        [pid, nombre.trim(), archivo_url, req.user.id]
+      );
+      generadorId = rows[0].id;
+      for (const it of items) {
+        await client.query(
+          `INSERT INTO generador_presupuesto_conceptos
+             (generador_id, orden, partida, grupo, concepto, unidad, cantidad, precio_unitario_catalogo, categoria)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+          [generadorId, it.orden, it.partida, it.grupo, it.concepto, it.unidad, it.cantidad, it.precio_unitario > 0 ? it.precio_unitario : null, it.categoria]
+        );
+      }
+    });
+    res.json({ generador_id: generadorId, total_conceptos: items.length });
+  } catch (err) {
+    res.status(err.status || 400).json({ error: err.message });
+  } finally {
+    fs.rm(tmpPath, () => {});
+  }
+}));
+
+app.get('/api/projects/:id/generador-presupuestos', h(auth.allow('residente', 'costos')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('costos', 'puede_ver')), h(async (req, res) => {
+  const { rows } = await db.pool.query(
+    `SELECT g.id, g.nombre, g.creado_en, count(c.id) AS total_conceptos
+     FROM generador_presupuestos g
+     LEFT JOIN generador_presupuesto_conceptos c ON c.generador_id = g.id
+     WHERE g.project_id = $1 GROUP BY g.id ORDER BY g.creado_en DESC`,
+    [req.project.id]
+  );
+  res.json({ generadores: rows });
+}));
+
+// prompt-generador-presupuestos.md (Fase 3B): cascada CD -> Precio de Venta
+// idéntica a la ya confirmada con Paul para "Matrices de precio unitario"
+// (server/db.js, comentario de matrices_precio_unitario) -- secuencial,
+// utilidad sobre el costo ya indirectado. Deliberadamente NO reutiliza
+// calcularMatrizNeodata (server/matricesImport.js): esa función divide la
+// categoría MANO DE OBRA entre matriz.rendimiento (modelo "cuadrilla ÷
+// rendimiento de jornada", con financiamiento incluido) -- un concepto de
+// Neodata que Fase 3B no pide y que produciría un número DISTINTO e
+// incorrecto para este caso (aquí Mano de Obra es Σ(rendimiento×precio) igual
+// que Materiales/Equipo, sin dividir por nada, neteando después el % de
+// impuesto). Reutilizarla tal cual habría sido "reusar" el nombre correcto
+// con la fórmula equivocada.
+function calcularApuGenerador(renglones, { pct_indirecto, pct_utilidad, pct_impuesto_mano_obra }) {
+  const r2 = (n) => Math.round(n * 100) / 100;
+  const sumaCategoria = (cat) => r2(renglones.filter((r) => r.categoria === cat).reduce((s, r) => s + r.rendimiento * r.precio_presupuesto, 0));
+  const materiales = sumaCategoria('MATERIALES');
+  const manoObra = sumaCategoria('MANO DE OBRA');
+  const equipo = sumaCategoria('EQUIPO Y HERRAMIENTA');
+  const costoDirecto = r2(materiales + manoObra + equipo);
+  const precioVenta = r2(costoDirecto * (1 + (Number(pct_indirecto) || 0) / 100) * (1 + (Number(pct_utilidad) || 0) / 100));
+  const manoObraNeta = r2(manoObra * (1 - (Number(pct_impuesto_mano_obra) || 0) / 100));
+  return { materiales, mano_obra: manoObra, equipo, costo_directo: costoDirecto, precio_venta: precioVenta, mano_obra_neta: manoObraNeta };
+}
+
+async function getPctsObraGenerador(pid) {
+  const { rows } = await db.pool.query(
+    'SELECT pct_indirecto, pct_utilidad, pct_impuesto_mano_obra FROM porcentajes_matriz_obra WHERE project_id = $1', [pid]
+  );
+  return {
+    pct_indirecto: rows[0]?.pct_indirecto ?? 0,
+    pct_utilidad: rows[0]?.pct_utilidad ?? 0,
+    pct_impuesto_mano_obra: rows[0]?.pct_impuesto_mano_obra ?? 0,
+  };
+}
+
+app.get('/api/projects/:id/generador-presupuestos/:generadorId', h(auth.allow('residente', 'costos')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('costos', 'puede_ver')), h(async (req, res) => {
+  const pid = req.project.id;
+  const generadorId = Number(req.params.generadorId);
+  const { rows: genRows } = await db.pool.query('SELECT id, nombre FROM generador_presupuestos WHERE id = $1 AND project_id = $2', [generadorId, pid]);
+  if (!genRows[0]) return res.status(404).json({ error: 'Presupuesto generado no encontrado' });
+  const { rows: conceptos } = await db.pool.query(
+    'SELECT id, orden, partida, grupo, concepto, unidad, cantidad, precio_unitario_catalogo, categoria FROM generador_presupuesto_conceptos WHERE generador_id = $1 ORDER BY orden', [generadorId]
+  );
+  const { rows: renglonesRows } = await db.pool.query(
+    `SELECT r.concepto_id, r.insumo_id, r.categoria, r.rendimiento, i.precio_presupuesto
+     FROM generador_presupuesto_renglones r JOIN insumos i ON i.id = r.insumo_id
+     WHERE r.concepto_id = ANY($1)`,
+    [conceptos.map((c) => c.id)]
+  );
+  const pcts = await getPctsObraGenerador(pid);
+  const renglonesPorConcepto = new Map();
+  renglonesRows.forEach((r) => {
+    if (!renglonesPorConcepto.has(r.concepto_id)) renglonesPorConcepto.set(r.concepto_id, []);
+    renglonesPorConcepto.get(r.concepto_id).push(r);
+  });
+  const conceptosConCalculo = conceptos.map((c) => {
+    const renglones = renglonesPorConcepto.get(c.id) || [];
+    return { ...c, tiene_renglones: renglones.length > 0, ...(renglones.length ? calcularApuGenerador(renglones, pcts) : {}) };
+  });
+  res.json({ generador: genRows[0], conceptos: conceptosConCalculo, pcts_obra: pcts });
+}));
+
+// Reemplaza TODOS los renglones de un concepto (nunca parcial -- mismo
+// criterio "guardar es reemplazar" que ya usa POST /matrices con sus
+// renglones). Valida que insumo_id pertenezca a ESTA obra (mismo criterio
+// que validarRenglones de Matrices reales) y que concepto_id pertenezca a
+// un generador_presupuestos de ESTA obra (nunca confiar en un concepto_id
+// de otra obra solo porque el usuario lo mandó en el body).
+app.put('/api/projects/:id/generador-presupuestos/conceptos/:conceptoId/renglones', h(auth.allow('residente', 'costos')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('costos', 'puede_crear')), h(async (req, res) => {
+  const pid = req.project.id;
+  const conceptoId = Number(req.params.conceptoId);
+  const { renglones } = req.body || {};
+  const { rows: conceptoRows } = await db.pool.query(
+    `SELECT c.id FROM generador_presupuesto_conceptos c JOIN generador_presupuestos g ON g.id = c.generador_id
+     WHERE c.id = $1 AND g.project_id = $2`,
+    [conceptoId, pid]
+  );
+  if (!conceptoRows[0]) return res.status(404).json({ error: 'Concepto no encontrado' });
+  if (!Array.isArray(renglones) || !renglones.length) return res.status(400).json({ error: 'Vincula al menos un insumo' });
+  for (const r of renglones) {
+    if (!['MATERIALES', 'MANO DE OBRA', 'EQUIPO Y HERRAMIENTA'].includes(r.categoria)) return res.status(400).json({ error: `Categoría inválida: ${r.categoria}` });
+    if (!(Number(r.rendimiento) > 0)) return res.status(400).json({ error: 'Cada insumo requiere un rendimiento mayor a 0' });
+  }
+  const insumoIds = renglones.map((r) => Number(r.insumo_id));
+  const { rows: insumoRows } = await db.pool.query('SELECT id, precio_presupuesto FROM insumos WHERE id = ANY($1) AND project_id = $2', [insumoIds, pid]);
+  const insumosValidos = new Map(insumoRows.map((r) => [r.id, r.precio_presupuesto]));
+  for (const id of insumoIds) {
+    if (!insumosValidos.has(id)) return res.status(400).json({ error: `El insumo ${id} no pertenece a esta obra` });
+  }
+  await db.withTransaction(async (client) => {
+    await client.query('DELETE FROM generador_presupuesto_renglones WHERE concepto_id = $1', [conceptoId]);
+    for (const r of renglones) {
+      await client.query(
+        `INSERT INTO generador_presupuesto_renglones (concepto_id, insumo_id, categoria, rendimiento) VALUES ($1,$2,$3,$4)`,
+        [conceptoId, Number(r.insumo_id), r.categoria, Number(r.rendimiento)]
+      );
+    }
+  });
+  const pcts = await getPctsObraGenerador(pid);
+  const renglonesCalc = renglones.map((r) => ({ categoria: r.categoria, rendimiento: Number(r.rendimiento), precio_presupuesto: insumosValidos.get(Number(r.insumo_id)) }));
+  res.json({ concepto_id: conceptoId, ...calcularApuGenerador(renglonesCalc, pcts) });
+}));
+
+// prompt-generador-presupuestos.md (Fase 4): 4 hojas, reutilizando
+// sendXlsxExport (misma librería/helper que "Exportar a Excel" de
+// Presupuesto vs Estimaciones, Insumos, etc. -- ninguna librería nueva).
+// Fase 3A ("no inventar datos, marcar 'Sin desglose disponible'") se aplica
+// a las 4 hojas por consistencia, no solo a Mano de Obra Neta/APU -- un
+// concepto sin renglones tampoco tiene Costo Directo/Precio de Venta
+// calculable, sería igual de inventado mostrar un $0.00 real ahí.
+// sendXlsxExport solo soporta una tabla plana por hoja (ver exportHelper.js)
+// -- la hoja 4 (normalmente un bloque por concepto en Matrices reales, ver
+// sendMatricesNeodataExport) se aplana aquí a una sola tabla con una fila
+// "TOTAL" por concepto, para no introducir un generador de Excel nuevo
+// solo para esta hoja.
+app.get('/api/projects/:id/generador-presupuestos/:generadorId/export', h(auth.allow('residente', 'costos')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('costos', 'puede_ver')), h(async (req, res) => {
+  const pid = req.project.id;
+  const generadorId = Number(req.params.generadorId);
+  const { rows: genRows } = await db.pool.query('SELECT id, nombre FROM generador_presupuestos WHERE id = $1 AND project_id = $2', [generadorId, pid]);
+  if (!genRows[0]) return res.status(404).json({ error: 'Presupuesto generado no encontrado' });
+  const { rows: conceptos } = await db.pool.query(
+    'SELECT id, orden, concepto, unidad, cantidad FROM generador_presupuesto_conceptos WHERE generador_id = $1 ORDER BY orden', [generadorId]
+  );
+  const { rows: renglonesRows } = await db.pool.query(
+    `SELECT r.concepto_id, r.categoria, r.rendimiento, i.codigo AS insumo_codigo, i.concepto AS insumo_nombre, i.unidad AS insumo_unidad, i.precio_presupuesto
+     FROM generador_presupuesto_renglones r JOIN insumos i ON i.id = r.insumo_id
+     WHERE r.concepto_id = ANY($1) ORDER BY r.id`,
+    [conceptos.map((c) => c.id)]
+  );
+  const pcts = await getPctsObraGenerador(pid);
+  const renglonesPorConcepto = new Map();
+  renglonesRows.forEach((r) => {
+    if (!renglonesPorConcepto.has(r.concepto_id)) renglonesPorConcepto.set(r.concepto_id, []);
+    renglonesPorConcepto.get(r.concepto_id).push(r);
+  });
+
+  const conceptosConCalculo = conceptos.map((c) => {
+    const renglones = renglonesPorConcepto.get(c.id) || [];
+    const tieneDesglose = renglones.length > 0;
+    return { ...c, renglones, tiene_desglose: tieneDesglose, ...(tieneDesglose ? calcularApuGenerador(renglones, pcts) : {}) };
+  });
+
+  const SIN_DESGLOSE = 'Sin desglose disponible';
+  const columnasCatalogo = [
+    { header: 'Concepto', key: 'concepto', width: 45 },
+    { header: 'Unidad', key: 'unidad', width: 10 },
+    { header: 'Cantidad', key: 'cantidad', width: 14, format: 'int' },
+    { header: 'P.U.', key: 'pu', width: 16, format: 'money' },
+    { header: 'Importe', key: 'importe', width: 18, format: 'money' },
+  ];
+  const filaCatalogo = (c, pu) => ({
+    concepto: c.concepto, unidad: c.unidad, cantidad: c.cantidad,
+    pu: c.tiene_desglose ? pu(c) : SIN_DESGLOSE,
+    importe: c.tiene_desglose ? Number((pu(c) * c.cantidad).toFixed(2)) : SIN_DESGLOSE,
+  });
+
+  const filasVenta = conceptosConCalculo.map((c) => filaCatalogo(c, (cc) => cc.precio_venta));
+  const filasCostoDirecto = conceptosConCalculo.map((c) => filaCatalogo(c, (cc) => cc.costo_directo));
+  const filasManoObra = conceptosConCalculo.map((c) => ({
+    concepto: c.concepto, unidad: c.unidad, cantidad: c.cantidad,
+    pu: c.tiene_desglose ? Number((c.mano_obra_neta / c.cantidad).toFixed(2)) : SIN_DESGLOSE,
+    importe: c.tiene_desglose ? c.mano_obra_neta : SIN_DESGLOSE,
+  }));
+
+  const filasApu = [];
+  conceptosConCalculo.forEach((c) => {
+    if (!c.tiene_desglose) {
+      filasApu.push({ concepto: c.concepto, codigo: '', descripcion: SIN_DESGLOSE, unidad: '', rendimiento: '', precio: '', importe: '' });
+      return;
+    }
+    c.renglones.forEach((r) => {
+      filasApu.push({
+        concepto: c.concepto, codigo: r.insumo_codigo, descripcion: r.insumo_nombre, unidad: r.insumo_unidad,
+        rendimiento: r.rendimiento, precio: r.precio_presupuesto, importe: Number((r.rendimiento * r.precio_presupuesto).toFixed(2)),
+      });
+    });
+    filasApu.push({ concepto: `TOTAL — ${c.concepto}`, codigo: '', descripcion: '', unidad: '', rendimiento: '', precio: '', importe: c.costo_directo });
+  });
+
+  await sendXlsxExport(res, {
+    filename: buildExportFilename(`GeneradorPresupuesto-${genRows[0].nombre}`, req.project.nombre),
+    sheets: [
+      { sheetName: 'Catálogo — Precio de Venta', columns: columnasCatalogo, rows: filasVenta },
+      { sheetName: 'Costo Directo', columns: columnasCatalogo, rows: filasCostoDirecto },
+      { sheetName: 'Mano de Obra Neta', columns: columnasCatalogo, rows: filasManoObra },
+      {
+        sheetName: 'Análisis de Precio Unitario',
+        columns: [
+          { header: 'Concepto', key: 'concepto', width: 45 },
+          { header: 'Código', key: 'codigo', width: 16 },
+          { header: 'Descripción', key: 'descripcion', width: 35 },
+          { header: 'Unidad', key: 'unidad', width: 10 },
+          { header: 'Rendimiento', key: 'rendimiento', width: 14 },
+          { header: 'Precio Unitario', key: 'precio', width: 16, format: 'money' },
+          { header: 'Importe', key: 'importe', width: 18, format: 'money' },
+        ],
+        rows: filasApu,
+      },
+    ],
+  });
 }));
 
 // ---------------------------------------------------------------------------

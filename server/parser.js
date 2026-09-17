@@ -461,6 +461,108 @@ function parseDestajoPrecios(workbook) {
 }
 
 // ---------------------------------------------------------------------------
+// Catálogo del Generador de Presupuestos (prompt-generador-presupuestos.md,
+// Fase 2): formato "por columnas" -- cada fila trae su propia Partida/Nombre
+// Partida (ej. catálogo real de Oaxaca: No./Partida/Nombre Partida/Concepto/
+// Unidad/Cantidad/P. Unitario Estimado (MXN)/Total Estimado (MXN)/Categoría),
+// a diferencia de "Presupuesto de obra" (parseBudgetConcepts arriba), que
+// espera la jerarquía como filas de ENCABEZADO/TOTAL intercaladas en una
+// pila. Son estructuralmente incompatibles -- reutilizar parseBudgetConcepts
+// tal cual perdería la Partida/Nombre Partida de cada fila silenciosamente
+// (nunca hay una fila "isGroupHeader" en este formato, así que su pila de
+// jerarquía jamás se llena).
+//
+// Sinónimos y detección de encabezado PROPIOS, deliberadamente separados de
+// HEADER_SYNONYMS/matchHeader/findHeaderRow de arriba: agregar aquí "P.
+// UNITARIO ESTIMADO (MXN)"/"TOTAL ESTIMADO (MXN)" a esa lista COMPARTIDA
+// arriesgaría que parseWorkbook (usado por el flujo real de "Actualizar
+// presupuesto") clasifique por error una hoja de este formato como
+// "Presupuesto de obra" -- looksLikeBudget ya se activa solo con
+// precio+importe detectados. Reutiliza los primitivos genéricos (norm,
+// cellText, num), no los acoplados a esa otra clasificación.
+const CATALOGO_GENERADOR_HEADER_SYNONYMS = {
+  concepto: ['CONCEPTO', 'DESCRIPCION'],
+  unidad: ['UNIDAD', 'UNI', 'UND'],
+  cantidad: ['CANTIDAD'],
+  precio: ['PRECIO', 'P. UNITARIO', 'P UNITARIO', 'PRECIO UNITARIO', 'PU', 'P. UNITARIO ESTIMADO (MXN)', 'P UNITARIO ESTIMADO (MXN)'],
+  importe: ['IMPORTE', 'TOTAL ESTIMADO (MXN)'],
+  partida: ['PARTIDA'],
+  nombre_partida: ['NOMBRE PARTIDA'],
+  categoria: ['CATEGORIA'],
+};
+
+function matchCatalogoGeneradorHeader(text) {
+  const t = norm(text);
+  for (const [key, options] of Object.entries(CATALOGO_GENERADOR_HEADER_SYNONYMS)) {
+    if (options.includes(t)) return key;
+  }
+  return null;
+}
+
+// Exige concepto+unidad+cantidad (a diferencia de findHeaderRow, que exige
+// 3 de 4 incluyendo posiblemente codigo) -- este formato no tiene columna
+// de código propia (el catálogo real de Oaxaca usa "No." como folio
+// secuencial, no una clave real), así que codigo nunca debe ser requisito.
+function findCatalogoGeneradorHeaderRow(sheet, maxRows = 30) {
+  const lastRow = Math.min(sheet.rowCount, maxRows);
+  for (let r = 1; r <= lastRow; r += 1) {
+    const row = sheet.getRow(r);
+    const colMap = {};
+    row.eachCell({ includeEmpty: false }, (cell, colNumber) => {
+      const key = matchCatalogoGeneradorHeader(cellText(cell.value));
+      if (key && colMap[key] == null) colMap[key] = colNumber;
+    });
+    if (colMap.concepto != null && colMap.unidad != null && colMap.cantidad != null) {
+      return { rowNumber: r, colMap };
+    }
+  }
+  return null;
+}
+
+function parseCatalogoGeneradorSheet(sheet) {
+  const header = findCatalogoGeneradorHeaderRow(sheet);
+  if (!header) return null;
+  const { rowNumber, colMap } = header;
+  const items = [];
+  let orden = 0;
+  for (let r = rowNumber + 1; r <= sheet.rowCount; r += 1) {
+    const row = sheet.getRow(r);
+    const concepto = cellText(row.getCell(colMap.concepto).value).trim();
+    if (!concepto) continue;
+    const unidad = cellText(row.getCell(colMap.unidad).value).trim();
+    const cantidad = num(row.getCell(colMap.cantidad).value);
+    if (!unidad && !cantidad) continue; // fila decorativa/en blanco sin datos reales
+    orden += 1;
+    items.push({
+      orden,
+      partida: colMap.partida ? cellText(row.getCell(colMap.partida).value).trim() || null : null,
+      grupo: colMap.nombre_partida ? (cellText(row.getCell(colMap.nombre_partida).value).trim() || null) : null,
+      concepto,
+      unidad,
+      cantidad,
+      precio_unitario: colMap.precio ? num(row.getCell(colMap.precio).value) : 0,
+      importe: colMap.importe ? num(row.getCell(colMap.importe).value) : 0,
+      categoria: colMap.categoria ? (cellText(row.getCell(colMap.categoria).value).trim() || null) : null,
+    });
+  }
+  return items;
+}
+
+// Primera hoja del libro donde se reconozca el formato -- igual criterio de
+// "buscar en todas las hojas" que parseWorkbook, sin depender de un nombre
+// de hoja fijo (el catálogo real de Oaxaca vive en una hoja llamada "Hoja5
+// (2)").
+async function parseCatalogoGeneradorWorkbook(filePath) {
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.readFile(filePath);
+  for (const sheet of workbook.worksheets) {
+    const items = parseCatalogoGeneradorSheet(sheet);
+    if (items && items.length) return { items, sheetName: sheet.name };
+  }
+  return { items: [], sheetName: null };
+}
+
+// ---------------------------------------------------------------------------
 async function parseWorkbook(filePath) {
   const workbook = new ExcelJS.Workbook();
   await workbook.xlsx.readFile(filePath);
@@ -512,4 +614,4 @@ async function parseWorkbook(filePath) {
   };
 }
 
-module.exports = { parseWorkbook, parseDestajistas, parseDestajoPrecios };
+module.exports = { parseWorkbook, parseDestajistas, parseDestajoPrecios, parseCatalogoGeneradorWorkbook };

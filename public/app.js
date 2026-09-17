@@ -13779,14 +13779,17 @@ function paintEstadoUnidadMaq(list, { puedeSupervisarEstadoUnidad, esOperador })
     `;
   }
 
-  // prompt-boton-ver-detalle-estado-unidades.md: "Ver detalle" es un segundo
-  // punto de entrada explícito al mismo modal que ya abre el badge "+N más"
-  // (estadoUnidadResumenTablaHtml) y el botón "Histórico" de al lado -- los
-  // tres comparten [data-ver-historico-eu], así que el listener genérico de
-  // abajo ($$('[data-ver-historico-eu]', el)) ya los engancha a todos sin
-  // tocarlo. No existe una vista de "solo la última captura" separada del
-  // histórico completo -- se reutiliza tal cual, como pide el prompt, en vez
-  // de construir una vista nueva.
+  // prompt-boton-ver-detalle-estado-unidades.md: "Ver detalle" es un punto de
+  // entrada explícito al mismo modal que ya abre el badge "+N más"
+  // (estadoUnidadResumenTablaHtml) -- ambos comparten [data-ver-historico-eu],
+  // así que el listener genérico de abajo ($$('[data-ver-historico-eu]', el))
+  // ya los engancha a todos sin tocarlo. No existe una vista de "solo la
+  // última captura" separada del histórico completo -- se reutiliza tal
+  // cual, en vez de construir una vista nueva.
+  // prompt-quitar-boton-historico.md: el botón "Histórico" que vivía junto a
+  // "Ver detalle" abría el MISMO modal (confirmado en PR #266) -- puro
+  // duplicado, se quita. "Ver detalle" queda como único punto de entrada
+  // explícito en esta columna.
   if (puedeSupervisarEstadoUnidad) {
     const criticos = list.filter((u) => u.tiene_critico).length;
     html += `
@@ -13803,12 +13806,7 @@ function paintEstadoUnidadMaq(list, { puedeSupervisarEstadoUnidad, esOperador })
                 <td>${u.estado_id ? estadoUnidadResumenTablaHtml(u) : '<span class="muted">Sin captura</span>'}</td>
                 <td>${u.estado_id ? fmtDate(u.fecha) : '—'}</td>
                 <td>${esc(u.operador_nombre || '—')}</td>
-                <td>${u.estado_id ? `
-                  <div class="row row-nowrap-gap6">
-                    <button class="btn small" data-ver-historico-eu="${u.equipo_id}" data-nombre-eu="${esc(u.equipo_nombre)}">Ver detalle</button>
-                    <button class="btn small" data-ver-historico-eu="${u.equipo_id}" data-nombre-eu="${esc(u.equipo_nombre)}">Histórico</button>
-                  </div>
-                ` : ''}</td>
+                <td>${u.estado_id ? `<button class="btn small" data-ver-historico-eu="${u.equipo_id}" data-nombre-eu="${esc(u.equipo_nombre)}">Ver detalle</button>` : ''}</td>
               </tr>
             `).join('')}
           </tbody>

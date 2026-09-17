@@ -238,6 +238,77 @@ const SCHEMA = `
   -- Financiamiento como tercer porcentaje, mismo criterio que indirecto/
   -- utilidad — default por obra, snapshot por matriz al crearse.
   ALTER TABLE porcentajes_matriz_obra ADD COLUMN IF NOT EXISTS pct_financiamiento DOUBLE PRECISION NOT NULL DEFAULT 0;
+  -- prompt-generador-presupuestos.md (Fase 0/1): % de impuesto sobre mano de
+  -- obra, config por obra reutilizada entre presupuestos — a diferencia de
+  -- pct_indirecto/pct_utilidad/pct_financiamiento (que "Matrices de precio
+  -- unitario" snapshotea dentro de cada matriz al crearla, para su propia
+  -- cascada de Precio de Venta), esta columna NO la consume ese módulo — la
+  -- lee en vivo el Generador de Presupuestos (Fase 3/4) para calcular Mano
+  -- de Obra Neta = mano_obra_bruta × (1 - pct_impuesto_mano_obra/100), sin
+  -- snapshot por presupuesto (cambiar el % de la obra sí afecta reportes
+  -- futuros, a propósito — no es un dato histórico de una matriz ya creada).
+  ALTER TABLE porcentajes_matriz_obra ADD COLUMN IF NOT EXISTS pct_impuesto_mano_obra DOUBLE PRECISION NOT NULL DEFAULT 0;
+
+  -- Generador de Presupuestos (prompt-generador-presupuestos.md, Fase 3B) —
+  -- decisión explícita de Paul: estas tablas son un espacio AISLADO, nunca
+  -- se mezclan con conceptos/matrices_precio_unitario reales de la obra. Un
+  -- catálogo cargado aquí (ej. una cotización externa tipo Oaxaca) NUNCA
+  -- aparece en Avance, Estimaciones, ni Presupuesto vs Estimaciones — es una
+  -- herramienta de cotización/exportación, no altera el presupuesto
+  -- contratado. project_id vive aquí (no hay concepto_id real de conceptos
+  -- que lo traiga vía JOIN, a diferencia de matrices_precio_unitario).
+  CREATE TABLE IF NOT EXISTS generador_presupuestos (
+    id SERIAL PRIMARY KEY,
+    project_id INTEGER NOT NULL REFERENCES proyectos(id) ON DELETE CASCADE,
+    nombre TEXT NOT NULL,
+    archivo_url TEXT,
+    creado_por INTEGER REFERENCES usuarios(id),
+    creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
+  CREATE INDEX IF NOT EXISTS idx_generador_presupuestos_project ON generador_presupuestos(project_id);
+
+  -- Un renglón por concepto del catálogo cargado (ver parseCatalogoGeneradorWorkbook
+  -- en server/parser.js) — precio_unitario_catalogo es el precio TAL CUAL
+  -- traía el Excel (NULL si el catálogo no traía precios, ej. Oaxaca), nunca
+  -- se sobreescribe con el precio calculado (ese vive solo en memoria, vía
+  -- calcularApuGenerador sobre generador_presupuesto_renglones).
+  CREATE TABLE IF NOT EXISTS generador_presupuesto_conceptos (
+    id SERIAL PRIMARY KEY,
+    generador_id INTEGER NOT NULL REFERENCES generador_presupuestos(id) ON DELETE CASCADE,
+    orden INTEGER NOT NULL DEFAULT 0,
+    partida TEXT,
+    grupo TEXT,
+    concepto TEXT NOT NULL,
+    unidad TEXT,
+    cantidad DOUBLE PRECISION NOT NULL DEFAULT 0,
+    precio_unitario_catalogo DOUBLE PRECISION,
+    categoria TEXT
+  );
+  CREATE INDEX IF NOT EXISTS idx_generador_conceptos_generador ON generador_presupuesto_conceptos(generador_id);
+
+  -- Insumo + rendimiento (cantidad de insumo por unidad de concepto) vinculado
+  -- a un concepto del catálogo (Fase 3B) — insumo_id referencia los insumos
+  -- REALES de la obra (mismo criterio ya confirmado con Paul de sustituir
+  -- "Mapeo"/"Catálogo de Básicos" por la fuente que "Matrices de precio
+  -- unitario" ya usa: buscador contra insumos por project_id, categorizado
+  -- y con precio real — el "Catálogo de Básicos" global (catalogo_insumos)
+  -- no tiene columna categoria y no es un catálogo buscable/reutilizable,
+  -- es un archivo de solo-consulta por archivo/concepto de otra obra).
+  -- No hay tabla "matriz" intermedia (a diferencia de matrices_precio_unitario/
+  -- matriz_precio_renglones): Fase 3B no pide % de indirecto/utilidad por
+  -- concepto, solo reutiliza los % ya configurados por obra
+  -- (porcentajes_matriz_obra) al momento de calcular, así que no hay nada
+  -- que snapshotear por concepto.
+  CREATE TABLE IF NOT EXISTS generador_presupuesto_renglones (
+    id SERIAL PRIMARY KEY,
+    concepto_id INTEGER NOT NULL REFERENCES generador_presupuesto_conceptos(id) ON DELETE CASCADE,
+    insumo_id INTEGER NOT NULL REFERENCES insumos(id) ON DELETE CASCADE,
+    categoria TEXT NOT NULL CHECK (categoria IN ('MATERIALES', 'MANO DE OBRA', 'EQUIPO Y HERRAMIENTA')),
+    rendimiento DOUBLE PRECISION NOT NULL CHECK (rendimiento > 0),
+    UNIQUE (concepto_id, insumo_id)
+  );
+  CREATE INDEX IF NOT EXISTS idx_generador_renglones_concepto ON generador_presupuesto_renglones(concepto_id);
+  CREATE INDEX IF NOT EXISTS idx_generador_renglones_insumo ON generador_presupuesto_renglones(insumo_id);
 
   CREATE TABLE IF NOT EXISTS requisiciones (
     id SERIAL PRIMARY KEY,

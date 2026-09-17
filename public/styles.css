@@ -1323,6 +1323,34 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
   top: 0;
   z-index: 3;
 }
+/* prompt-preview-catalogo-ancho-y-sticky.md: mismo patrón exacto que
+   .pve-table-wrap arriba — .table-scroll ya calcula overflow-y:auto por
+   spec en cuanto tiene overflow-x:auto (ver CLAUDE.md "position:sticky +
+   overflow en iOS Safari"), quedando como scroll container VERTICAL
+   accidental entre el <thead> y el scroll real (el propio .modal). Con
+   max-height explícito se abraza esa vertical como la intencional —
+   .gencat-preview-scroll pasa a ser el scroll container real, y el <thead>
+   queda sticky con total confianza dentro de él. Scope a esta clase (no
+   .table-scroll a secas) para no afectar las demás tablas de la app. */
+.gencat-preview-scroll {
+  max-height: min(65vh, 620px);
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+/* sticky en <thead> (NO en thead th individuales, a diferencia de
+   .pve-table/.perm-matriz más arriba/abajo) -- confirmado empíricamente con
+   Playwright en Chromium 149 (motor de este proyecto): position:sticky en
+   cada <th> por separado NO se queda fijo al hacer scroll (se mueve con el
+   contenido igual que si no tuviera sticky), pero el MISMO sticky aplicado
+   al <thead> completo sí funciona -- sticky en una caja de bloque arrastra
+   consigo a sus hijos, así que basta con la fila de encabezado como unidad.
+   Cada th ya trae su propio fondo opaco (bg-surface-2, regla thead th de
+   arriba), así que no se ve contenido de filas por debajo al pegarse. */
+.gencat-preview-scroll thead {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+}
 tr.row-click { cursor: pointer; }
 /* Hover solo en filas realmente clicables (tr.row-click) — no en toda la
    tabla, para no insinuar interactividad donde no la hay. (hover: hover)
@@ -1462,6 +1490,14 @@ body.body-scroll-locked { overflow: hidden; }
      modales .modal-wide — necesita espacio extra para los 9 badges del
      checklist (nombre + estado) sin que se vean apretados. */
   .modal.modal-wide.eu-historico-modal { width: min(94vw, 1140px); }
+  /* prompt-preview-catalogo-ancho-y-sticky.md: preview del catálogo del
+     Generador de Presupuestos — 7 columnas (Partida/Nombre Partida/Concepto/
+     Unidad/Cantidad/P.U./Categoría), más ancho que el resto de modales
+     .modal-wide para que no se vea apretado en catálogos largos (52+
+     conceptos en el caso de prueba de Oaxaca). Scope compuesto con
+     .gencat-preview-modal (no se toca .modal-wide a secas) para no afectar
+     "Vincular insumos"/"Ver Estimación"/etc., que comparten esa clase base. */
+  .modal.modal-wide.gencat-preview-modal { width: min(88vw, 1300px); }
 }
 
 /* Buscador + Ubicación/Partida + "Ir a sección" + toggle "solo pendientes"

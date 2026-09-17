@@ -3116,6 +3116,7 @@ function closeModal() {
   $('#modal').classList.remove('show');
   $('#modal').classList.remove('modal-wide'); // ver openVerEstimacionModal — no debe pegarse a otros modales
   $('#modal').classList.remove('eu-historico-modal'); // ver openHistoricoEstadoUnidadMaqModal — mismo criterio
+  $('#modal').classList.remove('gencat-preview-modal'); // ver pintarPreviewCatalogoGenerador — mismo criterio
   $('#modalOverlay').classList.remove('show');
   $('#modal').innerHTML = '';
   unlockBodyScroll('modal');
@@ -19378,6 +19379,17 @@ async function procesarCatalogoGeneradorArchivo(file) {
   }
 }
 
+// prompt-preview-catalogo-ancho-y-sticky.md: modal más ancho en desktop
+// (gencat-preview-modal, compuesto con modal-wide igual que eu-historico-
+// modal — ver closeModal) + <thead> sticky (gencat-preview-scroll: convierte
+// .table-scroll en el scroll container vertical DELIBERADO -- mismo max-
+// height explícito que ya usan .pve-table-wrap/.perm-matriz, ver comentario
+// junto a esas clases en styles.css sobre por qué .table-scroll a secas no
+// sirve como ancestro sticky). El sticky en sí se aplica al <thead> COMPLETO,
+// no a cada <th> por separado como hacen esas dos clases -- confirmado
+// empíricamente con Playwright que en el Chromium de este proyecto
+// (thead th { position:sticky }) NO se queda fijo, mientras que
+// (thead { position:sticky }) sí -- ver comentario completo en styles.css.
 function pintarPreviewCatalogoGenerador(preview, archivoUrl, nombreSugerido) {
   const filaHtml = (it) => `
     <tr>
@@ -19390,6 +19402,7 @@ function pintarPreviewCatalogoGenerador(preview, archivoUrl, nombreSugerido) {
       <td>${esc(it.categoria || '—')}</td>
     </tr>
   `;
+  $('#modal').classList.add('modal-wide', 'gencat-preview-modal');
   openModal(`
     <h3>Preview del catálogo</h3>
     <p class="muted">Nada se ha guardado — esta es solo la vista previa de lo que se leyó del archivo (hoja "${esc(preview.sheet_name || '')}").</p>
@@ -19398,7 +19411,7 @@ function pintarPreviewCatalogoGenerador(preview, archivoUrl, nombreSugerido) {
       <div class="row between"><span>¿Trae precios?</span><strong>${preview.tiene_precios ? 'Sí' : 'No — se generará Análisis de Precio Unitario desde cero (Fase 3B)'}</strong></div>
     </div>
     <div class="field"><label>Nombre de este presupuesto generado</label><input id="catalogoGeneradorNombre" value="${esc(nombreSugerido || '')}" /></div>
-    <div class="table-scroll mt-12">
+    <div class="table-scroll gencat-preview-scroll mt-12">
       <table>
         <thead><tr><th>Partida</th><th>Nombre Partida</th><th>Concepto</th><th>Unidad</th><th class="num">Cantidad</th><th class="num">P.U.</th><th>Categoría</th></tr></thead>
         <tbody>${preview.items.map(filaHtml).join('')}</tbody>

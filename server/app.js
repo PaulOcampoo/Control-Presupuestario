@@ -5078,7 +5078,7 @@ app.get('/api/projects/:id/generador-presupuestos/:generadorId', h(auth.allow('r
     'SELECT id, orden, partida, grupo, concepto, unidad, cantidad, precio_unitario_catalogo, categoria FROM generador_presupuesto_conceptos WHERE generador_id = $1 ORDER BY orden', [generadorId]
   );
   const { rows: renglonesRows } = await db.pool.query(
-    `SELECT r.concepto_id, r.insumo_id, r.categoria, r.rendimiento, i.precio_presupuesto
+    `SELECT r.concepto_id, r.insumo_id, r.categoria, r.rendimiento, i.codigo AS insumo_codigo, i.concepto AS insumo_nombre, i.unidad AS insumo_unidad, i.precio_presupuesto
      FROM generador_presupuesto_renglones r JOIN insumos i ON i.id = r.insumo_id
      WHERE r.concepto_id = ANY($1)`,
     [conceptos.map((c) => c.id)]
@@ -5089,9 +5089,18 @@ app.get('/api/projects/:id/generador-presupuestos/:generadorId', h(auth.allow('r
     if (!renglonesPorConcepto.has(r.concepto_id)) renglonesPorConcepto.set(r.concepto_id, []);
     renglonesPorConcepto.get(r.concepto_id).push(r);
   });
+  // prompt-lista-completa-insumos-vincular.md: `renglones` (con detalle de
+  // insumo, no solo el agregado de calcularApuGenerador) se agrega a la
+  // respuesta para que el modal "Vincular insumos" pueda precargar lo ya
+  // vinculado al reabrir -- antes se consultaba aquí mismo pero se
+  // descartaba antes de responder, dejando al modal sin forma de saber qué
+  // insumos ya estaban vinculados (arrancaba con una lista vacía SIEMPRE,
+  // incluso editando un concepto ya vinculado -- como "Guardar" reemplaza
+  // TODOS los renglones del concepto, esto arriesgaba borrar vínculos
+  // previos con solo reabrir y agregar uno nuevo).
   const conceptosConCalculo = conceptos.map((c) => {
     const renglones = renglonesPorConcepto.get(c.id) || [];
-    return { ...c, tiene_renglones: renglones.length > 0, ...(renglones.length ? calcularApuGenerador(renglones, pcts) : {}) };
+    return { ...c, renglones, tiene_renglones: renglones.length > 0, ...(renglones.length ? calcularApuGenerador(renglones, pcts) : {}) };
   });
   res.json({ generador: genRows[0], conceptos: conceptosConCalculo, pcts_obra: pcts });
 }));

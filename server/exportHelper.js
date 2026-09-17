@@ -20,20 +20,36 @@ function buildExportFilename(prefix, projectNombre) {
   return `${parts.join('_')}.xlsx`;
 }
 
+const HEADER_FILL = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDCE6F5' } };
+const BOLD_ROW_FILL = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF2F2F2' } };
+
 // columns: [{ header, key, width?, format?: 'money'|'pct'|'int' }]
-function addSheet(workbook, { sheetName, columns, rows }) {
+// headerFill: true para pintar el encabezado con fondo distinguible además
+// de negritas (opt-in, ningún export existente lo pasaba antes de
+// prompt-fix-export-generador-y-formato.md — todos siguen viéndose igual).
+// Las filas pueden incluir la propiedad reservada `__bold` (ExcelJS solo
+// mapea columnas por `key`, así que una propiedad extra sin `key` asociado
+// se ignora al pintar celdas) para pintarse en negritas + fondo tenue —
+// usada hoy por las filas "TOTAL — <concepto>" del Generador de
+// Presupuestos.
+function addSheet(workbook, { sheetName, columns, rows, headerFill }) {
   const sheet = workbook.addWorksheet(String(sheetName).slice(0, 31));
   sheet.columns = columns.map((c) => ({ header: c.header, key: c.key, width: c.width || 20 }));
   sheet.getRow(1).font = { bold: true };
-  rows.forEach((r) => sheet.addRow(r));
+  if (headerFill) sheet.getRow(1).fill = HEADER_FILL;
+  rows.forEach((r) => {
+    const row = sheet.addRow(r);
+    if (r.__bold) { row.font = { bold: true }; row.fill = BOLD_ROW_FILL; }
+  });
   columns.forEach((c, idx) => {
     if (c.format && NUM_FORMATS[c.format]) sheet.getColumn(idx + 1).numFmt = NUM_FORMATS[c.format];
   });
   return sheet;
 }
 
-// sheets: [{ sheetName, columns, rows }] — helper único reusado por todos los
-// endpoints de exportación, para no duplicar la generación de .xlsx en cada uno.
+// sheets: [{ sheetName, columns, rows, headerFill? }] — helper único reusado
+// por todos los endpoints de exportación, para no duplicar la generación de
+// .xlsx en cada uno.
 async function sendXlsxExport(res, { filename, sheets }) {
   const workbook = new ExcelJS.Workbook();
   sheets.forEach((s) => addSheet(workbook, s));

@@ -5210,15 +5210,19 @@ app.get('/api/projects/:id/generador-presupuestos/:generadorId/export', h(auth.a
         rendimiento: r.rendimiento, precio: r.precio_presupuesto, importe: Number((r.rendimiento * r.precio_presupuesto).toFixed(2)),
       });
     });
-    filasApu.push({ concepto: `TOTAL — ${c.concepto}`, codigo: '', descripcion: '', unidad: '', rendimiento: '', precio: '', importe: c.costo_directo });
+    // __bold: propiedad reservada de addSheet (server/exportHelper.js) — no
+    // mapea a ninguna columna, solo marca la fila para pintarse en negritas
+    // + fondo tenue (Target State punto 3, prompt-fix-export-generador-y-
+    // formato.md: destacar visualmente las filas TOTAL del bloque de APU).
+    filasApu.push({ concepto: `TOTAL — ${c.concepto}`, codigo: '', descripcion: '', unidad: '', rendimiento: '', precio: '', importe: c.costo_directo, __bold: true });
   });
 
   await sendXlsxExport(res, {
     filename: buildExportFilename(`GeneradorPresupuesto-${genRows[0].nombre}`, req.project.nombre),
     sheets: [
-      { sheetName: 'Catálogo — Precio de Venta', columns: columnasCatalogo, rows: filasVenta },
-      { sheetName: 'Costo Directo', columns: columnasCatalogo, rows: filasCostoDirecto },
-      { sheetName: 'Mano de Obra Neta', columns: columnasCatalogo, rows: filasManoObra },
+      { sheetName: 'Catálogo — Precio de Venta', columns: columnasCatalogo, rows: filasVenta, headerFill: true },
+      { sheetName: 'Costo Directo', columns: columnasCatalogo, rows: filasCostoDirecto, headerFill: true },
+      { sheetName: 'Mano de Obra Neta', columns: columnasCatalogo, rows: filasManoObra, headerFill: true },
       {
         sheetName: 'Análisis de Precio Unitario',
         columns: [
@@ -5231,6 +5235,7 @@ app.get('/api/projects/:id/generador-presupuestos/:generadorId/export', h(auth.a
           { header: 'Importe', key: 'importe', width: 18, format: 'money' },
         ],
         rows: filasApu,
+        headerFill: true,
       },
     ],
   });

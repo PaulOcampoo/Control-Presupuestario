@@ -5023,11 +5023,21 @@ app.post('/api/projects/:id/generador-presupuestos', h(auth.allow('residente', '
   }
 }));
 
+// prompt-borradores-y-boton-cerrar-generador.md: conceptos_vinculados
+// agregado (COUNT DISTINCT contra generador_presupuesto_renglones, vía JOIN
+// adicional) para que la pestaña principal pueda mostrar "X vinculados / Y
+// pendientes" por borrador sin una llamada aparte por cada uno -- DISTINCT
+// necesario porque el JOIN a renglones multiplica filas por cada insumo
+// vinculado a un mismo concepto (un concepto con 3 insumos no debe contar 3
+// veces ni en total_conceptos ni en conceptos_vinculados).
 app.get('/api/projects/:id/generador-presupuestos', h(auth.allow('residente', 'costos')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('costos', 'puede_ver')), h(async (req, res) => {
   const { rows } = await db.pool.query(
-    `SELECT g.id, g.nombre, g.creado_en, count(c.id) AS total_conceptos
+    `SELECT g.id, g.nombre, g.creado_en,
+       count(DISTINCT c.id) AS total_conceptos,
+       count(DISTINCT r.concepto_id) AS conceptos_vinculados
      FROM generador_presupuestos g
      LEFT JOIN generador_presupuesto_conceptos c ON c.generador_id = g.id
+     LEFT JOIN generador_presupuesto_renglones r ON r.concepto_id = c.id
      WHERE g.project_id = $1 GROUP BY g.id ORDER BY g.creado_en DESC`,
     [req.project.id]
   );

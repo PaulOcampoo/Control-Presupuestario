@@ -19291,8 +19291,43 @@ async function renderMatrices(view) {
 // arriba + server/auth.js), se separa a su propio tab sin cambiar la lógica
 // de parseo/preview/endpoints, que sigue intacta.
 // =========================================================================
+// prompt-borradores-y-boton-cerrar-generador.md: tarjeta "Presupuestos
+// generados" -- antes esta pestaña no tenía forma de volver a un catálogo
+// ya cargado sin re-subir el Excel, aunque los datos ya vivían guardados en
+// generador_presupuestos/_conceptos/_renglones. Reusa el endpoint de listado
+// ya existente (GET .../generador-presupuestos, extendido en server/app.js
+// con conceptos_vinculados) y abrirListaConceptosGenerador(), el mismo
+// punto de entrada que ya usaba "Confirmar y continuar" tras importar.
+function generadorBorradoresListHtml(generadores) {
+  if (!generadores.length) return '<p class="muted">Todavía no has cargado ningún catálogo en esta obra.</p>';
+  return generadores.map((g) => {
+    // Number(...): count(...) de Postgres vuelve como bigint -> node-pg lo
+    // manda como STRING ("3", no 3) para no perder precisión -- sin este
+    // cast, "1" === 1 es false y singular/plural (y la resta de pendientes)
+    // se rompen en silencio.
+    const total = Number(g.total_conceptos);
+    const vinculados = Number(g.conceptos_vinculados);
+    const pendientes = total - vinculados;
+    return `
+    <div class="card-row gen-borrador-item" data-abrir-generador="${g.id}" role="button" tabindex="0">
+      <div>
+        <div class="fw-600">${esc(g.nombre)}</div>
+        <div class="muted fs-078">${fmtDate(g.creado_en)} · ${total} concepto${total === 1 ? '' : 's'}</div>
+      </div>
+      <span class="inline-gap4">
+        ${vinculados > 0 ? `<span class="badge green">${vinculados} vinculado${vinculados === 1 ? '' : 's'}</span>` : ''}
+        ${pendientes > 0 ? `<span class="badge yellow">${pendientes} pendiente${pendientes === 1 ? '' : 's'}</span>` : ''}
+      </span>
+    </div>`;
+  }).join('');
+}
+
 async function renderGeneradorPresupuestos(view) {
-  const defaultsObra = await cached('matricesDefaultsObra', () => api(`/projects/${state.projectId}/matrices/porcentajes-obra`));
+  const [defaultsObra, generadoresData] = await Promise.all([
+    cached('matricesDefaultsObra', () => api(`/projects/${state.projectId}/matrices/porcentajes-obra`)),
+    api(`/projects/${state.projectId}/generador-presupuestos`),
+  ]);
+  const generadores = generadoresData.generadores;
 
   view.innerHTML = `
     <h2 class="section-title">Generador de Presupuestos</h2>
@@ -19306,6 +19341,9 @@ async function renderGeneradorPresupuestos(view) {
       <p class="muted fs-08 mt-6">Usado para calcular Mano de Obra Neta — se lee en vivo, no se guarda un snapshot por presupuesto. Config por obra, compartida con "Matrices de precio unitario" (mismo % Indirecto/Financiamiento/Utilidad de defaults, sin cambios aquí).</p>
       <div class="row end mt-8"><button class="btn" id="btnGenImpuestoGuardar">Guardar</button></div>
     </div>
+
+    <h3 class="mb-6">Presupuestos generados</h3>
+    <div class="card mb-12" id="genBorradoresList">${generadorBorradoresListHtml(generadores)}</div>
 
     <div class="section-actions mb-8">
       <button class="btn" id="btnGeneradorCatalogoImportar">📥 Cargar catálogo</button>
@@ -19329,6 +19367,12 @@ async function renderGeneradorPresupuestos(view) {
       invalidate('matricesDefaultsObra');
       toast('% Impuesto sobre mano de obra guardado', 'success');
     } catch (err) { toast(err.message, 'danger'); }
+  });
+
+  $$('[data-abrir-generador]', view).forEach((el) => {
+    const abrir = () => abrirListaConceptosGenerador(Number(el.dataset.abrirGenerador));
+    el.addEventListener('click', abrir);
+    el.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); abrir(); } });
   });
 
   $('#btnGeneradorCatalogoImportar').addEventListener('click', () => openImportarCatalogoGeneradorModal());
@@ -19524,7 +19568,10 @@ function openVincularInsumosGeneradorModal(generadorId, concepto) {
 
   $('#modal').classList.add('modal-wide');
   openModal(`
-    <h3>Vincular insumos — ${esc(concepto.concepto)}</h3>
+    <div class="modal-header-row">
+      <h3 class="modal-title">Vincular insumos — ${esc(concepto.concepto)}</h3>
+      <button class="icon-btn modal-close-btn" id="btnCerrarVincularGeneradorTop" aria-label="Cerrar">✕</button>
+    </div>
     <p class="muted fs-08">${esc(concepto.unidad || '')} · Cantidad presupuestada: ${fmtNum(concepto.cantidad, 3)}. El rendimiento es la cantidad de insumo POR UNIDAD de este concepto.</p>
     <div class="search-bar"><input type="search" id="genVincularBuscar" placeholder="Buscar insumo por código o nombre…" /></div>
     <div class="chip-row" id="genVincularChips"></div>
@@ -19535,6 +19582,14 @@ function openVincularInsumosGeneradorModal(generadorId, concepto) {
       <button class="btn btn-primary" id="btnGuardarVincularGenerador">Guardar</button>
     </div>
   `);
+  // Botón de cerrar arriba (prompt-borradores-y-boton-cerrar-generador.md):
+  // esta lista puede tener cientos de tarjetas de insumo (ver prompt-lista-
+  // completa-insumos-vincular.md), dejando el "Cerrar" de .modal-actions
+  // fuera de vista sin hacer scroll hasta el final. Mismo patrón/clase ya
+  // usado en otros modales (Ajustes, Perfil, Ayuda — .modal-header-row +
+  // .modal-close-btn), no uno nuevo. Mismo comportamiento que el de abajo
+  // (descarta sin guardar — Guardar es un botón aparte, sin auto-save).
+  $('#btnCerrarVincularGeneradorTop').addEventListener('click', closeModal);
   $('#btnCerrarVincularGenerador').addEventListener('click', closeModal);
 
   const pintarChips = () => {

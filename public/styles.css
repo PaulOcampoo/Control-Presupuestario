@@ -1318,7 +1318,17 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
 }
-.pve-table thead th {
+/* prompt-fix-sticky-thead-real.md: sticky en el <thead> COMPLETO, no en
+   cada <th> por separado como decía antes esta regla — confirmado
+   empíricamente con Playwright (PR #273, Preview del catálogo del
+   Generador de Presupuestos) que thead th { position:sticky } NO se queda
+   fijo al hacer scroll en el Chromium de este proyecto (se mueve con el
+   contenido igual que sin sticky), mientras que thead { position:sticky }
+   sí funciona — sticky en una caja de bloque arrastra consigo a sus hijos.
+   El fondo opaco de cada celda sigue viniendo de la regla global
+   `thead th { background: var(--bg-surface-2); ... }` de arriba, sin
+   cambios — no depende de cuál elemento tenga position:sticky. */
+.pve-table thead {
   position: sticky;
   top: 0;
   z-index: 3;
@@ -4135,10 +4145,19 @@ body.a11y-reduce-motion *::after {
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
 }
-.perm-matriz-table thead th {
+/* prompt-fix-sticky-thead-real.md: sticky en el <thead> COMPLETO, no en
+   cada <th> por separado (ver comentario gemelo en .pve-table más arriba —
+   thead th { position:sticky } NO se queda fijo en el Chromium de este
+   proyecto, thead { position:sticky } sí). El fondo opaco se queda en el
+   th (aquí explícito, distinto del --bg-surface-2 genérico de otras
+   tablas) porque sticky solo mueve la posición de la caja, no cambia dónde
+   pinta cada celda su propio fondo. */
+.perm-matriz-table thead {
   position: sticky;
   top: 0;
   z-index: 3;
+}
+.perm-matriz-table thead th {
   background: var(--bg-surface); /* opaco: sin esto las filas se transparentan detrás al hacer scroll */
 }
 

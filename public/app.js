@@ -19487,21 +19487,35 @@ function pintarListaConceptosGenerador(generadorId, data) {
   });
 }
 
-// Buscador de insumos + captura de rendimiento por insumo, mismo patrón de
-// búsqueda que "Mapeo" (api /insumos?q=...) pero contra insumos YA
-// CARGADOS de esta obra (no el "Catálogo de Básicos" global -- ver
-// comentario en server/db.js sobre por qué esa tabla no sirve aquí: no
-// tiene categoría ni es un catálogo buscable). Guardar reemplaza TODOS los
-// renglones del concepto (mismo criterio que Matrices reales).
+const GENERADOR_CATEGORIAS = ['MATERIALES', 'MANO DE OBRA', 'EQUIPO Y HERRAMIENTA'];
+
+// Lista completa de insumos de la obra, mismo patrón visual de tarjeta +
+// pills de categoría que Catálogo de Insumos (prompt-lista-completa-
+// insumos-vincular.md) -- antes solo había un buscador vacío que no
+// mostraba nada hasta escribir, y "Editar insumos" arrancaba SIEMPRE con la
+// lista en blanco aunque el concepto ya tuviera renglones guardados (como
+// Guardar reemplaza TODOS los renglones del concepto, reabrir y agregar uno
+// nuevo sin ver los ya vinculados arriesgaba borrarlos silenciosamente —
+// probable causa real de "vinculé insumos pero no se guardó nada"). Ahora
+// `concepto.renglones` (agregado en GET .../generadorId, server/app.js)
+// prellena el estado al abrir, y cada tarjeta de insumo muestra si ya está
+// vinculado in-line, no en una sección aparte.
 function openVincularInsumosGeneradorModal(generadorId, concepto) {
-  let renglones = []; // { insumo_id, codigo, nombre, categoria, rendimiento, precio_presupuesto }
+  let renglones = (concepto.renglones || []).map((r) => ({
+    insumo_id: r.insumo_id, codigo: r.insumo_codigo, nombre: r.insumo_nombre,
+    categoria: r.categoria, rendimiento: r.rendimiento, precio_presupuesto: r.precio_presupuesto,
+  }));
+  let todosInsumos = [];
+  let filtroCategoria = '';
+  let filtroQ = '';
+
   $('#modal').classList.add('modal-wide');
   openModal(`
     <h3>Vincular insumos — ${esc(concepto.concepto)}</h3>
     <p class="muted fs-08">${esc(concepto.unidad || '')} · Cantidad presupuestada: ${fmtNum(concepto.cantidad, 3)}. El rendimiento es la cantidad de insumo POR UNIDAD de este concepto.</p>
     <div class="search-bar"><input type="search" id="genVincularBuscar" placeholder="Buscar insumo por código o nombre…" /></div>
-    <div id="genVincularResultados"></div>
-    <div id="genVincularRenglones" class="mt-12"></div>
+    <div class="chip-row" id="genVincularChips"></div>
+    <div id="genVincularLista" class="mt-8"><div class="spinner"></div></div>
     <div id="genVincularCalculo" class="card mt-12 hidden-initial"></div>
     <div class="modal-actions">
       <button class="btn" id="btnCerrarVincularGenerador">Cerrar</button>
@@ -19510,70 +19524,86 @@ function openVincularInsumosGeneradorModal(generadorId, concepto) {
   `);
   $('#btnCerrarVincularGenerador').addEventListener('click', closeModal);
 
-  const pintarRenglones = () => {
-    const el = $('#genVincularRenglones');
-    if (!renglones.length) { el.innerHTML = '<p class="muted">Sin insumos vinculados todavía.</p>'; return; }
-    el.innerHTML = `
-      <div class="table-scroll">
-        <table>
-          <thead><tr><th>Insumo</th><th>Categoría</th><th class="num">Rendimiento</th><th class="num">Precio</th><th></th></tr></thead>
-          <tbody>
-            ${renglones.map((r, i) => `
-              <tr>
-                <td>${esc(r.codigo)} — ${esc(r.nombre)}</td>
-                <td>
-                  <select data-renglon-categoria="${i}">
-                    ${['MATERIALES', 'MANO DE OBRA', 'EQUIPO Y HERRAMIENTA'].map((cat) => `<option value="${cat}" ${r.categoria === cat ? 'selected' : ''}>${cat}</option>`).join('')}
-                  </select>
-                </td>
-                <td class="num"><input type="number" step="any" min="0" data-renglon-rendimiento="${i}" value="${r.rendimiento}" class="w-84-right" /></td>
-                <td class="num">${fmtMoney(r.precio_presupuesto)}</td>
-                <td><button type="button" class="btn small btn-danger" data-renglon-quitar="${i}">Quitar</button></td>
-              </tr>
-            `).join('')}
-          </tbody>
-        </table>
-      </div>
+  const pintarChips = () => {
+    const categoriasPresentes = [...new Set(todosInsumos.map((i) => i.categoria).filter(Boolean))];
+    $('#genVincularChips').innerHTML = `
+      <button class="chip ${!filtroCategoria ? 'active' : ''}" data-cat="">Todos</button>
+      ${categoriasPresentes.map((c) => `<button class="chip ${filtroCategoria === c ? 'active' : ''}" data-cat="${esc(c)}">${esc(c)}</button>`).join('')}
     `;
-    $$('[data-renglon-categoria]', el).forEach((sel) => sel.addEventListener('change', (e) => {
-      renglones[Number(e.target.dataset.renglonCategoria)].categoria = e.target.value;
-    }));
-    $$('[data-renglon-rendimiento]', el).forEach((inp) => inp.addEventListener('input', (e) => {
-      renglones[Number(e.target.dataset.renglonRendimiento)].rendimiento = Number(e.target.value) || 0;
-    }));
-    $$('[data-renglon-quitar]', el).forEach((btn) => btn.addEventListener('click', () => {
-      renglones.splice(Number(btn.dataset.renglonQuitar), 1);
-      pintarRenglones();
+    $$('#genVincularChips .chip').forEach((chip) => chip.addEventListener('click', () => {
+      filtroCategoria = chip.dataset.cat;
+      pintarChips();
+      pintarLista();
     }));
   };
-  pintarRenglones();
 
-  $('#genVincularBuscar').addEventListener('input', debounce(async (e) => {
-    const q = e.target.value.trim();
-    const results = $('#genVincularResultados');
-    if (!q) { results.innerHTML = ''; return; }
-    try {
-      // incluirManoObra:1 -- a diferencia de Mapeo (que excluye MO* por
-      // default, ver comentario en server/app.js), aquí SÍ necesitamos poder
-      // vincular insumos de Mano de Obra (mismo criterio ya usado por
-      // Matrices/Básicos, que también calculan esa categoría).
-      const found = await api(`/projects/${state.projectId}/insumos${queryString({ q, incluirManoObra: 1 })}`);
-      results.innerHTML = found.slice(0, 8).map((i) => `
-        <div class="project-item" data-add-insumo="${i.id}" data-codigo="${esc(i.codigo || '')}" data-nombre="${esc(i.concepto)}" data-precio="${i.precio_presupuesto || 0}" data-categoria="${esc(i.categoria || 'MATERIALES')}">
-          <span class="pname">${esc(i.concepto)}</span>
-          <span class="pmeta">${esc(i.codigo || '')} · ${esc(i.unidad || '')} · ${fmtMoney(i.precio_presupuesto)}</span>
-        </div>`).join('') || '<p class="muted">Sin resultados.</p>';
-      $$('[data-add-insumo]', results).forEach((row) => row.addEventListener('click', () => {
-        const insumoId = Number(row.dataset.addInsumo);
-        if (renglones.some((r) => r.insumo_id === insumoId)) { toast('Ese insumo ya está vinculado', ''); return; }
-        const categoriaSugerida = ['MATERIALES', 'MANO DE OBRA', 'EQUIPO Y HERRAMIENTA'].includes(row.dataset.categoria) ? row.dataset.categoria : 'MATERIALES';
-        renglones.push({ insumo_id: insumoId, codigo: row.dataset.codigo, nombre: row.dataset.nombre, categoria: categoriaSugerida, rendimiento: 1, precio_presupuesto: Number(row.dataset.precio) });
-        pintarRenglones();
-        e.target.value = '';
-        results.innerHTML = '';
-      }));
-    } catch (err) { toast(err.message, 'danger'); }
-  }, 280));
+  const pintarLista = () => {
+    const el = $('#genVincularLista');
+    const q = filtroQ.trim().toLowerCase();
+    const filtrados = todosInsumos.filter((i) => {
+      if (filtroCategoria && i.categoria !== filtroCategoria) return false;
+      if (q && !(String(i.codigo || '').toLowerCase().includes(q) || String(i.concepto || '').toLowerCase().includes(q))) return false;
+      return true;
+    });
+    if (!filtrados.length) { el.innerHTML = '<div class="empty-state">No se encontraron insumos con ese filtro.</div>'; return; }
+    el.innerHTML = filtrados.map((i) => {
+      const r = renglones.find((x) => x.insumo_id === i.id);
+      return `
+      <div class="card insumo-card">
+        <div class="row between">
+          <div>
+            <div class="title">${esc(i.concepto)}</div>
+            <div class="code">${esc(i.codigo || '')} · ${esc(i.unidad || '')}${i.categoria ? ` · ${esc(i.categoria)}` : ''}</div>
+          </div>
+          <span class="inline-gap4">
+            ${r ? '<span class="badge green">✓ Vinculado</span>' : ''}
+            <span class="muted fs-078">${fmtMoney(i.precio_presupuesto)}</span>
+          </span>
+        </div>
+        ${r ? `
+        <div class="row between mt-6">
+          <span class="muted fs-078">Categoría en este concepto</span>
+          <select data-renglon-categoria="${i.id}">
+            ${GENERADOR_CATEGORIAS.map((cat) => `<option value="${cat}" ${r.categoria === cat ? 'selected' : ''}>${cat}</option>`).join('')}
+          </select>
+        </div>
+        <div class="row between mt-6">
+          <span class="muted fs-078">Rendimiento</span>
+          <input type="number" step="any" min="0" data-renglon-rendimiento="${i.id}" value="${r.rendimiento}" class="w-84-right" />
+        </div>
+        <div class="row end mt-6"><button type="button" class="btn small btn-danger" data-quitar-insumo="${i.id}">Quitar</button></div>
+        ` : `
+        <div class="row end mt-6"><button type="button" class="btn small btn-primary" data-vincular-insumo="${i.id}">+ Vincular</button></div>
+        `}
+      </div>`;
+    }).join('');
+
+    $$('[data-vincular-insumo]', el).forEach((btn) => btn.addEventListener('click', () => {
+      const insumoId = Number(btn.dataset.vincularInsumo);
+      const i = todosInsumos.find((x) => x.id === insumoId);
+      const categoriaSugerida = GENERADOR_CATEGORIAS.includes(i.categoria) ? i.categoria : 'MATERIALES';
+      renglones.push({ insumo_id: insumoId, codigo: i.codigo, nombre: i.concepto, categoria: categoriaSugerida, rendimiento: 1, precio_presupuesto: i.precio_presupuesto });
+      pintarLista();
+    }));
+    $$('[data-quitar-insumo]', el).forEach((btn) => btn.addEventListener('click', () => {
+      const insumoId = Number(btn.dataset.quitarInsumo);
+      renglones = renglones.filter((r2) => r2.insumo_id !== insumoId);
+      pintarLista();
+    }));
+    $$('[data-renglon-categoria]', el).forEach((sel) => sel.addEventListener('change', (e) => {
+      const r2 = renglones.find((x) => x.insumo_id === Number(e.target.dataset.renglonCategoria));
+      if (r2) r2.categoria = e.target.value;
+    }));
+    $$('[data-renglon-rendimiento]', el).forEach((inp) => inp.addEventListener('input', (e) => {
+      const r2 = renglones.find((x) => x.insumo_id === Number(e.target.dataset.renglonRendimiento));
+      if (r2) r2.rendimiento = Number(e.target.value) || 0;
+    }));
+  };
+
+  $('#genVincularBuscar').addEventListener('input', debounce((e) => {
+    filtroQ = e.target.value;
+    pintarLista();
+  }, 200));
 
   $('#btnGuardarVincularGenerador').addEventListener('click', async () => {
     if (!renglones.length) { toast('Vincula al menos un insumo', 'danger'); return; }
@@ -19598,6 +19628,22 @@ function openVincularInsumosGeneradorModal(generadorId, concepto) {
       btn.disabled = false; btn.textContent = 'Guardar';
     }
   });
+
+  // incluirManoObra:1 -- a diferencia de Mapeo (que excluye MO* por default,
+  // ver comentario en server/app.js), aquí SÍ necesitamos poder vincular
+  // insumos de Mano de Obra (mismo criterio ya usado por Matrices/Básicos,
+  // que también calculan esa categoría). Sin `q`: carga TODA la obra de una
+  // vez (mismo patrón que Catálogo de Insumos, que ya renderiza obras de
+  // cientos de insumos como tarjetas sin paginar).
+  (async () => {
+    try {
+      todosInsumos = await api(`/projects/${state.projectId}/insumos${queryString({ incluirManoObra: 1 })}`);
+      pintarChips();
+      pintarLista();
+    } catch (err) {
+      $('#genVincularLista').innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+    }
+  })();
 }
 
 // Importador de la hoja "Matrices" (prompt-importador-matrices-

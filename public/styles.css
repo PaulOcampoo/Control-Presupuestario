@@ -1464,17 +1464,36 @@ body.body-scroll-locked { overflow: hidden; }
   .modal.modal-wide.eu-historico-modal { width: min(94vw, 1140px); }
 }
 
-/* Buscador + chips de grupo + toggle "solo pendientes" del modal "Avance
-   físico por concepto" (prompt-mejora-modal-avance.md). Sticky respecto al
-   propio .modal (ya es el scroll container, overflow-y: auto arriba) — es
-   hijo directo de .modal, sin wrapper intermedio con overflow propio entre
-   ambos, mismo criterio ya documentado en CLAUDE.md contra el bug de sticky
-   roto en iOS Safari. */
+/* Buscador + Ubicación/Partida + "Ir a sección" + toggle "solo pendientes"
+   del modal "Avance físico por concepto" (prompt-mejora-modal-avance.md).
+   Sticky respecto al propio .modal (ya es el scroll container, overflow-y:
+   auto arriba).
+   prompt-sticky-filtros-avance.md: el comentario original de este bloque
+   decía "es hijo directo de .modal, sin wrapper intermedio" -- en realidad
+   NO lo es: .avc-sticky-bar vive dentro de `<div id="avcFiltros">` (ver
+   openAvanceConceptosModal/app.js), un wrapper vacío que solo existe como
+   target de `$('#avcFiltros').innerHTML = ...`. Verificado con Playwright
+   real (moviendo temporalmente .avc-sticky-bar a hijo directo de .modal):
+   con el wrapper de por medio el sticky NO se aplicaba pese a que
+   #avcFiltros tiene overflow:visible -- ninguno de los patrones ya
+   documentados en CLAUDE.md (overflow ajeno entre sticky y scroll
+   container) explica esto por sí solo; empíricamente, la sola presencia de
+   esa caja de bloque intermedia bastaba para romperlo en Chromium. Fix
+   real más abajo (#avcFiltros { display: contents }) en vez de tocar este
+   bloque. */
 .avc-sticky-bar {
   position: sticky; top: 0; z-index: 5;
   background: var(--bg-surface); padding-bottom: var(--space-8); margin-bottom: var(--space-8);
   border-bottom: 1px solid var(--border-color);
 }
+/* #avcFiltros (ver comentario de .avc-sticky-bar arriba) no tiene ningún
+   propósito visual propio -- display:contents lo "retira" del árbol de
+   layout sin sacarlo del DOM (sigue existiendo como target del innerHTML en
+   app.js), dejando a .avc-sticky-bar como hijo directo real de .modal a
+   efectos de layout/sticky. Ningún otro código de la app lee geometría de
+   #avcFiltros (offsetHeight/getBoundingClientRect) ni depende de que tenga
+   caja propia -- seguro de aplicar. */
+#avcFiltros { display: contents; }
 .avc-row { padding-bottom: var(--space-10); margin-bottom: var(--space-10); border-bottom: 1px solid var(--border-color); }
 .avc-row:last-child { padding-bottom: var(--space-0); margin-bottom: var(--space-0); border-bottom: none; }
 .avc-concepto-title.avc-clamp {

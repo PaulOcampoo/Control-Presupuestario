@@ -230,4 +230,21 @@ function distribuirDestajoGrupo(total, grupo, nombreDestajista, minimoVinculado 
   return resultado;
 }
 
-module.exports = { calcularJornal, calcularDestajo, montoSinIva, totalConIvaDeItems, totalConIvaEsValido, numeroALetra, calcularSplitCuentas, distribuirDestajoGrupo };
+// Subtotal de un renglón de medición del Generador de Obra
+// (prompt-generadores-de-obra.md, Fase 1): Largo×Ancho×Alto×Pzas, sin una
+// fórmula distinta por unidad (M2/ML/M3/PZA/...) — cada campo que el
+// residente deja en blanco (o en 0/negativo, tratado igual) simplemente no
+// participa del producto (factor 1), así un solo renglón sirve para
+// cualquier unidad según qué campos llene. Si los 4 campos están vacíos el
+// renglón no mide nada todavía → 0, no 1 (el "factor 1 por defecto" solo
+// aplica quitando un campo del producto, nunca cuando ninguno está lleno).
+function calcularSubtotalRenglon({ largo, ancho, alto, pzas } = {}) {
+  const campos = [largo, ancho, alto, pzas];
+  const provistos = campos
+    .map((v) => Number(v))
+    .filter((n) => Number.isFinite(n) && n > 0);
+  if (!provistos.length) return 0;
+  return provistos.reduce((acc, n) => acc * n, 1);
+}
+
+module.exports = { calcularJornal, calcularDestajo, montoSinIva, totalConIvaDeItems, totalConIvaEsValido, numeroALetra, calcularSplitCuentas, distribuirDestajoGrupo, calcularSubtotalRenglon };

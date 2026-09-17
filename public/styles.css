@@ -1370,6 +1370,15 @@ tr.row-click { cursor: pointer; }
 @media (hover: hover) {
   tr.row-click:hover td { background: color-mix(in srgb, var(--accent-gold) 6%, transparent); }
 }
+/* prompt-borradores-y-boton-cerrar-generador.md: mismo criterio que
+   tr.row-click de arriba (cursor + hover solo en filas clicables, mismo
+   tinte dorado) — .gen-borrador-item es un <div> (lista de tarjetas), no
+   una fila de tabla, por eso repite la regla en vez de reusar el selector
+   tr.row-click tal cual. */
+.gen-borrador-item { cursor: pointer; border-radius: var(--radius-sm); }
+@media (hover: hover) {
+  .gen-borrador-item:hover { background: color-mix(in srgb, var(--accent-gold) 6%, transparent); }
+}
 /* tr.row-pendiente ya era la única fila de estatus formal en la app
    (nómina — periodos pendientes de autorización); no existen análogos
    para otros estados (conciliado/cancelado/etc. se comunican con .badge,

@@ -5196,8 +5196,12 @@ app.get('/api/projects/:id/generador-presupuestos/:generadorId/export', h(auth.a
   });
 
   const SIN_DESGLOSE = 'Sin desglose disponible';
+  // prompt-altura-filas-export-generador.md: wrap:true (columna Concepto en
+  // las 4 hojas, + Descripción en Análisis de Precio Unitario) va SIEMPRE
+  // junto con rowHeight en sendXlsxExport más abajo -- una sin la otra no
+  // sirve (ver comentario largo en exportHelper.js).
   const columnasCatalogo = [
-    { header: 'Concepto', key: 'concepto', width: 45 },
+    { header: 'Concepto', key: 'concepto', width: 45, wrap: true },
     { header: 'Unidad', key: 'unidad', width: 10 },
     { header: 'Cantidad', key: 'cantidad', width: 14, format: 'int' },
     { header: 'P.U.', key: 'pu', width: 16, format: 'money' },
@@ -5239,15 +5243,15 @@ app.get('/api/projects/:id/generador-presupuestos/:generadorId/export', h(auth.a
   await sendXlsxExport(res, {
     filename: buildExportFilename(`GeneradorPresupuesto-${genRows[0].nombre}`, req.project.nombre),
     sheets: [
-      { sheetName: 'Catálogo — Precio de Venta', columns: columnasCatalogo, rows: filasVenta, headerFill: true },
-      { sheetName: 'Costo Directo', columns: columnasCatalogo, rows: filasCostoDirecto, headerFill: true },
-      { sheetName: 'Mano de Obra Neta', columns: columnasCatalogo, rows: filasManoObra, headerFill: true },
+      { sheetName: 'Catálogo — Precio de Venta', columns: columnasCatalogo, rows: filasVenta, headerFill: true, rowHeight: 30 },
+      { sheetName: 'Costo Directo', columns: columnasCatalogo, rows: filasCostoDirecto, headerFill: true, rowHeight: 30 },
+      { sheetName: 'Mano de Obra Neta', columns: columnasCatalogo, rows: filasManoObra, headerFill: true, rowHeight: 30 },
       {
         sheetName: 'Análisis de Precio Unitario',
         columns: [
-          { header: 'Concepto', key: 'concepto', width: 45 },
+          { header: 'Concepto', key: 'concepto', width: 45, wrap: true },
           { header: 'Código', key: 'codigo', width: 16 },
-          { header: 'Descripción', key: 'descripcion', width: 35 },
+          { header: 'Descripción', key: 'descripcion', width: 35, wrap: true },
           { header: 'Unidad', key: 'unidad', width: 10 },
           { header: 'Rendimiento', key: 'rendimiento', width: 14 },
           { header: 'Precio Unitario', key: 'precio', width: 16, format: 'money' },
@@ -5255,6 +5259,7 @@ app.get('/api/projects/:id/generador-presupuestos/:generadorId/export', h(auth.a
         ],
         rows: filasApu,
         headerFill: true,
+        rowHeight: 30,
       },
     ],
   });

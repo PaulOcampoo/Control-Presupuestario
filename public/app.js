@@ -61,9 +61,9 @@ const ROLE_TABS = {
   // aceptada para esos tres, no un bug.
   // 'trabajadores_global'/'nominas_global' retirados (prompt-fase1-fusionar-
   // trabajadores-nominas.md) — ver mismo comentario en server/auth.js.
-  admin:          ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'cumplimiento', 'finanzas', 'compromisos', 'fondoGarantia', 'mapeo', 'trabajadores', 'nominas', 'estimaciones', 'ordenesCambio', 'lotes', 'modelosVivienda', 'compradores', 'apartados', 'contratosVenta', 'infraVivienda', ...MAQUINARIA_TABS_ADMIN, 'cotizador', 'costos', 'costosDashboard', 'matrices', 'avance_clientes', 'composicion_costos', 'dashboardEjecutivo', 'catalogoBasicos', ...CONTABILIDAD_TABS],
-  desarrollador:  ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'cumplimiento', 'finanzas', 'compromisos', 'fondoGarantia', 'mapeo', 'trabajadores', 'nominas', 'estimaciones', 'ordenesCambio', 'lotes', 'modelosVivienda', 'compradores', 'apartados', 'contratosVenta', 'infraVivienda', ...MAQUINARIA_TABS_ADMIN, 'cotizador', 'costos', 'costosDashboard', 'matrices', 'avance_clientes', 'composicion_costos', 'dashboardEjecutivo', 'catalogoBasicos', ...CONTABILIDAD_TABS],
-  residente:      ['programa', 'avance', 'destajo', 'requisiciones', 'insumos', 'ordenes', 'nominas', 'trabajadores', 'estimaciones', 'ordenesCambio', 'lotes', 'modelosVivienda', 'infraVivienda', 'matrices'],
+  admin:          ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'cumplimiento', 'finanzas', 'compromisos', 'fondoGarantia', 'mapeo', 'trabajadores', 'nominas', 'estimaciones', 'ordenesCambio', 'lotes', 'modelosVivienda', 'compradores', 'apartados', 'contratosVenta', 'infraVivienda', ...MAQUINARIA_TABS_ADMIN, 'cotizador', 'costos', 'costosDashboard', 'matrices', 'generadorPresupuestos', 'avance_clientes', 'composicion_costos', 'dashboardEjecutivo', 'catalogoBasicos', ...CONTABILIDAD_TABS],
+  desarrollador:  ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'cumplimiento', 'finanzas', 'compromisos', 'fondoGarantia', 'mapeo', 'trabajadores', 'nominas', 'estimaciones', 'ordenesCambio', 'lotes', 'modelosVivienda', 'compradores', 'apartados', 'contratosVenta', 'infraVivienda', ...MAQUINARIA_TABS_ADMIN, 'cotizador', 'costos', 'costosDashboard', 'matrices', 'generadorPresupuestos', 'avance_clientes', 'composicion_costos', 'dashboardEjecutivo', 'catalogoBasicos', ...CONTABILIDAD_TABS],
+  residente:      ['programa', 'avance', 'destajo', 'requisiciones', 'insumos', 'ordenes', 'nominas', 'trabajadores', 'estimaciones', 'ordenesCambio', 'lotes', 'modelosVivienda', 'infraVivienda', 'matrices', 'generadorPresupuestos'],
   cabo:           ['destajo', 'insumos', 'avance', 'requisiciones', ...MAQUINARIA_TABS_CABO, 'trabajadores', 'nominas', 'ordenesCambio'],
   compras:        ['programa', 'requisiciones', 'insumos', 'ordenes', 'proveedores', 'cumplimiento', 'cotizador'],
   tesoreria:      ['resumen', 'finanzas', 'compromisos', 'fondoGarantia', 'ordenes', 'contrato', 'impuestos', 'proveedores', 'cumplimiento', 'dashboardEjecutivo'],
@@ -81,7 +81,7 @@ const ROLE_TABS = {
   // agregado — mirror de PERMISSIONS.costos.tabs en server/auth.js.
   // Tarea 2 del mismo prompt: 'catalogoBasicos' agregado — mismo criterio,
   // mirror de PERMISSIONS.costos.tabs en server/auth.js.
-  costos: ['costosDashboard', 'matrices', 'costos', 'composicion_costos', 'mapeo', 'fondoGarantia', 'programa', 'resumen', 'catalogoBasicos'],
+  costos: ['costosDashboard', 'matrices', 'generadorPresupuestos', 'costos', 'composicion_costos', 'mapeo', 'fondoGarantia', 'programa', 'resumen', 'catalogoBasicos'],
 };
 
 // Vistas que no requieren ninguna obra/proyecto seleccionado — lista
@@ -1486,7 +1486,7 @@ const SECTION_DEFS = {
   // puede ver/editar Órdenes de Cambio — solo dónde vive en el menú. El
   // único efecto colateral fue el rol 'cabo' (tenía ordenesCambio pero
   // ningún otro tab de 'costos'): ver EXCEPCIONES_TILE_SECCION más abajo.
-  costos:        { label: 'Costos',         icon: 'costos',         emoji: '📑',   tabs: ['costosDashboard', 'matrices', 'ordenesCambio', 'costos', 'composicion_costos', 'mapeo', 'catalogoBasicos'], proximamente: [] },
+  costos:        { label: 'Costos',         icon: 'costos',         emoji: '📑',   tabs: ['costosDashboard', 'matrices', 'generadorPresupuestos', 'ordenesCambio', 'costos', 'composicion_costos', 'mapeo', 'catalogoBasicos'], proximamente: [] },
   // prompt-contabilidad-fase1/2/3/4 + prompt-contabilidad-galeria-tiles.md:
   // 5 subsecciones reales (antes: un solo tab 'contabilidad' con subnav
   // interno propio, mismo patrón que 'controlFinanciero' — reemplazado por
@@ -1504,7 +1504,7 @@ const TAB_ICONS = {
   maquinaria_consumibles: '⛽', maquinaria_reportes_cliente: '📊',
   nominas_global: '💵', trabajadores_global: '👷', cotizador: '🔍',
   estadoResultados: '📈', estadoResultadosGlobal: '📈', costos: '💲', avance_clientes: '📈', composicion_costos: '🧮',
-  cuentas: '🏦', matrices: '🧱', controlFinanciero: '💹', dashboardEjecutivo: '📊', costosDashboard: '📊', catalogoBasicos: '📚',
+  cuentas: '🏦', matrices: '🧱', generadorPresupuestos: '⚙️', controlFinanciero: '💹', dashboardEjecutivo: '📊', costosDashboard: '📊', catalogoBasicos: '📚',
   contabilidadCuentas: '📒', contabilidadPolizas: '🧾', contabilidadCfdi: '📑', contabilidadPagos: '💳',
   contabilidadConciliacion: '🏦', contabilidadDepreciacion: '📉', contabilidadExport: '📤',
   almacen: '🏬',
@@ -1519,7 +1519,7 @@ const TAB_LABELS = {
   nominas_global: 'Nómina (todas las obras)', trabajadores_global: 'Trabajadores (todas las obras)',
   cotizador: 'Cotizador', estadoResultados: 'Estado de Resultados', estadoResultadosGlobal: 'Estado de Resultados (todas las obras)',
   costos: 'Costos', avance_clientes: 'Avance por cliente', composicion_costos: 'Composición de costos',
-  cuentas: 'Cuentas', matrices: 'Matrices de precio unitario', controlFinanciero: 'Control Financiero', dashboardEjecutivo: 'Dashboard Ejecutivo',
+  cuentas: 'Cuentas', matrices: 'Matrices de precio unitario', generadorPresupuestos: 'Generador de Presupuestos', controlFinanciero: 'Control Financiero', dashboardEjecutivo: 'Dashboard Ejecutivo',
   costosDashboard: 'Dashboard de Costos', catalogoBasicos: 'Catálogo de Básicos',
   contabilidadCuentas: 'Catálogo de Cuentas', contabilidadPolizas: 'Pólizas', contabilidadCfdi: 'CFDI',
   contabilidadPagos: 'Pagos de OC',
@@ -5151,6 +5151,7 @@ async function renderView() {
       case 'entregas': await renderEntregas(view); break;
       case 'infraVivienda': await renderInfraVivienda(view); break;
       case 'matrices': await renderMatrices(view); break;
+      case 'generadorPresupuestos': await renderGeneradorPresupuestos(view); break;
       case 'almacen': await renderAlmacen(view); break;
       default: view.innerHTML = '';
     }
@@ -19164,17 +19165,6 @@ async function renderMatrices(view) {
         <span class="v"><input id="matDefUtilidad" type="number" step="0.01" min="0" class="matriz-input-num" value="${defaultsObra.pct_utilidad}" /> %</span>
       </div>
       <p class="muted fs-08 mt-6">Solo prellena matrices NUEVAS de esta obra — nunca cambia una matriz ya creada. Referencia PR#48 (10% combinado, set global único, no por obra): ${defaultsObra.referencia_pr48_combinado != null ? fmtPct(defaultsObra.referencia_pr48_combinado) : '—'}.</p>
-      <div class="card-row">
-        <span class="k">% Impuesto sobre mano de obra</span>
-        <span class="v"><input id="matDefImpuestoManoObra" type="number" step="0.01" min="0" max="100" class="matriz-input-num" value="${defaultsObra.pct_impuesto_mano_obra}" /> %</span>
-      </div>
-      <!-- prompt-generador-presupuestos.md (Fase 1): a diferencia de los 3 de
-           arriba, este % no lo usa "Matrices de precio unitario" (no se
-           snapshotea en ninguna matriz) -- lo usará el Generador de
-           Presupuestos (Costos) para Mano de Obra Neta. Vive en la misma
-           tarjeta/tabla porque es la misma config "por obra, reutilizable
-           entre presupuestos" que pide ese prompt, no un dato nuevo. -->
-      <p class="muted fs-08 mt-6">Usado por el Generador de Presupuestos (Costos) para calcular Mano de Obra Neta — se lee en vivo, no se guarda un snapshot por presupuesto.</p>
       <div class="row end mt-8"><button class="btn" id="btnMatDefaultsGuardar">Guardar</button></div>
     </div>
 
@@ -19184,10 +19174,6 @@ async function renderMatrices(view) {
       <button class="btn" id="btnMatricesBasicos">🧱 Básicos</button>
       <button class="btn" id="btnMatricesImportar" ${matrices.length ? '' : 'disabled'} title="${matrices.length ? '' : 'Esta obra necesita conceptos cargados primero (Actualizar presupuesto / alta de obra) antes de poder importar Matrices'}">⭱ Importar Matrices desde Excel</button>
       <button class="btn" id="btnReprocesarDestajoMatrices" ${matrices.length ? '' : 'disabled'} title="${matrices.length ? 'Sube el mismo Excel original de esta obra para completar Destajo y Matrices sin tocar Presupuesto/Insumos ya cargados' : 'Esta obra necesita conceptos cargados primero'}">🔄 Reprocesar Destajo/Matrices</button>
-      <!-- prompt-generador-presupuestos.md (Fase 2): vive aquí (no en una
-           pestaña nueva) por la misma razón que la tarjeta de % de arriba —
-           evita tocar los mapas de tabs por rol en 3 archivos más. -->
-      <button class="btn" id="btnGeneradorCatalogoImportar">📥 Generador de Presupuestos — Cargar catálogo</button>
     </div>
 
     ${matrices.length ? `
@@ -19224,7 +19210,11 @@ async function renderMatrices(view) {
           pct_indirecto: Number($('#matDefIndirecto').value) || 0,
           pct_utilidad: Number($('#matDefUtilidad').value) || 0,
           pct_financiamiento: Number($('#matDefFinanciamiento').value) || 0,
-          pct_impuesto_mano_obra: Number($('#matDefImpuestoManoObra').value) || 0,
+          // pct_impuesto_mano_obra ya no se edita desde esta tarjeta (se mudó
+          // a la pestaña "Generador de Presupuestos", prompt-mover-generador-
+          // presupuestos-y-modal.md) — se reenvía el valor actual sin cambios
+          // para no resetearlo a 0 en este mismo endpoint compartido.
+          pct_impuesto_mano_obra: Number(defaultsObra.pct_impuesto_mano_obra) || 0,
         },
       });
       invalidate('matricesDefaultsObra');
@@ -19239,7 +19229,6 @@ async function renderMatrices(view) {
   $('#btnMatricesBasicos').addEventListener('click', () => openBasicosListModal(view));
   $('#btnMatricesImportar')?.addEventListener('click', () => openImportarMatricesModal(view));
   $('#btnReprocesarDestajoMatrices')?.addEventListener('click', () => openReprocesarDestajoMatricesModal(view));
-  $('#btnGeneradorCatalogoImportar')?.addEventListener('click', () => openImportarCatalogoGeneradorModal());
 
   $$('.matSelCheck').forEach((chk) => {
     chk.addEventListener('click', (e) => e.stopPropagation());
@@ -19292,45 +19281,101 @@ async function renderMatrices(view) {
   await paintMatrizDetalle(view);
 }
 
-// Generador de Presupuestos (prompt-generador-presupuestos.md, Fase 2) —
-// carga de catálogo externo (Concepto/Unidad/Cantidad, con o sin Precio
-// Unitario). Mismo patrón visual que Lotes (openImportarLotesModal): input
-// file .xlsx → VercelBlobClient.upload → preview (nunca escribe nada,
-// Fase 2 no persiste todavía — eso es Fase 3/4). Vive dentro de "Matrices de
-// precio unitario" (botón en su .section-actions) en vez de una pestaña
-// nueva propia, decisión de Fase 2 para no ampliar esta fase a los mapas de
-// tabs por rol de public/app.js + server/auth.js (más de 3 archivos).
+// =========================================================================
+// VISTA: Generador de Presupuestos (prompt-generador-presupuestos.md, Fases
+// 1-4; prompt-mover-generador-presupuestos-y-modal.md) — pestaña propia
+// dentro de Costos. Antes vivía dentro de "Matrices de precio unitario"
+// (tarjeta de % + botón en .section-actions), solo para no tocar los mapas
+// de tabs por rol en su fase original — ahora que sí se tocan (public/app.js
+// arriba + server/auth.js), se separa a su propio tab sin cambiar la lógica
+// de parseo/preview/endpoints, que sigue intacta.
+// =========================================================================
+async function renderGeneradorPresupuestos(view) {
+  const defaultsObra = await cached('matricesDefaultsObra', () => api(`/projects/${state.projectId}/matrices/porcentajes-obra`));
+
+  view.innerHTML = `
+    <h2 class="section-title">Generador de Presupuestos</h2>
+    <p class="muted">Genera un presupuesto con Análisis de Precio Unitario completo a partir de un catálogo externo (Concepto/Unidad/Cantidad, con o sin Precio Unitario) — soporta el formato estándar y catálogos "por columnas" tipo Oaxaca.</p>
+
+    <div class="card mb-12">
+      <div class="card-row">
+        <span class="k">% Impuesto sobre mano de obra</span>
+        <span class="v"><input id="genImpuestoManoObra" type="number" step="0.01" min="0" max="100" class="matriz-input-num" value="${defaultsObra.pct_impuesto_mano_obra}" /> %</span>
+      </div>
+      <p class="muted fs-08 mt-6">Usado para calcular Mano de Obra Neta — se lee en vivo, no se guarda un snapshot por presupuesto. Config por obra, compartida con "Matrices de precio unitario" (mismo % Indirecto/Financiamiento/Utilidad de defaults, sin cambios aquí).</p>
+      <div class="row end mt-8"><button class="btn" id="btnGenImpuestoGuardar">Guardar</button></div>
+    </div>
+
+    <div class="section-actions mb-8">
+      <button class="btn" id="btnGeneradorCatalogoImportar">📥 Cargar catálogo</button>
+    </div>
+  `;
+
+  $('#btnGenImpuestoGuardar').addEventListener('click', async () => {
+    try {
+      await api(`/projects/${state.projectId}/matrices/porcentajes-obra`, {
+        method: 'PUT',
+        body: {
+          // Los 3 primeros no se editan desde esta tarjeta — se reenvían sin
+          // cambios (mismo endpoint compartido con "Matrices de precio
+          // unitario", que sí los edita) para no resetearlos a 0.
+          pct_indirecto: Number(defaultsObra.pct_indirecto) || 0,
+          pct_utilidad: Number(defaultsObra.pct_utilidad) || 0,
+          pct_financiamiento: Number(defaultsObra.pct_financiamiento) || 0,
+          pct_impuesto_mano_obra: Number($('#genImpuestoManoObra').value) || 0,
+        },
+      });
+      invalidate('matricesDefaultsObra');
+      toast('% Impuesto sobre mano de obra guardado', 'success');
+    } catch (err) { toast(err.message, 'danger'); }
+  });
+
+  $('#btnGeneradorCatalogoImportar').addEventListener('click', () => openImportarCatalogoGeneradorModal());
+}
+
+// Carga de catálogo externo (Concepto/Unidad/Cantidad, con o sin Precio
+// Unitario): zona de arrastrar/soltar (crearZonaCargaArchivo, mismo patrón
+// visual que "Cargar presupuesto") → VercelBlobClient.upload → preview
+// (nunca escribe nada hasta confirmar en pintarPreviewCatalogoGenerador).
 function openImportarCatalogoGeneradorModal() {
+  const zona = crearZonaCargaArchivo({
+    id: 'catalogoGeneradorZona',
+    accept: '.xlsx',
+    texto: 'Arrastra tu Excel aquí o haz clic para seleccionarlo',
+    textoMobile: 'Toca para seleccionar tu Excel',
+    hint: '.xlsx',
+    onFiles: (files) => procesarCatalogoGeneradorArchivo(files[0]),
+  });
   openModal(`
     <h3>Generador de Presupuestos — Cargar catálogo</h3>
     <p class="muted fs-08">Lee un catálogo de conceptos (columnas Concepto, Unidad, Cantidad y, opcionalmente, Precio Unitario) — soporta el formato "por columnas" con Partida/Nombre Partida en cada fila (ej. catálogos tipo Oaxaca), no solo el formato estándar de Presupuesto de obra. Nada se guarda todavía en esta vista previa.</p>
-    <input type="file" id="catalogoGeneradorImportFile" accept=".xlsx" />
+    ${zona.html}
     <div class="modal-actions">
       <button class="btn" id="btnCancelCatalogoGeneradorImport">Cerrar</button>
     </div>
   `);
   $('#btnCancelCatalogoGeneradorImport').addEventListener('click', closeModal);
-  $('#catalogoGeneradorImportFile').addEventListener('change', async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    if (!/\.xlsx$/i.test(file.name)) { toast('Solo se admiten archivos .xlsx', 'danger'); return; }
-    openModal(`<h3>Subiendo y analizando…</h3><div class="spinner"></div>`);
-    try {
-      const blob = await VercelBlobClient.upload(file.name, file, {
-        access: 'private',
-        handleUploadUrl: `/api/projects/${state.projectId}/generador-presupuestos/catalogo/upload-token`,
-        headers: state.token ? { Authorization: `Bearer ${state.token}` } : {},
-      });
-      const preview = await api(`/projects/${state.projectId}/generador-presupuestos/catalogo/preview`, {
-        method: 'POST',
-        body: { archivo_url: blob.url },
-      });
-      pintarPreviewCatalogoGenerador(preview, blob.url, file.name.replace(/\.xlsx$/i, ''));
-    } catch (err) {
-      closeModal();
-      toast(err.message, 'danger');
-    }
-  });
+  zona.wire();
+}
+
+async function procesarCatalogoGeneradorArchivo(file) {
+  if (!file) return;
+  openModal(`<h3>Subiendo y analizando…</h3><div class="spinner"></div>`);
+  try {
+    const blob = await VercelBlobClient.upload(file.name, file, {
+      access: 'private',
+      handleUploadUrl: `/api/projects/${state.projectId}/generador-presupuestos/catalogo/upload-token`,
+      headers: state.token ? { Authorization: `Bearer ${state.token}` } : {},
+    });
+    const preview = await api(`/projects/${state.projectId}/generador-presupuestos/catalogo/preview`, {
+      method: 'POST',
+      body: { archivo_url: blob.url },
+    });
+    pintarPreviewCatalogoGenerador(preview, blob.url, file.name.replace(/\.xlsx$/i, ''));
+  } catch (err) {
+    closeModal();
+    toast(err.message, 'danger');
+  }
 }
 
 function pintarPreviewCatalogoGenerador(preview, archivoUrl, nombreSugerido) {

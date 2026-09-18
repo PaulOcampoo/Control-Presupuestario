@@ -5039,28 +5039,30 @@ app.get('/api/projects/:id/generador-presupuestos', h(auth.allow('residente', 'c
      FROM generador_presupuestos g
      LEFT JOIN generador_presupuesto_conceptos c ON c.generador_id = g.id
      LEFT JOIN generador_presupuesto_renglones r ON r.concepto_id = c.id
-     WHERE g.project_id = $1 GROUP BY g.id ORDER BY g.creado_en DESC`,
+     WHERE g.project_id = $1 AND g.activo = true GROUP BY g.id ORDER BY g.creado_en DESC`,
     [req.project.id]
   );
   res.json({ generadores: rows });
 }));
 
-// prompt-simplificar-texto-y-borrar-presupuestos.md — eliminar un
-// presupuesto generado/cargado. generador_presupuesto_conceptos y
-// generador_presupuesto_renglones tienen ON DELETE CASCADE hacia arriba
-// (ver server/db.js) así que un solo DELETE del encabezado ya se lleva
-// conceptos y renglones sin dejar huérfanos, sin necesidad de borrar tabla
-// por tabla. Alcance por project_id en el propio DELETE (no un SELECT
-// aparte) — un generador de otra obra da 404, nunca 403, mismo criterio
-// que el resto de la app para no filtrar existencia entre obras.
+// prompt-simplificar-texto-y-borrar-presupuestos.md (revisión tras
+// confirmar con Paul: soft-delete, no borrado físico de registros — regla
+// dura del proyecto, ver server/db.js) — "eliminar" un presupuesto
+// generado/cargado marca activo=false, nunca DELETE. Las tablas hijas
+// (generador_presupuesto_conceptos/_renglones) y el blob de archivo_url
+// NO se tocan a propósito — quedan huérfanas bajo el padre inactivo, sin
+// que eso importe porque nunca se consultan salvo vía el padre, que ya no
+// aparece en ningún listado ni es alcanzable por GET (ver abajo). Alcance
+// por project_id en el propio UPDATE (no un SELECT aparte) — un generador
+// de otra obra, o uno ya inactivo, da 404, nunca 403, mismo criterio que
+// el resto de la app para no filtrar existencia entre obras.
 app.delete('/api/projects/:id/generador-presupuestos/:generadorId', h(auth.allow('residente', 'costos')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('costos', 'puede_eliminar')), h(async (req, res) => {
   const generadorId = Number(req.params.generadorId);
   const { rows } = await db.pool.query(
-    'DELETE FROM generador_presupuestos WHERE id = $1 AND project_id = $2 RETURNING archivo_url',
+    'UPDATE generador_presupuestos SET activo = false WHERE id = $1 AND project_id = $2 AND activo = true RETURNING id',
     [generadorId, req.project.id]
   );
   if (!rows[0]) return res.status(404).json({ error: 'Presupuesto generado no encontrado' });
-  if (rows[0].archivo_url) del(rows[0].archivo_url).catch(() => {});
   res.json({ ok: true });
 }));
 
@@ -5102,7 +5104,7 @@ async function getPctsObraGenerador(pid) {
 app.get('/api/projects/:id/generador-presupuestos/:generadorId', h(auth.allow('residente', 'costos')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('costos', 'puede_ver')), h(async (req, res) => {
   const pid = req.project.id;
   const generadorId = Number(req.params.generadorId);
-  const { rows: genRows } = await db.pool.query('SELECT id, nombre FROM generador_presupuestos WHERE id = $1 AND project_id = $2', [generadorId, pid]);
+  const { rows: genRows } = await db.pool.query('SELECT id, nombre FROM generador_presupuestos WHERE id = $1 AND project_id = $2 AND activo = true', [generadorId, pid]);
   if (!genRows[0]) return res.status(404).json({ error: 'Presupuesto generado no encontrado' });
   const { rows: conceptos } = await db.pool.query(
     'SELECT id, orden, partida, grupo, concepto, unidad, cantidad, precio_unitario_catalogo, categoria FROM generador_presupuesto_conceptos WHERE generador_id = $1 ORDER BY orden', [generadorId]
@@ -5191,7 +5193,7 @@ app.put('/api/projects/:id/generador-presupuestos/conceptos/:conceptoId/renglone
 app.get('/api/projects/:id/generador-presupuestos/:generadorId/export', h(auth.allow('residente', 'costos')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('costos', 'puede_ver')), h(async (req, res) => {
   const pid = req.project.id;
   const generadorId = Number(req.params.generadorId);
-  const { rows: genRows } = await db.pool.query('SELECT id, nombre FROM generador_presupuestos WHERE id = $1 AND project_id = $2', [generadorId, pid]);
+  const { rows: genRows } = await db.pool.query('SELECT id, nombre FROM generador_presupuestos WHERE id = $1 AND project_id = $2 AND activo = true', [generadorId, pid]);
   if (!genRows[0]) return res.status(404).json({ error: 'Presupuesto generado no encontrado' });
   const { rows: conceptos } = await db.pool.query(
     'SELECT id, orden, concepto, unidad, cantidad FROM generador_presupuesto_conceptos WHERE generador_id = $1 ORDER BY orden', [generadorId]

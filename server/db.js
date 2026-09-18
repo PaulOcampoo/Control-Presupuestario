@@ -266,6 +266,13 @@ const SCHEMA = `
     creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW()
   );
   CREATE INDEX IF NOT EXISTS idx_generador_presupuestos_project ON generador_presupuestos(project_id);
+  -- prompt-simplificar-texto-y-borrar-presupuestos.md (revisión tras
+  -- confirmar con Paul): soft-delete, NUNCA DELETE físico — mismo criterio
+  -- que estimaciones.activo. Las tablas hijas (generador_presupuesto_
+  -- conceptos/_renglones) y el blob de archivo_url NO se tocan al "eliminar"
+  -- — quedan huérfanas bajo el padre inactivo a propósito (nunca se
+  -- consultan salvo vía el padre, que ya no aparece en ningún listado).
+  ALTER TABLE generador_presupuestos ADD COLUMN IF NOT EXISTS activo BOOLEAN NOT NULL DEFAULT true;
 
   -- Un renglón por concepto del catálogo cargado (ver parseCatalogoGeneradorWorkbook
   -- en server/parser.js) — precio_unitario_catalogo es el precio TAL CUAL

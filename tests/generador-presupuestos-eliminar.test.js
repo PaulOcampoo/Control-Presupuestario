@@ -69,7 +69,7 @@ afterAll(async () => {
 });
 
 describe('DELETE /api/projects/:id/generador-presupuestos/:generadorId', () => {
-  it('elimina el generador y sus conceptos/renglones sin dejar filas huérfanas', async () => {
+  it('marca el generador como inactivo (soft-delete) sin borrar filas físicas de él ni de sus hijas', async () => {
     const { generadorId, conceptoId } = await crearGeneradorFixture(testProjectId);
 
     const res = await request(app)
@@ -77,12 +77,43 @@ describe('DELETE /api/projects/:id/generador-presupuestos/:generadorId', () => {
       .set('Authorization', `Bearer ${adminToken}`);
     expect(res.status).toBe(200);
 
-    const { rows: gRows } = await db.pool.query('SELECT id FROM generador_presupuestos WHERE id = $1', [generadorId]);
+    // Regla dura del proyecto: nunca DELETE físico de registros financieros.
+    // El header pasa a activo=false; las tablas hijas quedan intactas,
+    // huérfanas a propósito bajo el padre inactivo.
+    const { rows: gRows } = await db.pool.query('SELECT id, activo FROM generador_presupuestos WHERE id = $1', [generadorId]);
     const { rows: cRows } = await db.pool.query('SELECT id FROM generador_presupuesto_conceptos WHERE id = $1', [conceptoId]);
     const { rows: rRows } = await db.pool.query('SELECT id FROM generador_presupuesto_renglones WHERE concepto_id = $1', [conceptoId]);
-    expect(gRows.length).toBe(0);
-    expect(cRows.length).toBe(0);
-    expect(rRows.length).toBe(0);
+    expect(gRows.length).toBe(1);
+    expect(gRows[0].activo).toBe(false);
+    expect(cRows.length).toBe(1);
+    expect(rRows.length).toBe(1);
+
+    // Desaparece del listado...
+    const listRes = await request(app)
+      .get(`/api/projects/${testProjectId}/generador-presupuestos`)
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(listRes.status).toBe(200);
+    expect(listRes.body.generadores.some((g) => g.id === generadorId)).toBe(false);
+
+    // ...y del detalle/export directos (404, mismo criterio que "no existe").
+    const detalleRes = await request(app)
+      .get(`/api/projects/${testProjectId}/generador-presupuestos/${generadorId}`)
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(detalleRes.status).toBe(404);
+  });
+
+  it('eliminar dos veces el mismo generador da 404 la segunda vez (ya está inactivo)', async () => {
+    const { generadorId } = await crearGeneradorFixture(testProjectId);
+
+    const res1 = await request(app)
+      .delete(`/api/projects/${testProjectId}/generador-presupuestos/${generadorId}`)
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(res1.status).toBe(200);
+
+    const res2 = await request(app)
+      .delete(`/api/projects/${testProjectId}/generador-presupuestos/${generadorId}`)
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(res2.status).toBe(404);
   });
 
   it('rechaza (404) eliminar un generador de OTRA obra vía API directa', async () => {
@@ -93,8 +124,9 @@ describe('DELETE /api/projects/:id/generador-presupuestos/:generadorId', () => {
       .set('Authorization', `Bearer ${adminToken}`);
     expect(res.status).toBe(404);
 
-    const { rows } = await db.pool.query('SELECT id FROM generador_presupuestos WHERE id = $1', [generadorId]);
-    expect(rows.length).toBe(1); // sigue existiendo, no se borró
+    const { rows } = await db.pool.query('SELECT id, activo FROM generador_presupuestos WHERE id = $1', [generadorId]);
+    expect(rows.length).toBe(1); // sigue existiendo
+    expect(rows[0].activo).toBe(true); // y sigue activo, no se tocó
   });
 
   it('404 para un id inexistente', async () => {

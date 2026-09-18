@@ -5045,6 +5045,25 @@ app.get('/api/projects/:id/generador-presupuestos', h(auth.allow('residente', 'c
   res.json({ generadores: rows });
 }));
 
+// prompt-simplificar-texto-y-borrar-presupuestos.md — eliminar un
+// presupuesto generado/cargado. generador_presupuesto_conceptos y
+// generador_presupuesto_renglones tienen ON DELETE CASCADE hacia arriba
+// (ver server/db.js) así que un solo DELETE del encabezado ya se lleva
+// conceptos y renglones sin dejar huérfanos, sin necesidad de borrar tabla
+// por tabla. Alcance por project_id en el propio DELETE (no un SELECT
+// aparte) — un generador de otra obra da 404, nunca 403, mismo criterio
+// que el resto de la app para no filtrar existencia entre obras.
+app.delete('/api/projects/:id/generador-presupuestos/:generadorId', h(auth.allow('residente', 'costos')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('costos', 'puede_eliminar')), h(async (req, res) => {
+  const generadorId = Number(req.params.generadorId);
+  const { rows } = await db.pool.query(
+    'DELETE FROM generador_presupuestos WHERE id = $1 AND project_id = $2 RETURNING archivo_url',
+    [generadorId, req.project.id]
+  );
+  if (!rows[0]) return res.status(404).json({ error: 'Presupuesto generado no encontrado' });
+  if (rows[0].archivo_url) del(rows[0].archivo_url).catch(() => {});
+  res.json({ ok: true });
+}));
+
 // prompt-generador-presupuestos.md (Fase 3B): cascada CD -> Precio de Venta
 // idéntica a la ya confirmada con Paul para "Matrices de precio unitario"
 // (server/db.js, comentario de matrices_precio_unitario) -- secuencial,

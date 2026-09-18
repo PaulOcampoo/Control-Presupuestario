@@ -1725,6 +1725,29 @@ const SCHEMA = `
   CREATE INDEX IF NOT EXISTS idx_generador_obra_renglones_generador ON generador_obra_renglones(generador_id);
   CREATE INDEX IF NOT EXISTS idx_generador_obra_renglones_concepto ON generador_obra_renglones(concepto_id);
 
+  -- Evidencia fotográfica del Generador de Obra (prompt-generadores-de-obra.md,
+  -- Fase 2) — por Partida/Subpartida, NO por renglón/concepto individual
+  -- (decisión explícita del prompt: una Subpartida agrupa varios conceptos,
+  -- y la foto documenta el avance físico de esa zona, no de un concepto
+  -- puntual). partida/subpartida se guardan como TEXT literal (mismos
+  -- valores que ya calcula el frontend vía partidaSubpartidaDeConcepto() al
+  -- agrupar los renglones) en vez de una FK — no hay tabla de "partidas"
+  -- normalizada en el esquema, ruta_jerarquica vive solo en conceptos.
+  -- Blob privado (mismo criterio que Contrato: evidencia de obra, no
+  -- capturas de pantalla públicas como sugerencia_imagenes) — se sirve vía
+  -- proxy autenticado, no con blob.url directo.
+  CREATE TABLE IF NOT EXISTS generador_obra_fotos (
+    id SERIAL PRIMARY KEY,
+    generador_id INTEGER NOT NULL REFERENCES generadores_obra(id) ON DELETE CASCADE,
+    partida TEXT NOT NULL,
+    subpartida TEXT NOT NULL,
+    blob_url TEXT NOT NULL,
+    nombre_archivo TEXT,
+    subido_por INTEGER REFERENCES usuarios(id),
+    subido_en TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
+  CREATE INDEX IF NOT EXISTS idx_generador_obra_fotos_generador ON generador_obra_fotos(generador_id);
+
   -- Módulo de Maquinaria (prompt-modulo-maquinaria) — DISEÑO DE PRIMER BORRADOR,
   -- pendiente de revisión: la asignación cabo=captura de horas /
   -- taller=combustible+mantenimiento es una propuesta inicial, no definitiva.

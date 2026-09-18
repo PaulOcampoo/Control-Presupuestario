@@ -11045,11 +11045,21 @@ app.put('/api/projects/:id/avances/:semana/autorizacion', h(auth.allow()), h(req
   res.json(rows[0]);
 }));
 
+// Fase 3 (prompt-fase3-integracion-avance-estimaciones.md), Mecanismo B —
+// días de solape entre dos rangos de fecha 'YYYY-MM-DD' (inclusive en ambos
+// extremos), nunca negativo.
+function diasSolape(aInicio, aFin, bInicio, bFin) {
+  const inicio = new Date(Math.max(new Date(aInicio + 'T00:00:00Z'), new Date(bInicio + 'T00:00:00Z')));
+  const fin = new Date(Math.min(new Date(aFin + 'T00:00:00Z'), new Date(bFin + 'T00:00:00Z')));
+  const diffDias = Math.round((fin - inicio) / 86400000) + 1;
+  return Math.max(0, diffDias);
+}
+
 app.get('/api/projects/:id/avances/:semana/conceptos', h(auth.allow('residente', 'cabo', 'logistica')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('avance', 'puede_ver')), h(async (req, res) => {
   const pid = req.project.id;
   const semana = Number(req.params.semana);
   const { rows: existRows } = await db.pool.query(
-    'SELECT id FROM avances_semanales WHERE project_id = $1 AND semana = $2',
+    'SELECT id, fecha_inicio, fecha_fin FROM avances_semanales WHERE project_id = $1 AND semana = $2',
     [pid, semana]
   );
   if (!existRows[0]) return res.status(404).json({ error: 'Semana no encontrada' });
@@ -11080,10 +11090,47 @@ app.get('/api/projects/:id/avances/:semana/conceptos', h(auth.allow('residente',
   const actualMap = Object.fromEntries(actuales.map((a) => [a.concepto_id, a.cantidad_ejecutada]));
   const pendientesPorConcepto = await insumosPendientesPorConcepto(pid, conceptos.map((c) => c.concepto_id));
 
+  // Fase 3, Mecanismo B — sugerencia (nunca forzada) de volumen desde un
+  // Generador de Obra "aprobado" cuyo periodo se solapa con esta semana.
+  // Reparto proporcional a días de solape / días totales del periodo del
+  // Generador. Solo se calcula si la semana tiene fechas definidas
+  // (avances_semanales.fecha_inicio/fecha_fin son nullable). "No forzar":
+  // si el concepto YA tiene cantidad_ejecutada capturada (no null, > 0)
+  // para esta semana, no se sugiere nada — el residente ya decidió el valor.
+  const sugeridoMap = {};
+  const { fecha_inicio: semInicio, fecha_fin: semFin } = existRows[0];
+  if (semInicio && semFin) {
+    const { rows: generadoresSolapados } = await db.pool.query(
+      `SELECT id, periodo_inicio, periodo_fin FROM generadores_obra
+       WHERE project_id = $1 AND activo = true AND estado = 'aprobada'
+         AND periodo_inicio <= $3 AND periodo_fin >= $2`,
+      [pid, semInicio, semFin]
+    );
+    if (generadoresSolapados.length) {
+      const { rows: renglonesVol } = await db.pool.query(
+        `SELECT generador_id, concepto_id, SUM(subtotal) AS volumen
+         FROM generador_obra_renglones WHERE generador_id = ANY($1)
+         GROUP BY generador_id, concepto_id`,
+        [generadoresSolapados.map((g) => g.id)]
+      );
+      for (const r of renglonesVol) {
+        const gen = generadoresSolapados.find((g) => g.id === r.generador_id);
+        const diasTotales = diasSolape(gen.periodo_inicio, gen.periodo_fin, gen.periodo_inicio, gen.periodo_fin);
+        const diasEnEstaSemana = diasSolape(gen.periodo_inicio, gen.periodo_fin, semInicio, semFin);
+        if (diasTotales <= 0 || diasEnEstaSemana <= 0) continue;
+        const aporte = Number(r.volumen) * (diasEnEstaSemana / diasTotales);
+        sugeridoMap[r.concepto_id] = (sugeridoMap[r.concepto_id] || 0) + aporte;
+      }
+    }
+  }
+
   const items = conceptos.map((c) => {
     const acumulada_previa = acumPrevioMap[c.concepto_id] || 0;
     const ejecutada_periodo = Object.prototype.hasOwnProperty.call(actualMap, c.concepto_id) ? actualMap[c.concepto_id] : null;
     const acumulada_actual = acumulada_previa + (ejecutada_periodo || 0);
+    const yaCapturado = ejecutada_periodo != null && Number(ejecutada_periodo) > 0;
+    const sugerido = !yaCapturado && Object.prototype.hasOwnProperty.call(sugeridoMap, c.concepto_id)
+      ? sugeridoMap[c.concepto_id] : null;
     return {
       ...c,
       cantidad_acumulada_previa: acumulada_previa,
@@ -11091,6 +11138,7 @@ app.get('/api/projects/:id/avances/:semana/conceptos', h(auth.allow('residente',
       cantidad_acumulada_actual: acumulada_actual,
       importe_ejecutado_acumulado: acumulada_actual * c.precio_unitario,
       insumos_pendientes: pendientesPorConcepto.get(c.concepto_id) || [],
+      sugerido_generador: sugerido,
     };
   });
   res.json({ semana, items });

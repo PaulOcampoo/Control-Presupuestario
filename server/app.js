@@ -14395,7 +14395,12 @@ app.get('/api/projects/:id/generadores-obra/:genId', h(auth.allow('residente')),
      WHERE r.generador_id = $1 ORDER BY c.orden, r.orden, r.id`,
     [genId]
   );
-  res.json({ ...genRows[0], renglones });
+  const { rows: fotos } = await db.pool.query(
+    `SELECT id, partida, subpartida, nombre_archivo, subido_por, subido_en
+     FROM generador_obra_fotos WHERE generador_id = $1 ORDER BY subido_en`,
+    [genId]
+  );
+  res.json({ ...genRows[0], renglones, fotos });
 }));
 
 app.post('/api/projects/:id/generadores-obra/:genId/renglones', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
@@ -14455,6 +14460,91 @@ app.delete('/api/projects/:id/generadores-obra/:genId/renglones/:renglonId', h(a
   }
   const { rowCount } = await db.pool.query('DELETE FROM generador_obra_renglones WHERE id = $1 AND generador_id = $2', [renglonId, genId]);
   if (!rowCount) return res.status(404).json({ error: 'Renglón no encontrado' });
+  res.json({ ok: true });
+}));
+
+// Evidencia fotográfica (Fase 2, prompt-generadores-de-obra.md) — por
+// Partida/Subpartida, no por renglón individual (decisión explícita del
+// prompt). Mismo candado de estado (borrador/rechazada) que los renglones,
+// mismo uploadImg/checkFileMagic ya usado en sugerencia_imagenes, blob
+// PRIVADO (a diferencia de sugerencia_imagenes, que es público) porque es
+// evidencia de obra — se sirve vía proxy autenticado, nunca blob_url directo.
+app.post('/api/projects/:id/generadores-obra/:genId/fotos', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), uploadImg.single('foto'), h(async (req, res) => {
+  const genId = Number(req.params.genId);
+  const check = await generadorObraEditable(req.project.id, genId, req);
+  if (check.error) {
+    if (req.file) await fs.promises.unlink(req.file.path).catch(() => {});
+    return res.status(check.error).json({ error: check.msg });
+  }
+  if (!['borrador', 'rechazada'].includes(check.gen.estado)) {
+    if (req.file) await fs.promises.unlink(req.file.path).catch(() => {});
+    return res.status(409).json({ error: 'Solo se pueden agregar fotos a un generador en borrador o rechazado' });
+  }
+  if (!req.file) return res.status(400).json({ error: 'No se recibió ninguna foto' });
+  const { partida, subpartida } = req.body || {};
+  if (!partida?.trim() || !subpartida?.trim()) {
+    await fs.promises.unlink(req.file.path).catch(() => {});
+    return res.status(400).json({ error: 'partida y subpartida son requeridos' });
+  }
+  if (!await checkFileMagic(req.file.path, ['jpeg', 'png', 'gif', 'webp'])) {
+    await fs.promises.unlink(req.file.path).catch(() => {});
+    return res.status(400).json({ error: 'El archivo no es una imagen válida (firma de contenido incorrecta)' });
+  }
+
+  const fileBuffer = await fs.promises.readFile(req.file.path);
+  await fs.promises.unlink(req.file.path).catch(() => {});
+  const ext = path.extname(req.file.originalname).toLowerCase() || '.jpg';
+  // req.file.mimetype es lo que el navegador dijo que era (no siempre
+  // confiable — confirmado en verificación real: un PNG subido desde un
+  // input de archivo llegó sin mimetype útil, y con un fallback fijo a
+  // 'image/jpeg' se hubiera servido después con el Content-Type equivocado.
+  // Mejor derivarlo de la extensión ya validada arriba por checkFileMagic.
+  const IMG_MIME_POR_EXT = { '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.gif': 'image/gif', '.webp': 'image/webp' };
+  const blob = await put(`generadores-obra/${genId}/${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`, fileBuffer, {
+    access: 'private',
+    contentType: IMG_MIME_POR_EXT[ext] || 'image/jpeg',
+  });
+
+  const { rows } = await db.pool.query(
+    `INSERT INTO generador_obra_fotos (generador_id, partida, subpartida, blob_url, nombre_archivo, subido_por)
+     VALUES ($1,$2,$3,$4,$5,$6) RETURNING id, partida, subpartida, nombre_archivo, subido_por, subido_en`,
+    [genId, partida.trim(), subpartida.trim(), blob.url, req.file.originalname, req.user.id]
+  );
+  res.status(201).json(rows[0]);
+}));
+
+app.get('/api/projects/:id/generadores-obra/:genId/fotos/:fotoId', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  const genId = Number(req.params.genId);
+  const fotoId = Number(req.params.fotoId);
+  const { rows } = await db.pool.query(
+    `SELECT f.blob_url, f.nombre_archivo FROM generador_obra_fotos f
+     JOIN generadores_obra g ON g.id = f.generador_id
+     WHERE f.id = $1 AND f.generador_id = $2 AND g.project_id = $3 AND g.activo = true`,
+    [fotoId, genId, req.project.id]
+  );
+  if (!rows[0]) return res.status(404).json({ error: 'Foto no encontrada' });
+  const blobResult = await get(rows[0].blob_url, { access: 'private' });
+  if (!blobResult) return res.status(404).json({ error: 'Archivo no encontrado en almacenamiento' });
+  // El contentType real vive en blobResult.blob.contentType, NO en
+  // blobResult.contentType (verificado en runtime — la forma real de
+  // GetBlobResult anida la metadata bajo `.blob`, ver node_modules/@vercel/
+  // blob/dist/index.d.ts). Con la ruta plana equivocada esto siempre caía
+  // al fallback y servía toda foto como image/jpeg sin importar su tipo real.
+  res.setHeader('Content-Type', blobResult.blob?.contentType || 'image/jpeg');
+  await pipeline(Readable.fromWeb(blobResult.stream), res);
+}));
+
+app.delete('/api/projects/:id/generadores-obra/:genId/fotos/:fotoId', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  const genId = Number(req.params.genId);
+  const fotoId = Number(req.params.fotoId);
+  const check = await generadorObraEditable(req.project.id, genId, req);
+  if (check.error) return res.status(check.error).json({ error: check.msg });
+  if (!['borrador', 'rechazada'].includes(check.gen.estado)) {
+    return res.status(409).json({ error: 'Solo se pueden eliminar fotos de un generador en borrador o rechazado' });
+  }
+  const { rows } = await db.pool.query('DELETE FROM generador_obra_fotos WHERE id = $1 AND generador_id = $2 RETURNING blob_url', [fotoId, genId]);
+  if (!rows[0]) return res.status(404).json({ error: 'Foto no encontrada' });
+  del(rows[0].blob_url).catch(() => {});
   res.json({ ok: true });
 }));
 

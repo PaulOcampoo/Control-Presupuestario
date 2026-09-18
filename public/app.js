@@ -9057,6 +9057,11 @@ async function openAvanceConceptosModal(avance, presupuestoTotal, puedeEditar = 
                    data-codigo="${esc(c.codigo)}" data-unidad="${esc(c.unidad || '')}" data-precio="${c.precio_unitario}" data-presup="${c.cantidad_presupuesto}" data-prev="${c.cantidad_acumulada_previa}"
                    value="${c.cantidad_ejecutada_periodo ?? ''}" ${(puedeEditar && !bloqueado) ? '' : 'disabled'}
                    ${bloqueado ? `title="Faltan insumos por entregar en obra: ${esc(pendientes.map((p) => p.insumo_nombre).join(', '))}"` : ''} />
+            ${c.sugerido_generador != null && puedeEditar && !bloqueado ? `
+              <div class="muted fs-082 mt-4" data-sugerido-generador>
+                📎 Sugerido por Generador de Obra: ${fmtNum(c.sugerido_generador, 3)} ${esc(c.unidad || '')}
+                <button type="button" class="link-btn avc-usar-sugerido" data-usar-sugerido="${c.concepto_id}" data-valor-sugerido="${c.sugerido_generador}">Usar</button>
+              </div>` : ''}
           </div>
           <div class="muted acum-out" data-acum-out></div>
         </div>
@@ -9484,6 +9489,16 @@ async function openAvanceConceptosModal(avance, presupuestoTotal, puedeEditar = 
   $('#avcSummary').style.display = '';
   recalc();
   $$('[data-cantidad]').forEach((inp) => inp.addEventListener('input', () => { recalc(); aplicarFiltrosAvc(); }));
+  // Fase 3 (prompt-fase3-integracion-avance-estimaciones.md), Mecanismo B:
+  // "Usar" solo copia el valor sugerido al input editable — el residente
+  // sigue siendo quien decide y guarda (mismo botón "Guardar" de siempre).
+  // Nunca se pre-llena el input al cargar el modal, solo tras un click.
+  $$('[data-usar-sugerido]').forEach((btn) => btn.addEventListener('click', () => {
+    const inp = $(`[data-cantidad="${btn.dataset.usarSugerido}"]`);
+    if (!inp) return;
+    inp.value = Number(btn.dataset.valorSugerido).toFixed(2).replace(/\.?0+$/, '') || '0';
+    inp.dispatchEvent(new Event('input', { bubbles: true }));
+  }));
 
   if (puedeEditar) {
     $('#btnSaveAvc').addEventListener('click', async () => {

@@ -2941,6 +2941,84 @@ $('#loginForm').addEventListener('submit', async (ev) => {
 });
 
 // ---------------------------------------------------------------------------
+// Asistente IA (prompt-asistente-ia-app-cp.md) — FAB + panel propio (no
+// reusa openModal()/closeModal() del modal genérico a propósito: el resto
+// de la app abre/cierra ese modal constantemente y eso destruiría la
+// conversación en curso). Historial SOLO en memoria de esta pestaña — se
+// pierde al recargar, nunca se manda a localStorage ni se persiste en DB
+// (Forbidden Action explícita del prompt).
+// ---------------------------------------------------------------------------
+let asistenteHistorial = []; // [{rol:'user'|'assistant', texto}]
+let asistenteEnviando = false;
+
+function toggleAsistentePanel(forzarAbrir) {
+  const panel = $('#asistentePanel');
+  const abrir = forzarAbrir ?? !panel.classList.contains('show');
+  panel.classList.toggle('show', abrir);
+  if (abrir) $('#asistenteInput').focus();
+}
+
+function pintarMensajeAsistente(texto, tipo) {
+  const el = $('#asistenteMensajes');
+  const bubble = document.createElement('div');
+  bubble.className = `asistente-msg ${tipo}`;
+  bubble.textContent = texto;
+  el.appendChild(bubble);
+  el.scrollTop = el.scrollHeight;
+  return bubble;
+}
+
+async function enviarMensajeAsistente() {
+  if (asistenteEnviando) return;
+  const input = $('#asistenteInput');
+  const mensaje = input.value.trim();
+  if (!mensaje) return;
+
+  pintarMensajeAsistente(mensaje, 'user');
+  input.value = '';
+  input.style.height = '';
+  asistenteEnviando = true;
+  $('#btnAsistenteEnviar').disabled = true;
+  const escribiendo = pintarMensajeAsistente('Escribiendo…', 'escribiendo');
+
+  try {
+    const proyectoNombre = state.projects?.find((p) => p.id === state.projectId)?.nombre || null;
+    const data = await api('/asistente/chat', {
+      method: 'POST',
+      body: {
+        mensaje,
+        historial: asistenteHistorial.slice(-12).map((h) => ({ rol: h.rol, texto: h.texto })),
+        proyecto_nombre: proyectoNombre,
+      },
+    });
+    escribiendo.remove();
+    pintarMensajeAsistente(data.respuesta, 'assistant');
+    asistenteHistorial.push({ rol: 'user', texto: mensaje }, { rol: 'assistant', texto: data.respuesta });
+  } catch (err) {
+    escribiendo.remove();
+    pintarMensajeAsistente(err.message, 'error');
+  } finally {
+    asistenteEnviando = false;
+    $('#btnAsistenteEnviar').disabled = false;
+  }
+}
+
+$('#btnAsistenteFab').addEventListener('click', () => toggleAsistentePanel());
+$('#btnAsistenteCerrar').addEventListener('click', () => toggleAsistentePanel(false));
+$('#asistenteForm').addEventListener('submit', (ev) => { ev.preventDefault(); enviarMensajeAsistente(); });
+// Enter envía, Shift+Enter agrega salto de línea (mismo criterio que
+// cualquier chat convencional).
+$('#asistenteInput').addEventListener('keydown', (ev) => {
+  if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); enviarMensajeAsistente(); }
+});
+// Auto-crecimiento simple del textarea (tope en max-height vía CSS, que ya
+// activa overflow-y:auto más allá de ese punto).
+$('#asistenteInput').addEventListener('input', (e) => {
+  e.target.style.height = '';
+  e.target.style.height = `${e.target.scrollHeight}px`;
+});
+
+// ---------------------------------------------------------------------------
 // 2FA (TOTP) — inscripción voluntaria (desde el banner de Inicio) y
 // verificación del 2° factor en login normal para cuentas ya inscritas.
 // ---------------------------------------------------------------------------

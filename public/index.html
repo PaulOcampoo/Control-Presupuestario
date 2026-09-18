@@ -448,6 +448,24 @@
   <div id="modalOverlay" class="overlay"></div>
   <div id="modal" class="modal"></div>
 
+  <!-- Asistente IA (prompt-asistente-ia-app-cp.md) — FAB fijo, visible para
+       cualquier rol autenticado. Panel PROPIO (no reusa #modal/#modalOverlay
+       de arriba) a propósito: el resto de la app abre y cierra el modal
+       genérico constantemente, y eso destruiría la conversación en curso si
+       el asistente viviera ahí — ver render/wireAsistente() en app.js. -->
+  <button id="btnAsistenteFab" class="fab-asistente" aria-label="Abrir asistente" title="Asistente">💬</button>
+  <div id="asistentePanel" class="asistente-panel hidden-initial" role="dialog" aria-label="Asistente">
+    <div class="asistente-panel-header">
+      <strong>Asistente</strong>
+      <button id="btnAsistenteCerrar" class="icon-btn" aria-label="Cerrar asistente">✕</button>
+    </div>
+    <div id="asistenteMensajes" class="asistente-mensajes"></div>
+    <form id="asistenteForm" class="asistente-input-row">
+      <textarea id="asistenteInput" rows="1" maxlength="1000" placeholder="Escribe tu pregunta…"></textarea>
+      <button type="submit" id="btnAsistenteEnviar" class="btn btn-primary small">Enviar</button>
+    </form>
+  </div>
+
   <div id="toast" class="toast"></div>
 
   <script src="/vendor/chart.umd.min.js"></script>

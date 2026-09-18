@@ -1755,6 +1755,18 @@ const SCHEMA = `
   );
   CREATE INDEX IF NOT EXISTS idx_generador_obra_fotos_generador ON generador_obra_fotos(generador_id);
 
+  -- Fase 3 (prompt-fase3-integracion-avance-estimaciones.md) — Mecanismo A:
+  -- vínculo formal, puramente de referencia, entre una Estimación y el
+  -- Generador de Obra "aprobado" del que se apoyó para capturar volúmenes.
+  -- ON DELETE SET NULL (no CASCADE): si el Generador se borra/inactiva, la
+  -- Estimación no debe perder su fila, solo la referencia. Va DESPUÉS de la
+  -- creación de generadores_obra (arriba) porque la FK la necesita — no
+  -- puede ir junto a los demás ALTER TABLE estimaciones (línea ~1659),
+  -- que corren antes de que generadores_obra exista en una base nueva.
+  -- NUNCA escribe estimacion_conceptos.cantidad_periodo — ese campo sigue
+  -- siendo exclusivo de POST .../estimaciones/:estId/calcular.
+  ALTER TABLE estimaciones ADD COLUMN IF NOT EXISTS generador_obra_id INTEGER REFERENCES generadores_obra(id) ON DELETE SET NULL;
+
   -- Módulo de Maquinaria (prompt-modulo-maquinaria) — DISEÑO DE PRIMER BORRADOR,
   -- pendiente de revisión: la asignación cabo=captura de horas /
   -- taller=combustible+mantenimiento es una propuesta inicial, no definitiva.

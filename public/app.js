@@ -19401,6 +19401,7 @@ function generadorBorradoresListHtml(generadores) {
       <span class="inline-gap4">
         ${vinculados > 0 ? `<span class="badge green">${vinculados} vinculado${vinculados === 1 ? '' : 's'}</span>` : ''}
         ${pendientes > 0 ? `<span class="badge yellow">${pendientes} pendiente${pendientes === 1 ? '' : 's'}</span>` : ''}
+        <button class="icon-btn-inline" data-eliminar-generador="${g.id}" title="Eliminar" aria-label="Eliminar">🗑</button>
       </span>
     </div>`;
   }).join('');
@@ -19415,7 +19416,7 @@ async function renderGeneradorPresupuestos(view) {
 
   view.innerHTML = `
     <h2 class="section-title">Generador de Presupuestos</h2>
-    <p class="muted">Genera un presupuesto con Análisis de Precio Unitario completo a partir de un catálogo externo (Concepto/Unidad/Cantidad, con o sin Precio Unitario) — soporta el formato estándar y catálogos "por columnas" tipo Oaxaca.</p>
+    <p class="muted">Genera un presupuesto con Análisis de Precio Unitario completo a partir de un catálogo de conceptos.</p>
 
     <div class="card mb-12">
       <div class="card-row">
@@ -19457,6 +19458,21 @@ async function renderGeneradorPresupuestos(view) {
     const abrir = () => abrirListaConceptosGenerador(Number(el.dataset.abrirGenerador));
     el.addEventListener('click', abrir);
     el.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); abrir(); } });
+  });
+
+  // stopPropagation: el botón vive dentro de .gen-borrador-item, que ya
+  // tiene su propio click para abrir el detalle (arriba) — sin esto, borrar
+  // también dispararía la apertura del generador que se acaba de eliminar.
+  $$('[data-eliminar-generador]', view).forEach((btn) => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      if (!confirm('¿Eliminar este presupuesto generado? Esta acción no se puede deshacer.')) return;
+      try {
+        await api(`/projects/${state.projectId}/generador-presupuestos/${btn.dataset.eliminarGenerador}`, { method: 'DELETE' });
+        toast('Presupuesto generado eliminado', 'success');
+        await renderGeneradorPresupuestos(view);
+      } catch (err) { toast(err.message, 'danger'); }
+    });
   });
 
   $('#btnGeneradorCatalogoImportar').addEventListener('click', () => openImportarCatalogoGeneradorModal());

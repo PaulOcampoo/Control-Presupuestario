@@ -3488,6 +3488,21 @@ html[data-palette="dorada"]:not([data-theme="light"]) .welcome-card {
    ningún otro modal de la app. */
 .modal:has(.estimacion-periodo-grid) { overflow-y: visible; max-height: none; }
 
+/* Generadores de Obra (prompt-generadores-de-obra.md, Fase 1) — agrupación
+   visual Partida > Subpartida > concepto dentro del modal de detalle;
+   reusa los mismos tokens de espaciado/borde ya usados arriba en
+   Estimaciones, sin introducir variables nuevas. */
+.genobra-partida-block { border: 1px solid var(--border-color); border-radius: var(--radius-sm); padding: var(--space-8); margin-bottom: var(--space-14); }
+.genobra-partida-summary { cursor: pointer; font-weight: 600; padding: var(--space-4) 0; }
+.genobra-subpartida-block { margin: var(--space-8) 0 var(--space-8) var(--space-14); }
+.genobra-subpartida-title { margin: var(--space-8) 0 var(--space-4); font-size: var(--fs-sm); color: var(--text-secondary); }
+.genobra-concepto-block { padding: var(--space-8) 0; border-top: 1px solid var(--border-color); }
+.genobra-concepto-block:first-child { border-top: none; }
+.genobra-renglones-table { min-width: 560px; }
+.genobra-row-edit input { width: 100%; min-width: 60px; }
+.genobra-row-edit-actions { white-space: nowrap; }
+.genobra-total-general { border-top: 2px solid var(--border-color); padding-top: var(--space-8); }
+
 /* ── Barrido estáticas 2/6 — EPP + Contratos (URGENTE) ───────────────────── */
 /* Compartidas entre openContratosModal / openEppModal / openCatalogoEppModal
    (mismo patrón visual: header + botón cerrar + separador + label + grid,

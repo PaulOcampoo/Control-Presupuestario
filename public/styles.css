@@ -4286,3 +4286,66 @@ body.a11y-reduce-motion *::after {
 .eu-th-center { text-align: center; }
 .eu-cards-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: var(--space-10); }
 tr.eu-row-critico td { background: color-mix(in srgb, var(--red) 9%, transparent); }
+
+/* ── Asistente IA (prompt-asistente-ia-app-cp.md) ────────────────────────
+   Clase totalmente propia (NO extiende .fab): .fab tiene reglas que lo
+   ocultan en breakpoints angostos/mobile (ver "FAB: en desktop no hay
+   bottom nav" y ".fab { display: none !important }" más arriba) porque en
+   esos anchos sus acciones las cubre la barra inferior -- el asistente,
+   en cambio, debe verse SIEMPRE, para cualquier rol y cualquier ancho, así
+   que depender de la cascada de .fab sería frágil. Lado IZQUIERDO
+   descartado en verificación visual real: el sidebar fijo (--sidebar-w:
+   264px) ocupa esa franja en desktop y el FAB/panel le tapaban toda la
+   navegación. Del lado DERECHO, apilado ARRIBA del .fab transitorio de
+   cada vista (Insumos/Requisiciones, Generador de Presupuestos — que
+   también vive en right:18px/bottom:22px) para que, en las pocas vistas
+   donde ambos coinciden, se apilen en vez de solaparse. */
+.fab-asistente {
+  position: fixed; right: 18px; bottom: calc(90px + var(--safe-bottom)); z-index: 150;
+  width: 52px; height: 52px; border-radius: var(--radius-circle); border: none;
+  background: var(--accent-gold); color: #04212f; font-size: var(--fs-lg);
+  display: flex; align-items: center; justify-content: center; cursor: pointer;
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--accent-gold) 45%, transparent);
+}
+.fab-asistente:active { transform: scale(0.94); }
+@media (max-width: 860px) {
+  /* Arriba de la barra inferior (.mobile-nav) Y de la excepción móvil de
+     .fab (Insumos/Requisiciones) para que, en esas 2 vistas, se apilen en
+     vez de solaparse — mismo offset base que ya usan #proximamenteTooltip/
+     la excepción móvil de .fab, con 58px extra de clearance. */
+  .fab-asistente { bottom: calc(var(--mobile-nav-h) + var(--mobile-nav-clear) + 74px); width: 46px; height: 46px; }
+}
+
+.asistente-panel {
+  position: fixed; right: 18px; bottom: calc(152px + var(--safe-bottom)); z-index: 150;
+  width: min(92vw, 380px); height: min(70vh, 560px); max-height: 70dvh;
+  display: flex; flex-direction: column;
+  background: var(--bg-surface); border: 1px solid var(--border-color); border-radius: var(--radius-lg);
+  box-shadow: 0 12px 40px rgba(0,0,0,0.35);
+  opacity: 0; pointer-events: none; transform: translateY(8px) scale(0.98);
+  transition: opacity 0.15s var(--ease-out), transform 0.15s var(--ease-out);
+}
+.asistente-panel.show { opacity: 1; pointer-events: auto; transform: translateY(0) scale(1); }
+@media (max-width: 860px) {
+  .asistente-panel { bottom: calc(var(--mobile-nav-h) + var(--mobile-nav-clear) + 128px); width: min(94vw, 380px); }
+}
+.asistente-panel-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: var(--space-12) var(--space-14); border-bottom: 1px solid var(--border-color); flex-shrink: 0;
+}
+.asistente-mensajes {
+  flex: 1; overflow-y: auto; padding: var(--space-14); display: flex; flex-direction: column; gap: var(--space-10);
+}
+.asistente-msg { max-width: 85%; padding: var(--space-8) var(--space-12); border-radius: var(--radius); font-size: var(--fs-sm); line-height: 1.4; white-space: pre-wrap; word-break: break-word; }
+.asistente-msg.user { align-self: flex-end; background: var(--accent-gold); color: #04212f; }
+.asistente-msg.assistant { align-self: flex-start; background: var(--bg-surface-2); color: var(--text-primary); }
+.asistente-msg.error { align-self: flex-start; background: color-mix(in srgb, var(--red) 15%, transparent); color: var(--red); }
+.asistente-msg.escribiendo { align-self: flex-start; color: var(--text-secondary); font-style: italic; }
+.asistente-input-row {
+  display: flex; gap: var(--space-8); padding: var(--space-10); border-top: 1px solid var(--border-color); flex-shrink: 0;
+}
+.asistente-input-row textarea {
+  flex: 1; resize: none; max-height: 90px; padding: var(--space-8) var(--space-10);
+  border-radius: var(--radius); border: 1px solid var(--border-color); background: var(--bg-surface-2);
+  color: var(--text-primary); font-family: inherit; font-size: var(--fs-sm);
+}

@@ -1538,7 +1538,7 @@ const SCHEMA = `
       'costos','trabajadores_docs','trabajadores_contrato','trabajadores_bancarios',
       'cotizador','estado_resultados_global','estado_unidad','maquinaria_consumibles',
       'ordenes_cambio','lotes','modelos_vivienda','maquinaria_mantenimiento',
-      'almacen_entradas','almacen_salidas'
+      'almacen_entradas','almacen_salidas','generadores_obra'
     )),
     puede_ver BOOLEAN NOT NULL DEFAULT false,
     puede_crear BOOLEAN NOT NULL DEFAULT false,
@@ -1585,6 +1585,11 @@ const SCHEMA = `
   -- separada de 'maquinaria_combustible' (antes CN-002 fusionaba combustible
   -- y bitácora de mantenimiento bajo un solo permiso, ver comentario en
   -- SECCIONES_PERMISOS de server/auth.js).
+  -- 'generadores_obra' agregado en prompt-generadores-de-obra.md — sección
+  -- "informativa" en la matriz de administración, mismo criterio que
+  -- 'estimaciones'/'programa': SIN checkPermiso real en los endpoints (el
+  -- gate real es auth.allow('residente') + verificarAccesoObra), se registra
+  -- solo para que la sección exista en el catálogo/matriz para uso futuro.
   ALTER TABLE permisos_usuario DROP CONSTRAINT IF EXISTS permisos_usuario_seccion_check;
   ALTER TABLE permisos_usuario ADD CONSTRAINT permisos_usuario_seccion_check CHECK (seccion IN (
     'presupuestos','requisiciones','proveedores','ordenes_compra','avance',
@@ -1594,7 +1599,7 @@ const SCHEMA = `
     'costos','trabajadores_docs','trabajadores_contrato','trabajadores_bancarios',
     'cotizador','estado_resultados_global','estado_unidad','maquinaria_consumibles',
     'ordenes_cambio','lotes','modelos_vivienda','maquinaria_mantenimiento',
-    'almacen_entradas','almacen_salidas'
+    'almacen_entradas','almacen_salidas','generadores_obra'
   ));
 
   -- Contador de folios por obra + tipo de documento. INSERT...ON CONFLICT DO
@@ -1662,6 +1667,63 @@ const SCHEMA = `
     UNIQUE (estimacion_id, concepto_id)
   );
   CREATE INDEX IF NOT EXISTS idx_estimacion_conceptos_estimacion ON estimacion_conceptos(estimacion_id);
+
+  -- Generadores de Obra (prompt-generadores-de-obra.md, Fase 1) — captura de
+  -- números generadores/volumetría por concepto real de la obra, distinto de
+  -- Estimaciones: aquí SÍ es captura manual (Largo/Ancho/Alto/Pzas por
+  -- renglón de medición), no un jale automático de avance_conceptos. El
+  -- volumen total por concepto (SUM(subtotal) de sus renglones) está pensado
+  -- para alimentar en una fase futura (Fase 3 del prompt) el volumen de
+  -- "Esta Estimación" en el flujo real de Estimaciones — de ahí que
+  -- concepto_id en generador_obra_renglones apunte a conceptos real, no a
+  -- una tabla aislada (confirmado en el diagnóstico de Fase 0: mismo filtro
+  -- es_total=0 AND activo=1 AND cantidad>0 que ya usan Avance/Estimaciones).
+  -- Folio vía folio_counters con tipo='generador_obra' (mismo mecanismo
+  -- atómico que 'estimacion'). Soft-delete vía 'activo', nunca DELETE físico
+  -- de un generador ya usado — mismo criterio que estimaciones.
+  CREATE TABLE IF NOT EXISTS generadores_obra (
+    id SERIAL PRIMARY KEY,
+    project_id INTEGER NOT NULL REFERENCES proyectos(id) ON DELETE CASCADE,
+    folio INTEGER NOT NULL,
+    nombre TEXT,
+    periodo_inicio DATE NOT NULL,
+    periodo_fin DATE NOT NULL,
+    estado TEXT NOT NULL DEFAULT 'borrador',
+    residente_id INTEGER REFERENCES usuarios(id),
+    admin_aprobador_id INTEGER REFERENCES usuarios(id),
+    fecha_captura TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    fecha_aprobacion TIMESTAMPTZ,
+    comentario_rechazo TEXT,
+    activo BOOLEAN NOT NULL DEFAULT true,
+    UNIQUE (project_id, folio)
+  );
+  CREATE INDEX IF NOT EXISTS idx_generadores_obra_project ON generadores_obra(project_id);
+
+  -- Renglones de medición: MUCHOS por concepto (a diferencia de
+  -- estimacion_conceptos, que es 1 fila por concepto) — cada uno es un
+  -- "Tramo" distinto del croquis (ej. dos tramos de la misma calle medidos
+  -- por separado). subtotal se calcula y persiste server-side (nunca
+  -- confiar en un valor mandado por el cliente) — ver
+  -- calcularSubtotalRenglon() en server/app.js: producto de
+  -- largo/ancho/alto/pzas, tratando cada campo vacío/0 como factor 1 salvo
+  -- que los 4 estén vacíos (entonces 0) — así el mismo renglón sirve para
+  -- M2 (llenando solo largo/ancho), ML (solo largo), M3 (largo/ancho/alto),
+  -- PZA (solo pzas), etc. sin necesitar una fórmula distinta por unidad.
+  CREATE TABLE IF NOT EXISTS generador_obra_renglones (
+    id SERIAL PRIMARY KEY,
+    generador_id INTEGER NOT NULL REFERENCES generadores_obra(id) ON DELETE CASCADE,
+    concepto_id INTEGER NOT NULL REFERENCES conceptos(id),
+    descripcion TEXT,
+    tramo TEXT,
+    largo DOUBLE PRECISION,
+    ancho DOUBLE PRECISION,
+    alto DOUBLE PRECISION,
+    pzas DOUBLE PRECISION,
+    subtotal DOUBLE PRECISION NOT NULL DEFAULT 0,
+    orden INTEGER DEFAULT 0
+  );
+  CREATE INDEX IF NOT EXISTS idx_generador_obra_renglones_generador ON generador_obra_renglones(generador_id);
+  CREATE INDEX IF NOT EXISTS idx_generador_obra_renglones_concepto ON generador_obra_renglones(concepto_id);
 
   -- Módulo de Maquinaria (prompt-modulo-maquinaria) — DISEÑO DE PRIMER BORRADOR,
   -- pendiente de revisión: la asignación cabo=captura de horas /

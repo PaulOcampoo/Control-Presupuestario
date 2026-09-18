@@ -72,8 +72,8 @@ const PERMISSIONS = {
   // secciones de permiso independientes (SECCIONES_PERMISOS, checkPermiso en
   // GET /api/trabajadores y /api/nominas, matriz de permisos granulares) —
   // esto NO cambia, solo se retira su rol como tab de navegación separado.
-  admin:          { label: 'Administrador', tabs: ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'estadoActivo', 'presupuestoEstimaciones', 'usuarios', 'proveedores', 'cumplimiento', 'finanzas', 'compromisos', 'fondoGarantia', 'mapeo', 'trabajadores', 'nominas', 'estimaciones', 'ordenesCambio', 'lotes', 'modelosVivienda', 'compradores', 'apartados', 'contratosVenta', 'cobranza', 'entregas', ...MAQUINARIA_TABS_ADMIN, 'cotizador', 'costos', 'costosDashboard', 'matrices', 'generadorPresupuestos', 'avance_clientes', 'composicion_costos', 'dashboardEjecutivo', 'catalogoBasicos', 'almacen'] },
-  desarrollador:  { label: 'Desarrollador', tabs: ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'estadoActivo', 'presupuestoEstimaciones', 'usuarios', 'proveedores', 'cumplimiento', 'finanzas', 'compromisos', 'fondoGarantia', 'mapeo', 'trabajadores', 'nominas', 'estimaciones', 'ordenesCambio', 'lotes', 'modelosVivienda', 'compradores', 'apartados', 'contratosVenta', 'cobranza', 'entregas', ...MAQUINARIA_TABS_ADMIN, 'cotizador', 'costos', 'costosDashboard', 'matrices', 'generadorPresupuestos', 'avance_clientes', 'composicion_costos', 'dashboardEjecutivo', 'catalogoBasicos', 'almacen'] },
+  admin:          { label: 'Administrador', tabs: ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'estadoActivo', 'presupuestoEstimaciones', 'usuarios', 'proveedores', 'cumplimiento', 'finanzas', 'compromisos', 'fondoGarantia', 'mapeo', 'trabajadores', 'nominas', 'estimaciones', 'generadoresObra', 'ordenesCambio', 'lotes', 'modelosVivienda', 'compradores', 'apartados', 'contratosVenta', 'cobranza', 'entregas', ...MAQUINARIA_TABS_ADMIN, 'cotizador', 'costos', 'costosDashboard', 'matrices', 'generadorPresupuestos', 'avance_clientes', 'composicion_costos', 'dashboardEjecutivo', 'catalogoBasicos', 'almacen'] },
+  desarrollador:  { label: 'Desarrollador', tabs: ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'estadoActivo', 'presupuestoEstimaciones', 'usuarios', 'proveedores', 'cumplimiento', 'finanzas', 'compromisos', 'fondoGarantia', 'mapeo', 'trabajadores', 'nominas', 'estimaciones', 'generadoresObra', 'ordenesCambio', 'lotes', 'modelosVivienda', 'compradores', 'apartados', 'contratosVenta', 'cobranza', 'entregas', ...MAQUINARIA_TABS_ADMIN, 'cotizador', 'costos', 'costosDashboard', 'matrices', 'generadorPresupuestos', 'avance_clientes', 'composicion_costos', 'dashboardEjecutivo', 'catalogoBasicos', 'almacen'] },
   // 'trabajadores' agregado aquí (prompts-cotizador-sidebar-permisos-
   // estimaciones.md, Prompt 3) para que el residente reciba la pestaña al
   // hacer login — el acceso REAL a los datos de cada obra lo sigue
@@ -94,7 +94,12 @@ const PERMISSIONS = {
   // otorga el permiso por sí solo, checkPermiso('costos', ...) sigue siendo
   // el gate real vía permisos_usuario (sin fila = 403, default-deny de
   // 'costos', ver SECCIONES_PERMISOS más abajo).
-  residente:      { label: 'Residente',     tabs: ['programa', 'avance', 'destajo', 'estadoActivo', 'presupuestoEstimaciones', 'requisiciones', 'insumos', 'ordenes', 'nominas', 'trabajadores', 'estimaciones', 'ordenesCambio', 'lotes', 'modelosVivienda', ...MAQUINARIA_TABS_RESIDENTE, 'matrices', 'generadorPresupuestos', 'almacen'] },
+  // 'generadoresObra' agregado (prompt-generadores-de-obra.md, Fase 1) junto
+  // a 'estimaciones' en los 3 roles: mismo gate real que 'estimaciones'
+  // (auth.allow('residente') + verificarAccesoObra en los endpoints, sin
+  // checkPermiso vía permisos_usuario — sección "informativa", ver comentario
+  // en SECCIONES_PERMISOS arriba).
+  residente:      { label: 'Residente',     tabs: ['programa', 'avance', 'destajo', 'estadoActivo', 'presupuestoEstimaciones', 'requisiciones', 'insumos', 'ordenes', 'nominas', 'trabajadores', 'estimaciones', 'generadoresObra', 'ordenesCambio', 'lotes', 'modelosVivienda', ...MAQUINARIA_TABS_RESIDENTE, 'matrices', 'generadorPresupuestos', 'almacen'] },
   // 'trabajadores' agregado aquí (prompt-c-checkpermiso-trabajadores.md,
   // fix de visibilidad en nav). Desde prompt-limpieza-permisos-cabo.md
   // (cambio de dirección), cabo nace con trabajadores.puede_ver=true por
@@ -319,6 +324,11 @@ const SECCIONES_PERMISOS = [
   // CUALQUIERA de las dos secciones, no de una sola como el resto del
   // catálogo (que es 1 tab -> 1 sección).
   'almacen_entradas', 'almacen_salidas',
+  // 'generadores_obra' agregado en prompt-generadores-de-obra.md — sección
+  // "informativa" en la matriz (sin checkPermiso real), mismo criterio que
+  // 'estimaciones'/'programa': el gate real es auth.allow('residente') +
+  // verificarAccesoObra en los endpoints, no permisos_usuario.
+  'generadores_obra',
 ];
 const ACCIONES_PERMISOS = ['puede_ver', 'puede_crear', 'puede_editar', 'puede_editar_precios', 'puede_eliminar'];
 

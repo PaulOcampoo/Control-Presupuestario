@@ -61,9 +61,9 @@ const ROLE_TABS = {
   // aceptada para esos tres, no un bug.
   // 'trabajadores_global'/'nominas_global' retirados (prompt-fase1-fusionar-
   // trabajadores-nominas.md) — ver mismo comentario en server/auth.js.
-  admin:          ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'cumplimiento', 'finanzas', 'compromisos', 'fondoGarantia', 'mapeo', 'trabajadores', 'nominas', 'estimaciones', 'ordenesCambio', 'lotes', 'modelosVivienda', 'compradores', 'apartados', 'contratosVenta', 'infraVivienda', ...MAQUINARIA_TABS_ADMIN, 'cotizador', 'costos', 'costosDashboard', 'matrices', 'generadorPresupuestos', 'avance_clientes', 'composicion_costos', 'dashboardEjecutivo', 'catalogoBasicos', ...CONTABILIDAD_TABS],
-  desarrollador:  ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'cumplimiento', 'finanzas', 'compromisos', 'fondoGarantia', 'mapeo', 'trabajadores', 'nominas', 'estimaciones', 'ordenesCambio', 'lotes', 'modelosVivienda', 'compradores', 'apartados', 'contratosVenta', 'infraVivienda', ...MAQUINARIA_TABS_ADMIN, 'cotizador', 'costos', 'costosDashboard', 'matrices', 'generadorPresupuestos', 'avance_clientes', 'composicion_costos', 'dashboardEjecutivo', 'catalogoBasicos', ...CONTABILIDAD_TABS],
-  residente:      ['programa', 'avance', 'destajo', 'requisiciones', 'insumos', 'ordenes', 'nominas', 'trabajadores', 'estimaciones', 'ordenesCambio', 'lotes', 'modelosVivienda', 'infraVivienda', 'matrices', 'generadorPresupuestos'],
+  admin:          ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'cumplimiento', 'finanzas', 'compromisos', 'fondoGarantia', 'mapeo', 'trabajadores', 'nominas', 'estimaciones', 'generadoresObra', 'ordenesCambio', 'lotes', 'modelosVivienda', 'compradores', 'apartados', 'contratosVenta', 'infraVivienda', ...MAQUINARIA_TABS_ADMIN, 'cotizador', 'costos', 'costosDashboard', 'matrices', 'generadorPresupuestos', 'avance_clientes', 'composicion_costos', 'dashboardEjecutivo', 'catalogoBasicos', ...CONTABILIDAD_TABS],
+  desarrollador:  ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'cumplimiento', 'finanzas', 'compromisos', 'fondoGarantia', 'mapeo', 'trabajadores', 'nominas', 'estimaciones', 'generadoresObra', 'ordenesCambio', 'lotes', 'modelosVivienda', 'compradores', 'apartados', 'contratosVenta', 'infraVivienda', ...MAQUINARIA_TABS_ADMIN, 'cotizador', 'costos', 'costosDashboard', 'matrices', 'generadorPresupuestos', 'avance_clientes', 'composicion_costos', 'dashboardEjecutivo', 'catalogoBasicos', ...CONTABILIDAD_TABS],
+  residente:      ['programa', 'avance', 'destajo', 'requisiciones', 'insumos', 'ordenes', 'nominas', 'trabajadores', 'estimaciones', 'generadoresObra', 'ordenesCambio', 'lotes', 'modelosVivienda', 'infraVivienda', 'matrices', 'generadorPresupuestos'],
   cabo:           ['destajo', 'insumos', 'avance', 'requisiciones', ...MAQUINARIA_TABS_CABO, 'trabajadores', 'nominas', 'ordenesCambio'],
   compras:        ['programa', 'requisiciones', 'insumos', 'ordenes', 'proveedores', 'cumplimiento', 'cotizador'],
   tesoreria:      ['resumen', 'finanzas', 'compromisos', 'fondoGarantia', 'ordenes', 'contrato', 'impuestos', 'proveedores', 'cumplimiento', 'dashboardEjecutivo'],
@@ -1162,6 +1162,11 @@ function puedeAprobarNomina() { return isAdmin(); }
 function puedeVerEstimaciones() { return !!state.user && (isAdmin() || ['residente'].includes(effectivePuesto())); }
 function puedeCapturarEstimacion() { return !!state.user && (isAdmin() || ['residente'].includes(effectivePuesto())); }
 function puedeAprobarEstimacion() { return isAdmin(); }
+// Mismo criterio de acceso que Estimaciones (prompt-generadores-de-obra.md) —
+// sin checkPermiso vía permisos_usuario, ver comentario en SECCIONES_PERMISOS.
+function puedeVerGeneradoresObra() { return !!state.user && (isAdmin() || ['residente'].includes(effectivePuesto())); }
+function puedeCapturarGeneradorObra() { return !!state.user && (isAdmin() || ['residente'].includes(effectivePuesto())); }
+function puedeAprobarGeneradorObra() { return isAdmin(); }
 
 function puedeVerOrdenesCambio() { return !!state.user && (isAdmin() || ['residente', 'cabo'].includes(effectivePuesto())); }
 function puedeCrearOrdenCambio() { return !!state.user && (isAdmin() || ['residente', 'cabo'].includes(effectivePuesto())); }
@@ -1416,7 +1421,7 @@ const SECTION_DEFS = {
   // así lo pidió el negocio. Ver 'costos' más abajo — sección de destino —
   // y EXCEPCIONES_TILE_SECCION (justo después de VIEW_TO_SECTION) para el
   // manejo especial que este movimiento requirió para el rol 'cabo'.
-  obra:          { label: 'Obra',           icon: 'obra',           emoji: '🏗️',  tabs: ['estadoActivo', 'programa', 'avance', 'destajo', 'estimaciones', 'presupuestoEstimaciones', 'lotes', 'modelosVivienda', 'infraVivienda'], proximamente: [] },
+  obra:          { label: 'Obra',           icon: 'obra',           emoji: '🏗️',  tabs: ['estadoActivo', 'programa', 'avance', 'destajo', 'estimaciones', 'generadoresObra', 'presupuestoEstimaciones', 'lotes', 'modelosVivienda', 'infraVivienda'], proximamente: [] },
   // Fase 4 del roadmap "Desarrollador de Vivienda", PR A (prompt-
   // implementacion-pr-a-compradores-apartado.md, diagnóstico previo en
   // prompt-diagnostico-compradores-venta.md) — sección de nivel superior
@@ -1499,7 +1504,7 @@ const SECTION_DEFS = {
 const TAB_ICONS = {
   resumen: '📊', contrato: '📄', impuestos: '🧾', insumos: '📦', requisiciones: '🧾',
   proveedores: '🏭', cumplimiento: '✅', ordenes: '🛒', programa: '🗓️', avance: '📈', destajo: '👷', estadoActivo: '🩺', presupuestoEstimaciones: '📐',
-  finanzas: '💰', compromisos: '📌', fondoGarantia: '🔒', mapeo: '🔗', usuarios: '👤', trabajadores: '👷', nominas: '💵', estimaciones: '🧮', ordenesCambio: '📝', lotes: '🏘️', modelosVivienda: '🏡', compradores: '🧑‍🤝‍🧑', apartados: '🔖', contratosVenta: '📜', cobranza: '💵', entregas: '📦', infraVivienda: '🏙️',
+  finanzas: '💰', compromisos: '📌', fondoGarantia: '🔒', mapeo: '🔗', usuarios: '👤', trabajadores: '👷', nominas: '💵', estimaciones: '🧮', generadoresObra: '📐', ordenesCambio: '📝', lotes: '🏘️', modelosVivienda: '🏡', compradores: '🧑‍🤝‍🧑', apartados: '🔖', contratosVenta: '📜', cobranza: '💵', entregas: '📦', infraVivienda: '🏙️',
   maquinaria_catalogo: '🛠️', maquinaria_horas: '⏱️', maquinaria_bitacora: '🔧', maquinaria_estado_unidad: '🚦',
   maquinaria_consumibles: '⛽', maquinaria_reportes_cliente: '📊',
   nominas_global: '💵', trabajadores_global: '👷', cotizador: '🔍',
@@ -1512,7 +1517,7 @@ const TAB_ICONS = {
 const TAB_LABELS = {
   resumen: 'Resumen', contrato: 'Contrato', impuestos: 'Impuestos', insumos: 'Insumos', requisiciones: 'Requisiciones',
   proveedores: 'Proveedores', cumplimiento: 'Cumplimiento', ordenes: 'Órdenes de Compra', programa: 'Programa', avance: 'Avance', destajo: 'Destajo', estadoActivo: 'Estado del Activo', presupuestoEstimaciones: 'Presupuesto vs Estimaciones',
-  finanzas: 'Finanzas', compromisos: 'Compromisos Abiertos', fondoGarantia: 'Fondo de Garantía', mapeo: 'Mapeo', usuarios: 'Usuarios', trabajadores: 'Trabajadores', nominas: 'Nóminas', estimaciones: 'Estimaciones', ordenesCambio: 'Órdenes de Cambio', lotes: 'Lotes', modelosVivienda: 'Modelos de Vivienda', compradores: 'Compradores', apartados: 'Apartados', contratosVenta: 'Contrato de Venta', cobranza: 'Cobranza', entregas: 'Entregas', infraVivienda: 'Infraestructura vs. Vivienda',
+  finanzas: 'Finanzas', compromisos: 'Compromisos Abiertos', fondoGarantia: 'Fondo de Garantía', mapeo: 'Mapeo', usuarios: 'Usuarios', trabajadores: 'Trabajadores', nominas: 'Nóminas', estimaciones: 'Estimaciones', generadoresObra: 'Generadores de Obra', ordenesCambio: 'Órdenes de Cambio', lotes: 'Lotes', modelosVivienda: 'Modelos de Vivienda', compradores: 'Compradores', apartados: 'Apartados', contratosVenta: 'Contrato de Venta', cobranza: 'Cobranza', entregas: 'Entregas', infraVivienda: 'Infraestructura vs. Vivienda',
   maquinaria_catalogo: 'Catálogo de equipos', maquinaria_horas: 'Horas / Pendientes de autorizar',
   maquinaria_bitacora: 'Bitácora de taller', maquinaria_estado_unidad: 'Estado de las unidades',
   maquinaria_consumibles: 'Consumibles', maquinaria_reportes_cliente: 'Reportes por cliente',
@@ -5141,6 +5146,7 @@ async function renderView() {
       // intercepta primero (necesitan funcionar también sin state.projectId,
       // ver VISTAS_SIN_PROYECTO) — mismo comentario que 'finanzas' arriba.
       case 'estimaciones': await renderEstimaciones(view); break;
+      case 'generadoresObra': await renderGeneradoresObra(view); break;
       case 'presupuestoEstimaciones': await renderPresupuestoVsEstimaciones(view); break;
       case 'ordenesCambio': await renderOrdenesCambio(view); break;
       case 'lotes': await renderLotes(view); break;
@@ -23658,6 +23664,383 @@ async function openCambioEstadoEstimacionModal(estimacionId, nuevoEstado, pedirC
     btn.disabled = true;
     try {
       await api(`/projects/${state.projectId}/estimaciones/${estimacionId}/estado`, {
+        method: 'PUT',
+        body: { estado: nuevoEstado, comentario_rechazo },
+      });
+      toast('Estado actualizado', 'success');
+      closeModal();
+      if (onDone) await onDone();
+    } catch (err) { toast(err.message, 'danger'); btn.disabled = false; }
+  });
+}
+
+// =========================================================================
+// VISTA: Generadores de Obra (prompt-generadores-de-obra.md, Fase 1) —
+// captura de números generadores/volumetría por concepto REAL de la obra,
+// agrupada visualmente por Partida/Subpartida (mismo criterio que ya usa el
+// modal de captura de Avance: Partida = penúltimo nivel de ruta_jerarquica,
+// Subpartida = último nivel = grupo). El subtotal de cada renglón se calcula
+// y persiste siempre en el servidor (ver calcularSubtotalRenglon en
+// server/calculos.js) — el preview en vivo de aquí es solo cosmético.
+// Los botones de cambio de estado viven en las TARJETAS del listado (no
+// dentro del modal de detalle) a propósito — openModal() reemplaza el
+// contenido completo de #modal (un solo modal compartido, ver closeModal),
+// así que abrir un segundo modal desde dentro del de detalle lo destruiría.
+// Mismo patrón que Estimaciones (ver paintEstimacionesList más arriba).
+// =========================================================================
+const GENOBRA_ESTADO_LABELS = { borrador: 'Borrador', enviada: 'Enviada', aprobada: 'Aprobada', rechazada: 'Rechazada' };
+const GENOBRA_ESTADO_BADGE = { borrador: 'muted', enviada: 'yellow', aprobada: 'green', rechazada: 'red' };
+let generadoresObraRaw = [];
+// Estado de edición LOCAL del modal de detalle abierto (nunca persistido) —
+// controla qué renglón se muestra como fila editable/nueva antes de Guardar.
+let generadorObraUiState = { editingRenglonId: null, addingConceptoId: null };
+
+async function renderGeneradoresObra(view) {
+  if (!puedeVerGeneradoresObra()) {
+    view.innerHTML = `<div class="alert-box danger">⚠️ No tienes permiso para ver esta sección.</div>`;
+    return;
+  }
+  view.innerHTML = `
+    <h2 class="section-title">Generadores de Obra</h2>
+    <div class="section-actions mt-12">
+      ${puedeCapturarGeneradorObra() ? `<button class="btn btn-primary" id="btnNuevoGeneradorObra">+ Nuevo generador</button>` : ''}
+    </div>
+    <div id="generadoresObraList"><div class="empty-state">Cargando…</div></div>
+  `;
+  $('#btnNuevoGeneradorObra')?.addEventListener('click', () => openGeneradorObraModal(loadGeneradoresObra));
+  await loadGeneradoresObra();
+}
+
+async function loadGeneradoresObra() {
+  const el = $('#generadoresObraList');
+  if (!el) return;
+  try {
+    generadoresObraRaw = await api(`/projects/${state.projectId}/generadores-obra`);
+    paintGeneradoresObraList();
+  } catch (err) {
+    el.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+  }
+}
+
+function paintGeneradoresObraList() {
+  const el = $('#generadoresObraList');
+  if (!el) return;
+  if (!generadoresObraRaw.length) { el.innerHTML = '<div class="empty-state">No hay generadores de obra registrados.</div>'; return; }
+  el.innerHTML = generadoresObraRaw.map((g) => `
+    <div class="card">
+      <div class="row between nomina-row-6">
+        <div>
+          <strong>${g.nombre ? esc(g.nombre) : 'Generador #' + g.folio}</strong>
+          <div class="muted fs-08">${esc(g.periodo_inicio)} al ${esc(g.periodo_fin)} · ${g.total_renglones} renglón${g.total_renglones === 1 ? '' : 'es'}</div>
+        </div>
+        <div class="row nomina-row-6-center">
+          <span class="badge ${GENOBRA_ESTADO_BADGE[g.estado] || 'muted'}">${esc(GENOBRA_ESTADO_LABELS[g.estado] || g.estado)}</span>
+        </div>
+      </div>
+      ${g.comentario_rechazo ? `<div class="muted fs-08 nomina-nota">Motivo de rechazo: ${esc(g.comentario_rechazo)}</div>` : ''}
+      <div class="row end nomina-actions-row">
+        <button class="btn small" data-ver-generador-obra="${g.id}">Ver detalle</button>
+        ${(g.estado === 'borrador' || g.estado === 'rechazada') && puedeCapturarGeneradorObra() ? `<button class="btn small btn-primary" data-enviar-genobra="${g.id}">${g.estado === 'rechazada' ? 'Reenviar' : 'Enviar'} a aprobación</button>` : ''}
+        ${g.estado === 'enviada' && puedeAprobarGeneradorObra() ? `
+          <button class="btn small btn-primary" data-aprobar-genobra="${g.id}">Aprobar</button>
+          <button class="btn small btn-danger" data-rechazar-genobra="${g.id}">Rechazar</button>` : ''}
+      </div>
+    </div>
+  `).join('');
+  $$('[data-ver-generador-obra]', el).forEach((btn) => {
+    btn.addEventListener('click', () => openVerGeneradorObraModal(Number(btn.dataset.verGeneradorObra)));
+  });
+  $$('[data-enviar-genobra]', el).forEach((btn) => {
+    btn.addEventListener('click', () => openCambioEstadoGeneradorObraModal(Number(btn.dataset.enviarGenobra), 'enviada', false, loadGeneradoresObra));
+  });
+  $$('[data-aprobar-genobra]', el).forEach((btn) => {
+    btn.addEventListener('click', () => openCambioEstadoGeneradorObraModal(Number(btn.dataset.aprobarGenobra), 'aprobada', false, loadGeneradoresObra));
+  });
+  $$('[data-rechazar-genobra]', el).forEach((btn) => {
+    btn.addEventListener('click', () => openCambioEstadoGeneradorObraModal(Number(btn.dataset.rechazarGenobra), 'rechazada', true, loadGeneradoresObra));
+  });
+}
+
+async function openGeneradorObraModal(onSave) {
+  openModal(`
+    <h3>Nuevo generador de obra</h3>
+    <div class="field"><label>Nombre (opcional)</label><input id="goNombre" placeholder="Ej. Croquis EST 1" maxlength="120" /></div>
+    <div class="estimacion-periodo-grid">
+      <div class="field"><label>Periodo inicio *</label><input id="goPeriodoInicio" type="date" /></div>
+      <div class="field"><label>Periodo fin *</label><input id="goPeriodoFin" type="date" /></div>
+    </div>
+    <p class="alert-box danger hidden-initial" id="goPeriodoError"></p>
+    <div class="modal-actions">
+      <button class="btn" id="btnCancelGeneradorObra">Cancelar</button>
+      <button class="btn btn-primary" id="btnSaveGeneradorObra">Crear generador</button>
+    </div>
+  `);
+  const inicioEl = $('#goPeriodoInicio');
+  const finEl = $('#goPeriodoFin');
+  const errorEl = $('#goPeriodoError');
+  const saveBtn = $('#btnSaveGeneradorObra');
+  function validarPeriodo() {
+    const inicio = inicioEl.value;
+    const fin = finEl.value;
+    const invalido = !!(inicio && fin && inicio > fin);
+    errorEl.classList.toggle('hidden-initial', !invalido);
+    if (invalido) errorEl.textContent = 'Periodo inicio no puede ser posterior a Periodo fin.';
+    saveBtn.disabled = invalido;
+    return !invalido;
+  }
+  inicioEl.addEventListener('input', validarPeriodo);
+  finEl.addEventListener('input', validarPeriodo);
+
+  $('#btnCancelGeneradorObra').addEventListener('click', closeModal);
+  $('#btnSaveGeneradorObra').addEventListener('click', async () => {
+    const periodo_inicio = inicioEl.value;
+    const periodo_fin = finEl.value;
+    if (!periodo_inicio || !periodo_fin) { toast('Las fechas de inicio y fin son obligatorias', 'danger'); return; }
+    if (!validarPeriodo()) return;
+    const btn = $('#btnSaveGeneradorObra');
+    btn.disabled = true;
+    try {
+      await api(`/projects/${state.projectId}/generadores-obra`, {
+        method: 'POST',
+        body: { periodo_inicio, periodo_fin, nombre: $('#goNombre').value.trim() || null },
+      });
+      toast('Generador de obra creado', 'success');
+      closeModal();
+      if (onSave) await onSave();
+    } catch (err) { toast(err.message, 'danger'); btn.disabled = false; }
+  });
+}
+
+// Mismo mirror de calcularSubtotalRenglon (server/calculos.js) para preview
+// en vivo mientras se captura — el servidor recalcula y es la fuente de
+// verdad al Guardar, este preview es puramente cosmético.
+function previewSubtotalRenglon(largo, ancho, alto, pzas) {
+  const vals = [largo, ancho, alto, pzas].map(Number).filter((n) => Number.isFinite(n) && n > 0);
+  if (!vals.length) return 0;
+  return vals.reduce((acc, n) => acc * n, 1);
+}
+
+function partidaSubpartidaDeConcepto(c) {
+  const ruta = Array.isArray(c.ruta_jerarquica) && c.ruta_jerarquica.length ? c.ruta_jerarquica : null;
+  const partida = ruta && ruta.length >= 2 ? ruta[ruta.length - 2] : 'General';
+  const subpartida = ruta && ruta.length >= 1 ? ruta[ruta.length - 1] : (c.grupo || 'General');
+  return { partida, subpartida };
+}
+
+async function openVerGeneradorObraModal(generadorId) {
+  generadorObraUiState = { editingRenglonId: null, addingConceptoId: null };
+  $('#modal').classList.add('modal-wide');
+  openModal(`<h3>Detalle del generador de obra</h3><div id="verGeneradorObraBody"><div class="empty-state">Cargando…</div></div><div class="modal-actions"><button class="btn" id="btnCerrarVerGeneradorObra">Cerrar</button></div>`);
+  $('#btnCerrarVerGeneradorObra').addEventListener('click', closeModal);
+  await pintarVerGeneradorObra(generadorId);
+}
+
+async function pintarVerGeneradorObra(generadorId) {
+  const el = $('#verGeneradorObraBody');
+  if (!el) return;
+  try {
+    const [data, conceptosDisponibles] = await Promise.all([
+      api(`/projects/${state.projectId}/generadores-obra/${generadorId}`),
+      api(`/projects/${state.projectId}/generadores-obra/conceptos-disponibles`),
+    ]);
+    const editable = ['borrador', 'rechazada'].includes(data.estado) && puedeCapturarGeneradorObra();
+    const renglonesPorConcepto = new Map();
+    data.renglones.forEach((r) => {
+      if (!renglonesPorConcepto.has(r.concepto_id)) renglonesPorConcepto.set(r.concepto_id, []);
+      renglonesPorConcepto.get(r.concepto_id).push(r);
+    });
+
+    // Agrupa Partida -> Subpartida -> conceptos, en el orden en que ya vienen
+    // los conceptos (ORDER BY orden desde el backend) — sin reordenar aquí.
+    const partidas = new Map();
+    conceptosDisponibles.forEach((c) => {
+      const { partida, subpartida } = partidaSubpartidaDeConcepto(c);
+      if (!partidas.has(partida)) partidas.set(partida, new Map());
+      const subpartidas = partidas.get(partida);
+      if (!subpartidas.has(subpartida)) subpartidas.set(subpartida, []);
+      subpartidas.get(subpartida).push(c);
+    });
+
+    const totalGeneral = data.renglones.reduce((s, r) => s + Number(r.subtotal || 0), 0);
+
+    const filaEdicionRenglon = (c, r) => `
+      <tr class="genobra-row-edit" data-concepto-id="${c.id}" ${r?.id ? `data-renglon-id="${r.id}"` : ''}>
+        <td><input type="text" class="gr-descripcion" value="${esc(r?.descripcion || '')}" maxlength="200" placeholder="Descripción" /></td>
+        <td><input type="text" class="gr-tramo" value="${esc(r?.tramo || '')}" maxlength="120" placeholder="Tramo" /></td>
+        <td><input type="number" step="0.01" class="gr-largo" value="${r?.largo ?? ''}" /></td>
+        <td><input type="number" step="0.01" class="gr-ancho" value="${r?.ancho ?? ''}" /></td>
+        <td><input type="number" step="0.01" class="gr-alto" value="${r?.alto ?? ''}" /></td>
+        <td><input type="number" step="0.01" class="gr-pzas" value="${r?.pzas ?? ''}" /></td>
+        <td class="nomina-td-right gr-subtotal-preview">${previewSubtotalRenglon(r?.largo, r?.ancho, r?.alto, r?.pzas).toLocaleString('es-MX')}</td>
+        <td class="genobra-row-edit-actions">
+          <button class="btn small btn-primary" data-guardar-renglon>Guardar</button>
+          <button class="btn small" data-cancelar-renglon>Cancelar</button>
+        </td>
+      </tr>`;
+
+    const filaRenglon = (c, r) => {
+      const esEditando = editable && r.id === generadorObraUiState.editingRenglonId;
+      if (esEditando) return filaEdicionRenglon(c, r);
+      return `
+        <tr data-renglon-id="${r.id}">
+          <td>${esc(r.descripcion || '')}</td>
+          <td>${esc(r.tramo || '')}</td>
+          <td class="nomina-td-right">${r.largo ?? '—'}</td>
+          <td class="nomina-td-right">${r.ancho ?? '—'}</td>
+          <td class="nomina-td-right">${r.alto ?? '—'}</td>
+          <td class="nomina-td-right">${r.pzas ?? '—'}</td>
+          <td class="nomina-td-right"><strong>${Number(r.subtotal || 0).toLocaleString('es-MX', { maximumFractionDigits: 2 })}</strong></td>
+          <td>${editable ? `
+            <button class="icon-btn-inline" data-editar-renglon="${r.id}" title="Editar" aria-label="Editar">✎</button>
+            <button class="icon-btn-inline" data-eliminar-renglon="${r.id}" title="Eliminar" aria-label="Eliminar">🗑</button>` : ''}</td>
+        </tr>`;
+    };
+
+    const tablaConcepto = (c) => {
+      const renglones = renglonesPorConcepto.get(c.id) || [];
+      const totalConcepto = renglones.reduce((s, r) => s + Number(r.subtotal || 0), 0);
+      const agregando = editable && generadorObraUiState.addingConceptoId === c.id;
+      return `
+        <div class="genobra-concepto-block">
+          <div class="row between">
+            <strong class="fs-088">${esc(c.codigo ? c.codigo + ' — ' : '')}${esc(c.concepto)} <span class="muted fs-08">(${esc(c.unidad || '')})</span></strong>
+            <span class="muted fs-088">Total: ${totalConcepto.toLocaleString('es-MX', { maximumFractionDigits: 2 })}</span>
+          </div>
+          <div class="table-scroll">
+            <table class="nomina-table genobra-renglones-table">
+              <thead><tr>
+                <th class="nomina-th-left">Descripción</th><th class="nomina-th-left">Tramo</th>
+                <th class="nomina-th-right">Largo</th><th class="nomina-th-right">Ancho</th>
+                <th class="nomina-th-right">Alto</th><th class="nomina-th-right">Pzas</th>
+                <th class="nomina-th-right">Subtotal</th><th></th>
+              </tr></thead>
+              <tbody>
+                ${renglones.map((r) => filaRenglon(c, r)).join('')}
+                ${agregando ? filaEdicionRenglon(c, null) : ''}
+              </tbody>
+            </table>
+          </div>
+          ${editable && !agregando ? `<button class="btn small" data-agregar-renglon="${c.id}">+ Agregar renglón</button>` : ''}
+        </div>`;
+    };
+
+    const bloquesHtml = [...partidas.entries()].map(([partida, subpartidas]) => `
+      <details class="genobra-partida-block" open>
+        <summary class="genobra-partida-summary">${esc(partida)}</summary>
+        ${[...subpartidas.entries()].map(([subpartida, conceptos]) => `
+          <div class="genobra-subpartida-block">
+            <h4 class="genobra-subpartida-title">${esc(subpartida)}</h4>
+            ${conceptos.map(tablaConcepto).join('')}
+          </div>
+        `).join('')}
+      </details>
+    `).join('');
+
+    el.innerHTML = `
+      <div class="muted nomina-detalle-fecha">Folio #${data.folio}${data.nombre ? ' · ' + esc(data.nombre) : ''} · ${esc(data.periodo_inicio)} al ${esc(data.periodo_fin)}
+        · <span class="badge ${GENOBRA_ESTADO_BADGE[data.estado] || 'muted'}">${esc(GENOBRA_ESTADO_LABELS[data.estado] || data.estado)}</span>
+      </div>
+      ${data.comentario_rechazo ? `<div class="alert-box danger mt-8">Motivo de rechazo: ${esc(data.comentario_rechazo)}</div>` : ''}
+      ${bloquesHtml || '<div class="empty-state">Esta obra no tiene conceptos disponibles para capturar.</div>'}
+      <div class="row between mt-16 genobra-total-general">
+        <strong>Total general</strong>
+        <strong>${totalGeneral.toLocaleString('es-MX', { maximumFractionDigits: 2 })}</strong>
+      </div>
+    `;
+
+    // Preview en vivo del subtotal mientras se captura.
+    $$('.genobra-row-edit', el).forEach((row) => {
+      const preview = $('.gr-subtotal-preview', row);
+      $$('.gr-largo, .gr-ancho, .gr-alto, .gr-pzas', row).forEach((input) => {
+        input.addEventListener('input', () => {
+          const largo = $('.gr-largo', row).value, ancho = $('.gr-ancho', row).value, alto = $('.gr-alto', row).value, pzas = $('.gr-pzas', row).value;
+          preview.textContent = previewSubtotalRenglon(largo, ancho, alto, pzas).toLocaleString('es-MX');
+        });
+      });
+    });
+
+    $$('[data-agregar-renglon]', el).forEach((btn) => {
+      btn.addEventListener('click', () => {
+        generadorObraUiState.addingConceptoId = Number(btn.dataset.agregarRenglon);
+        generadorObraUiState.editingRenglonId = null;
+        pintarVerGeneradorObra(generadorId);
+      });
+    });
+    $$('[data-editar-renglon]', el).forEach((btn) => {
+      btn.addEventListener('click', () => {
+        generadorObraUiState.editingRenglonId = Number(btn.dataset.editarRenglon);
+        generadorObraUiState.addingConceptoId = null;
+        pintarVerGeneradorObra(generadorId);
+      });
+    });
+    $$('[data-cancelar-renglon]', el).forEach((btn) => {
+      btn.addEventListener('click', () => {
+        generadorObraUiState.editingRenglonId = null;
+        generadorObraUiState.addingConceptoId = null;
+        pintarVerGeneradorObra(generadorId);
+      });
+    });
+    $$('[data-eliminar-renglon]', el).forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        if (!confirm('¿Eliminar este renglón de medición?')) return;
+        try {
+          await api(`/projects/${state.projectId}/generadores-obra/${generadorId}/renglones/${btn.dataset.eliminarRenglon}`, { method: 'DELETE' });
+          await pintarVerGeneradorObra(generadorId);
+          await loadGeneradoresObra();
+        } catch (err) { toast(err.message, 'danger'); }
+      });
+    });
+    $$('[data-guardar-renglon]', el).forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const row = btn.closest('tr');
+        const body = {
+          descripcion: $('.gr-descripcion', row).value.trim() || null,
+          tramo: $('.gr-tramo', row).value.trim() || null,
+          largo: $('.gr-largo', row).value === '' ? null : Number($('.gr-largo', row).value),
+          ancho: $('.gr-ancho', row).value === '' ? null : Number($('.gr-ancho', row).value),
+          alto: $('.gr-alto', row).value === '' ? null : Number($('.gr-alto', row).value),
+          pzas: $('.gr-pzas', row).value === '' ? null : Number($('.gr-pzas', row).value),
+        };
+        btn.disabled = true;
+        try {
+          if (row.dataset.renglonId) {
+            await api(`/projects/${state.projectId}/generadores-obra/${generadorId}/renglones/${row.dataset.renglonId}`, { method: 'PUT', body });
+          } else {
+            body.concepto_id = Number(row.dataset.conceptoId);
+            await api(`/projects/${state.projectId}/generadores-obra/${generadorId}/renglones`, { method: 'POST', body });
+          }
+          generadorObraUiState.editingRenglonId = null;
+          generadorObraUiState.addingConceptoId = null;
+          toast('Renglón guardado', 'success');
+          await pintarVerGeneradorObra(generadorId);
+          await loadGeneradoresObra();
+        } catch (err) { toast(err.message, 'danger'); btn.disabled = false; }
+      });
+    });
+  } catch (err) {
+    el.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+  }
+}
+
+async function openCambioEstadoGeneradorObraModal(generadorId, nuevoEstado, pedirComentario, onDone) {
+  const accionLabel = { enviada: 'Enviar a aprobación', aprobada: 'Aprobar generador', rechazada: 'Rechazar generador' }[nuevoEstado];
+  openModal(`
+    <h3>${accionLabel}</h3>
+    ${pedirComentario ? `<div class="field"><label>Motivo de rechazo *</label><textarea id="genobraComentario" rows="3"></textarea></div>` : ''}
+    <p class="muted fs-088">¿Confirmas el cambio de estado?</p>
+    <div class="modal-actions">
+      <button class="btn" id="btnCancelEstadoGenObra">Cancelar</button>
+      <button class="btn btn-primary" id="btnConfirmEstadoGenObra">Confirmar</button>
+    </div>
+  `);
+  $('#btnCancelEstadoGenObra').addEventListener('click', closeModal);
+  $('#btnConfirmEstadoGenObra').addEventListener('click', async () => {
+    const btn = $('#btnConfirmEstadoGenObra');
+    const comentario_rechazo = pedirComentario ? ($('#genobraComentario')?.value.trim() || '') : null;
+    if (pedirComentario && !comentario_rechazo) { toast('El motivo de rechazo es obligatorio', 'danger'); return; }
+    btn.disabled = true;
+    try {
+      await api(`/projects/${state.projectId}/generadores-obra/${generadorId}/estado`, {
         method: 'PUT',
         body: { estado: nuevoEstado, comentario_rechazo },
       });

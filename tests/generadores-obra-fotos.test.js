@@ -128,7 +128,7 @@ describe('Subir/ver/eliminar fotos de un generador de obra', () => {
     expect(res.body.fotos[0].partida).toBe('AP - RED DE DISTRIBUCION');
   });
 
-  it('descarga la foto vía proxy autenticado', async () => {
+  it('descarga la foto vía proxy autenticado con el Content-Type correcto (por extensión, no por el mimetype que reporte el navegador)', async () => {
     const detalle = await request(app)
       .get(`/api/projects/${testProjectId}/generadores-obra/${gen.id}`)
       .set('Authorization', `Bearer ${creadorToken}`);
@@ -137,7 +137,10 @@ describe('Subir/ver/eliminar fotos de un generador de obra', () => {
       .get(`/api/projects/${testProjectId}/generadores-obra/${gen.id}/fotos/${fotoId}`)
       .set('Authorization', `Bearer ${creadorToken}`);
     expect(res.status).toBe(200);
-    expect(res.headers['content-type']).toMatch(/image/);
+    // Bug real encontrado en verificación manual: un navegador real subió
+    // este mismo PNG sin mimetype útil, y con fallback fijo a 'image/jpeg'
+    // se servía después como image/jpeg pese a ser un .png real.
+    expect(res.headers['content-type']).toBe('image/png');
   });
 
   it('elimina la foto físicamente', async () => {

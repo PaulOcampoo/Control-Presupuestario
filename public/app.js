@@ -23772,6 +23772,22 @@ let generadoresObraRaw = [];
 // Estado de edición LOCAL del modal de detalle abierto (nunca persistido) —
 // controla qué renglón se muestra como fila editable/nueva antes de Guardar.
 let generadorObraUiState = { editingRenglonId: null, addingConceptoId: null };
+// Object URLs de las miniaturas de fotos actualmente pintadas (Fase 2) —
+// se revocan al repintar para no acumular memoria en una sesión larga con
+// varios repintados (cada acción de renglón/foto vuelve a llamar
+// pintarVerGeneradorObra completo).
+let generadorObraFotoUrls = [];
+
+// Fetch autenticado + object URL, para usar como <img src> de un endpoint
+// que exige Bearer token (un <img> plano no puede mandar headers) — mismo
+// criterio que apiDownload()/downloadExport(), pero para mostrar inline en
+// vez de descargar.
+async function cargarImagenAutenticada(path) {
+  const res = await fetch(`/api${path}`, { headers: state.token ? { Authorization: `Bearer ${state.token}` } : {} });
+  if (!res.ok) throw new Error(`Error ${res.status}`);
+  const blob = await res.blob();
+  return URL.createObjectURL(blob);
+}
 
 async function renderGeneradoresObra(view) {
   if (!puedeVerGeneradoresObra()) {
@@ -23927,6 +23943,14 @@ async function pintarVerGeneradorObra(generadorId) {
       if (!renglonesPorConcepto.has(r.concepto_id)) renglonesPorConcepto.set(r.concepto_id, []);
       renglonesPorConcepto.get(r.concepto_id).push(r);
     });
+    // Fotos (Fase 2) agrupadas por Partida+Subpartida — NO por concepto,
+    // distinto de renglonesPorConcepto (decisión explícita del prompt).
+    const fotosPorSubpartida = new Map();
+    (data.fotos || []).forEach((f) => {
+      const key = `${f.partida}␟${f.subpartida}`;
+      if (!fotosPorSubpartida.has(key)) fotosPorSubpartida.set(key, []);
+      fotosPorSubpartida.get(key).push(f);
+    });
 
     // Agrupa Partida -> Subpartida -> conceptos, en el orden en que ya vienen
     // los conceptos (ORDER BY orden desde el backend) — sin reordenar aquí.
@@ -24002,12 +24026,34 @@ async function pintarVerGeneradorObra(generadorId) {
         </div>`;
     };
 
+    const bloqueFotos = (partida, subpartida) => {
+      const fotos = fotosPorSubpartida.get(`${partida}␟${subpartida}`) || [];
+      return `
+        <div class="genobra-fotos-block">
+          ${fotos.length || editable ? `
+            <div class="genobra-fotos-grid">
+              ${fotos.map((f) => `
+                <div class="genobra-foto-thumb" data-foto-id="${f.id}">
+                  <img class="genobra-foto-img" data-foto-id="${f.id}" alt="${esc(f.nombre_archivo || 'Evidencia fotográfica')}" />
+                  ${editable ? `<button class="genobra-foto-eliminar" data-eliminar-foto="${f.id}" title="Eliminar" aria-label="Eliminar">🗑</button>` : ''}
+                </div>
+              `).join('')}
+              ${editable ? `
+                <label class="genobra-foto-upload" data-partida="${esc(partida)}" data-subpartida="${esc(subpartida)}">
+                  <span>+ Agregar foto</span>
+                  <input type="file" accept="image/*" class="genobra-foto-input hidden-initial" />
+                </label>` : ''}
+            </div>` : ''}
+        </div>`;
+    };
+
     const bloquesHtml = [...partidas.entries()].map(([partida, subpartidas]) => `
       <details class="genobra-partida-block" open>
         <summary class="genobra-partida-summary">${esc(partida)}</summary>
         ${[...subpartidas.entries()].map(([subpartida, conceptos]) => `
           <div class="genobra-subpartida-block">
             <h4 class="genobra-subpartida-title">${esc(subpartida)}</h4>
+            ${bloqueFotos(partida, subpartida)}
             ${conceptos.map(tablaConcepto).join('')}
           </div>
         `).join('')}
@@ -24093,6 +24139,43 @@ async function pintarVerGeneradorObra(generadorId) {
           await pintarVerGeneradorObra(generadorId);
           await loadGeneradoresObra();
         } catch (err) { toast(err.message, 'danger'); btn.disabled = false; }
+      });
+    });
+
+    // Fotos (Fase 2): cargar miniaturas vía fetch autenticado (un <img> plano
+    // no puede mandar el Bearer token) y liberar las del repintado anterior.
+    generadorObraFotoUrls.forEach((u) => URL.revokeObjectURL(u));
+    generadorObraFotoUrls = [];
+    $$('.genobra-foto-img', el).forEach(async (img) => {
+      try {
+        const url = await cargarImagenAutenticada(`/projects/${state.projectId}/generadores-obra/${generadorId}/fotos/${img.dataset.fotoId}`);
+        generadorObraFotoUrls.push(url);
+        img.src = url;
+      } catch { img.alt = 'No se pudo cargar la imagen'; }
+    });
+    $$('.genobra-foto-upload', el).forEach((label) => {
+      const input = $('.genobra-foto-input', label);
+      input.addEventListener('change', async () => {
+        const file = input.files[0];
+        if (!file) return;
+        const fd = new FormData();
+        fd.append('foto', file);
+        fd.append('partida', label.dataset.partida);
+        fd.append('subpartida', label.dataset.subpartida);
+        try {
+          await api(`/projects/${state.projectId}/generadores-obra/${generadorId}/fotos`, { method: 'POST', body: fd });
+          toast('Foto agregada', 'success');
+          await pintarVerGeneradorObra(generadorId);
+        } catch (err) { toast(err.message, 'danger'); }
+      });
+    });
+    $$('[data-eliminar-foto]', el).forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        if (!confirm('¿Eliminar esta foto?')) return;
+        try {
+          await api(`/projects/${state.projectId}/generadores-obra/${generadorId}/fotos/${btn.dataset.eliminarFoto}`, { method: 'DELETE' });
+          await pintarVerGeneradorObra(generadorId);
+        } catch (err) { toast(err.message, 'danger'); }
       });
     });
   } catch (err) {

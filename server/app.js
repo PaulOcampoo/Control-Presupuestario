@@ -47,6 +47,7 @@ const { sendMatricesNeodataExport } = require('./matricesNeodataExport');
 const matricesImport = require('./matricesImport');
 const reprocesoDestajoMatrices = require('./reprocesoDestajoMatrices');
 const { extraerDatosContrato, CAMPOS_CONTRATO } = require('./extraccionContrato');
+const { responderChat, MAX_MENSAJE_LEN: MENSAJE_ASISTENTE_MAX_LEN } = require('./asistente');
 const { crearNotificacion, notificarAdmins, CATEGORIAS_NOTIFICACION, TODOS_LOS_TIPOS, ROLES_POR_TIPO } = require('./notificaciones');
 const { buildEstimacionPdf } = require('./estimacionesPdf');
 const { buildNominaReporteSemanalPdf } = require('./nominaReporteSemanalPdf');
@@ -14505,6 +14506,58 @@ app.put('/api/projects/:id/generadores-obra/:genId/estado', h(auth.allow('reside
     await crearNotificacion(gen.residente_id, req.project.id, 'generador_obra_rechazado', genId, `Tu Generador de Obra #${gen.folio} fue rechazado: ${comentario_rechazo.trim()}`);
   }
   res.json(rows[0]);
+}));
+
+// ---------------------------------------------------------------------------
+// Asistente IA (prompt-asistente-ia-app-cp.md) — chat de ayuda de uso,
+// disponible para cualquier usuario autenticado. Contexto 100% estático (rol
+// + nombre de obra activa que ya manda el cliente en el body + base de
+// conocimiento de server/asistenteKnowledge.js) — nunca una query en vivo a
+// la DB, y el historial de conversación NO se persiste (vive solo en memoria
+// del cliente, ver Forbidden Actions del prompt).
+// ---------------------------------------------------------------------------
+const ASISTENTE_CHAT_LIMIT = 30; // mensajes por usuario por hora
+
+// Sin auth.allow(...): la sesión ya la exige el middleware global
+// (app.use('/api', auth.requireAuth) más arriba en este archivo) y el
+// asistente debe estar disponible para CUALQUIER rol autenticado, no solo
+// admin/desarrollador — auth.allow() sin argumentos restringiría a esos 2
+// roles (ver server/auth.js:1007-1014), justo lo contrario de lo que pide
+// el prompt.
+app.post('/api/asistente/chat', h(async (req, res) => {
+  const { mensaje, historial, proyecto_nombre } = req.body || {};
+  if (!String(mensaje || '').trim()) return res.status(400).json({ error: 'El mensaje no puede estar vacío' });
+  if (mensaje.length > MENSAJE_ASISTENTE_MAX_LEN) {
+    return res.status(400).json({ error: `El mensaje no puede superar ${MENSAJE_ASISTENTE_MAX_LEN} caracteres` });
+  }
+
+  const { rows: rlRows } = await db.pool.query(
+    `SELECT COUNT(*)::int AS n FROM api_rate_limits
+     WHERE usuario_id = $1 AND endpoint = 'asistente_chat' AND creado_en > NOW() - INTERVAL '1 hour'`,
+    [req.user.id]
+  );
+  if (rlRows[0].n >= ASISTENTE_CHAT_LIMIT) {
+    return res.status(429).json({ error: `Límite de ${ASISTENTE_CHAT_LIMIT} mensajes por hora alcanzado. Intenta más tarde.` });
+  }
+  // Registrar el intento antes de invocar Anthropic (cuenta aunque la
+  // llamada falle) — mismo criterio que /api/projects/contrato-preview.
+  await db.pool.query(
+    `INSERT INTO api_rate_limits (usuario_id, endpoint) VALUES ($1, 'asistente_chat')`,
+    [req.user.id]
+  );
+
+  try {
+    const respuesta = await responderChat({
+      mensaje,
+      historial,
+      puesto: req.user.puesto,
+      proyectoNombre: proyecto_nombre,
+      tabsPermitidos: auth.tabsParaUsuario(req.user),
+    });
+    res.json({ respuesta });
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message });
+  }
 }));
 
 // ---------------------------------------------------------------------------

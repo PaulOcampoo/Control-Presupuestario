@@ -23501,6 +23501,7 @@ function paintEstimacionesList() {
             <button class="btn small btn-danger" data-rechazar-estimacion="${e.id}">Rechazar</button>` : ''}
           ${e.estado === 'borrador' && puedeCapturarEstimacion() ? `<button class="btn small btn-danger" data-eliminar-estimacion="${e.id}">Eliminar</button>` : ''}
           ${e.estado === 'aprobada' && e.pdf_url ? `<button class="btn small btn-primary" data-descargar-estimacion="${e.id}" data-folio="${e.folio}">Descargar PDF</button>` : ''}
+          ${Number(e.total_periodo) > 0 ? `<button class="btn small" data-exportar-excel-estimacion="${e.id}" data-folio="${e.folio}">Exportar Excel</button>` : ''}
         </div>
       </div>
     `).join('');
@@ -23546,6 +23547,15 @@ function paintEstimacionesList() {
       btn.disabled = true;
       try {
         await apiDownload(`/projects/${state.projectId}/estimaciones/${btn.dataset.descargarEstimacion}/pdf`, `Estimacion_${btn.dataset.folio}.pdf`);
+      } catch (err) { toast(err.message, 'danger'); }
+      btn.disabled = false;
+    });
+  });
+  $$('[data-exportar-excel-estimacion]', el).forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      btn.disabled = true;
+      try {
+        await apiDownload(`/projects/${state.projectId}/estimaciones/${btn.dataset.exportarExcelEstimacion}/export-excel`, `EST_${btn.dataset.folio}.xlsx`);
       } catch (err) { toast(err.message, 'danger'); }
       btn.disabled = false;
     });

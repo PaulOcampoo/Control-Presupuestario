@@ -24,3 +24,4 @@ graphify-out/
 scripts/*.sql
 *.xlsx
 !tests/fixtures/*.xlsx
+!server/templates/*.xlsx

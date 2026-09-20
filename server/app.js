@@ -50,6 +50,7 @@ const { extraerDatosContrato, CAMPOS_CONTRATO } = require('./extraccionContrato'
 const { responderChat, MAX_MENSAJE_LEN: MENSAJE_ASISTENTE_MAX_LEN } = require('./asistente');
 const { crearNotificacion, notificarAdmins, CATEGORIAS_NOTIFICACION, TODOS_LOS_TIPOS, ROLES_POR_TIPO } = require('./notificaciones');
 const { buildEstimacionPdf } = require('./estimacionesPdf');
+const { buildEstimacionExcel } = require('./estimacionExcel');
 const { buildNominaReporteSemanalPdf } = require('./nominaReporteSemanalPdf');
 const { calcularDiasRestantes, determinarUmbral, construirMensaje } = require('./alertasContrato');
 const cumplimiento = require('./cumplimiento');
@@ -14362,6 +14363,66 @@ app.put('/api/projects/:id/estimaciones/:estId/estado', h(auth.allow('residente'
     await crearNotificacion(est.residente_id, req.project.id, 'estimacion_rechazada', estId, `Tu Estimación #${est.folio} fue rechazada: ${comentario_rechazo.trim()}`);
   }
   res.json(rows[0]);
+}));
+
+// Fase 4a (prompt-generadores-de-obra.md) — export de la hoja "EST. 1" a la
+// plantilla real (ver server/estimacionExcel.js). Se genera al vuelo (no se
+// persiste en Blob, a diferencia del PDF de aprobación) — mismo criterio que
+// cualquier otro reporte descargable bajo demanda en la app.
+app.get('/api/projects/:id/estimaciones/:estId/export-excel', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  const pid = req.project.id;
+  const estId = Number(req.params.estId);
+  const { rows: estRows } = await db.pool.query(
+    'SELECT * FROM estimaciones WHERE id = $1 AND project_id = $2 AND activo = true', [estId, pid]
+  );
+  if (!estRows[0]) return res.status(404).json({ error: 'Estimación no encontrada' });
+  const estimacion = estRows[0];
+
+  const { rows: items } = await db.pool.query(`
+    SELECT ec.*, c.codigo, c.concepto, c.unidad, c.cantidad, c.precio_unitario, c.importe, c.ruta_jerarquica, c.grupo
+    FROM estimacion_conceptos ec JOIN conceptos c ON c.id = ec.concepto_id
+    WHERE ec.estimacion_id = $1 ORDER BY c.orden`,
+    [estId]
+  );
+
+  const { rows: metaRows } = await db.pool.query('SELECT clave, valor FROM meta WHERE project_id = $1', [pid]);
+  const meta = metaToObject(metaRows);
+
+  const { rows: ocRows } = await db.pool.query(
+    `SELECT COALESCE(SUM(monto_delta), 0) AS total FROM ordenes_cambio WHERE project_id = $1 AND estado = 'aprobada'`,
+    [pid]
+  );
+  const aditivasDeductivas = Number(ocRows[0].total);
+
+  // Acumulados de estimaciones aprobadas ANTES de esta (mismo criterio de
+  // "no contar la propia" que el acumulado de cantidad/importe en POST .../calcular).
+  const { rows: prevRows } = await db.pool.query(
+    `SELECT COALESCE(SUM(amortizacion_anticipo), 0) AS amortizacion, COALESCE(SUM(fondo_garantia_monto), 0) AS fondo_garantia
+     FROM estimaciones WHERE project_id = $1 AND estado = 'aprobada' AND id <> $2`,
+    [pid, estId]
+  );
+
+  const presupuestoTotal = await presupuestoTotalDe(pid);
+
+  let buffer;
+  try {
+    buffer = await buildEstimacionExcel({
+      project: req.project,
+      meta,
+      estimacion,
+      items,
+      presupuestoTotal,
+      aditivasDeductivas,
+      amortizacionAnteriorAcumulada: Number(prevRows[0].amortizacion),
+      fondoGarantiaAnteriorAcumulado: Number(prevRows[0].fondo_garantia),
+    });
+  } catch (err) {
+    return res.status(400).json({ error: err.message });
+  }
+
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Disposition', safeContentDisposition('attachment', `EST_${estimacion.folio}_${req.project.nombre}.xlsx`));
+  res.send(buffer);
 }));
 
 // Renombrar (Prompt 4) — no toca datos financieros, editable en cualquier

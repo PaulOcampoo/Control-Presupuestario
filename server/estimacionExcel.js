@@ -56,6 +56,22 @@ function setCell(ws, address, value) {
   ws.getCell(address).value = value;
 }
 
+// La plantilla trae ~250 celdas (col. A completa, celdas sueltas dispersas
+// en el bloque de encabezado, y las columnas espaciadoras S-AC) con un "0"
+// numérico literal grabado de origen — residuo de la hoja real de la que se
+// derivó la plantilla, no algo que este módulo escriba. Se limpian ANTES de
+// llenar los datos reales (líneas de abajo) para que cualquier "0" legítimo
+// que sí escribamos nosotros (ej. un monto en $0.00) sobreviva intacto.
+function limpiarCerosResidualesDePlantilla(ws) {
+  ws.eachRow({ includeEmpty: false }, (row) => {
+    row.eachCell({ includeEmpty: false }, (cell) => {
+      if (cell.type === ExcelJS.ValueType.Number && cell.value === 0) {
+        cell.value = null;
+      }
+    });
+  });
+}
+
 // Divide una fecha ISO (YYYY-MM-DD) en {mes, dia, anio} — mismo formato de 3
 // celdas separadas que usa la plantilla para "FECHA DE INICIO"/"FECHA DE
 // TERMINACION" (ver E11:G11 / E14:G14 en la plantilla real). mes/dia van
@@ -98,6 +114,8 @@ async function buildEstimacionExcel({
   const ws = wb.getWorksheet(SHEET_NAME);
   if (!ws) throw new Error(`La plantilla no tiene una hoja "${SHEET_NAME}"`);
 
+  limpiarCerosResidualesDePlantilla(ws);
+
   // ---- Encabezado: obra / estimación ----
   setCell(ws, 'F2', project.nombre);
   setCell(ws, 'G4', project.nombre);
@@ -122,7 +140,13 @@ async function buildEstimacionExcel({
   setCell(ws, 'C14', meta.proyecto_desarrollo || '');
   setCell(ws, 'C15', meta.obra_descripcion || '');
   setCell(ws, 'E15', meta.obra_descripcion || '');
-  setCell(ws, 'E16', meta.tipo_contrato || '');
+  // meta.tipo_contrato se omite a propósito: la plantilla no tiene ninguna
+  // celda etiquetada "TIPO DE CONTRATO". E16:G16 (donde se escribía antes)
+  // en realidad pertenece a "NUMERO DE CONTRATO" (label en E15:G15) — de
+  // ahí el texto largo desbordándose sobre la fila de "C.C.". No hay dato
+  // de numero_contrato en el sistema hoy para llenar esa celda tampoco, así
+  // que se deja en blanco (valor original de la plantilla) hasta que se
+  // defina dónde debe ir tipo_contrato o se capture numero_contrato.
   setCell(ws, 'C17', meta.obra_numero || '');
 
   // ---- INFORMACION GENERAL (importes) ----

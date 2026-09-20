@@ -23645,6 +23645,19 @@ async function pintarVerEstimacion(estimacionId) {
     // Amortización solo editable mientras el desglose de pago no está fijo
     // (mismo candado que "Calcular" en el backend — ver PUT .../amortizacion).
     const puedeEditarAmortizacion = ['borrador', 'rechazada'].includes(data.estado) && puedeCapturarEstimacion();
+    // Fase 3 (prompt-fase3-integracion-avance-estimaciones.md), Mecanismo A:
+    // vínculo de referencia a un Generador de Obra "aprobado" — mismo candado
+    // de edición que la amortización (solo mientras la estimación no está
+    // fija). Si no hay generador vinculado y la estimación es editable, se
+    // consultan candidatos para ofrecer vincular uno.
+    const generadorVinculado = data.generador_vinculado || null;
+    let candidatosGenerador = [];
+    if (puedeEditarAmortizacion && !generadorVinculado) {
+      try {
+        const candData = await api(`/projects/${state.projectId}/estimaciones/${estimacionId}/generadores-candidatos`);
+        candidatosGenerador = candData.candidatos || [];
+      } catch { /* si falla la consulta de candidatos, simplemente no se ofrece vincular */ }
+    }
     // prompt-fix-etiqueta-fondo-garantia.md: el % mostrado se deriva del
     // propio monto ya persistido de ESTA estimación (fondo_garantia_monto /
     // total_periodo), no se vuelve a consultar meta.porcentaje_fondo_garantia
@@ -23654,11 +23667,25 @@ async function pintarVerEstimacion(estimacionId) {
     const fondoGarantiaPct = data.total_periodo ? (data.fondo_garantia_monto / data.total_periodo) * 100 : 0;
     el.innerHTML = `
       <div class="muted nomina-detalle-fecha">Folio #${data.folio}${data.nombre ? ' · ' + esc(data.nombre) : ''} · ${esc(data.periodo_inicio)} al ${esc(data.periodo_fin)}</div>
+      <div class="estimacion-generador-vinculo mt-8">
+        ${generadorVinculado
+          ? `<span class="muted fs-088">📎 Generador de Obra vinculado: <strong>#${generadorVinculado.folio}${generadorVinculado.nombre ? ' — ' + esc(generadorVinculado.nombre) : ''}</strong> (${esc(generadorVinculado.periodo_inicio)} al ${esc(generadorVinculado.periodo_fin)}) — volúmenes de referencia junto a cada concepto.</span>
+             ${puedeEditarAmortizacion ? ` <button class="btn small" id="btnDesvincularGenerador">Quitar vínculo</button>` : ''}`
+          : (puedeEditarAmortizacion && candidatosGenerador.length
+              ? `<span class="muted fs-088">Generador de Obra aprobado disponible para este periodo: </span>
+                 <select id="selVincularGenerador" class="ml-8">
+                   <option value="">Elegir…</option>
+                   ${candidatosGenerador.map((g) => `<option value="${g.id}">#${g.folio}${g.nombre ? ' — ' + esc(g.nombre) : ''} (${esc(g.periodo_inicio)} a ${esc(g.periodo_fin)})</option>`).join('')}
+                 </select>
+                 <button class="btn small" id="btnVincularGenerador">Vincular</button>`
+              : '')}
+      </div>
       <div class="nomina-table-wrap">
       <table class="nomina-table">
         <thead><tr>
           <th class="nomina-th-left">Concepto</th>
           <th class="nomina-th-right">Cant. periodo</th>
+          ${generadorVinculado ? '<th class="nomina-th-right">Vol. Generador</th>' : ''}
           <th class="nomina-th-right">Importe periodo</th>
           <th class="nomina-th-right">Cant. acumulada</th>
           <th class="nomina-th-right">Importe acumulado</th>
@@ -23669,6 +23696,7 @@ async function pintarVerEstimacion(estimacionId) {
             <tr>
               <td class="nomina-td">${esc(i.codigo ? i.codigo + ' — ' : '')}${esc(i.concepto)}</td>
               <td class="nomina-td-right">${Number(i.cantidad_periodo || 0).toLocaleString('es-MX')}</td>
+              ${generadorVinculado ? `<td class="nomina-td-right muted">${i.volumen_generador != null ? Number(i.volumen_generador).toLocaleString('es-MX') : '—'}</td>` : ''}
               <td class="nomina-td-right">${money(i.importe_periodo)}</td>
               <td class="nomina-td-right">${Number(i.cantidad_acumulada || 0).toLocaleString('es-MX')}</td>
               <td class="nomina-td-right">${money(i.importe_acumulado)}</td>
@@ -23676,7 +23704,7 @@ async function pintarVerEstimacion(estimacionId) {
             </tr>`).join('')}
         </tbody>
         <tfoot><tr>
-          <td colspan="2" class="nomina-tfoot-label">Total periodo / acumulado</td>
+          <td colspan="${generadorVinculado ? 3 : 2}" class="nomina-tfoot-label">Total periodo / acumulado</td>
           <td class="nomina-tfoot-total">${money(data.total_periodo)}</td>
           <td></td>
           <td class="nomina-tfoot-total">${money(data.total_acumulado)}</td>
@@ -23730,6 +23758,32 @@ async function pintarVerEstimacion(estimacionId) {
           body: { amortizacion_anticipo: monto },
         });
         toast('Amortización actualizada', 'success');
+        await pintarVerEstimacion(estimacionId);
+      } catch (err) { toast(err.message, 'danger'); btn.disabled = false; }
+    });
+    $('#btnVincularGenerador')?.addEventListener('click', async () => {
+      const btn = $('#btnVincularGenerador');
+      const generadorId = Number($('#selVincularGenerador')?.value);
+      if (!generadorId) { toast('Elige un Generador de Obra', 'danger'); return; }
+      btn.disabled = true;
+      try {
+        await api(`/projects/${state.projectId}/estimaciones/${estimacionId}/vincular-generador`, {
+          method: 'PUT',
+          body: { generador_obra_id: generadorId },
+        });
+        toast('Generador de Obra vinculado', 'success');
+        await pintarVerEstimacion(estimacionId);
+      } catch (err) { toast(err.message, 'danger'); btn.disabled = false; }
+    });
+    $('#btnDesvincularGenerador')?.addEventListener('click', async () => {
+      const btn = $('#btnDesvincularGenerador');
+      btn.disabled = true;
+      try {
+        await api(`/projects/${state.projectId}/estimaciones/${estimacionId}/vincular-generador`, {
+          method: 'PUT',
+          body: { generador_obra_id: null },
+        });
+        toast('Vínculo quitado', 'success');
         await pintarVerEstimacion(estimacionId);
       } catch (err) { toast(err.message, 'danger'); btn.disabled = false; }
     });

@@ -14054,7 +14054,87 @@ app.get('/api/projects/:id/estimaciones/:estId', h(auth.allow('residente')), h(r
     WHERE ec.estimacion_id = $1 ORDER BY c.orden`,
     [estId]
   );
-  res.json({ ...estRows[0], items });
+
+  // Fase 3, Mecanismo A: si hay un Generador de Obra vinculado, anexar su
+  // folio/nombre/periodo y, por concepto, el volumen de referencia
+  // (SUM(subtotal) de sus renglones) — puramente informativo, no altera
+  // cantidad_periodo/importe_periodo ya calculados arriba.
+  let generadorVinculado = null;
+  if (estRows[0].generador_obra_id) {
+    const { rows: genRows } = await db.pool.query(
+      `SELECT id, folio, nombre, periodo_inicio, periodo_fin FROM generadores_obra
+       WHERE id = $1 AND project_id = $2 AND activo = true`,
+      [estRows[0].generador_obra_id, req.project.id]
+    );
+    if (genRows[0]) {
+      generadorVinculado = genRows[0];
+      const { rows: volRows } = await db.pool.query(
+        `SELECT concepto_id, SUM(subtotal) AS volumen
+         FROM generador_obra_renglones WHERE generador_id = $1 GROUP BY concepto_id`,
+        [genRows[0].id]
+      );
+      const volMap = Object.fromEntries(volRows.map((r) => [r.concepto_id, Number(r.volumen)]));
+      for (const it of items) it.volumen_generador = volMap[it.concepto_id] ?? null;
+    }
+  }
+
+  res.json({ ...estRows[0], items, generador_vinculado: generadorVinculado });
+}));
+
+// Fase 3 (prompt-fase3-integracion-avance-estimaciones.md), Mecanismo A —
+// candidatos a vincular: Generadores de Obra "aprobada" de esta misma obra
+// cuyo periodo se solapa (parcial o totalmente) con el de la Estimación.
+// Solape estándar de rangos: A.inicio <= B.fin AND A.fin >= B.inicio.
+app.get('/api/projects/:id/estimaciones/:estId/generadores-candidatos', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  const pid = req.project.id;
+  const estId = Number(req.params.estId);
+  const { rows: estRows } = await db.pool.query(
+    'SELECT id, periodo_inicio, periodo_fin FROM estimaciones WHERE id = $1 AND project_id = $2 AND activo = true',
+    [estId, pid]
+  );
+  if (!estRows[0]) return res.status(404).json({ error: 'Estimación no encontrada' });
+  const { rows } = await db.pool.query(
+    `SELECT id, folio, nombre, periodo_inicio, periodo_fin FROM generadores_obra
+     WHERE project_id = $1 AND activo = true AND estado = 'aprobada'
+       AND periodo_inicio <= $3 AND periodo_fin >= $2
+     ORDER BY periodo_inicio DESC`,
+    [pid, estRows[0].periodo_inicio, estRows[0].periodo_fin]
+  );
+  res.json({ candidatos: rows });
+}));
+
+// Fase 3, Mecanismo A — vincular/desvincular. Puramente de referencia: NUNCA
+// escribe estimacion_conceptos (eso sigue siendo exclusivo de /calcular).
+// Solo acepta Generadores "aprobada" de la MISMA obra (project_id acotado en
+// el propio UPDATE, no en un SELECT aparte — un generador de otra obra o no
+// aprobado da 404, mismo criterio que el resto de la app).
+app.put('/api/projects/:id/estimaciones/:estId/vincular-generador', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  const pid = req.project.id;
+  const estId = Number(req.params.estId);
+  const { generador_obra_id } = req.body || {};
+
+  if (generador_obra_id == null) {
+    const { rows } = await db.pool.query(
+      'UPDATE estimaciones SET generador_obra_id = NULL WHERE id = $1 AND project_id = $2 AND activo = true RETURNING id',
+      [estId, pid]
+    );
+    if (!rows[0]) return res.status(404).json({ error: 'Estimación no encontrada' });
+    return res.json({ ok: true, generador_obra_id: null });
+  }
+
+  const genId = Number(generador_obra_id);
+  const { rows: genRows } = await db.pool.query(
+    `SELECT id FROM generadores_obra WHERE id = $1 AND project_id = $2 AND activo = true AND estado = 'aprobada'`,
+    [genId, pid]
+  );
+  if (!genRows[0]) return res.status(404).json({ error: 'Generador de Obra no encontrado o no aprobado' });
+
+  const { rows } = await db.pool.query(
+    'UPDATE estimaciones SET generador_obra_id = $1 WHERE id = $2 AND project_id = $3 AND activo = true RETURNING id',
+    [genId, estId, pid]
+  );
+  if (!rows[0]) return res.status(404).json({ error: 'Estimación no encontrada' });
+  res.json({ ok: true, generador_obra_id: genId });
 }));
 
 // Jala el avance ya registrado (avance_conceptos, vía las semanas de

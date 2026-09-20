@@ -872,6 +872,13 @@ const fmtDateShort = (s) => {
 };
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
+// Ícono estándar de "eliminar" (bote de basura, línea simple) — usar en vez de
+// emoji/carácter suelto en cualquier botón de eliminar/borrar nuevo. Hereda
+// color vía currentColor: en botones .btn-danger ya sale blanco, en botones
+// sin fondo propio (icon-btn-inline, btn-ghost) requiere pintar el botón de
+// rojo aparte (ver .icon-btn-inline-eliminar / .btn-ghost-eliminar en CSS).
+const iconoEliminar = () => '<svg class="icon-delete" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path><path d="M10 11v6"></path><path d="M14 11v6"></path><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"></path></svg>';
+
 // Umbral simple para el aviso de "contrato por vencer" — ajustable después.
 const FIN_OBRA_AVISO_DIAS = 30;
 // Devuelve null si fin_obra no aplica todavía (falta más de FIN_OBRA_AVISO_DIAS),
@@ -4085,7 +4092,7 @@ function clienteCardHtml(c) {
         <button class="cliente-menu-btn" data-cliente-menu-btn="${c.id}" title="Opciones">⋮</button>
         <div class="cliente-menu-dropdown hidden-initial" data-cliente-menu-dropdown="${c.id}">
           <button class="cliente-menu-item" data-cliente-archivar="${c.id}" data-cliente-archivar-nombre="${esc(c.nombre)}">📦 Archivar cliente</button>
-          <button class="cliente-menu-item cliente-menu-item-danger" data-cliente-eliminar="${c.id}" data-cliente-eliminar-nombre="${esc(c.nombre)}">🗑️ Eliminar cliente</button>
+          <button class="cliente-menu-item cliente-menu-item-danger" data-cliente-eliminar="${c.id}" data-cliente-eliminar-nombre="${esc(c.nombre)}">${iconoEliminar()} Eliminar cliente</button>
         </div>` : ''}
     </div>
   `;
@@ -8197,7 +8204,7 @@ async function paintOcPagos(ocId) {
           <span${p.activo === false ? ' style="text-decoration: line-through;"' : ''}>${fmtMoney(p.monto)}</span>
           ${puedeGestionar && p.activo !== false ? `
             <button class="btn small" data-editar-pago="${p.id}" title="Editar">✏️</button>
-            <button class="btn small btn-danger" data-cancelar-pago="${p.id}" title="Cancelar">🗑️</button>
+            <button class="btn small btn-danger" data-cancelar-pago="${p.id}" title="Cancelar">${iconoEliminar()}</button>
           ` : ''}
         </span>
       </div>`).join('') : '<p class="muted fs-084">Sin pagos registrados.</p>';
@@ -10087,7 +10094,7 @@ function renderDestajistaItems(d, puedeEditarPrecios) {
             <td class="num text-verde">${fmtMoney(it.cantidad_ejecutada * it.precio_destajo)}</td>
             ${canManage ? `
             <td>
-              <button class="btn small btn-ghost" data-del-item data-item-id="${it.id}" data-dest-id="${d.id}" title="Eliminar">✕</button>
+              <button class="btn small btn-ghost btn-ghost-eliminar" data-del-item data-item-id="${it.id}" data-dest-id="${d.id}" title="Eliminar">${iconoEliminar()}</button>
             </td>` : ''}
           </tr>`).join('')}
           <tr class="dest-item-total-row">
@@ -14095,7 +14102,7 @@ function openDetalleCapturasModal(equipoId, tipo, todosLosRegistros, { puedeEdit
                 ${(puedeEditar || puedeEliminar) ? `
                 <td class="row-nowrap-gap6">
                   ${puedeEditar ? `<button class="btn small" data-editar-cm="${r.registro_id}" title="Editar">✏️</button>` : ''}
-                  ${puedeEliminar ? `<button class="btn small btn-danger" data-eliminar-cm="${r.registro_id}" title="Eliminar">🗑️</button>` : ''}
+                  ${puedeEliminar ? `<button class="btn small btn-danger" data-eliminar-cm="${r.registro_id}" title="Eliminar">${iconoEliminar()}</button>` : ''}
                 </td>` : ''}
               </tr>
             `).join('')}
@@ -19416,7 +19423,7 @@ function generadorBorradoresListHtml(generadores) {
       <span class="inline-gap4">
         ${vinculados > 0 ? `<span class="badge green">${vinculados} vinculado${vinculados === 1 ? '' : 's'}</span>` : ''}
         ${pendientes > 0 ? `<span class="badge yellow">${pendientes} pendiente${pendientes === 1 ? '' : 's'}</span>` : ''}
-        <button class="icon-btn-inline" data-eliminar-generador="${g.id}" title="Eliminar" aria-label="Eliminar">🗑</button>
+        <button class="icon-btn-inline icon-btn-inline-eliminar" data-eliminar-generador="${g.id}" title="Eliminar" aria-label="Eliminar">${iconoEliminar()}</button>
       </span>
     </div>`;
   }).join('');
@@ -21500,7 +21507,7 @@ async function openEppModal(trabajadorId, nombreTrab, puedeCrear) {
         </div>
         <div class="epp-entrega-actions">
           ${e.firma_digital ? `<img src="${e.firma_digital}" alt="firma" class="epp-firma-thumb" data-ver-firma="${e.id}" />` : '<span class="muted fs-075">Sin firma</span>'}
-          ${puedeEliminar ? `<button class="btn small btn-danger" data-del-entrega="${e.id}" title="Eliminar registro">✕</button>` : ''}
+          ${puedeEliminar ? `<button class="btn small btn-danger" data-del-entrega="${e.id}" title="Eliminar registro">${iconoEliminar()}</button>` : ''}
         </div>
       </div>
     `).join('');
@@ -24079,7 +24086,7 @@ async function pintarVerGeneradorObra(generadorId) {
           <td class="nomina-td-right"><strong>${Number(r.subtotal || 0).toLocaleString('es-MX', { maximumFractionDigits: 2 })}</strong></td>
           <td>${editable ? `
             <button class="icon-btn-inline" data-editar-renglon="${r.id}" title="Editar" aria-label="Editar">✎</button>
-            <button class="icon-btn-inline" data-eliminar-renglon="${r.id}" title="Eliminar" aria-label="Eliminar">🗑</button>` : ''}</td>
+            <button class="icon-btn-inline icon-btn-inline-eliminar" data-eliminar-renglon="${r.id}" title="Eliminar" aria-label="Eliminar">${iconoEliminar()}</button>` : ''}</td>
         </tr>`;
     };
 
@@ -24120,7 +24127,7 @@ async function pintarVerGeneradorObra(generadorId) {
               ${fotos.map((f) => `
                 <div class="genobra-foto-thumb" data-foto-id="${f.id}">
                   <img class="genobra-foto-img" data-foto-id="${f.id}" alt="${esc(f.nombre_archivo || 'Evidencia fotográfica')}" />
-                  ${editable ? `<button class="genobra-foto-eliminar" data-eliminar-foto="${f.id}" title="Eliminar" aria-label="Eliminar">🗑</button>` : ''}
+                  ${editable ? `<button class="genobra-foto-eliminar" data-eliminar-foto="${f.id}" title="Eliminar" aria-label="Eliminar">${iconoEliminar()}</button>` : ''}
                 </div>
               `).join('')}
               ${editable ? `

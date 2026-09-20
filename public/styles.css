@@ -590,6 +590,17 @@ button, a, select, label,
 }
 .icon-btn-inline:hover { color: var(--text-primary); background: color-mix(in srgb, var(--text-primary) 10%, transparent); }
 
+/* Ícono SVG estándar de "eliminar" (iconoEliminar() en app.js) — hereda color
+   vía currentColor, así que en botones ya rojos (.btn-danger, .cliente-menu-
+   item-danger) no requiere clase extra. En botones sin color propio
+   (icon-btn-inline, btn-ghost) se usa el modificador de abajo para pintarlo
+   de rojo y darle affordance de acción destructiva. */
+.icon-delete { display: inline-block; vertical-align: middle; }
+.icon-btn-inline.icon-btn-inline-eliminar { color: var(--red); }
+.icon-btn-inline.icon-btn-inline-eliminar:hover { color: var(--red); background: color-mix(in srgb, var(--red) 14%, transparent); }
+.btn-ghost.btn-ghost-eliminar { color: var(--red); }
+.btn-ghost.btn-ghost-eliminar:hover { background: color-mix(in srgb, var(--red) 12%, transparent); border-color: var(--red); }
+
 /* Botón "?" de ayuda contextual (ver renderHelpBtn/openAyudaModal en
    app.js) — círculo chico junto a un título, sin transform en :hover para
    no necesitar excepción en el bloque prefers-reduced-motion. */
@@ -3514,7 +3525,7 @@ html[data-palette="dorada"]:not([data-theme="light"]) .welcome-card {
 .genobra-foto-img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .genobra-foto-eliminar {
   position: absolute; top: 2px; right: 2px; width: 22px; height: 22px; border-radius: var(--radius-circle);
-  border: none; background: color-mix(in srgb, black 55%, transparent); color: #fff; cursor: pointer;
+  border: none; background: color-mix(in srgb, black 55%, transparent); color: var(--red); cursor: pointer;
   display: flex; align-items: center; justify-content: center; font-size: var(--fs-2xs); padding: var(--space-0);
 }
 .genobra-foto-upload {

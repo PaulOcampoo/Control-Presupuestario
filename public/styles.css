@@ -1528,6 +1528,12 @@ body.body-scroll-locked { overflow: hidden; }
      .gencat-preview-modal (no se toca .modal-wide a secas) para no afectar
      "Vincular insumos"/"Ver Estimación"/etc., que comparten esa clase base. */
   .modal.modal-wide.gencat-preview-modal { width: min(88vw, 1300px); }
+  /* prompt-generador-obra-export-preview.md: Vista previa del Generador de
+     Obra — documento tipo "hoja de export" (Partida > Subpartida > fotos >
+     tabla de renglones > total), necesita más aire que el resto de modales
+     .modal-wide igual que .gencat-preview-modal, mismo criterio de scope
+     compuesto (no se toca .modal-wide a secas). */
+  .modal.modal-wide.genobra-preview-modal { width: min(88vw, 1200px); }
 }
 
 /* Buscador + Ubicación/Partida + "Ir a sección" + toggle "solo pendientes"
@@ -3534,6 +3540,15 @@ html[data-palette="dorada"]:not([data-theme="light"]) .welcome-card {
   color: var(--text-secondary); font-size: var(--fs-2xs); flex-shrink: 0; padding: var(--space-4);
 }
 .genobra-foto-upload:hover { border-color: var(--accent-gold); color: var(--accent-gold); }
+
+/* Vista previa (prompt-generador-obra-export-preview.md) — reusa los
+   .genobra-* de arriba tal cual (misma Partida > Subpartida > fotos > tabla)
+   solo de lectura; los dos bits nuevos son el subtotal por subpartida y
+   anular el cursor:pointer de .genobra-partida-summary, que en la vista de
+   captura es un <summary> real de <details> pero aquí es un <div> estático
+   (no colapsable, todo va abierto para poder revisarlo de corrido). */
+.genobra-preview-partida-block .genobra-partida-summary { cursor: default; }
+.genobra-preview-subtotal { border-top: 1px solid var(--border-color); padding-top: var(--space-6); margin-top: var(--space-6); font-size: var(--fs-sm); }
 
 /* ── Barrido estáticas 2/6 — EPP + Contratos (URGENTE) ───────────────────── */
 /* Compartidas entre openContratosModal / openEppModal / openCatalogoEppModal

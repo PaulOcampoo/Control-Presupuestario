@@ -66,6 +66,7 @@ const {
 } = require('./finanzas');
 const { getCorteObraData, getCorteObraDetalleCategoria, CATEGORIAS_REPORTE } = require('./corteObra');
 const { buildCorteObraPdf } = require('./corteObraPdf');
+const { agruparGeneradorObra, buildGeneradorObraXlsxBuffer, buildGeneradorObraPdfBuffer } = require('./exportGeneradorObra');
 const { calcularJornal, calcularDestajo, totalConIvaDeItems, totalConIvaEsValido, numeroALetra, calcularSplitCuentas, distribuirDestajoGrupo, calcularSubtotalRenglon } = require('./calculos');
 const { validarClabe } = require('./catalogoBancos');
 const estadoResultados = require('./estadoResultados');
@@ -108,7 +109,11 @@ app.use((_req, res, next) => {
       "default-src 'self'",
       "script-src 'self'",
       "style-src 'self'",
-      "img-src 'self' data:", // data: para <img> de firma digital EPP (base64 inline, no un archivo)
+      // data: para <img> de firma digital EPP (base64 inline, no un archivo); blob: para
+      // <img> de fotos servidas por proxy autenticado (cargarImagenAutenticada() las trae
+      // por fetch con Bearer token y las expone como URL.createObjectURL() — un <img src>
+      // plano no puede mandar headers, así que no puede apuntar directo al endpoint).
+      "img-src 'self' data: blob:",
       "connect-src 'self' https://*.vercel-storage.com https://vercel.com",
       "worker-src 'self'",
       "manifest-src 'self'",
@@ -14535,6 +14540,37 @@ async function fetchRenglonConConcepto(renglonId) {
   return rows[0];
 }
 
+// Fetch compartido por GET /:genId (detalle) y GET /:genId/exportar — mismo
+// header + renglones + fotos, para que ambos endpoints no puedan divergir
+// silenciosamente. incluirBlobUrl=true agrega blob_url a la query de fotos
+// (solo lo necesita el export, para traer el binario de Vercel Blob) — se
+// omite por default para no filtrar esa URL interna en el detalle normal.
+// Devuelve null si el generador no existe / no pertenece a la obra.
+async function fetchGeneradorConDetalle(genId, projectId, { incluirBlobUrl = false } = {}) {
+  const { rows: genRows } = await db.pool.query(`
+    SELECT g.*, u.nombre AS residente_nombre, a.nombre AS admin_aprobador_nombre
+    FROM generadores_obra g
+    LEFT JOIN usuarios u ON u.id = g.residente_id
+    LEFT JOIN usuarios a ON a.id = g.admin_aprobador_id
+    WHERE g.id = $1 AND g.project_id = $2 AND g.activo = true`,
+    [genId, projectId]
+  );
+  if (!genRows[0]) return null;
+
+  const { rows: renglones } = await db.pool.query(
+    `SELECT r.*, c.codigo, c.concepto, c.unidad, c.grupo, c.ruta_jerarquica, c.orden AS concepto_orden
+     FROM generador_obra_renglones r JOIN conceptos c ON c.id = r.concepto_id
+     WHERE r.generador_id = $1 ORDER BY c.orden, r.orden, r.id`,
+    [genId]
+  );
+  const { rows: fotos } = await db.pool.query(
+    `SELECT id, partida, subpartida, ${incluirBlobUrl ? 'blob_url, ' : ''}nombre_archivo, subido_por, subido_en
+     FROM generador_obra_fotos WHERE generador_id = $1 ORDER BY subido_en`,
+    [genId]
+  );
+  return { generador: genRows[0], renglones, fotos };
+}
+
 app.get('/api/projects/:id/generadores-obra', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
   const { rows } = await db.pool.query(`
     SELECT g.*, u.nombre AS residente_nombre, a.nombre AS admin_aprobador_nombre,
@@ -14589,28 +14625,51 @@ app.get('/api/projects/:id/generadores-obra/conceptos-disponibles', h(auth.allow
 
 app.get('/api/projects/:id/generadores-obra/:genId', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
   const genId = Number(req.params.genId);
-  const { rows: genRows } = await db.pool.query(`
-    SELECT g.*, u.nombre AS residente_nombre, a.nombre AS admin_aprobador_nombre
-    FROM generadores_obra g
-    LEFT JOIN usuarios u ON u.id = g.residente_id
-    LEFT JOIN usuarios a ON a.id = g.admin_aprobador_id
-    WHERE g.id = $1 AND g.project_id = $2 AND g.activo = true`,
-    [genId, req.project.id]
-  );
-  if (!genRows[0]) return res.status(404).json({ error: 'Generador no encontrado' });
+  const detalle = await fetchGeneradorConDetalle(genId, req.project.id);
+  if (!detalle) return res.status(404).json({ error: 'Generador no encontrado' });
+  res.json({ ...detalle.generador, renglones: detalle.renglones, fotos: detalle.fotos });
+}));
 
-  const { rows: renglones } = await db.pool.query(
-    `SELECT r.*, c.codigo, c.concepto, c.unidad, c.grupo, c.ruta_jerarquica, c.orden AS concepto_orden
-     FROM generador_obra_renglones r JOIN conceptos c ON c.id = r.concepto_id
-     WHERE r.generador_id = $1 ORDER BY c.orden, r.orden, r.id`,
-    [genId]
-  );
-  const { rows: fotos } = await db.pool.query(
-    `SELECT id, partida, subpartida, nombre_archivo, subido_por, subido_en
-     FROM generador_obra_fotos WHERE generador_id = $1 ORDER BY subido_en`,
-    [genId]
-  );
-  res.json({ ...genRows[0], renglones, fotos });
+// Export a Excel/PDF (Fase de export/preview, prompt-generadores-de-obra.md)
+// -- ?formato=pdf|xlsx en un solo endpoint, mismo dispatch que
+// GET /api/finanzas/corte-obra/export (server/app.js ~10571). El binario de
+// cada foto se trae aquí (nunca por URL pública, mismo patrón que el proxy
+// de .../fotos/:fotoId) y se pasa ya resuelto a exportGeneradorObra.js, que
+// es un módulo puro sin acceso a DB/Blob. Una foto que no se pueda leer se
+// omite sin tronar el export completo (fetch envuelto en try/catch por foto).
+app.get('/api/projects/:id/generadores-obra/:genId/exportar', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  const genId = Number(req.params.genId);
+  const detalle = await fetchGeneradorConDetalle(genId, req.project.id, { incluirBlobUrl: true });
+  if (!detalle) return res.status(404).json({ error: 'Generador no encontrado' });
+  const { generador, renglones, fotos: fotosRows } = detalle;
+
+  const fotos = await Promise.all(fotosRows.map(async (f) => {
+    try {
+      const blobResult = await get(f.blob_url, { access: 'private' });
+      if (!blobResult) return { ...f, buffer: null, contentType: null };
+      const chunks = [];
+      for await (const chunk of Readable.fromWeb(blobResult.stream)) chunks.push(chunk);
+      return { ...f, buffer: Buffer.concat(chunks), contentType: blobResult.blob?.contentType || null };
+    } catch (err) {
+      return { ...f, buffer: null, contentType: null };
+    }
+  }));
+
+  const grupos = agruparGeneradorObra(renglones, fotos);
+  const formato = req.query.formato === 'pdf' ? 'pdf' : 'xlsx';
+  const nombreArchivoBase = `${req.project.nombre} F${generador.folio}`;
+
+  if (formato === 'pdf') {
+    const buffer = await buildGeneradorObraPdfBuffer({ project: req.project, generador, grupos });
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${buildExportFilename('GeneradorObra', nombreArchivoBase).replace(/\.xlsx$/, '.pdf')}"`);
+    return res.send(buffer);
+  }
+
+  const buffer = await buildGeneradorObraXlsxBuffer({ project: req.project, generador, grupos });
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Disposition', `attachment; filename="${buildExportFilename('GeneradorObra', nombreArchivoBase)}"`);
+  res.send(buffer);
 }));
 
 app.post('/api/projects/:id/generadores-obra/:genId/renglones', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {

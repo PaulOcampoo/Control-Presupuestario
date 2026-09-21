@@ -3207,6 +3207,7 @@ function closeModal() {
   $('#modal').classList.remove('modal-wide'); // ver openVerEstimacionModal — no debe pegarse a otros modales
   $('#modal').classList.remove('eu-historico-modal'); // ver openHistoricoEstadoUnidadMaqModal — mismo criterio
   $('#modal').classList.remove('gencat-preview-modal'); // ver pintarPreviewCatalogoGenerador — mismo criterio
+  $('#modal').classList.remove('genobra-preview-modal'); // ver openVistaPreviaGeneradorObraModal — mismo criterio
   $('#modalOverlay').classList.remove('show');
   $('#modal').innerHTML = '';
   unlockBodyScroll('modal');
@@ -23878,7 +23879,19 @@ let generadorObraUiState = { editingRenglonId: null, addingConceptoId: null };
 // se revocan al repintar para no acumular memoria en una sesión larga con
 // varios repintados (cada acción de renglón/foto vuelve a llamar
 // pintarVerGeneradorObra completo).
+// Detalle y Vista previa usan arrays SEPARADOS (no uno compartido): aunque
+// nunca están montados en el DOM a la vez (un solo #modal, openModal()
+// reemplaza todo su innerHTML), sus fetches de fotos SÍ pueden solaparse en
+// el tiempo — pintarVerGeneradorObra dispara sus fetches de foto sin
+// esperarlos (fire-and-forget) antes de retornar, y el botón "Vista previa"
+// se puede clickear de inmediato mientras esos fetches siguen en vuelo. Con
+// un único array compartido, un fetch tardío del detalle podía resolver
+// después de navegar a la preview y empujar su object URL al array que la
+// preview ya estaba usando, además de escribir img.src sobre un <img> ya
+// desmontado. Con arrays separados eso ya no es posible: cada vista solo
+// puede tocar el suyo.
 let generadorObraFotoUrls = [];
+let generadorObraPreviewFotoUrls = [];
 
 // Fetch autenticado + object URL, para usar como <img src> de un endpoint
 // que exige Bearer token (un <img> plano no puede mandar headers) — mismo
@@ -24023,11 +24036,61 @@ function partidaSubpartidaDeConcepto(c) {
   return { partida, subpartida };
 }
 
+// Mismo criterio de agrupación que agruparGeneradorObra() en
+// server/exportGeneradorObra.js (puerto byte-a-byte, mismo Map + orden de
+// inserción) — usado SOLO por la Vista previa, para que se vea igual que el
+// export real. A diferencia de pintarVerGeneradorObra (que arma sus grupos a
+// partir de TODOS los conceptos disponibles, para poder capturarlos aunque
+// estén vacíos), esto agrupa a partir de los renglones/fotos ya capturados y
+// por construcción excluye cualquier Partida/Subpartida sin renglones ni
+// fotos — no hace falta un filtro aparte.
+function agruparGeneradorObraParaPreview(renglones, fotos) {
+  const grupos = new Map();
+  const orden = [];
+  function getGrupo(partida, subpartida) {
+    const key = `${partida}␟${subpartida}`;
+    if (!grupos.has(key)) {
+      grupos.set(key, { partida, subpartida, renglones: [], fotos: [], subtotal: 0 });
+      orden.push(key);
+    }
+    return grupos.get(key);
+  }
+  for (const r of renglones || []) {
+    const { partida, subpartida } = partidaSubpartidaDeConcepto(r);
+    const g = getGrupo(partida, subpartida);
+    g.renglones.push(r);
+    g.subtotal += Number(r.subtotal || 0);
+  }
+  for (const f of fotos || []) {
+    const g = getGrupo(f.partida || 'General', f.subpartida || 'General');
+    g.fotos.push(f);
+  }
+  return orden.map((k) => grupos.get(k));
+}
+
 async function openVerGeneradorObraModal(generadorId) {
   generadorObraUiState = { editingRenglonId: null, addingConceptoId: null };
+  // Defensivo: remover 'genobra-preview-modal' aquí (no solo confiar en
+  // closeModal()) — el botón "Volver al detalle" de la Vista previa llama a
+  // esta función directo, sin pasar por closeModal(), así que si no se
+  // limpia aquí el ancho angosto del detalle queda pisado por la regla CSS
+  // más ancha de la preview (.modal.modal-wide.genobra-preview-modal).
+  $('#modal').classList.remove('genobra-preview-modal');
   $('#modal').classList.add('modal-wide');
-  openModal(`<h3>Detalle del generador de obra</h3><div id="verGeneradorObraBody"><div class="empty-state">Cargando…</div></div><div class="modal-actions"><button class="btn" id="btnCerrarVerGeneradorObra">Cerrar</button></div>`);
+  openModal(`<h3>Detalle del generador de obra</h3><div id="verGeneradorObraBody"><div class="empty-state">Cargando…</div></div>
+    <div class="modal-actions">
+      <button class="btn" id="btnCerrarVerGeneradorObra">Cerrar</button>
+      <button class="btn" id="btnDescargarExcelGenObra">⭳ Descargar Excel</button>
+      <button class="btn" id="btnDescargarPdfGenObra">⭳ Descargar PDF</button>
+      <button class="btn btn-primary" id="btnVistaPreviaGenObra">Vista previa</button>
+    </div>`);
   $('#btnCerrarVerGeneradorObra').addEventListener('click', closeModal);
+  // Mismo helper downloadExport()/wireExportButton() ya usado por el resto de
+  // exports de la app (ver corte de obra xlsx/pdf, server/app.js:14636 —
+  // formato por query string, xlsx si se omite) — sin mecanismo nuevo.
+  wireExportButton('#btnDescargarExcelGenObra', `/projects/${state.projectId}/generadores-obra/${generadorId}/exportar?formato=xlsx`);
+  wireExportButton('#btnDescargarPdfGenObra', `/projects/${state.projectId}/generadores-obra/${generadorId}/exportar?formato=pdf`);
+  $('#btnVistaPreviaGenObra').addEventListener('click', () => openVistaPreviaGeneradorObraModal(generadorId));
   await pintarVerGeneradorObra(generadorId);
 }
 
@@ -24279,6 +24342,126 @@ async function pintarVerGeneradorObra(generadorId) {
           await pintarVerGeneradorObra(generadorId);
         } catch (err) { toast(err.message, 'danger'); }
       });
+    });
+  } catch (err) {
+    el.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+  }
+}
+
+// Vista previa (prompt-generador-obra-export-preview.md): reproduce
+// exactamente el layout del export (buildGeneradorObraXlsxBuffer/
+// buildGeneradorObraPdfBuffer en server/exportGeneradorObra.js) — Partida >
+// Subpartida > evidencia fotográfica > UNA sola tabla plana de renglones
+// (sin volver a separar por concepto, a diferencia de pintarVerGeneradorObra)
+// > total de esa subpartida, y total general al final. Es de solo lectura:
+// no repinta botones de editar/eliminar/agregar. openModal() reemplaza TODO
+// el contenido de #modal (no hay stacking de modales en esta app), así que
+// "Volver" simplemente vuelve a abrir el modal de detalle desde cero.
+async function openVistaPreviaGeneradorObraModal(generadorId) {
+  $('#modal').classList.add('modal-wide', 'genobra-preview-modal');
+  openModal(`<h3>Vista previa — Generador de obra</h3><p class="muted fs-088">Así se verá el documento exportado. Solo se incluyen Partida/Subpartida con al menos un renglón o una foto capturada — nada se descarga desde aquí.</p><div id="genobraPreviewBody"><div class="empty-state">Cargando…</div></div><div class="modal-actions"><button class="btn" id="btnVolverGenObraPreview">Volver al detalle</button></div>`);
+  $('#btnVolverGenObraPreview').addEventListener('click', () => openVerGeneradorObraModal(generadorId));
+  await pintarPreviewGeneradorObra(generadorId);
+}
+
+async function pintarPreviewGeneradorObra(generadorId) {
+  const el = $('#genobraPreviewBody');
+  if (!el) return;
+  try {
+    const data = await api(`/projects/${state.projectId}/generadores-obra/${generadorId}`);
+    const grupos = agruparGeneradorObraParaPreview(data.renglones, data.fotos);
+    const totalGeneral = grupos.reduce((s, g) => s + Number(g.subtotal || 0), 0);
+
+    // Los grupos (Partida+Subpartida) ya vienen en orden de aparición desde
+    // agruparGeneradorObraParaPreview — se re-anidan aquí solo para el
+    // encabezado visual de Partida (un Map preserva orden de inserción, sin
+    // asumir que las subpartidas de una misma Partida sean contiguas).
+    const partidasMap = new Map();
+    grupos.forEach((g) => {
+      if (!partidasMap.has(g.partida)) partidasMap.set(g.partida, []);
+      partidasMap.get(g.partida).push(g);
+    });
+
+    const filaRenglonPreview = (r) => `
+      <tr>
+        <td>${esc(r.descripcion || '')}</td>
+        <td>${esc(r.tramo || '')}</td>
+        <td class="nomina-td-right">${r.largo ?? '—'}</td>
+        <td class="nomina-td-right">${r.ancho ?? '—'}</td>
+        <td class="nomina-td-right">${r.alto ?? '—'}</td>
+        <td class="nomina-td-right">${r.pzas ?? '—'}</td>
+        <td class="nomina-td-right"><strong>${Number(r.subtotal || 0).toLocaleString('es-MX', { maximumFractionDigits: 2 })}</strong></td>
+      </tr>`;
+
+    const bloqueFotosPreview = (fotos) => {
+      if (!fotos.length) return '';
+      return `
+        <div class="genobra-fotos-block">
+          <div class="genobra-fotos-grid">
+            ${fotos.map((f) => `
+              <div class="genobra-foto-thumb">
+                <img class="genobra-foto-img genobra-preview-foto-img" data-foto-id="${f.id}" alt="${esc(f.nombre_archivo || 'Evidencia fotográfica')}" />
+              </div>
+            `).join('')}
+          </div>
+        </div>`;
+    };
+
+    const bloqueGrupo = (g) => `
+      <div class="genobra-subpartida-block">
+        <h4 class="genobra-subpartida-title">${esc(g.subpartida)}</h4>
+        ${bloqueFotosPreview(g.fotos)}
+        ${g.renglones.length ? `
+          <div class="table-scroll">
+            <table class="nomina-table genobra-renglones-table">
+              <thead><tr>
+                <th class="nomina-th-left">Descripción</th><th class="nomina-th-left">Tramo</th>
+                <th class="nomina-th-right">Largo</th><th class="nomina-th-right">Ancho</th>
+                <th class="nomina-th-right">Alto</th><th class="nomina-th-right">Pzas</th>
+                <th class="nomina-th-right">Subtotal</th>
+              </tr></thead>
+              <tbody>${g.renglones.map(filaRenglonPreview).join('')}</tbody>
+            </table>
+          </div>
+          <div class="row between genobra-preview-subtotal">
+            <strong>Total subpartida</strong>
+            <strong>${g.subtotal.toLocaleString('es-MX', { maximumFractionDigits: 2 })}</strong>
+          </div>` : ''}
+      </div>`;
+
+    const bloquesHtml = grupos.length ? [...partidasMap.entries()].map(([partida, gs]) => `
+      <div class="genobra-partida-block genobra-preview-partida-block">
+        <div class="genobra-partida-summary">${esc(partida)}</div>
+        ${gs.map(bloqueGrupo).join('')}
+      </div>
+    `).join('') : '<div class="empty-state">Este generador todavía no tiene renglones ni fotos capturados — no hay nada que exportar.</div>';
+
+    el.innerHTML = `
+      <div class="muted nomina-detalle-fecha">Folio #${data.folio}${data.nombre ? ' · ' + esc(data.nombre) : ''} · ${esc(data.periodo_inicio)} al ${esc(data.periodo_fin)}
+        · <span class="badge ${GENOBRA_ESTADO_BADGE[data.estado] || 'muted'}">${esc(GENOBRA_ESTADO_LABELS[data.estado] || data.estado)}</span>
+      </div>
+      ${data.comentario_rechazo ? `<div class="alert-box danger mt-8">Motivo de rechazo: ${esc(data.comentario_rechazo)}</div>` : ''}
+      ${bloquesHtml}
+      <div class="row between mt-16 genobra-total-general">
+        <strong>Total general</strong>
+        <strong>${totalGeneral.toLocaleString('es-MX', { maximumFractionDigits: 2 })}</strong>
+      </div>
+    `;
+
+    // Fotos: array de cleanup PROPIO de la preview (generadorObraPreviewFotoUrls),
+    // separado del que usa el detalle (generadorObraFotoUrls) — ver comentario
+    // junto a su declaración. Aunque detalle y preview nunca están montados a
+    // la vez en el DOM, sus fetches de foto sí pueden solaparse (el detalle no
+    // espera los suyos antes de retornar), así que compartir un solo array
+    // podía mezclar el cleanup de una vista con las fotos de la otra.
+    generadorObraPreviewFotoUrls.forEach((u) => URL.revokeObjectURL(u));
+    generadorObraPreviewFotoUrls = [];
+    $$('.genobra-preview-foto-img', el).forEach(async (img) => {
+      try {
+        const url = await cargarImagenAutenticada(`/projects/${state.projectId}/generadores-obra/${generadorId}/fotos/${img.dataset.fotoId}`);
+        generadorObraPreviewFotoUrls.push(url);
+        img.src = url;
+      } catch { img.alt = 'No se pudo cargar la imagen'; }
     });
   } catch (err) {
     el.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;

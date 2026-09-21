@@ -109,7 +109,11 @@ app.use((_req, res, next) => {
       "default-src 'self'",
       "script-src 'self'",
       "style-src 'self'",
-      "img-src 'self' data:", // data: para <img> de firma digital EPP (base64 inline, no un archivo)
+      // data: para <img> de firma digital EPP (base64 inline, no un archivo); blob: para
+      // <img> de fotos servidas por proxy autenticado (cargarImagenAutenticada() las trae
+      // por fetch con Bearer token y las expone como URL.createObjectURL() — un <img src>
+      // plano no puede mandar headers, así que no puede apuntar directo al endpoint).
+      "img-src 'self' data: blob:",
       "connect-src 'self' https://*.vercel-storage.com https://vercel.com",
       "worker-src 'self'",
       "manifest-src 'self'",

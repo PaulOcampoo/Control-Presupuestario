@@ -5319,7 +5319,9 @@ async function buildMaquinariaGaleriaExtras() {
   let extraHtml = '';
   if (state.allowedTabs.includes('maquinaria_horas')) {
     try {
-      const horas = await api('/maquinaria/horas');
+      // cliente_id: mismo filtro que renderMaquinariaHoras, para que el
+      // contador de la tarjeta coincida con lo que se ve al entrar.
+      const horas = await api(`/maquinaria/horas${state.clienteId ? `?cliente_id=${state.clienteId}` : ''}`);
       const pendientes = horas.filter((h) => h.estado === 'pendiente').length;
       if (pendientes > 0) badges.maquinaria_horas = pendientes;
     } catch { /* 403 esperado para roles sin puede_ver en 'maquinaria' — sin badge */ }
@@ -12775,7 +12777,11 @@ async function renderMaquinariaHoras(view) {
     // 403 esperado para roles sin puede_ver en 'maquinaria_captura' (ej.
     // jefe_maquinaria) — GET /api/maquinaria/horas exige checkPermiso
     // ('maquinaria', 'puede_ver'), que sí tienen todos los roles de este tab.
-    api('/maquinaria/horas').catch(() => []),
+    // cliente_id (prompt-maquinaria-filtro-cliente.md): acota la lista a las
+    // obras del cliente activo en la navegación — Maquinaria se navega a
+    // nivel cliente, no por obra individual, así que sin este filtro se
+    // mezclaban horas/obras de todos los clientes en la misma tabla.
+    api(`/maquinaria/horas${state.clienteId ? `?cliente_id=${state.clienteId}` : ''}`).catch(() => []),
     api('/mis-permisos/maquinaria_captura'),
     api('/maquinaria/equipos'),
     api('/projects').catch(() => []),

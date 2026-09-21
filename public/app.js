@@ -23879,7 +23879,19 @@ let generadorObraUiState = { editingRenglonId: null, addingConceptoId: null };
 // se revocan al repintar para no acumular memoria en una sesión larga con
 // varios repintados (cada acción de renglón/foto vuelve a llamar
 // pintarVerGeneradorObra completo).
+// Detalle y Vista previa usan arrays SEPARADOS (no uno compartido): aunque
+// nunca están montados en el DOM a la vez (un solo #modal, openModal()
+// reemplaza todo su innerHTML), sus fetches de fotos SÍ pueden solaparse en
+// el tiempo — pintarVerGeneradorObra dispara sus fetches de foto sin
+// esperarlos (fire-and-forget) antes de retornar, y el botón "Vista previa"
+// se puede clickear de inmediato mientras esos fetches siguen en vuelo. Con
+// un único array compartido, un fetch tardío del detalle podía resolver
+// después de navegar a la preview y empujar su object URL al array que la
+// preview ya estaba usando, además de escribir img.src sobre un <img> ya
+// desmontado. Con arrays separados eso ya no es posible: cada vista solo
+// puede tocar el suyo.
 let generadorObraFotoUrls = [];
+let generadorObraPreviewFotoUrls = [];
 
 // Fetch autenticado + object URL, para usar como <img src> de un endpoint
 // que exige Bearer token (un <img> plano no puede mandar headers) — mismo
@@ -24058,6 +24070,12 @@ function agruparGeneradorObraParaPreview(renglones, fotos) {
 
 async function openVerGeneradorObraModal(generadorId) {
   generadorObraUiState = { editingRenglonId: null, addingConceptoId: null };
+  // Defensivo: remover 'genobra-preview-modal' aquí (no solo confiar en
+  // closeModal()) — el botón "Volver al detalle" de la Vista previa llama a
+  // esta función directo, sin pasar por closeModal(), así que si no se
+  // limpia aquí el ancho angosto del detalle queda pisado por la regla CSS
+  // más ancha de la preview (.modal.modal-wide.genobra-preview-modal).
+  $('#modal').classList.remove('genobra-preview-modal');
   $('#modal').classList.add('modal-wide');
   openModal(`<h3>Detalle del generador de obra</h3><div id="verGeneradorObraBody"><div class="empty-state">Cargando…</div></div>
     <div class="modal-actions">
@@ -24430,18 +24448,18 @@ async function pintarPreviewGeneradorObra(generadorId) {
       </div>
     `;
 
-    // Fotos: reusa el MISMO array de cleanup que el detalle
-    // (generadorObraFotoUrls, declarado junto a cargarImagenAutenticada) en
-    // vez de uno propio — detalle y preview nunca están montados a la vez
-    // (un solo #modal, openModal() reemplaza todo su innerHTML), así que
-    // "revocar antes de repintar" sigue siendo seguro sin un segundo global
-    // que haría exactamente lo mismo.
-    generadorObraFotoUrls.forEach((u) => URL.revokeObjectURL(u));
-    generadorObraFotoUrls = [];
+    // Fotos: array de cleanup PROPIO de la preview (generadorObraPreviewFotoUrls),
+    // separado del que usa el detalle (generadorObraFotoUrls) — ver comentario
+    // junto a su declaración. Aunque detalle y preview nunca están montados a
+    // la vez en el DOM, sus fetches de foto sí pueden solaparse (el detalle no
+    // espera los suyos antes de retornar), así que compartir un solo array
+    // podía mezclar el cleanup de una vista con las fotos de la otra.
+    generadorObraPreviewFotoUrls.forEach((u) => URL.revokeObjectURL(u));
+    generadorObraPreviewFotoUrls = [];
     $$('.genobra-preview-foto-img', el).forEach(async (img) => {
       try {
         const url = await cargarImagenAutenticada(`/projects/${state.projectId}/generadores-obra/${generadorId}/fotos/${img.dataset.fotoId}`);
-        generadorObraFotoUrls.push(url);
+        generadorObraPreviewFotoUrls.push(url);
         img.src = url;
       } catch { img.alt = 'No se pudo cargar la imagen'; }
     });

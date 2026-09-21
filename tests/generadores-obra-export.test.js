@@ -6,6 +6,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import request from 'supertest';
 import ExcelJS from 'exceljs';
+import pdfParse from 'pdf-parse';
 import app from '../server/app.js';
 import db from '../server/db.js';
 import { del } from '@vercel/blob';
@@ -141,7 +142,7 @@ describe('Export de Generador de Obra — con renglón y foto', () => {
     expect(wb.model.media.length).toBeGreaterThan(0);
   });
 
-  it('genera el pdf con status 200 y Content-Type application/pdf', async () => {
+  it('genera el pdf con status 200, Content-Type correcto y contenido parseable (folio, subtotal y partida/subpartida)', async () => {
     const res = await request(app)
       .get(`/api/projects/${testProjectId}/generadores-obra/${gen.id}/exportar?formato=pdf`)
       .set('Authorization', `Bearer ${creadorToken}`)
@@ -156,6 +157,26 @@ describe('Export de Generador de Obra — con renglón y foto', () => {
     expect(res.headers['content-type']).toBe('application/pdf');
     expect(res.body.length).toBeGreaterThan(0);
     expect(res.body.slice(0, 4).toString('latin1')).toBe('%PDF');
+
+    // Mismo nivel de rigor que la prueba del xlsx: parsea el texto real del
+    // PDF (pdf-parse, ya usado en server/extraccionContrato.js y
+    // server/cfdiParser.js) y confirma que el folio, el subtotal capturado
+    // (10*2=20) y el grupo partida/subpartida ('General — General', ver
+    // datos del renglón/foto de beforeAll) realmente quedaron en el documento.
+    // res.body llega de Buffer.concat() sobre chunks pequeños — para un PDF
+    // de pocos KB como este, Node devuelve un Buffer "pooled" (vista sobre
+    // un ArrayBuffer compartido, con .byteOffset != 0). La versión de pdf.js
+    // que trae pdf-parse (v1.10.100, de 2017) no respeta ese byteOffset
+    // internamente y corrompe el parseo de forma intermitente — confirmado
+    // empíricamente aquí. `new Uint8Array(buf)` sí copia a un ArrayBuffer
+    // propio con byteOffset 0 (por spec), PERO volver a envolver ese copy en
+    // `Buffer.from(...)` reintroduce el pool (Buffer.from tampoco es inmune
+    // para tamaños chicos) — hay que pasarle a pdfParse el Uint8Array plano,
+    // sin volver a envolverlo en Buffer.
+    const { text } = await pdfParse(new Uint8Array(res.body));
+    expect(text).toContain(`Folio: ${gen.folio}`);
+    expect(text).toContain('$20.00');
+    expect(text).toContain('General — General');
   });
 
   it('formato inválido/ausente cae al default xlsx', async () => {

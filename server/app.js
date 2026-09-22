@@ -14572,10 +14572,33 @@ async function fetchGeneradorConDetalle(genId, projectId, { incluirBlobUrl = fal
   return { generador: genRows[0], renglones, fotos };
 }
 
+// prompt-generador-obra-buscador.md: partidas_texto agrega SOLO el texto
+// plano de partida/subpartida (mismo par de elementos de
+// conceptos.ruta_jerarquica que ya lee el endpoint de detalle vía join, no
+// el árbol completo ni los renglones) para que el buscador del listado
+// pueda filtrar por partida sin pedir el detalle de cada generador — el
+// listado sigue siendo una sola query, sin N+1.
 app.get('/api/projects/:id/generadores-obra', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
   const { rows } = await db.pool.query(`
     SELECT g.*, u.nombre AS residente_nombre, a.nombre AS admin_aprobador_nombre,
-      (SELECT COUNT(*)::int FROM generador_obra_renglones r WHERE r.generador_id = g.id) AS total_renglones
+      (SELECT COUNT(*)::int FROM generador_obra_renglones r WHERE r.generador_id = g.id) AS total_renglones,
+      (
+        SELECT COALESCE(string_agg(DISTINCT texto, ' · '), '')
+        FROM (
+          SELECT c.ruta_jerarquica ->> GREATEST(jsonb_array_length(c.ruta_jerarquica) - 2, 0) AS texto
+          FROM generador_obra_renglones r JOIN conceptos c ON c.id = r.concepto_id
+          WHERE r.generador_id = g.id AND c.ruta_jerarquica IS NOT NULL AND jsonb_array_length(c.ruta_jerarquica) >= 1
+          UNION
+          SELECT c.ruta_jerarquica ->> GREATEST(jsonb_array_length(c.ruta_jerarquica) - 1, 0)
+          FROM generador_obra_renglones r JOIN conceptos c ON c.id = r.concepto_id
+          WHERE r.generador_id = g.id AND c.ruta_jerarquica IS NOT NULL AND jsonb_array_length(c.ruta_jerarquica) >= 1
+          UNION
+          SELECT f.partida FROM generador_obra_fotos f WHERE f.generador_id = g.id
+          UNION
+          SELECT f.subpartida FROM generador_obra_fotos f WHERE f.generador_id = g.id
+        ) sub
+        WHERE texto IS NOT NULL AND texto <> ''
+      ) AS partidas_texto
     FROM generadores_obra g
     LEFT JOIN usuarios u ON u.id = g.residente_id
     LEFT JOIN usuarios a ON a.id = g.admin_aprobador_id

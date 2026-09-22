@@ -23911,19 +23911,49 @@ async function cargarImagenAutenticada(path) {
   return URL.createObjectURL(blob);
 }
 
+// prompt-generador-obra-buscador.md: filtro de texto (folio/nombre/croquis/
+// partida-subpartida vía partidas_texto) + chips de Estado, 100% client-side
+// sobre generadoresObraRaw ya cargado — reaplicado tras cada repintado
+// (crear/enviar/aprobar/rechazar) igual que aplicarFiltrosAvc() hace para la
+// captura de Avance, mismo criterio de UX (no perder el filtro activo al
+// refrescar la lista).
+let filtroTextoGenObra = '';
+let filtroEstadoGenObra = '';
+
 async function renderGeneradoresObra(view) {
   if (!puedeVerGeneradoresObra()) {
     view.innerHTML = `<div class="alert-box danger">⚠️ No tienes permiso para ver esta sección.</div>`;
     return;
   }
+  filtroTextoGenObra = '';
+  filtroEstadoGenObra = '';
   view.innerHTML = `
     <h2 class="section-title">Generadores de Obra</h2>
     <div class="section-actions mt-12">
       ${puedeCapturarGeneradorObra() ? `<button class="btn btn-primary" id="btnNuevoGeneradorObra">+ Nuevo generador</button>` : ''}
     </div>
-    <div id="generadoresObraList"><div class="empty-state">Cargando…</div></div>
+    <div class="search-bar mt-12">
+      <input type="search" id="genObraBuscar" placeholder="Buscar por folio, nombre/croquis o partida…" autocomplete="off" />
+    </div>
+    <div class="chip-row" id="genObraEstadoChips">
+      <button type="button" class="chip active" data-estado="">Todos</button>
+      ${Object.entries(GENOBRA_ESTADO_LABELS).map(([v, label]) => `<button type="button" class="chip" data-estado="${v}">${esc(label)}</button>`).join('')}
+    </div>
+    <div id="generadoresObraList" class="mt-12"><div class="empty-state">Cargando…</div></div>
+    <div class="empty-state hidden-initial" id="genObraEmptyState">Sin resultados para tu búsqueda.</div>
   `;
   $('#btnNuevoGeneradorObra')?.addEventListener('click', () => openGeneradorObraModal(loadGeneradoresObra));
+  $('#genObraBuscar').addEventListener('input', (e) => {
+    filtroTextoGenObra = e.target.value;
+    aplicarFiltrosGenObra();
+  });
+  $('#genObraEstadoChips').addEventListener('click', (e) => {
+    const chip = e.target.closest('.chip');
+    if (!chip) return;
+    filtroEstadoGenObra = chip.dataset.estado;
+    $$('.chip', $('#genObraEstadoChips')).forEach((c) => c.classList.toggle('active', c === chip));
+    aplicarFiltrosGenObra();
+  });
   await loadGeneradoresObra();
 }
 
@@ -23938,12 +23968,28 @@ async function loadGeneradoresObra() {
   }
 }
 
+function aplicarFiltrosGenObra() {
+  const el = $('#generadoresObraList');
+  const empty = $('#genObraEmptyState');
+  if (!el || !empty) return;
+  const q = normalizarTexto(filtroTextoGenObra.trim());
+  let visibles = 0;
+  $$('[data-genobra-card]', el).forEach((card) => {
+    const matchTexto = !q || card.dataset.search.includes(q);
+    const matchEstado = !filtroEstadoGenObra || card.dataset.estado === filtroEstadoGenObra;
+    const visible = matchTexto && matchEstado;
+    card.classList.toggle('hidden-initial', !visible);
+    if (visible) visibles += 1;
+  });
+  empty.classList.toggle('hidden-initial', visibles > 0 || generadoresObraRaw.length === 0);
+}
+
 function paintGeneradoresObraList() {
   const el = $('#generadoresObraList');
   if (!el) return;
-  if (!generadoresObraRaw.length) { el.innerHTML = '<div class="empty-state">No hay generadores de obra registrados.</div>'; return; }
+  if (!generadoresObraRaw.length) { el.innerHTML = '<div class="empty-state">No hay generadores de obra registrados.</div>'; $('#genObraEmptyState')?.classList.add('hidden-initial'); return; }
   el.innerHTML = generadoresObraRaw.map((g) => `
-    <div class="card">
+    <div class="card" data-genobra-card data-estado="${g.estado}" data-search="${esc(normalizarTexto(`${g.folio} ${g.nombre || ''} ${g.partidas_texto || ''}`))}">
       <div class="row between nomina-row-6">
         <div>
           <strong>${g.nombre ? esc(g.nombre) : 'Generador #' + g.folio}</strong>
@@ -23975,6 +24021,7 @@ function paintGeneradoresObraList() {
   $$('[data-rechazar-genobra]', el).forEach((btn) => {
     btn.addEventListener('click', () => openCambioEstadoGeneradorObraModal(Number(btn.dataset.rechazarGenobra), 'rechazada', true, loadGeneradoresObra));
   });
+  aplicarFiltrosGenObra();
 }
 
 async function openGeneradorObraModal(onSave) {

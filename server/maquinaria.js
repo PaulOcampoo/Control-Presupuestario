@@ -219,11 +219,20 @@ async function softDeleteMantenimiento(id) {
 // (quien capturó el reporte), NO por equipos_maquinaria.operador_asignado_id
 // — un reporte histórico pertenece a quien lo capturó, aunque la máquina se
 // haya reasignado a otro operador después. Filtro en el propio SQL.
-async function listHoras(equipoId, operadorId) {
+// clienteId (prompt-maquinaria-filtro-cliente.md): opcional a propósito — el
+// modal de "Histórico de equipo" llama listHoras(equipoId) sin clienteId y
+// debe seguir viendo el historial completo del equipo entre obras (catálogo
+// global, diseño ya documentado); solo la pantalla de Horas/Pendientes de
+// autorizar (que sí vive dentro de un cliente activo) lo manda. Con
+// clienteId, un reporte con obra_id NULL queda fuera (LEFT JOIN + WHERE
+// p.cliente_id = $N no matchea NULL) — correcto: sin obra no hay forma de
+// saber a qué cliente pertenece.
+async function listHoras(equipoId, operadorId, clienteId) {
   const conditions = ['h.activo = true'];
   const params = [];
   if (equipoId) { params.push(equipoId); conditions.push(`h.equipo_id = $${params.length}`); }
   if (operadorId) { params.push(operadorId); conditions.push(`h.operador_id = $${params.length}`); }
+  if (clienteId) { params.push(clienteId); conditions.push(`p.cliente_id = $${params.length}`); }
   const { rows } = await db.pool.query(`
     SELECT h.*, e.nombre AS equipo_nombre, u.nombre AS operador_nombre, p.nombre AS obra_nombre,
       ur.nombre AS revisado_por_nombre

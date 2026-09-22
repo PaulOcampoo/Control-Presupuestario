@@ -1773,7 +1773,8 @@ app.get('/api/maquinaria/bitacora-taller', h(auth.checkPermiso('maquinaria_mante
 // autorizar/rechazar, sin scoping por operador).
 app.get('/api/maquinaria/horas', h(auth.checkPermiso('maquinaria', 'puede_ver')), h(async (req, res) => {
   const operadorId = req.user.puesto === 'operador' ? req.user.id : null;
-  res.json(await maquinaria.listHoras(req.query.equipo_id ? Number(req.query.equipo_id) : null, operadorId));
+  const clienteId = req.query.cliente_id ? Number(req.query.cliente_id) : null;
+  res.json(await maquinaria.listHoras(req.query.equipo_id ? Number(req.query.equipo_id) : null, operadorId, clienteId));
 }));
 
 // Catálogo fijo de actividad (prompt-2-rol-operador-actividades.md) —

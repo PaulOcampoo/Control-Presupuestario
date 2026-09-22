@@ -9070,7 +9070,8 @@ async function openAvanceConceptosModal(avance, presupuestoTotal, puedeEditar = 
                    ${bloqueado ? `title="Faltan insumos por entregar en obra: ${esc(pendientes.map((p) => p.insumo_nombre).join(', '))}"` : ''} />
             ${c.sugerido_generador != null && puedeEditar && !bloqueado ? `
               <div class="muted fs-082 mt-4" data-sugerido-generador>
-                📎 Sugerido por Generador de Obra: ${fmtNum(c.sugerido_generador, 3)} ${esc(c.unidad || '')}
+                📎 Sugerido por Generador de Obra${(c.sugerido_folios || []).length ? ` — Folio${c.sugerido_folios.length > 1 ? 's' : ''} ${c.sugerido_folios.map((f) => `<button type="button" class="link-btn avc-ver-generador-sugerido" data-ver-generador-sugerido="${f.id}">#${f.folio}</button>`).join(', ')}` : ''}:
+                ${fmtNum(c.sugerido_generador, 3)} ${esc(c.unidad || '')}
                 <button type="button" class="link-btn avc-usar-sugerido" data-usar-sugerido="${c.concepto_id}" data-valor-sugerido="${c.sugerido_generador}">Usar</button>
               </div>` : ''}
           </div>
@@ -9509,6 +9510,14 @@ async function openAvanceConceptosModal(avance, presupuestoTotal, puedeEditar = 
     if (!inp) return;
     inp.value = Number(btn.dataset.valorSugerido).toFixed(2).replace(/\.?0+$/, '') || '0';
     inp.dispatchEvent(new Event('input', { bubbles: true }));
+  }));
+  // Folio(s) de la nota "Sugerido por Generador de Obra" — mismo criterio
+  // que el resto de "Ver detalle" de la app: reemplaza el contenido de
+  // #modal (no hay stacking de modales), el residente pierde el capturado
+  // sin guardar de este modal si navega — riesgo aceptado, consistente con
+  // cualquier otro cruce entre módulos de esta app.
+  $$('[data-ver-generador-sugerido]').forEach((btn) => btn.addEventListener('click', () => {
+    openVerGeneradorObraModal(Number(btn.dataset.verGeneradorSugerido));
   }));
 
   if (puedeEditar) {

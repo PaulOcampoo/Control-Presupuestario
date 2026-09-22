@@ -3208,6 +3208,7 @@ function closeModal() {
   $('#modal').classList.remove('eu-historico-modal'); // ver openHistoricoEstadoUnidadMaqModal — mismo criterio
   $('#modal').classList.remove('gencat-preview-modal'); // ver pintarPreviewCatalogoGenerador — mismo criterio
   $('#modal').classList.remove('genobra-preview-modal'); // ver openVistaPreviaGeneradorObraModal — mismo criterio
+  $('#modal').classList.remove('genobra-detalle-modal'); // ver openVerGeneradorObraModal — mismo criterio
   $('#modalOverlay').classList.remove('show');
   $('#modal').innerHTML = '';
   unlockBodyScroll('modal');
@@ -24082,7 +24083,7 @@ async function openVerGeneradorObraModal(generadorId) {
   // limpia aquí el ancho angosto del detalle queda pisado por la regla CSS
   // más ancha de la preview (.modal.modal-wide.genobra-preview-modal).
   $('#modal').classList.remove('genobra-preview-modal');
-  $('#modal').classList.add('modal-wide');
+  $('#modal').classList.add('modal-wide', 'genobra-detalle-modal');
   openModal(`<h3>Detalle del generador de obra</h3><div id="verGeneradorObraBody"><div class="empty-state">Cargando…</div></div>
     <div class="modal-actions">
       <button class="btn" id="btnCerrarVerGeneradorObra">Cerrar</button>
@@ -24364,6 +24365,11 @@ async function pintarVerGeneradorObra(generadorId) {
 // el contenido de #modal (no hay stacking de modales en esta app), así que
 // "Volver" simplemente vuelve a abrir el modal de detalle desde cero.
 async function openVistaPreviaGeneradorObraModal(generadorId) {
+  // Defensivo, mismo criterio que openVerGeneradorObraModal(): el botón
+  // "Vista previa" del detalle llama a esta función directo, sin pasar por
+  // closeModal(), así que hay que soltar 'genobra-detalle-modal' aquí
+  // también o el footer sticky del detalle queda pisando el de la preview.
+  $('#modal').classList.remove('genobra-detalle-modal');
   $('#modal').classList.add('modal-wide', 'genobra-preview-modal');
   openModal(`<h3>Vista previa — Generador de obra</h3><p class="muted fs-088">Así se verá el documento exportado. Solo se incluyen Partida/Subpartida con al menos un renglón o una foto capturada — nada se descarga desde aquí.</p><div id="genobraPreviewBody"><div class="empty-state">Cargando…</div></div><div class="modal-actions"><button class="btn" id="btnVolverGenObraPreview">Volver al detalle</button></div>`);
   $('#btnVolverGenObraPreview').addEventListener('click', () => openVerGeneradorObraModal(generadorId));

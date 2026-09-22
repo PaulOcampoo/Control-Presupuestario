@@ -3534,6 +3534,29 @@ html[data-palette="dorada"]:not([data-theme="light"]) .welcome-card {
    Estimaciones, sin introducir variables nuevas. */
 .genobra-partida-block { border: 1px solid var(--border-color); border-radius: var(--radius-sm); padding: var(--space-8); margin-bottom: var(--space-14); }
 .genobra-partida-summary { cursor: pointer; font-weight: 600; padding: var(--space-4) 0; }
+/* prompt-generador-obra-pestanas.md: en el modal de detalle .genobra-partida-summary
+   ya no es un <summary> nativo clicable (el toggle ahora lo hace la pestaña
+   de arriba, .genobra-partida-tabs) — mismo criterio que ya usa Vista previa
+   dos reglas más abajo para anular el cursor:pointer heredado, sin tocar esa
+   regla de Vista previa. */
+.genobra-partida-header .genobra-partida-summary { cursor: default; }
+.genobra-partida-header { margin-bottom: var(--space-8); }
+/* Barra de pestañas de Partida (detalle del Generador de Obra) — clases
+   dedicadas, NO reusa .tabs/.tab: esa clase está documentada como de un solo
+   contexto real (barra de sección bajo el topbar, ver comentario junto a
+   .tab más arriba) y su position:sticky con top calculado para el topbar
+   de la app rompería dentro de un modal. Mismo lenguaje visual (pill,
+   dorado en activo) sin acoplarse a esa regla. */
+.genobra-partida-tabs {
+  display: flex; overflow-x: auto; flex-wrap: nowrap; gap: var(--space-8);
+  margin-bottom: var(--space-14); padding-bottom: var(--space-4); -webkit-overflow-scrolling: touch;
+}
+.genobra-partida-tab {
+  flex: 0 0 auto; padding: var(--space-8) var(--space-14); border-radius: var(--radius-pill);
+  border: 1px solid var(--border-color); background: var(--bg-surface-2); color: var(--text-secondary);
+  font-size: var(--fs-sm); cursor: pointer; white-space: nowrap;
+}
+.genobra-partida-tab.active { background: var(--accent-gold); color: #04212f; border-color: var(--accent-gold); font-weight: 600; }
 .genobra-subpartida-block { margin: var(--space-8) 0 var(--space-8) var(--space-14); }
 .genobra-subpartida-title { margin: var(--space-8) 0 var(--space-4); font-size: var(--fs-sm); color: var(--text-secondary); }
 .genobra-concepto-block { padding: var(--space-8) 0; border-top: 1px solid var(--border-color); }

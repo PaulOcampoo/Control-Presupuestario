@@ -23881,7 +23881,7 @@ const GENOBRA_ESTADO_BADGE = { borrador: 'muted', enviada: 'yellow', aprobada: '
 let generadoresObraRaw = [];
 // Estado de edición LOCAL del modal de detalle abierto (nunca persistido) —
 // controla qué renglón se muestra como fila editable/nueva antes de Guardar.
-let generadorObraUiState = { editingRenglonId: null, addingConceptoId: null };
+let generadorObraUiState = { editingRenglonId: null, addingConceptoId: null, activePartida: null };
 // Object URLs de las miniaturas de fotos actualmente pintadas (Fase 2) —
 // se revocan al repintar para no acumular memoria en una sesión larga con
 // varios repintados (cada acción de renglón/foto vuelve a llamar
@@ -24123,7 +24123,7 @@ function agruparGeneradorObraParaPreview(renglones, fotos) {
 }
 
 async function openVerGeneradorObraModal(generadorId) {
-  generadorObraUiState = { editingRenglonId: null, addingConceptoId: null };
+  generadorObraUiState = { editingRenglonId: null, addingConceptoId: null, activePartida: null };
   // Defensivo: remover 'genobra-preview-modal' aquí (no solo confiar en
   // closeModal()) — el botón "Volver al detalle" de la Vista previa llama a
   // esta función directo, sin pasar por closeModal(), así que si no se
@@ -24266,30 +24266,76 @@ async function pintarVerGeneradorObra(generadorId) {
         </div>`;
     };
 
-    const bloquesHtml = [...partidas.entries()].map(([partida, subpartidas]) => `
-      <details class="genobra-partida-block" open>
-        <summary class="genobra-partida-summary">${esc(partida)}</summary>
-        ${[...subpartidas.entries()].map(([subpartida, conceptos]) => `
+    // prompt-generador-obra-pestanas.md: partidas de nivel superior como
+    // pestañas horizontales en vez de <details> apilados — evita scrollear
+    // entre secciones largas para llegar a la foto/renglones de otra
+    // partida. Las subpartidas SIGUEN anidadas dentro de su partida sin
+    // segundo nivel de pestañas (diagnóstico real: máx. 8 subpartidas en una
+    // sola partida entre los proyectos reales revisados, manejable sin
+    // navegación adicional). El panel oculto se oculta con hidden-initial
+    // (display:none), nunca se desmonta del DOM, así que un renglón a medio
+    // capturar en una pestaña no se pierde al cambiar a otra y volver — el
+    // click del tab (wireado más abajo) solo alterna clases, no repinta.
+    const partidaKeys = [...partidas.keys()];
+    if (!partidaKeys.includes(generadorObraUiState.activePartida)) {
+      generadorObraUiState.activePartida = partidaKeys[0] ?? null;
+    }
+    const subtotalPartida = (subpartidasMap) => {
+      let total = 0;
+      subpartidasMap.forEach((conceptosDePartida) => {
+        conceptosDePartida.forEach((c) => {
+          total += (renglonesPorConcepto.get(c.id) || []).reduce((s, r) => s + Number(r.subtotal || 0), 0);
+        });
+      });
+      return total;
+    };
+    const tabsHtml = partidaKeys.length > 1 ? `
+      <div class="genobra-partida-tabs">
+        ${partidaKeys.map((p) => `
+          <button type="button" class="genobra-partida-tab${p === generadorObraUiState.activePartida ? ' active' : ''}" data-partida-tab="${esc(p)}">${esc(p)}</button>
+        `).join('')}
+      </div>` : '';
+
+    const bloquesHtml = partidaKeys.map((partida) => {
+      const subpartidasMap = partidas.get(partida);
+      const activa = partida === generadorObraUiState.activePartida;
+      return `
+      <div class="genobra-partida-block${activa ? '' : ' hidden-initial'}" data-partida-panel="${esc(partida)}">
+        <div class="row between genobra-partida-header">
+          <strong class="genobra-partida-summary">${esc(partida)}</strong>
+          <span class="muted fs-088">Subtotal: ${subtotalPartida(subpartidasMap).toLocaleString('es-MX', { maximumFractionDigits: 2 })}</span>
+        </div>
+        ${[...subpartidasMap.entries()].map(([subpartida, conceptos]) => `
           <div class="genobra-subpartida-block">
             <h4 class="genobra-subpartida-title">${esc(subpartida)}</h4>
             ${bloqueFotos(partida, subpartida)}
             ${conceptos.map(tablaConcepto).join('')}
           </div>
         `).join('')}
-      </details>
-    `).join('');
+      </div>`;
+    }).join('');
 
     el.innerHTML = `
       <div class="muted nomina-detalle-fecha">Folio #${data.folio}${data.nombre ? ' · ' + esc(data.nombre) : ''} · ${esc(data.periodo_inicio)} al ${esc(data.periodo_fin)}
         · <span class="badge ${GENOBRA_ESTADO_BADGE[data.estado] || 'muted'}">${esc(GENOBRA_ESTADO_LABELS[data.estado] || data.estado)}</span>
       </div>
       ${data.comentario_rechazo ? `<div class="alert-box danger mt-8">Motivo de rechazo: ${esc(data.comentario_rechazo)}</div>` : ''}
+      ${tabsHtml}
       ${bloquesHtml || '<div class="empty-state">Esta obra no tiene conceptos disponibles para capturar.</div>'}
       <div class="row between mt-16 genobra-total-general">
         <strong>Total general</strong>
         <strong>${totalGeneral.toLocaleString('es-MX', { maximumFractionDigits: 2 })}</strong>
       </div>
     `;
+
+    $$('[data-partida-tab]', el).forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const p = btn.dataset.partidaTab;
+        generadorObraUiState.activePartida = p;
+        $$('[data-partida-tab]', el).forEach((b) => b.classList.toggle('active', b.dataset.partidaTab === p));
+        $$('[data-partida-panel]', el).forEach((panel) => panel.classList.toggle('hidden-initial', panel.dataset.partidaPanel !== p));
+      });
+    });
 
     // Preview en vivo del subtotal mientras se captura.
     $$('.genobra-row-edit', el).forEach((row) => {

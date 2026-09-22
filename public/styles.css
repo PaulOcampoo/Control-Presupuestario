@@ -1536,6 +1536,29 @@ body.body-scroll-locked { overflow: hidden; }
   .modal.modal-wide.genobra-preview-modal { width: min(88vw, 1200px); }
 }
 
+/* prompt-generador-obra-ajustes-ui.md: barra de botones (Cerrar/Descargar
+   Excel/Descargar PDF/Vista previa) fija al fondo del modal, visible sin
+   scroll sin importar cuánto contenido tenga el generador arriba. Scope
+   compuesto con .genobra-detalle-modal/.genobra-preview-modal (mismo
+   criterio que .modal-wide.gencat-preview-modal arriba) para no afectar a
+   los demás modales que comparten .modal-actions.
+   Sticky-safe: .modal-actions es hijo DIRECTO de #modal, que es a la vez
+   el propio scroll container (overflow-y:auto, ver comentario en .modal
+   más arriba) — no hay ningún ancestro intermedio con overflow propio
+   entre el elemento sticky y su scroll container, así que no aplica el
+   problema de iOS Safari documentado en CLAUDE.md ("Patrón conocido:
+   position: sticky + overflow en iOS Safari"). Confirmado con
+   Playwright/WebKit (mobile + desktop, generador largo real). */
+.modal.genobra-detalle-modal .modal-actions,
+.modal.genobra-preview-modal .modal-actions {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+  background: var(--bg-surface);
+  border-top: 1px solid var(--border-color);
+  padding-top: var(--space-10);
+}
+
 /* Buscador + Ubicación/Partida + "Ir a sección" + toggle "solo pendientes"
    del modal "Avance físico por concepto" (prompt-mejora-modal-avance.md).
    Sticky respecto al propio .modal (ya es el scroll container, overflow-y:
@@ -3521,11 +3544,18 @@ html[data-palette="dorada"]:not([data-theme="light"]) .welcome-card {
 .genobra-total-general { border-top: 2px solid var(--border-color); padding-top: var(--space-8); }
 
 /* Evidencia fotográfica (Fase 2) — grid de miniaturas por Partida/Subpartida,
-   arriba de las tablas de renglones de esa subpartida. */
+   arriba de las tablas de renglones de esa subpartida.
+   Tamaño duplicado (84px -> 168px, prompt-generador-obra-ajustes-ui.md) tanto
+   para la miniatura en sí (.genobra-foto-thumb, reusada tal cual por
+   pintarVerGeneradorObra() y pintarPreviewGeneradorObra() vía la misma
+   clase — un solo punto de cambio cubre detalle y Vista previa) como para el
+   tile "+ Agregar foto" (.genobra-foto-upload), que solo existe en el
+   detalle editable — se agranda igual para no quedar chico junto a las
+   miniaturas ya agrandadas en el mismo grid. */
 .genobra-fotos-block { margin-bottom: var(--space-10); }
 .genobra-fotos-grid { display: flex; flex-wrap: wrap; gap: var(--space-8); }
 .genobra-foto-thumb {
-  position: relative; width: 84px; height: 84px; border-radius: var(--radius); overflow: hidden;
+  position: relative; width: 168px; height: 168px; border-radius: var(--radius); overflow: hidden;
   background: var(--bg-surface-2); border: 1px solid var(--border-color); flex-shrink: 0;
 }
 .genobra-foto-img { width: 100%; height: 100%; object-fit: cover; display: block; }
@@ -3535,7 +3565,7 @@ html[data-palette="dorada"]:not([data-theme="light"]) .welcome-card {
   display: flex; align-items: center; justify-content: center; font-size: var(--fs-2xs); padding: var(--space-0);
 }
 .genobra-foto-upload {
-  width: 84px; height: 84px; border-radius: var(--radius); border: 1px dashed var(--border-color);
+  width: 168px; height: 168px; border-radius: var(--radius); border: 1px dashed var(--border-color);
   display: flex; align-items: center; justify-content: center; text-align: center; cursor: pointer;
   color: var(--text-secondary); font-size: var(--fs-2xs); flex-shrink: 0; padding: var(--space-4);
 }

@@ -45,7 +45,16 @@ const MAQUINARIA_TABS_OPERADOR = ['maquinaria_horas', 'maquinaria_estado_unidad'
 // maquinaria.md): residente gana autorización de reportes de horas de
 // operador, mismo criterio que cabo — ver defaultPermisosParaRol más abajo
 // y ROLES_AUTORIZAN_HORAS_MAQ en public/app.js.
-const MAQUINARIA_TABS_RESIDENTE = ['maquinaria_catalogo', 'maquinaria_horas', 'maquinaria_reportes_cliente'];
+// 'maquinaria_bitacora' agregado (prompt-fix-urgente-generadores-bitacora-
+// residente.md): decisión de negocio de Paul de que residente SÍ debe ver
+// la pestaña completa (combustible + mantenimiento) — antes el tab nunca
+// se renderizaba para residente aunque el backend ya estuviera listo
+// (checkPermiso('maquinaria_combustible'/'maquinaria_mantenimiento', ...)),
+// mismo patrón ya documentado arriba para 'trabajadores'/'maquinaria':
+// agregar el tab no otorga los permisos por sí solo, cada botón dentro de
+// la vista sigue gateado por su propia sección en permisos_usuario (sin
+// fila = 403/botón oculto) — Paul debe otorgarlos aparte desde la matriz.
+const MAQUINARIA_TABS_RESIDENTE = ['maquinaria_catalogo', 'maquinaria_horas', 'maquinaria_bitacora', 'maquinaria_reportes_cliente'];
 
 // Puestos y qué pestañas puede ver cada uno. 'admin' tiene acceso total
 // (se resuelve aparte en allow(), no necesita listarse en cada pestaña).

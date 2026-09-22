@@ -11105,10 +11105,21 @@ app.get('/api/projects/:id/avances/:semana/conceptos', h(auth.allow('residente',
   // si el concepto YA tiene cantidad_ejecutada capturada (no null, > 0)
   // para esta semana, no se sugiere nada — el residente ya decidió el valor.
   const sugeridoMap = {};
+  // folioMap: concepto_id -> Map(generador_id -> folio) de generadores que
+  // sí aportaron un valor > 0 a ese concepto (mismo guard
+  // diasTotales/diasEnEstaSemana que sugeridoMap, para no listar un folio
+  // que en realidad no contribuyó nada). Campo NUEVO y separado de
+  // sugeridoMap (no se toca su forma/tipo — sigue siendo number|null) para
+  // no romper los tests existentes de
+  // prompt-fase3-integracion-avance-estimaciones.md que ya assertan
+  // sugerido_generador como número plano. Se guarda el id además del folio
+  // para que el frontend pueda enlazar directo a "Ver detalle" del
+  // generador (mismo openVerGeneradorObraModal ya usado en todo el módulo).
+  const folioMap = {};
   const { fecha_inicio: semInicio, fecha_fin: semFin } = existRows[0];
   if (semInicio && semFin) {
     const { rows: generadoresSolapados } = await db.pool.query(
-      `SELECT id, periodo_inicio, periodo_fin FROM generadores_obra
+      `SELECT id, folio, periodo_inicio, periodo_fin FROM generadores_obra
        WHERE project_id = $1 AND activo = true AND estado = 'aprobada'
          AND periodo_inicio <= $3 AND periodo_fin >= $2`,
       [pid, semInicio, semFin]
@@ -11126,7 +11137,10 @@ app.get('/api/projects/:id/avances/:semana/conceptos', h(auth.allow('residente',
         const diasEnEstaSemana = diasSolape(gen.periodo_inicio, gen.periodo_fin, semInicio, semFin);
         if (diasTotales <= 0 || diasEnEstaSemana <= 0) continue;
         const aporte = Number(r.volumen) * (diasEnEstaSemana / diasTotales);
+        if (aporte <= 0) continue;
         sugeridoMap[r.concepto_id] = (sugeridoMap[r.concepto_id] || 0) + aporte;
+        if (!folioMap[r.concepto_id]) folioMap[r.concepto_id] = new Map();
+        folioMap[r.concepto_id].set(gen.id, gen.folio);
       }
     }
   }
@@ -11146,6 +11160,9 @@ app.get('/api/projects/:id/avances/:semana/conceptos', h(auth.allow('residente',
       importe_ejecutado_acumulado: acumulada_actual * c.precio_unitario,
       insumos_pendientes: pendientesPorConcepto.get(c.concepto_id) || [],
       sugerido_generador: sugerido,
+      sugerido_folios: sugerido != null && folioMap[c.concepto_id]
+        ? [...folioMap[c.concepto_id].entries()].map(([id, folio]) => ({ id, folio })).sort((a, b) => a.folio - b.folio)
+        : [],
     };
   });
   res.json({ semana, items });

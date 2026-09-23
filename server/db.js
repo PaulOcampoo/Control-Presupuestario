@@ -2515,6 +2515,23 @@ const SCHEMA = `
       WHERE pu.usuario_id = u.id AND pu.proyecto_id IS NULL AND pu.seccion = 'maquinaria_mantenimiento'
     );
 
+  -- prompt-otorgar-combustible-todos-residentes.md: decisión de negocio
+  -- (sesión anterior) — todos los residentes deben tener acceso COMPLETO a
+  -- Bitácora (combustible + mantenimiento), no solo verla.
+  -- A propósito NO va aquí como backfill automático: a diferencia de los
+  -- backfills de arriba (que acompañan un cambio de código que ya cambia el
+  -- contrato del endpoint — sección nueva, rename de rol, etc.), este es un
+  -- UPDATE que muta filas ya existentes de usuarios reales en Production sin
+  -- ningún gate manual más que el code review del PR — initSchema() lo
+  -- correría solo, en el próximo cold start tras el deploy, sin que Paul vea
+  -- el UPDATE exacto ni pueda revisar conteos antes/después como con el resto
+  -- de cambios de datos de este repo (ver fix-duplicacion-conceptos-*.sql).
+  -- Ver prompt-otorgar-combustible-todos-residentes.sql — Paul lo corre a
+  -- mano en Neon Production, mismo patrón que todo fix de datos anterior.
+  -- defaultPermisosParaRol (server/auth.js) ya cubre altas NUEVAS de
+  -- residente con puede_crear=true; este script solo hace falta para los
+  -- residentes que ya existían antes de este cambio.
+
   -- prompt-fondo-garantia-editable-panel.md: defaultPermisosParaRol
   -- (server/auth.js) ya da puede_editar=true en 'finanzas' a tesorería para
   -- altas NUEVAS, pero solo se evalúa al crear un usuario — mismo criterio

@@ -520,19 +520,25 @@ function defaultPermisosParaRol(puesto) {
     // Catálogo, y por API directa) gracias a que sus tabs de maquinaria
     // mapean a 'maquinaria'. Capacidad YA existente que se preserva
     // explícitamente (no es nueva), mismo criterio que 'proveedores' arriba
-    // en este mismo bloque residente/cabo — solo lectura, sin puede_crear
-    // (eso sigue siendo exclusivo de jefe_maquinaria).
+    // en este mismo bloque residente/cabo.
+    // prompt-otorgar-combustible-todos-residentes.md: puede_crear pasó de
+    // false a true — decisión de negocio (sesión anterior), todos los
+    // residentes deben poder CAPTURAR combustible/mantenimiento en Bitácora,
+    // no solo verla (antes exclusivo de jefe_maquinaria). Backfill para
+    // residente ya existentes en server/db.js (esta función solo aplica a
+    // altas nuevas).
     filas.push({
-      seccion: 'maquinaria_combustible', puede_ver: true, puede_crear: false,
+      seccion: 'maquinaria_combustible', puede_ver: true, puede_crear: true,
       puede_editar: false, puede_editar_precios: false, puede_eliminar: false,
     });
     // prompt-limpieza-permisos-cabo.md: 'maquinaria_mantenimiento' separada
     // de 'maquinaria_combustible' arriba — mismo criterio y misma
     // justificación exacta (residente ya podía leer mantenimientos vía el
-    // panel Historial/bitacora-taller, se preserva explícitamente, solo
-    // lectura).
+    // panel Historial/bitacora-taller, se preserva explícitamente).
+    // prompt-otorgar-combustible-todos-residentes.md: mismo cambio que
+    // 'maquinaria_combustible' arriba, puede_crear true.
     filas.push({
-      seccion: 'maquinaria_mantenimiento', puede_ver: true, puede_crear: false,
+      seccion: 'maquinaria_mantenimiento', puede_ver: true, puede_crear: true,
       puede_editar: false, puede_editar_precios: false, puede_eliminar: false,
     });
     // Almacén Fase 1 (prompt-almacen-fase1.md): residente captura Salidas

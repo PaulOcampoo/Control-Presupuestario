@@ -41,9 +41,12 @@ function nivelUbicacionSelectHtml(idAttr, valorActual) {
 // desarrollador), operador no ve catálogo completo ni reportes por cliente
 // (siempre trabaja sobre su propia unidad asignada).
 const MAQUINARIA_TABS_ADMIN = ['maquinaria_catalogo', 'maquinaria_horas', 'maquinaria_bitacora', 'maquinaria_estado_unidad', 'maquinaria_consumibles', 'maquinaria_reportes_cliente'];
-const MAQUINARIA_TABS_CABO = ['maquinaria_catalogo', 'maquinaria_horas', 'maquinaria_estado_unidad', 'maquinaria_consumibles', 'maquinaria_reportes_cliente'];
+// 'maquinaria_bitacora' agregado a cabo y operador (prompt-auditoria-roles-
+// bitacora-maquinaria.md) — mirror del mismo cambio en server/auth.js,
+// mantener en sync.
+const MAQUINARIA_TABS_CABO = ['maquinaria_catalogo', 'maquinaria_horas', 'maquinaria_bitacora', 'maquinaria_estado_unidad', 'maquinaria_consumibles', 'maquinaria_reportes_cliente'];
 const MAQUINARIA_TABS_JEFE = ['maquinaria_catalogo', 'maquinaria_bitacora', 'maquinaria_estado_unidad', 'maquinaria_consumibles', 'maquinaria_reportes_cliente'];
-const MAQUINARIA_TABS_OPERADOR = ['maquinaria_horas', 'maquinaria_estado_unidad', 'maquinaria_consumibles'];
+const MAQUINARIA_TABS_OPERADOR = ['maquinaria_horas', 'maquinaria_bitacora', 'maquinaria_estado_unidad', 'maquinaria_consumibles'];
 
 // Las 5 subsecciones reales de Contabilidad (prompt-contabilidad-galeria-
 // tiles.md) — constante única reusada aquí y en SECTION_DEFS.contabilidad.tabs

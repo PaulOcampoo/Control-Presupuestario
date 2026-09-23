@@ -11139,15 +11139,16 @@ function defaultPermisosParaRolFrontend(puesto) {
     if (porSeccion.requisiciones) porSeccion.requisiciones.puede_crear = true;
     if (porSeccion.ordenes_cambio) porSeccion.ordenes_cambio.puede_crear = true;
     if (porSeccion.lotes) { porSeccion.lotes.puede_crear = true; porSeccion.lotes.puede_editar = true; }
-    // prompt-limpieza-permisos-cabo.md: mirror de los defaults nuevos de
-    // residente en server/auth.js — solo lectura, residente no captura
-    // combustible/mantenimiento (eso sigue siendo jefe_maquinaria).
+    // prompt-otorgar-combustible-todos-residentes.md: mirror de
+    // server/auth.js defaultPermisosParaRol — residente ahora SÍ captura
+    // combustible/mantenimiento (antes solo lectura, exclusivo de
+    // jefe_maquinaria).
     porSeccion.maquinaria_combustible = {
-      seccion: 'maquinaria_combustible', puede_ver: true, puede_crear: false,
+      seccion: 'maquinaria_combustible', puede_ver: true, puede_crear: true,
       puede_editar: false, puede_editar_precios: false, puede_eliminar: false,
     };
     porSeccion.maquinaria_mantenimiento = {
-      seccion: 'maquinaria_mantenimiento', puede_ver: true, puede_crear: false,
+      seccion: 'maquinaria_mantenimiento', puede_ver: true, puede_crear: true,
       puede_editar: false, puede_editar_precios: false, puede_eliminar: false,
     };
   }

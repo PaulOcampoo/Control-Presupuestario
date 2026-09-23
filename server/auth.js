@@ -38,9 +38,20 @@ const TOTP_ISSUER = 'Grupo Roforb — Control Presupuestal';
 // maquinaria_consumibles — ver defaultPermisosParaRol más abajo, sin bloque
 // explícito para residente en ninguna de esas 4 secciones).
 const MAQUINARIA_TABS_ADMIN = ['maquinaria_catalogo', 'maquinaria_horas', 'maquinaria_bitacora', 'maquinaria_estado_unidad', 'maquinaria_consumibles', 'maquinaria_reportes_cliente'];
-const MAQUINARIA_TABS_CABO = ['maquinaria_catalogo', 'maquinaria_horas', 'maquinaria_estado_unidad', 'maquinaria_consumibles', 'maquinaria_reportes_cliente'];
+// 'maquinaria_bitacora' agregado a cabo y operador (prompt-auditoria-roles-
+// bitacora-maquinaria.md): mismo gap que MAQUINARIA_TABS_RESIDENTE (PR #292)
+// — el tab nunca se renderizaba para estos 2 roles aunque el backend ya
+// gateaba correctamente con checkPermiso('maquinaria_combustible'/
+// 'maquinaria_mantenimiento', ...). Decisión de Paul: cabo debe quedar
+// limitado en la práctica a solo combustible (no mantenimiento) — eso NO se
+// hardcodea aquí, se logra dejando que Paul otorgue únicamente
+// maquinaria_combustible.puede_crear/puede_ver a cabo desde la matriz y no
+// toque maquinaria_mantenimiento (ambos botones de la vista ya están
+// gateados de forma independiente por permisos_usuario, ver
+// renderMaquinariaBitacora en public/app.js).
+const MAQUINARIA_TABS_CABO = ['maquinaria_catalogo', 'maquinaria_horas', 'maquinaria_bitacora', 'maquinaria_estado_unidad', 'maquinaria_consumibles', 'maquinaria_reportes_cliente'];
 const MAQUINARIA_TABS_JEFE = ['maquinaria_catalogo', 'maquinaria_bitacora', 'maquinaria_estado_unidad', 'maquinaria_consumibles', 'maquinaria_reportes_cliente'];
-const MAQUINARIA_TABS_OPERADOR = ['maquinaria_horas', 'maquinaria_estado_unidad', 'maquinaria_consumibles'];
+const MAQUINARIA_TABS_OPERADOR = ['maquinaria_horas', 'maquinaria_bitacora', 'maquinaria_estado_unidad', 'maquinaria_consumibles'];
 // 'maquinaria_horas' agregado (prompt-fix-cabo-y-extender-residente-
 // maquinaria.md): residente gana autorización de reportes de horas de
 // operador, mismo criterio que cabo — ver defaultPermisosParaRol más abajo

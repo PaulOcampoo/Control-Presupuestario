@@ -1108,11 +1108,21 @@ function mostrarPantalla(id, display) {
   trackEvent('screen_view', { screen: id });
 }
 
+// prompt-ocultar-fab-asistente-login.md: el FAB de Asistente vive fuera de
+// #app (ver comentario en index.html), así que no hereda su display:none —
+// necesita su propio toggle explícito en cada transición de pantalla.
+// Oculto por defecto (hidden-initial en el HTML) hasta la primera llamada
+// con visible=true, para que nunca aparezca ni un frame en login.
+function setAsistenteFabVisible(visible) {
+  $('#btnAsistenteFab').classList.toggle('hidden-initial', !visible);
+  if (!visible) toggleAsistentePanel(false);
+}
 function showLoginScreen() {
   ocultarPantalla('app');
   ocultarPantalla('clientGalleryScreen');
   ocultarPantalla('welcomeScreen');
   mostrarPantalla('loginScreen', 'flex');
+  setAsistenteFabVisible(false);
   $('#loginUsuario').focus();
 }
 function showApp() {
@@ -1120,6 +1130,7 @@ function showApp() {
   ocultarPantalla('clientGalleryScreen');
   ocultarPantalla('welcomeScreen');
   mostrarPantalla('app', '');
+  setAsistenteFabVisible(true);
   requestAnimationFrame(initTopbarObserver);
   requestAnimationFrame(initDebugBadge);
 }
@@ -1128,12 +1139,14 @@ function showClientGallery() {
   ocultarPantalla('app');
   ocultarPantalla('welcomeScreen');
   mostrarPantalla('clientGalleryScreen', 'flex');
+  setAsistenteFabVisible(true);
 }
 function showWelcomeScreen() {
   ocultarPantalla('loginScreen');
   ocultarPantalla('clientGalleryScreen');
   ocultarPantalla('app');
   mostrarPantalla('welcomeScreen', 'flex');
+  setAsistenteFabVisible(true);
 }
 
 // Devuelve el puesto efectivo: el simulado (si está activo) o el real del usuario.

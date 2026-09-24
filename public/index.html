@@ -459,8 +459,12 @@
        cualquier rol autenticado. Panel PROPIO (no reusa #modal/#modalOverlay
        de arriba) a propósito: el resto de la app abre y cierra el modal
        genérico constantemente, y eso destruiría la conversación en curso si
-       el asistente viviera ahí — ver render/wireAsistente() en app.js. -->
-  <button id="btnAsistenteFab" class="fab-asistente" aria-label="Abrir asistente" title="Asistente">💬</button>
+       el asistente viviera ahí — ver render/wireAsistente() en app.js.
+       Vive FUERA de #app (por eso necesita hidden-initial propio en vez de
+       heredar el display:none de #app) — prompt-ocultar-fab-asistente-login.md:
+       setAsistenteFabVisible() en app.js lo muestra/oculta en cada
+       showApp()/showClientGallery()/showWelcomeScreen()/showLoginScreen(). -->
+  <button id="btnAsistenteFab" class="fab-asistente hidden-initial" aria-label="Abrir asistente" title="Asistente">💬</button>
   <div id="asistentePanel" class="asistente-panel hidden-initial" role="dialog" aria-label="Asistente">
     <div class="asistente-panel-header">
       <strong>Asistente</strong>

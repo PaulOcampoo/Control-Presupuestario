@@ -4421,6 +4421,12 @@ tr.eu-row-critico td { background: color-mix(in srgb, var(--red) 9%, transparent
   box-shadow: 0 8px 24px color-mix(in srgb, var(--accent-gold) 45%, transparent);
 }
 .fab-asistente:active { transform: scale(0.94); }
+/* prompt-ocultar-fab-asistente-login.md: .fab-asistente ya fija su propio
+   display:flex arriba, misma especificidad que .hidden-initial — sin este
+   override explícito (mismo patrón que #app.hidden-initial), el orden de
+   aparición en el archivo haría que display:flex ganara igual con la clase
+   puesta. */
+.fab-asistente.hidden-initial { display: none; }
 @media (max-width: 860px) {
   /* Arriba de la barra inferior (.mobile-nav) Y de la excepción móvil de
      .fab (Insumos/Requisiciones) para que, en esas 2 vistas, se apilen en

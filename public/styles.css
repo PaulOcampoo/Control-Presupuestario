@@ -687,7 +687,7 @@ button, a, select, label,
    remanentes se apilaban en un bloque vacío grande entre el header y la
    barra de pestañas. Transition incluye padding para que el colapso siga
    viéndose suave. */
-#totpReminderBanner, #installBanner, #novedadesBanner, #novedadesBannerGallery {
+#totpReminderBanner, #installBanner, #novedadesBanner, #novedadesBannerGallery, #swUpdateBanner {
   overflow: hidden;
   max-height: 0;
   opacity: 0;
@@ -704,6 +704,19 @@ button, a, select, label,
   padding-top: var(--space-10);
   padding-bottom: var(--space-10);
   border-bottom-width: 1px;
+}
+/* #swUpdateBanner: una sola línea + un botón, mismo tamaño que #installBanner
+   (prompt-actualizacion-periodica-service-worker.md) — a diferencia de ese,
+   sí lleva margin/border completos (no solo border-bottom) porque no vive
+   pegado al header, sino apilado junto a los otros avisos de esta zona. */
+#swUpdateBanner.show {
+  max-height: 80px;
+  opacity: 1;
+  padding-top: var(--space-10);
+  padding-bottom: var(--space-10);
+  border-width: 1px;
+  margin-top: var(--space-8);
+  margin-bottom: var(--space-8);
 }
 /* #novedadesBanner / #novedadesBannerGallery: título curado por admin, largo
    variable — mismo margen que #totpReminderBanner (140px) para que un

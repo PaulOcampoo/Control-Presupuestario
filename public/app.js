@@ -15521,21 +15521,42 @@ document.addEventListener('focus', (e) => {
 // PWA: service worker registration
 // ---------------------------------------------------------------------------
 if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(() => {}));
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').then((reg) => {
+      // El navegador solo revisa sw.js por su cuenta en eventos de
+      // navegación — una PWA dejada abierta/en background por semanas nunca
+      // dispara esa revisión sola. Causa raíz confirmada de un residente
+      // atascado ~40 días en un app.js viejo, sin ver módulos nuevos
+      // (prompt-diagnostico-mosaico-generadores-obra.md). 45 min cubre
+      // "dejada abierta"; visibilitychange cubre "minimizada y reabierta".
+      // 30-60 min a propósito, no más seguido — evita tráfico innecesario
+      // (prompt-actualizacion-periodica-service-worker.md).
+      const checkForUpdate = () => reg.update().catch(() => {});
+      setInterval(checkForUpdate, 45 * 60 * 1000);
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') checkForUpdate();
+      });
+    }).catch(() => {});
+  });
   // sw.js usa skipWaiting()+clients.claim(), así que un SW nuevo toma control
   // de esta misma pestaña sin recargarla — pero el JS ya cargado en memoria
-  // sigue siendo el viejo hasta el próximo reload. Sin esto, una pestaña
-  // abierta durante un deploy queda ejecutando app.js viejo contra el backend
-  // ya nuevo (causa real del login roto tras el deploy de 2FA: el JS viejo
-  // asumía la forma de respuesta anterior a 2FA). Recarga una sola vez
-  // cuando el nuevo SW toma control.
-  let swReloading = false;
-  navigator.serviceWorker.addEventListener('controllerchange', () => {
-    if (swReloading) return;
-    swReloading = true;
-    window.location.reload();
-  });
+  // sigue siendo el viejo hasta el próximo reload. Antes recargaba solo en
+  // cuanto detectaba el cambio de controller; con la revisión periódica de
+  // arriba eso pasaría a ocurrir con más frecuencia, con riesgo real de
+  // cortar a alguien a medio llenar un formulario. Ahora solo se muestra un
+  // banner discreto (#swUpdateBanner, mismo patrón que #totpReminderBanner/
+  // #novedadesBanner) y el reload ocurre únicamente si el usuario hace click
+  // en "Recargar ahora".
+  navigator.serviceWorker.addEventListener('controllerchange', showSwUpdateBanner);
 }
+
+function showSwUpdateBanner() {
+  const banner = $('#swUpdateBanner');
+  if (!banner) return;
+  banner.classList.remove('hidden-initial');
+  requestAnimationFrame(() => banner.classList.add('show'));
+}
+$('#btnSwUpdateReload')?.addEventListener('click', () => window.location.reload());
 
 // ---------------------------------------------------------------------------
 // Sidebar — inicialización y event listeners

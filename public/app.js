@@ -42,9 +42,10 @@ function nivelUbicacionSelectHtml(idAttr, valorActual) {
 // (siempre trabaja sobre su propia unidad asignada).
 const MAQUINARIA_TABS_ADMIN = ['maquinaria_catalogo', 'maquinaria_horas', 'maquinaria_bitacora', 'maquinaria_estado_unidad', 'maquinaria_consumibles', 'maquinaria_reportes_cliente'];
 // 'maquinaria_bitacora' agregado a cabo y operador (prompt-auditoria-roles-
-// bitacora-maquinaria.md) — mirror del mismo cambio en server/auth.js,
-// mantener en sync.
-const MAQUINARIA_TABS_CABO = ['maquinaria_catalogo', 'maquinaria_horas', 'maquinaria_bitacora', 'maquinaria_estado_unidad', 'maquinaria_consumibles', 'maquinaria_reportes_cliente'];
+// bitacora-maquinaria.md) y luego REVERTIDO para cabo (prompt-corregir-
+// alcance-combustible-consumibles.md) — mirror del mismo cambio en
+// server/auth.js, mantener en sync.
+const MAQUINARIA_TABS_CABO = ['maquinaria_catalogo', 'maquinaria_horas', 'maquinaria_estado_unidad', 'maquinaria_consumibles', 'maquinaria_reportes_cliente'];
 const MAQUINARIA_TABS_JEFE = ['maquinaria_catalogo', 'maquinaria_bitacora', 'maquinaria_estado_unidad', 'maquinaria_consumibles', 'maquinaria_reportes_cliente'];
 const MAQUINARIA_TABS_OPERADOR = ['maquinaria_horas', 'maquinaria_bitacora', 'maquinaria_estado_unidad', 'maquinaria_consumibles'];
 
@@ -12881,11 +12882,16 @@ async function renderMaquinariaEstadoUnidad(view) {
 }
 
 async function renderMaquinariaConsumibles(view) {
-  const [consumiblesData, misPermisosConsumibles, equipos] = await Promise.all([
+  const [consumiblesData, misPermisosConsumibles, misPermisosCombustible, equipos] = await Promise.all([
     // 403 esperado para residente — mismo .catch.
     api('/maquinaria/consumibles').catch(() => ({ registros: [], resumen: [] })),
     // prompt-10-programa-consumibles.md — mismo criterio que estado_unidad.
     api('/mis-permisos/maquinaria_consumibles').catch(() => ({})),
+    // prompt-corregir-alcance-combustible-consumibles.md: el botón
+    // "+ Combustible" se movió aquí desde Bitácora de taller para
+    // residente/cabo — reusa el mismo permiso granular de siempre
+    // ('maquinaria_combustible', ya otorgado), no uno nuevo.
+    api('/mis-permisos/maquinaria_combustible').catch(() => ({})),
     api('/maquinaria/equipos'),
   ]);
   maquinariaEquiposCache = equipos;
@@ -12897,15 +12903,18 @@ async function renderMaquinariaConsumibles(view) {
   // rol desde la matriz de permisos.
   const puedeEditarConsumibles = !!misPermisosConsumibles.puede_editar;
   const puedeEliminarConsumibles = !!misPermisosConsumibles.puede_eliminar;
+  const puedeCrearCombustible = !!misPermisosCombustible.puede_crear;
   const esOperador = effectivePuesto() === 'operador';
   view.innerHTML = `
     <h2 class="section-title">⛽ Consumibles</h2>
     <p class="muted">Diesel y aceites — captura por operador, consulta para el resto.</p>
     <div class="section-actions mt-12">
+      ${puedeCrearCombustible && equipos.length ? '<button class="btn" id="btnCombustibleMaqCm">+ Combustible</button>' : ''}
       ${puedeCrearConsumibles && equipos.length ? '<button class="btn btn-primary" id="btnConsumiblesMaq">+ Consumibles</button>' : ''}
     </div>
     <div id="consumiblesMaqSection"></div>
   `;
+  $('#btnCombustibleMaqCm')?.addEventListener('click', () => openCombustibleMaqModal(equipos));
   $('#btnConsumiblesMaq')?.addEventListener('click', () => openConsumiblesMaqModal(equipos));
   paintConsumiblesMaq(consumiblesData, { puedeSupervisarConsumibles, esOperador, puedeEditarConsumibles, puedeEliminarConsumibles });
 }

@@ -39,17 +39,16 @@ const TOTP_ISSUER = 'Grupo Roforb — Control Presupuestal';
 // explícito para residente en ninguna de esas 4 secciones).
 const MAQUINARIA_TABS_ADMIN = ['maquinaria_catalogo', 'maquinaria_horas', 'maquinaria_bitacora', 'maquinaria_estado_unidad', 'maquinaria_consumibles', 'maquinaria_reportes_cliente'];
 // 'maquinaria_bitacora' agregado a cabo y operador (prompt-auditoria-roles-
-// bitacora-maquinaria.md): mismo gap que MAQUINARIA_TABS_RESIDENTE (PR #292)
-// — el tab nunca se renderizaba para estos 2 roles aunque el backend ya
-// gateaba correctamente con checkPermiso('maquinaria_combustible'/
-// 'maquinaria_mantenimiento', ...). Decisión de Paul: cabo debe quedar
-// limitado en la práctica a solo combustible (no mantenimiento) — eso NO se
-// hardcodea aquí, se logra dejando que Paul otorgue únicamente
-// maquinaria_combustible.puede_crear/puede_ver a cabo desde la matriz y no
-// toque maquinaria_mantenimiento (ambos botones de la vista ya están
-// gateados de forma independiente por permisos_usuario, ver
-// renderMaquinariaBitacora en public/app.js).
-const MAQUINARIA_TABS_CABO = ['maquinaria_catalogo', 'maquinaria_horas', 'maquinaria_bitacora', 'maquinaria_estado_unidad', 'maquinaria_consumibles', 'maquinaria_reportes_cliente'];
+// bitacora-maquinaria.md), y luego REVERTIDO para cabo (prompt-corregir-
+// alcance-combustible-consumibles.md): Paul confirmó que cabo (igual que
+// residente, ver comentario de MAQUINARIA_TABS_RESIDENTE abajo) nunca debió
+// ver la pestaña completa "Bitácora de taller" (mantenimiento + combustible
+// mezclados) — solo necesita cargar combustible, ahora expuesto dentro de
+// 'maquinaria_consumibles' (botón "+ Combustible" en renderMaquinariaConsumibles,
+// public/app.js, mismo endpoint/modal que ya usaba Bitácora, sin duplicar
+// lógica). 'maquinaria_bitacora' SÍ se conserva para operador — esa decisión
+// no cambió.
+const MAQUINARIA_TABS_CABO = ['maquinaria_catalogo', 'maquinaria_horas', 'maquinaria_estado_unidad', 'maquinaria_consumibles', 'maquinaria_reportes_cliente'];
 const MAQUINARIA_TABS_JEFE = ['maquinaria_catalogo', 'maquinaria_bitacora', 'maquinaria_estado_unidad', 'maquinaria_consumibles', 'maquinaria_reportes_cliente'];
 const MAQUINARIA_TABS_OPERADOR = ['maquinaria_horas', 'maquinaria_bitacora', 'maquinaria_estado_unidad', 'maquinaria_consumibles'];
 // 'maquinaria_horas' agregado (prompt-fix-cabo-y-extender-residente-
@@ -57,15 +56,17 @@ const MAQUINARIA_TABS_OPERADOR = ['maquinaria_horas', 'maquinaria_bitacora', 'ma
 // operador, mismo criterio que cabo — ver defaultPermisosParaRol más abajo
 // y ROLES_AUTORIZAN_HORAS_MAQ en public/app.js.
 // 'maquinaria_bitacora' agregado (prompt-fix-urgente-generadores-bitacora-
-// residente.md): decisión de negocio de Paul de que residente SÍ debe ver
-// la pestaña completa (combustible + mantenimiento) — antes el tab nunca
-// se renderizaba para residente aunque el backend ya estuviera listo
-// (checkPermiso('maquinaria_combustible'/'maquinaria_mantenimiento', ...)),
-// mismo patrón ya documentado arriba para 'trabajadores'/'maquinaria':
-// agregar el tab no otorga los permisos por sí solo, cada botón dentro de
-// la vista sigue gateado por su propia sección en permisos_usuario (sin
-// fila = 403/botón oculto) — Paul debe otorgarlos aparte desde la matriz.
-const MAQUINARIA_TABS_RESIDENTE = ['maquinaria_catalogo', 'maquinaria_horas', 'maquinaria_bitacora', 'maquinaria_reportes_cliente'];
+// residente.md) y luego REVERTIDO (prompt-corregir-alcance-combustible-
+// consumibles.md): Paul aclaró que la decisión original estaba mal
+// diagnosticada — residente NUNCA debió ver la pestaña completa (mantenimiento
+// + combustible mezclados), solo necesita poder cargar combustible. En su
+// lugar se agrega 'maquinaria_consumibles' (cabo ya la tenía): el botón
+// "+ Combustible" ahora vive ahí también (renderMaquinariaConsumibles, public/
+// app.js), reusando el mismo endpoint/modal de siempre
+// (POST /maquinaria/combustible, gateado por 'maquinaria_combustible' —
+// permiso que los 6 residentes ya tenían otorgado, no hace falta re-otorgar
+// nada, solo cambió desde qué vista se accede).
+const MAQUINARIA_TABS_RESIDENTE = ['maquinaria_catalogo', 'maquinaria_horas', 'maquinaria_consumibles', 'maquinaria_reportes_cliente'];
 
 // Puestos y qué pestañas puede ver cada uno. 'admin' tiene acceso total
 // (se resuelve aparte en allow(), no necesita listarse en cada pestaña).

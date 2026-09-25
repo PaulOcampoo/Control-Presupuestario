@@ -56,6 +56,40 @@ el scroll container. Si aparece un bug de sticky que "no se ve" o queda
 de ancestros (`overflow` + `position` de cada uno) antes de asumir que es
 un problema de `z-index`.
 
+### Sub-patrón: `padding` del scroll container NO es un límite de recorte
+
+Distinto del bug de iOS Safari de arriba (este pasa en cualquier navegador,
+confirmado en Chromium de escritorio): el offset de un `position: sticky`
+(`bottom: 0`, por ejemplo) se resuelve contra el **padding-box** de su
+scroll container — es decir, un elemento sticky con `bottom: 0` se detiene
+en el borde del padding, dejando el padding del contenedor como espacio
+libre *debajo* de él. Ese padding **no es una zona de recorte**: el
+contenido scrolleado normal puede seguir renderizándose ahí (visible y
+"hit-testeable" con `elementFromPoint`) porque `overflow` solo recorta en
+el borde del *border-box*, no en el del padding-box. Si ese padding no
+tiene nada opaco pintado encima, se ve como un hueco donde el contenido
+que debería estar "detrás" del elemento sticky se asoma por abajo.
+
+Incidente real: barra de botones (`.modal-actions`, sticky) al fondo del
+modal de detalle del Generador de Obra (`prompt-fix-atenuacion-edicion-y-
+barra.md`) — `.genobra-modal-scroll` (el scroll container) tenía
+`padding-bottom` propio; la barra se detenía en el borde de ese padding,
+y el `padding-bottom` completo quedaba como franja sin cubrir por la que
+se veía el concepto siguiente al hacer scroll. Confirmado con
+`document.elementFromPoint()` justo debajo del borde inferior de la barra
+— devolvía el bloque de concepto real, no el fondo del modal — contra
+login real y un generador real de más de 100 conceptos, no una réplica
+sintética (un repro con `scrollTop` instantáneo o con poco contenido
+puede no disparar la franja visible si el scroll termina exactamente en
+el último elemento). Fix: mover ese `padding-bottom` del contenedor de
+scroll al propio elemento sticky (mismo valor), para que su fondo sólido
+llegue hasta el borde real del contenedor sin dejar franja sin cubrir.
+
+**Regla práctica:** si un elemento `position: sticky` (`bottom: 0` o
+`top: 0`) vive dentro de un contenedor con `padding` propio en ese mismo
+eje, ese padding debe moverse al elemento sticky (como `padding` propio,
+para que su fondo lo cubra) en vez de dejarlo en el contenedor.
+
 ## Regla: SW_VERSION se bumpea en todo commit con cambios de código
 
 En **todo** commit que incluya cambios de código (frontend o backend, sin excepciones),

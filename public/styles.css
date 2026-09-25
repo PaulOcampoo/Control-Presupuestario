@@ -1556,20 +1556,28 @@ body.body-scroll-locked { overflow: hidden; }
    criterio que .modal-wide.gencat-preview-modal arriba) para no afectar a
    los demás modales que comparten .modal-actions.
 
-   prompt-generadores-obra-ui-borrado.md (parte 4): el scroll real ya NO
-   vive en #modal — ver .genobra-modal-scroll más abajo, mismo patrón que
-   .main-scroll para el sticky vertical del breadcrumb (CLAUDE.md "Patrón
-   conocido: position: sticky + overflow en iOS Safari") — #modal solo
-   posiciona/recorta esquinas, sin overflow propio activo durante el
-   scroll. will-change: transform mantiene la barra en su propia capa de
-   composición para que el navegador no tenga que re-pintar su fondo sobre
-   la marcha en cada frame de scroll (evita quedar un frame "atrás" del
-   contenido que se desplaza detrás). Mitigación de mejor esfuerzo: el
-   glitch (visible solo con scroll de rueda rápido, no reproducible con
-   scrollTop instantáneo) sobrevivió a 5 hipótesis distintas probadas de
-   forma aislada — no se pudo confirmar causa raíz única; este cambio
-   combina las 3 mitigaciones de menor riesgo, sin regresión posible,
-   pendiente de confirmación visual real post-deploy. */
+   prompt-generadores-obra-ui-borrado.md (parte 4) / prompt-fix-atenuacion-
+   edicion-y-barra.md (parte 3): el scroll real ya NO vive en #modal — ver
+   .genobra-modal-scroll más abajo, mismo patrón que .main-scroll para el
+   sticky vertical del breadcrumb (CLAUDE.md "Patrón conocido: position:
+   sticky + overflow en iOS Safari") — #modal solo posiciona/recorta
+   esquinas, sin overflow propio activo durante el scroll. will-change:
+   transform mantiene la barra en su propia capa de composición.
+
+   CAUSA RAÍZ CONFIRMADA (verificado con elementFromPoint en vivo, login
+   real, generador con 134 bloques): el padding NO es un límite de recorte
+   en CSS — solo el border-box lo es. Con `.genobra-modal-scroll` con
+   padding-bottom propio, `.modal-actions` (sticky, bottom:0) se detenía
+   en el borde del padding (por spec, el offset sticky se resuelve contra
+   el padding-box del ancestro con scroll), dejando esa franja de padding
+   como una "zona muerta": el contenido scrolleado seguía renderizándose
+   ahí (confirmado: elementFromPoint devolvía el bloque de concepto real,
+   no el fondo del modal) sin nada opaco encima que lo tapara. Fix: ese
+   padding-bottom se mueve del contenedor de scroll a la propia barra
+   (mismo valor, var(--space-16)) — así su fondo sólido llega hasta el
+   borde real del modal, sin dejar franja sin cubrir. Confirmado ausente
+   en el generador real (folio 11, proyecto 24, 159 conceptos) en las 12
+   posiciones de scroll muestreadas y con ráfaga de scroll de rueda real. */
 .modal.genobra-detalle-modal .modal-actions,
 .modal.genobra-preview-modal .modal-actions {
   position: sticky;
@@ -1578,6 +1586,7 @@ body.body-scroll-locked { overflow: hidden; }
   background: var(--bg-surface);
   border-top: 1px solid var(--border-color);
   padding-top: var(--space-10);
+  padding-bottom: var(--space-16);
   will-change: transform;
 }
 .modal.genobra-detalle-modal,
@@ -1589,6 +1598,7 @@ body.body-scroll-locked { overflow: hidden; }
   overflow-y: auto;
   overflow-x: clip;
   padding: var(--space-16);
+  padding-bottom: 0;
   border-radius: inherit;
 }
 /* Aísla el repintado de cada bloque de concepto del resto — el navegador

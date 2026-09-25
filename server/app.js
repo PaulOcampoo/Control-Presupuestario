@@ -14595,7 +14595,7 @@ async function fetchGeneradorConDetalle(genId, projectId, { incluirBlobUrl = fal
 // el árbol completo ni los renglones) para que el buscador del listado
 // pueda filtrar por partida sin pedir el detalle de cada generador — el
 // listado sigue siendo una sola query, sin N+1.
-app.get('/api/projects/:id/generadores-obra', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+app.get('/api/projects/:id/generadores-obra', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('generadores_obra', 'puede_ver')), h(async (req, res) => {
   const { rows } = await db.pool.query(`
     SELECT g.*, u.nombre AS residente_nombre, a.nombre AS admin_aprobador_nombre,
       (SELECT COUNT(*)::int FROM generador_obra_renglones r WHERE r.generador_id = g.id) AS total_renglones,
@@ -14626,7 +14626,7 @@ app.get('/api/projects/:id/generadores-obra', h(auth.allow('residente')), h(requ
   res.json(rows);
 }));
 
-app.post('/api/projects/:id/generadores-obra', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+app.post('/api/projects/:id/generadores-obra', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('generadores_obra', 'puede_crear')), h(async (req, res) => {
   const { periodo_inicio, periodo_fin, nombre } = req.body || {};
   if (!periodo_inicio || !periodo_fin) return res.status(400).json({ error: 'periodo_inicio y periodo_fin son requeridos' });
   if (periodo_fin < periodo_inicio) return res.status(400).json({ error: 'periodo_fin debe ser igual o posterior a periodo_inicio' });
@@ -14654,7 +14654,7 @@ app.post('/api/projects/:id/generadores-obra', h(auth.allow('residente')), h(req
 // Mismo filtro de "concepto real" que Avance/Estimaciones (confirmado en
 // Fase 0). ruta_jerarquica va incluida para que el frontend agrupe por
 // Partida/Subpartida igual que ya hace el modal de captura de Avance.
-app.get('/api/projects/:id/generadores-obra/conceptos-disponibles', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+app.get('/api/projects/:id/generadores-obra/conceptos-disponibles', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('generadores_obra', 'puede_ver')), h(async (req, res) => {
   const { rows } = await db.pool.query(
     `SELECT id, codigo, concepto, unidad, grupo, ruta_jerarquica, orden FROM conceptos
      WHERE project_id = $1 AND es_total = 0 AND activo = 1 AND cantidad > 0 AND TRIM(COALESCE(unidad, '')) <> ''
@@ -14664,7 +14664,7 @@ app.get('/api/projects/:id/generadores-obra/conceptos-disponibles', h(auth.allow
   res.json(rows);
 }));
 
-app.get('/api/projects/:id/generadores-obra/:genId', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+app.get('/api/projects/:id/generadores-obra/:genId', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('generadores_obra', 'puede_ver')), h(async (req, res) => {
   const genId = Number(req.params.genId);
   const detalle = await fetchGeneradorConDetalle(genId, req.project.id);
   if (!detalle) return res.status(404).json({ error: 'Generador no encontrado' });
@@ -14678,7 +14678,7 @@ app.get('/api/projects/:id/generadores-obra/:genId', h(auth.allow('residente')),
 // de .../fotos/:fotoId) y se pasa ya resuelto a exportGeneradorObra.js, que
 // es un módulo puro sin acceso a DB/Blob. Una foto que no se pueda leer se
 // omite sin tronar el export completo (fetch envuelto en try/catch por foto).
-app.get('/api/projects/:id/generadores-obra/:genId/exportar', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+app.get('/api/projects/:id/generadores-obra/:genId/exportar', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('generadores_obra', 'puede_ver')), h(async (req, res) => {
   const genId = Number(req.params.genId);
   const detalle = await fetchGeneradorConDetalle(genId, req.project.id, { incluirBlobUrl: true });
   if (!detalle) return res.status(404).json({ error: 'Generador no encontrado' });
@@ -14713,7 +14713,7 @@ app.get('/api/projects/:id/generadores-obra/:genId/exportar', h(auth.allow('resi
   res.send(buffer);
 }));
 
-app.post('/api/projects/:id/generadores-obra/:genId/renglones', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+app.post('/api/projects/:id/generadores-obra/:genId/renglones', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('generadores_obra', 'puede_crear')), h(async (req, res) => {
   const genId = Number(req.params.genId);
   const check = await generadorObraEditable(req.project.id, genId, req);
   if (check.error) return res.status(check.error).json({ error: check.msg });
@@ -14740,7 +14740,7 @@ app.post('/api/projects/:id/generadores-obra/:genId/renglones', h(auth.allow('re
   res.status(201).json(await fetchRenglonConConcepto(rows[0].id));
 }));
 
-app.put('/api/projects/:id/generadores-obra/:genId/renglones/:renglonId', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+app.put('/api/projects/:id/generadores-obra/:genId/renglones/:renglonId', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('generadores_obra', 'puede_editar')), h(async (req, res) => {
   const genId = Number(req.params.genId);
   const renglonId = Number(req.params.renglonId);
   const check = await generadorObraEditable(req.project.id, genId, req);
@@ -14760,7 +14760,7 @@ app.put('/api/projects/:id/generadores-obra/:genId/renglones/:renglonId', h(auth
   res.json(await fetchRenglonConConcepto(rows[0].id));
 }));
 
-app.delete('/api/projects/:id/generadores-obra/:genId/renglones/:renglonId', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+app.delete('/api/projects/:id/generadores-obra/:genId/renglones/:renglonId', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('generadores_obra', 'puede_eliminar')), h(async (req, res) => {
   const genId = Number(req.params.genId);
   const renglonId = Number(req.params.renglonId);
   const check = await generadorObraEditable(req.project.id, genId, req);
@@ -14779,7 +14779,7 @@ app.delete('/api/projects/:id/generadores-obra/:genId/renglones/:renglonId', h(a
 // mismo uploadImg/checkFileMagic ya usado en sugerencia_imagenes, blob
 // PRIVADO (a diferencia de sugerencia_imagenes, que es público) porque es
 // evidencia de obra — se sirve vía proxy autenticado, nunca blob_url directo.
-app.post('/api/projects/:id/generadores-obra/:genId/fotos', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), uploadImg.single('foto'), h(async (req, res) => {
+app.post('/api/projects/:id/generadores-obra/:genId/fotos', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('generadores_obra', 'puede_crear')), uploadImg.single('foto'), h(async (req, res) => {
   const genId = Number(req.params.genId);
   const check = await generadorObraEditable(req.project.id, genId, req);
   if (check.error) {
@@ -14823,7 +14823,7 @@ app.post('/api/projects/:id/generadores-obra/:genId/fotos', h(auth.allow('reside
   res.status(201).json(rows[0]);
 }));
 
-app.get('/api/projects/:id/generadores-obra/:genId/fotos/:fotoId', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+app.get('/api/projects/:id/generadores-obra/:genId/fotos/:fotoId', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('generadores_obra', 'puede_ver')), h(async (req, res) => {
   const genId = Number(req.params.genId);
   const fotoId = Number(req.params.fotoId);
   const { rows } = await db.pool.query(
@@ -14844,7 +14844,7 @@ app.get('/api/projects/:id/generadores-obra/:genId/fotos/:fotoId', h(auth.allow(
   await pipeline(Readable.fromWeb(blobResult.stream), res);
 }));
 
-app.delete('/api/projects/:id/generadores-obra/:genId/fotos/:fotoId', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+app.delete('/api/projects/:id/generadores-obra/:genId/fotos/:fotoId', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('generadores_obra', 'puede_eliminar')), h(async (req, res) => {
   const genId = Number(req.params.genId);
   const fotoId = Number(req.params.fotoId);
   const check = await generadorObraEditable(req.project.id, genId, req);
@@ -14858,7 +14858,7 @@ app.delete('/api/projects/:id/generadores-obra/:genId/fotos/:fotoId', h(auth.all
   res.json({ ok: true });
 }));
 
-app.put('/api/projects/:id/generadores-obra/:genId/estado', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+app.put('/api/projects/:id/generadores-obra/:genId/estado', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('generadores_obra', 'puede_editar')), h(async (req, res) => {
   const genId = Number(req.params.genId);
   const { estado, comentario_rechazo } = req.body || {};
   if (!ESTADOS_GENERADOR_OBRA.includes(estado)) return res.status(400).json({ error: 'Estado inválido' });

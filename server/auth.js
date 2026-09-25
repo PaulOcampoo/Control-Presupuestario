@@ -116,10 +116,12 @@ const PERMISSIONS = {
   // el gate real vía permisos_usuario (sin fila = 403, default-deny de
   // 'costos', ver SECCIONES_PERMISOS más abajo).
   // 'generadoresObra' agregado (prompt-generadores-de-obra.md, Fase 1) junto
-  // a 'estimaciones' en los 3 roles: mismo gate real que 'estimaciones'
-  // (auth.allow('residente') + verificarAccesoObra en los endpoints, sin
-  // checkPermiso vía permisos_usuario — sección "informativa", ver comentario
-  // en SECCIONES_PERMISOS arriba).
+  // a 'estimaciones' en los 3 roles. Originalmente mismo gate que
+  // 'estimaciones' (auth.allow('residente') + verificarAccesoObra, sin
+  // checkPermiso vía permisos_usuario — sección "informativa"); desde
+  // prompt-permisos-generadores-obra.md pasó a enforcement real: checkPermiso
+  // en los endpoints de server/app.js y entrada en TAB_A_SECCION más abajo
+  // (a diferencia de 'estimaciones', que se queda informativa a propósito).
   residente:      { label: 'Residente',     tabs: ['programa', 'avance', 'destajo', 'estadoActivo', 'presupuestoEstimaciones', 'requisiciones', 'insumos', 'ordenes', 'nominas', 'trabajadores', 'estimaciones', 'generadoresObra', 'ordenesCambio', 'lotes', 'modelosVivienda', ...MAQUINARIA_TABS_RESIDENTE, 'matrices', 'generadorPresupuestos', 'almacen'] },
   // 'trabajadores' agregado aquí (prompt-c-checkpermiso-trabajadores.md,
   // fix de visibilidad en nav). Desde prompt-limpieza-permisos-cabo.md
@@ -377,6 +379,14 @@ const TAB_A_SECCION = {
   fondoGarantia: 'finanzas',
   estadoResultados: 'estado_resultados',
   mapeo: 'mapeo', nominas: 'nominas', estimaciones: 'estimaciones',
+  // prompt-permisos-generadores-obra.md: a diferencia de 'estimaciones'
+  // (línea de arriba, que se queda informativa a propósito), 'generadoresObra'
+  // SÍ pasa a enforcement real — sin esta entrada, GET /api/projects/:id/
+  // nav-tabs (server/app.js) nunca incluía el tab para residente porque
+  // SECCION_A_TAB (traducción inversa) se construye a partir de este mapa:
+  // el tab se veía al hacer login (ROLE_TABS estático) pero desaparecía en
+  // cuanto actualizarNavPorObra() recalculaba contra la obra activa.
+  generadoresObra: 'generadores_obra',
   // Las 6 subpestañas de Maquinaria (prompt-39, galería de subsecciones)
   // mapean TODAS al mismo 'maquinaria' que antes mapeaba el único tab
   // 'maquinaria' — a propósito, NO a sus secciones granulares reales
@@ -502,6 +512,20 @@ function defaultPermisosParaRol(puesto) {
     // nuevos. A propósito SOLO para residente, no cabo (Starting State del
     // prompt: acceso acotado a residente + admin/desarrollador esta fase).
     if (porSeccion.lotes) { porSeccion.lotes.puede_crear = true; porSeccion.lotes.puede_editar = true; }
+    // prompt-permisos-generadores-obra.md: 'generadores_obra' pasa de
+    // informativa (auth.allow('residente') sin checkPermiso, ver comentario
+    // en PERMISSIONS.residente arriba) a enforcement real. Antes de este
+    // prompt residente tenía capacidad COMPLETA sin restricción alguna
+    // (crear generador, agregar/editar/eliminar renglones y fotos, enviar a
+    // aprobación) — este default preserva exactamente esa capacidad, mismo
+    // criterio que 'destajo'/'trabajadores' arriba. Aprobar/rechazar sigue
+    // siendo admin/desarrollador exclusivo (bypass de checkPermiso, sin
+    // acción dedicada en PERMISOS_ACCIONES para eso).
+    if (porSeccion.generadores_obra) {
+      porSeccion.generadores_obra.puede_crear = true;
+      porSeccion.generadores_obra.puede_editar = true;
+      porSeccion.generadores_obra.puede_eliminar = true;
+    }
     // prompt-fix-cabo-y-extender-residente-maquinaria.md: residente gana
     // autorización de reportes de horas de operador en Maquinaria (mismo
     // criterio y misma fila que cabo abajo) — capacidad nueva, no una

@@ -10936,6 +10936,13 @@ const PERMISOS_SECCION_LABELS = {
   // puede_crear solo en la suya y puede_ver en ambas (bitácora completa).
   almacen_entradas: 'Almacén — Entradas',
   almacen_salidas: 'Almacén — Salidas',
+  // prompt-permisos-generadores-obra.md: 'generadores_obra' ya existía en el
+  // catálogo (server/auth.js SECCIONES_PERMISOS) desde prompt-generadores-
+  // de-obra.md, pero se quedó fuera de este objeto — mismo gap ya documentado
+  // arriba con estado_unidad/maquinaria_consumibles/trabajadores_bancarios:
+  // el permiso ya existía en la tabla, pero Paul no podía verlo/tocarlo desde
+  // la matriz para ningún rol.
+  generadores_obra: 'Generadores de Obra',
 };
 // Secciones que NUNCA son por-obra — no existe (ni tiene sentido) una versión
 // "para la obra X" de una vista que ya de por sí es cross-obra/cross-cliente.
@@ -11026,6 +11033,13 @@ const ACCIONES_CON_ENFORCEMENT = {
   sugerencias: [],
   programa: [],
   estimaciones: [],
+  // prompt-permisos-generadores-obra.md: a diferencia de 'estimaciones'
+  // (arriba, informativa a propósito), 'generadores_obra' SÍ tiene
+  // checkPermiso real cableado en los 4 verbos (server/app.js, endpoints
+  // /api/projects/:id/generadores-obra*). 'puede_editar' también gatea el
+  // envío a revisión (PUT .../estado); aprobar/rechazar sigue siendo
+  // admin/desarrollador exclusivo vía bypass, sin acción propia aquí.
+  generadores_obra: ['puede_ver', 'puede_crear', 'puede_editar', 'puede_eliminar'],
   maquinaria: ['puede_ver', 'puede_crear', 'puede_editar', 'puede_eliminar'],
   // maquinaria_captura.puede_ver: ver horas usa checkPermiso('maquinaria',
   // 'puede_ver'), no 'maquinaria_captura' — esta sección solo gatea de
@@ -11081,7 +11095,7 @@ const ACCIONES_CON_ENFORCEMENT = {
 // mismo criterio de negocio, para que la matriz se lea en el mismo orden que
 // el resto de la app en vez de un orden alfabético/insertado sin relación.
 const PERMISOS_GRUPOS = [
-  { label: 'Obra',           secciones: ['presupuestos', 'programa', 'avance', 'destajo', 'estimaciones', 'ordenes_cambio', 'lotes', 'modelos_vivienda'] },
+  { label: 'Obra',           secciones: ['presupuestos', 'programa', 'avance', 'destajo', 'estimaciones', 'generadores_obra', 'ordenes_cambio', 'lotes', 'modelos_vivienda'] },
   { label: 'Compras',        secciones: ['requisiciones', 'insumos', 'proveedores', 'ordenes_compra', 'cotizador', 'almacen_entradas', 'almacen_salidas'] },
   { label: 'Tesorería',      secciones: ['finanzas', 'estado_resultados', 'estado_resultados_global', 'impuestos'] },
   { label: 'Administración', secciones: ['mapeo', 'contrato', 'nominas', 'usuarios', 'trabajadores', 'trabajadores_docs', 'trabajadores_contrato', 'trabajadores_bancarios', 'trabajadores_global', 'nominas_global', 'costos'] },
@@ -11108,6 +11122,10 @@ const TAB_A_SECCION = {
   fondoGarantia: 'finanzas',
   estadoResultados: 'estado_resultados',
   mapeo: 'mapeo', nominas: 'nominas', estimaciones: 'estimaciones',
+  // prompt-permisos-generadores-obra.md: mirror de server/auth.js
+  // TAB_A_SECCION — a diferencia de 'estimaciones' (informativa a propósito),
+  // 'generadoresObra' pasa a enforcement real.
+  generadoresObra: 'generadores_obra',
   // Las 6 subpestañas de Maquinaria (prompt-39, galería de subsecciones)
   // mapean todas al mismo 'maquinaria' que antes mapeaba la única pestaña
   // 'maquinaria' — el pre-check visual de la matriz no cambia de
@@ -11153,6 +11171,14 @@ function defaultPermisosParaRolFrontend(puesto) {
     if (porSeccion.requisiciones) porSeccion.requisiciones.puede_crear = true;
     if (porSeccion.ordenes_cambio) porSeccion.ordenes_cambio.puede_crear = true;
     if (porSeccion.lotes) { porSeccion.lotes.puede_crear = true; porSeccion.lotes.puede_editar = true; }
+    // prompt-permisos-generadores-obra.md: mirror de server/auth.js
+    // defaultPermisosParaRol — preserva la capacidad completa que residente
+    // ya tenía sin restricción antes de este prompt.
+    if (porSeccion.generadores_obra) {
+      porSeccion.generadores_obra.puede_crear = true;
+      porSeccion.generadores_obra.puede_editar = true;
+      porSeccion.generadores_obra.puede_eliminar = true;
+    }
     // prompt-otorgar-combustible-todos-residentes.md: mirror de
     // server/auth.js defaultPermisosParaRol — residente ahora SÍ captura
     // combustible/mantenimiento (antes solo lectura, exclusivo de

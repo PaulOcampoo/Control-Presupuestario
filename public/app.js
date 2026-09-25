@@ -5877,6 +5877,14 @@ const CONTRATO_FIELDS = [
   // texto libre no es confiable para una fórmula financiera.
   { key: 'fondo_garantia_monto', label: 'Fondo de garantía (referencia contrato)', inputType: 'number', format: 'money' },
   { key: 'porcentaje_fondo_garantia', label: 'Fondo de garantía — % usado en estimaciones', inputType: 'number', format: 'percent' },
+  // prompt-impuestos-pago-reporte.md: % de provisión de impuestos de nómina
+  // (IMSS/SAT/INFONAVIT) sobre el valor del contrato, usado SOLO para
+  // calcular "Presupuestado" en la pestaña Impuestos — dato de presupuesto
+  // interno, casi nunca viene en el PDF (a diferencia de fondo de garantía,
+  // que sí suele ser cláusula contractual), por eso normalmente se llena a
+  // mano vía "Editar datos". Sin este dato, el reporte muestra "No
+  // configurado" en vez de asumir 0%.
+  { key: 'porcentaje_impuestos', label: 'Impuestos (IMSS/SAT/INFONAVIT) — % del contrato usado en reporte', inputType: 'number', format: 'percent' },
   { key: 'volumen_contratado', label: 'Volumen contratado', inputType: 'number', format: 'number' },
   { key: 'volumen_unidad', label: 'Unidad de volumen', inputType: 'text', format: 'text' },
   { key: 'personal_ejecuta', label: 'Personal que ejecuta', inputType: 'text', format: 'text' },
@@ -6207,17 +6215,40 @@ async function renderContrato(view) {
 const MES_NOMBRES = ['', 'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
 
 async function renderImpuestos(view) {
-  const [periodos, resumen] = await Promise.all([
+  const [periodos, resumen, misPermisos] = await Promise.all([
     cached('impuestos', () => api(`/projects/${state.projectId}/impuestos`)),
     cached('impuestosResumen', () => api(`/projects/${state.projectId}/impuestos/resumen`)),
+    cached('permisosMe', () => api(`/permisos/me?obra_id=${state.projectId}`)),
   ]);
+  // prompt-impuestos-pago-reporte.md: puede_eliminar gatea el botón
+  // "Revertir captura" en el modal de periodo — admin/desarrollador
+  // bypassean vía isAdmin(), el resto necesita el permiso granular.
+  const puedeEliminarImpuesto = isAdmin() || !!misPermisos.impuestos?.puede_eliminar;
+
+  // Presupuestado/Pendiente por pagar dependen de que la obra tenga
+  // configurado tanto el valor del Contrato (meta.total_contratado, pestaña
+  // Contrato) como el % de impuestos (meta.porcentaje_impuestos, mismo
+  // formulario) — si falta cualquiera de los dos, el backend manda
+  // presupuestado=null y aquí se muestra "No configurado" explícito, nunca
+  // se calcula con 0% (Forbidden Action del prompt).
+  const presupuestadoHtml = resumen.presupuestado != null
+    ? fmtMoney(resumen.presupuestado)
+    : '<span class="muted">No configurado</span>';
+  const pendienteKpiClass = resumen.presupuestado == null ? '' : (resumen.excedente > 0 ? 'yellow' : (resumen.pendiente_por_pagar > 0 ? 'red' : 'green'));
+  const pendienteKpiValue = resumen.presupuestado == null
+    ? '<span class="muted">No configurado</span>'
+    : (resumen.excedente > 0 ? `Excedente ${fmtMoney(resumen.excedente)}` : fmtMoney(resumen.pendiente_por_pagar));
 
   view.innerHTML = `
     <h2 class="section-title">Impuestos (IMSS / SAT / INFONAVIT)</h2>
     <div class="kpi-grid">
-      <div class="kpi green"><div class="label">Acumulado pagado</div><div class="value">${fmtMoney(resumen.acumulado_pagado.total)}</div></div>
-      <div class="kpi ${resumen.pendiente_actual.total > 0 ? 'red' : 'green'}"><div class="label">Pendiente actual</div><div class="value">${fmtMoney(resumen.pendiente_actual.total)}</div></div>
+      <div class="kpi"><div class="label">Presupuestado</div><div class="value">${presupuestadoHtml}</div></div>
+      <div class="kpi green"><div class="label">Pagado acumulado</div><div class="value">${fmtMoney(resumen.acumulado_pagado.total)}</div></div>
+      <div class="kpi ${pendienteKpiClass}"><div class="label">Pendiente por pagar</div><div class="value">${pendienteKpiValue}</div></div>
     </div>
+    ${resumen.presupuestado == null ? `
+    <p class="muted fs-08">ℹ️ Falta configurar ${resumen.total_contratado == null ? 'el valor del Contrato' : ''}${resumen.total_contratado == null && resumen.porcentaje_impuestos == null ? ' y ' : ''}${resumen.porcentaje_impuestos == null ? 'el % de impuestos' : ''} en la pestaña <button type="button" class="link-btn" id="btnIrAContratoDesdeImpuestos">Contrato</button> para calcular el Presupuestado.</p>
+    ` : `<p class="muted fs-08">Presupuestado = ${fmtMoney(resumen.total_contratado)} (valor del Contrato) × ${fmtPct(resumen.porcentaje_impuestos)}.</p>`}
     <div class="card">
       <div class="card-row"><span class="k">IMSS pagado</span><span class="v">${fmtMoney(resumen.acumulado_pagado.imss)}</span></div>
       <div class="card-row"><span class="k">SAT pagado</span><span class="v">${fmtMoney(resumen.acumulado_pagado.sat)}</span></div>
@@ -6235,6 +6266,7 @@ async function renderImpuestos(view) {
       </div>
     </div>`}
   `;
+  $('#btnIrAContratoDesdeImpuestos')?.addEventListener('click', () => switchToView('contrato'));
 
   if (!periodos.length) return;
 
@@ -6251,12 +6283,12 @@ async function renderImpuestos(view) {
   $$('#impuestosTbody tr').forEach((tr) => {
     tr.addEventListener('click', () => {
       const periodo = periodos.find((p) => p.id === Number(tr.dataset.periodo));
-      if (periodo) openImpuestoPeriodoModal(periodo);
+      if (periodo) openImpuestoPeriodoModal(periodo, puedeEliminarImpuesto);
     });
   });
 }
 
-function openImpuestoPeriodoModal(periodo) {
+function openImpuestoPeriodoModal(periodo, puedeEliminar) {
   openModal(`
     <h3>${esc(MES_NOMBRES[periodo.periodo_mes])} ${periodo.periodo_anio}</h3>
     <p class="muted">Captura o corrige el monto y la referencia (folio o nombre del comprobante escrito a mano) de cada concepto.</p>
@@ -6267,6 +6299,7 @@ function openImpuestoPeriodoModal(periodo) {
     <div class="field"><label>INFONAVIT — monto</label><input type="number" step="any" id="imp_infonavit_monto" value="${periodo.infonavit_monto ?? ''}" /></div>
     <div class="field"><label>INFONAVIT — referencia</label><input id="imp_infonavit_referencia" value="${esc(periodo.infonavit_referencia || '')}" /></div>
     <div class="modal-actions">
+      ${puedeEliminar && periodo.estado === 'cargado' ? '<button class="btn btn-danger" id="btnRevertirImpuesto">Revertir captura</button>' : ''}
       <button class="btn" id="btnCancelImpuesto">Cancelar</button>
       <button class="btn btn-primary" id="btnSaveImpuesto">Guardar</button>
     </div>
@@ -6292,6 +6325,22 @@ function openImpuestoPeriodoModal(periodo) {
     } catch (err) {
       toast(err.message, 'danger');
       btn.disabled = false; btn.textContent = 'Guardar';
+    }
+  });
+  $('#btnRevertirImpuesto')?.addEventListener('click', async () => {
+    const ok = await confirmDialog(
+      `¿Revertir la captura de ${esc(MES_NOMBRES[periodo.periodo_mes])} ${periodo.periodo_anio}? Se borrarán los montos y referencias capturados y el periodo vuelve a "pendiente".`,
+      { titulo: 'Revertir captura', textoAceptar: 'Revertir', claseAceptar: 'btn-danger' }
+    );
+    if (!ok) return;
+    try {
+      await api(`/projects/${state.projectId}/impuestos/${periodo.id}/revertir`, { method: 'POST' });
+      closeModal();
+      invalidate('impuestos', 'impuestosResumen');
+      renderView();
+      toast('Captura revertida', 'success');
+    } catch (err) {
+      toast(err.message, 'danger');
     }
   });
 }
@@ -11332,7 +11381,14 @@ const ACCIONES_CON_ENFORCEMENT = {
   mapeo: ['puede_ver', 'puede_crear', 'puede_eliminar'],
   usuarios: [],
   contrato: [],
-  impuestos: ['puede_ver'],
+  // prompt-impuestos-pago-reporte.md: 'puede_editar' agregado -- ya estaba
+  // cableado de verdad en el backend (POST .../impuestos/:id/cargar exige
+  // checkPermiso('impuestos','puede_editar')) pero faltaba declararlo aquí,
+  // mismo bug documentado en CLAUDE.md ("Toda sección nueva se registra en
+  // 5 lugares") -- sin esto la fila se guardaba/exigía bien pero no se
+  // podía ver/tocar en la matriz de administración para ese verbo.
+  // 'puede_eliminar' se agrega junto con el nuevo botón "Revertir captura".
+  impuestos: ['puede_ver', 'puede_editar', 'puede_eliminar'],
   nominas: ['puede_ver', 'puede_crear', 'puede_editar', 'puede_eliminar'],
   sugerencias: [],
   programa: [],

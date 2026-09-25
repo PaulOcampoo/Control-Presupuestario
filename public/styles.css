@@ -3582,6 +3582,12 @@ html[data-palette="dorada"]:not([data-theme="light"]) .welcome-card {
 .genobra-subpartida-title { margin: var(--space-8) 0 var(--space-4); font-size: var(--fs-sm); color: var(--text-secondary); }
 .genobra-concepto-block { padding: var(--space-8) 0; border-top: 1px solid var(--border-color); }
 .genobra-concepto-block:first-child { border-top: none; }
+/* prompt-generadores-obra-ui-borrado.md: mismo valor que .card-inactive
+   (public/styles.css) — un concepto sin renglones capturados (Total: 0) se
+   atenúa para que los conceptos con datos reales destaquen, sin llegar a
+   ilegible (0.65 ya validado como contraste mínimo aceptable en esa otra
+   regla). Nada se oculta, solo cambia el peso visual. */
+.genobra-concepto-sin-captura { opacity: 0.65; }
 .genobra-renglones-table { min-width: 560px; }
 .genobra-row-edit input { width: 100%; min-width: 60px; }
 .genobra-row-edit-actions { white-space: nowrap; }

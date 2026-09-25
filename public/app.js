@@ -8919,6 +8919,15 @@ async function openAvanceConceptosModal(avance, presupuestoTotal, puedeEditar = 
   }
   const ubicacionesUnicas = [...partidasPorUbicacion.keys()].sort((a, b) => a.localeCompare(b));
 
+  // prompt-avance-tabs-decisiones.md: rama EXPLÍCITA al inicio del render —
+  // obras sin nivel_ubicacion_jerarquia conservan el path viejo intacto
+  // (dropdowns/chips/acordeón, sin cambios); obras CON jerarquía configurada
+  // usan el path nuevo de tabs de 2 niveles (Ubicación + Otros / Partida),
+  // ver el `else` al final de este bloque. Se separan por completo (en vez
+  // de enredar más condicionales dentro del mismo código) para poder
+  // garantizar que el path viejo no cambia ni un pixel de comportamiento —
+  // Forbidden Action explícita de prompt-avance-tabs-ubicacion-partida.md.
+  if (nivelUbicacion == null) {
   // Buscador + filtro de grupo + toggle "solo pendientes" (prompt-mejora-
   // modal-avance.md) — sticky respecto al propio .modal (ya es scroll
   // container, overflow-y:auto) sin wrapper intermedio con overflow propio
@@ -9579,6 +9588,298 @@ async function openAvanceConceptosModal(avance, presupuestoTotal, puedeEditar = 
         btn.disabled = false; btn.textContent = 'Guardar avance';
       }
     });
+  }
+  } else {
+    // =====================================================================
+    // PATH NUEVO — tabs de 2 niveles (prompt-avance-tabs-ubicacion-partida.md
+    // + prompt-avance-tabs-decisiones.md). Reemplaza dropdowns Ubicación/
+    // Partida + "Ir a sección" + acordeón por: Nivel 1 = pill tabs de
+    // Ubicación (+ "Otros" al final si hay bloques ambiguos/residuales),
+    // Nivel 2 = pill tabs de Partida dentro de la Ubicación activa, lista
+    // plana de conceptos sin desplegable adicional. Mismo componente visual
+    // que .genobra-partida-tab (Generadores de Obra, solo como referencia de
+    // estilo — ese módulo no se toca).
+    //
+    // TODOS los paneles (cada combinación Ubicación×Partida, + "Otros") se
+    // montan de una sola vez en el DOM (igual que el acordeón del path
+    // viejo) y los tabs solo alternan qué panel queda visible — nunca se
+    // desmonta nada, por eso: (a) un valor tecleado sobrevive a cambiar de
+    // tab y volver, (b) el resumen del footer (Importe/% global) sigue
+    // siendo GLOBAL de TODO el catálogo sin importar qué tab esté activo,
+    // ya que $$('[data-cantidad]') siempre encuentra todos los inputs.
+    // =====================================================================
+
+    // Nivel 2 aplanado: ubicacion -> partida -> items[] (fusiona TODOS los
+    // grupos que comparten el mismo par ubicacion+partida en una sola lista
+    // -- el path viejo los mostraba como sub-bloques separados repitiendo el
+    // mismo nombre de Partida; bajo tabs no aplica, la Partida ya es el tab).
+    const nivel2PorUbicacion = new Map(); // ubicacion -> Map(partida -> items[])
+    // "Otros" (prompt-avance-tabs-decisiones.md, decisión 2): TODO grupo sin
+    // ubicacion resuelta (ambiguo por jerarquía invertida, o ruta demasiado
+    // corta/ausente) -- mismo criterio de detección que ya usaba el path
+    // viejo (g.ubicacion null tras las dos pasadas de arriba), pero SIN el
+    // intento de anidarlo dentro de su Ubicación aparente. Lista plana, sin
+    // sub-tabs de Partida, sin agrupación adicional (se conserva el label
+    // de cada bloque como encabezado simple, no colapsable, solo para
+    // legibilidad -- no es una categorización nueva).
+    const bloquesOtros = [];
+    groups.forEach((g, key) => {
+      if (g.ubicacion) {
+        if (!nivel2PorUbicacion.has(g.ubicacion)) nivel2PorUbicacion.set(g.ubicacion, new Map());
+        const porPartida = nivel2PorUbicacion.get(g.ubicacion);
+        const partidaKey = g.partida || g.label;
+        if (!porPartida.has(partidaKey)) porPartida.set(partidaKey, []);
+        porPartida.get(partidaKey).push(...g.items);
+      } else {
+        bloquesOtros.push([key, g]);
+      }
+    });
+
+    const OTROS_TAB = '__avc_otros__';
+    const tabsNivel1 = [...ubicacionesUnicas];
+    if (bloquesOtros.length) tabsNivel1.push(OTROS_TAB);
+
+    let tabUbicacionActiva = tabsNivel1[0] ?? null;
+    let tabPartidaActiva = (tabUbicacionActiva && tabUbicacionActiva !== OTROS_TAB)
+      ? ([...(nivel2PorUbicacion.get(tabUbicacionActiva)?.keys() || [])].sort((a, b) => a.localeCompare(b))[0] ?? null)
+      : null;
+
+    const renderFilasTabs = (groupItems, ubicacion, partida) => groupItems.map((c) => {
+      const pendientes = c.insumos_pendientes || [];
+      const bloqueado = pendientes.length > 0;
+      const esLarga = (c.concepto || '').length > 90;
+      return `
+        <div class="req-item-row avc-row" data-avc-row data-ubicacion="${esc(ubicacion || '')}" data-partida="${esc(partida || '')}" data-search="${esc(normalizarTexto(`${c.codigo || ''} ${c.concepto || ''}`))}">
+          <div class="fw600-fs086 avc-concepto-title${esLarga ? ' avc-clamp' : ''}" data-concepto-title>${esc(c.concepto)}</div>
+          ${esLarga ? '<button type="button" class="link-btn avc-ver-mas" data-toggle-desc>Ver más</button>' : ''}
+          <div class="code muted">${esc(c.codigo)} · presup: ${fmtNum(c.cantidad_presupuesto, 3)} ${esc(c.unidad || '')} a ${fmtMoney(c.precio_unitario)}/u</div>
+          <div class="qty-row mt-6">
+            <div>
+              <label>Acumulado previo</label>
+              <div class="muted acumulado-previo">${fmtNum(c.cantidad_acumulada_previa, 3)} ${esc(c.unidad || '')}</div>
+            </div>
+            <div>
+              <label>Ejecutado este periodo</label>
+              <input type="number" min="0" step="0.01" data-cantidad="${c.concepto_id}"
+                     data-codigo="${esc(c.codigo)}" data-unidad="${esc(c.unidad || '')}" data-precio="${c.precio_unitario}" data-presup="${c.cantidad_presupuesto}" data-prev="${c.cantidad_acumulada_previa}"
+                     value="${c.cantidad_ejecutada_periodo ?? ''}" ${(puedeEditar && !bloqueado) ? '' : 'disabled'}
+                     ${bloqueado ? `title="Faltan insumos por entregar en obra: ${esc(pendientes.map((p) => p.insumo_nombre).join(', '))}"` : ''} />
+              ${c.sugerido_generador != null && puedeEditar && !bloqueado ? `
+                <div class="muted fs-082 mt-4" data-sugerido-generador>
+                  📎 Sugerido por Generador de Obra${(c.sugerido_folios || []).length ? ` — Folio${c.sugerido_folios.length > 1 ? 's' : ''} ${c.sugerido_folios.map((f) => `<button type="button" class="link-btn avc-ver-generador-sugerido" data-ver-generador-sugerido="${f.id}">#${f.folio}</button>`).join(', ')}` : ''}:
+                  ${fmtNum(c.sugerido_generador, 3)} ${esc(c.unidad || '')}
+                  <button type="button" class="link-btn avc-usar-sugerido" data-usar-sugerido="${c.concepto_id}" data-valor-sugerido="${c.sugerido_generador}">Usar</button>
+                </div>` : ''}
+            </div>
+            <div class="muted acum-out" data-acum-out></div>
+          </div>
+          <div class="alert-box danger hidden-initial mt-6" data-exceso-msg></div>
+          ${bloqueado ? `<div class="muted solo-lectura-note">🔒 Falta entrega de: ${esc(pendientes.map((p) => p.insumo_nombre).join(', '))}</div>` : ''}
+        </div>
+        `;
+    }).join('');
+
+    $('#avcFiltros').innerHTML = `
+      <div class="avc-sticky-bar">
+        <div class="search-bar">
+          <input type="search" id="avcBuscar" placeholder="Buscar por código o concepto…" autocomplete="off" />
+        </div>
+        <div class="genobra-partida-tabs mt-6" id="avcTabsUbicacion">
+          ${tabsNivel1.map((u) => `<button type="button" class="genobra-partida-tab${u === tabUbicacionActiva ? ' active' : ''}" data-avc-tab-ubicacion="${esc(u)}">${u === OTROS_TAB ? 'Otros' : esc(u)}</button>`).join('')}
+        </div>
+        <div class="genobra-partida-tabs avc-tabs-nivel2 mt-6" id="avcTabsPartida"></div>
+        <div class="a11y-switch mt-6">
+          <span class="a11y-switch-label">Solo pendientes por capturar</span>
+          <label class="a11y-switch-toggle">
+            <input type="checkbox" id="avcSoloPendientes" />
+            <span class="a11y-switch-track"><span class="a11y-switch-thumb"></span></span>
+          </label>
+        </div>
+      </div>
+    `;
+
+    const renderTabsPartida = () => {
+      const row = $('#avcTabsPartida');
+      if (!row) return;
+      if (tabUbicacionActiva === OTROS_TAB) { row.innerHTML = ''; return; }
+      const partidas = [...(nivel2PorUbicacion.get(tabUbicacionActiva)?.keys() || [])].sort((a, b) => a.localeCompare(b));
+      row.innerHTML = partidas.map((p) => `<button type="button" class="genobra-partida-tab avc-tab-partida${p === tabPartidaActiva ? ' active' : ''}" data-avc-tab-partida="${esc(p)}">${esc(p)}</button>`).join('');
+    };
+    renderTabsPartida();
+
+    // Todos los paneles montados de una sola vez (ver comentario arriba).
+    const panelesHtml = [];
+    ubicacionesUnicas.forEach((ubicacion) => {
+      const partidas = [...(nivel2PorUbicacion.get(ubicacion)?.keys() || [])].sort((a, b) => a.localeCompare(b));
+      partidas.forEach((partida) => {
+        panelesHtml.push(`
+          <div class="avc-tab-panel hidden-initial" data-avc-panel-ubicacion="${esc(ubicacion)}" data-avc-panel-partida="${esc(partida)}">
+            ${renderFilasTabs(nivel2PorUbicacion.get(ubicacion).get(partida), ubicacion, partida)}
+          </div>
+        `);
+      });
+    });
+    if (bloquesOtros.length) {
+      panelesHtml.push(`
+        <div class="avc-tab-panel hidden-initial" data-avc-panel-ubicacion="${OTROS_TAB}">
+          ${bloquesOtros.map(([key, g]) => `
+            <div class="avc-otros-block" data-grupo-block="${esc(key)}">
+              <h4 class="avc-partida-toggle">${esc(g.label)}</h4>
+              ${renderFilasTabs(g.items, null, null)}
+            </div>
+          `).join('')}
+        </div>
+      `);
+    }
+    $('#avcList').innerHTML = panelesHtml.join('');
+
+    const mostrarPanelActivo = () => {
+      $$('[data-avc-panel-ubicacion]').forEach((panel) => {
+        const esActivo = tabUbicacionActiva === OTROS_TAB
+          ? panel.dataset.avcPanelUbicacion === OTROS_TAB
+          : (panel.dataset.avcPanelUbicacion === tabUbicacionActiva && panel.dataset.avcPanelPartida === tabPartidaActiva);
+        panel.classList.toggle('hidden-initial', !esActivo);
+      });
+      aplicarFiltrosAvcTabs();
+    };
+
+    let filtroTextoAvc = '';
+    const aplicarFiltrosAvcTabs = () => {
+      const q = normalizarTexto(filtroTextoAvc.trim());
+      const soloPendientes = $('#avcSoloPendientes')?.checked || false;
+      const panelActivo = $$('[data-avc-panel-ubicacion]').find((p) => !p.classList.contains('hidden-initial'));
+      let visibles = 0;
+      $$('[data-avc-row]').forEach((row) => {
+        const matchTexto = !q || row.dataset.search.includes(q);
+        const inp = row.querySelector('[data-cantidad]');
+        const matchPendiente = !soloPendientes || !inp.value;
+        const visible = matchTexto && matchPendiente;
+        row.classList.toggle('hidden-initial', !visible);
+        if (visible && panelActivo?.contains(row)) visibles += 1;
+      });
+      $('#avcEmptyState').classList.toggle('hidden-initial', visibles > 0);
+    };
+
+    mostrarPanelActivo();
+
+    $('#avcTabsUbicacion').addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-avc-tab-ubicacion]');
+      if (!btn) return;
+      tabUbicacionActiva = btn.dataset.avcTabUbicacion;
+      $$('[data-avc-tab-ubicacion]', $('#avcTabsUbicacion')).forEach((b) => b.classList.toggle('active', b === btn));
+      if (tabUbicacionActiva === OTROS_TAB) {
+        tabPartidaActiva = null;
+      } else {
+        const partidas = [...(nivel2PorUbicacion.get(tabUbicacionActiva)?.keys() || [])].sort((a, b) => a.localeCompare(b));
+        tabPartidaActiva = partidas[0] ?? null;
+      }
+      renderTabsPartida();
+      mostrarPanelActivo();
+    });
+    $('#avcTabsPartida').addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-avc-tab-partida]');
+      if (!btn) return;
+      tabPartidaActiva = btn.dataset.avcTabPartida;
+      $$('[data-avc-tab-partida]', $('#avcTabsPartida')).forEach((b) => b.classList.toggle('active', b === btn));
+      mostrarPanelActivo();
+    });
+
+    $('#avcBuscar').addEventListener('input', (e) => { filtroTextoAvc = e.target.value; aplicarFiltrosAvcTabs(); });
+    $('#avcSoloPendientes').addEventListener('change', () => aplicarFiltrosAvcTabs());
+
+    $('#avcList').addEventListener('click', (e) => {
+      const descBtn = e.target.closest('[data-toggle-desc]');
+      if (!descBtn) return;
+      const title = descBtn.previousElementSibling;
+      const debeClamparse = !title.classList.contains('avc-clamp');
+      title.classList.toggle('avc-clamp', debeClamparse);
+      descBtn.textContent = debeClamparse ? 'Ver más' : 'Ver menos';
+    });
+
+    // Candado duro de presupuesto + recálculo global — idénticos al path
+    // viejo (lógica genérica, no depende de la agrupación Ubicación/Partida).
+    const mensajeExcesoAvc = (inp, acumActual, presup) => {
+      const codigo = inp.dataset.codigo;
+      const unidad = inp.dataset.unidad || '';
+      const concepto = inp.closest('.avc-row').querySelector('[data-concepto-title]').textContent;
+      const prev = Number(inp.dataset.prev) || 0;
+      if (prev >= presup) {
+        const exceso = Math.max(0, Number((prev - presup).toFixed(4)));
+        return `${codigo} "${concepto}": este concepto ya está ${fmtNum(exceso, 3)} ${unidad} por encima de lo presupuestado (${fmtNum(presup, 3)}). Se requiere una Orden de Cambio para continuar capturando avance.`;
+      }
+      const maximoPermitido = Math.max(0, Number((presup - prev).toFixed(4)));
+      return `${codigo} "${concepto}": el acumulado (${fmtNum(acumActual, 3)}) superaría lo presupuestado (${fmtNum(presup, 3)}). Máximo permitido este periodo: ${fmtNum(maximoPermitido, 3)}`;
+    };
+    const updateRowOutput = (inp) => {
+      const prev = Number(inp.dataset.prev) || 0;
+      const cantidad = inp.value === '' ? 0 : Math.max(0, Number(inp.value));
+      const acumActual = prev + cantidad;
+      const presup = Number(inp.dataset.presup) || 0;
+      const out = inp.closest('.qty-row').querySelector('[data-acum-out]');
+      if (out) out.innerHTML = `acum: ${fmtNum(acumActual, 3)}<br>de ${fmtNum(presup, 3)} (${fmtPct(presup ? (acumActual / presup) * 100 : 0)})`;
+      const excedido = presup > 0 && cantidad > 0 && acumActual > presup;
+      const msgEl = inp.closest('.avc-row').querySelector('[data-exceso-msg]');
+      if (msgEl) {
+        msgEl.classList.toggle('hidden-initial', !excedido);
+        if (excedido) msgEl.textContent = `⚠️ ${mensajeExcesoAvc(inp, acumActual, presup)}`;
+      }
+      inp.classList.toggle('input-danger', excedido);
+      return acumActual;
+    };
+    const recalc = () => {
+      let importe = 0;
+      $$('[data-cantidad]').forEach((inp) => {
+        const acumActual = updateRowOutput(inp);
+        importe += acumActual * (Number(inp.dataset.precio) || 0);
+      });
+      $('#avcImporte').textContent = fmtMoney(importe);
+      $('#avcPct').textContent = presupuestoTotal ? fmtPct(Math.min(100, (importe / presupuestoTotal) * 100)) : '—';
+    };
+
+    $('#avcSummary').classList.remove('hidden-initial');
+    $('#avcSummary').style.display = '';
+    recalc();
+    $$('[data-cantidad]').forEach((inp) => inp.addEventListener('input', () => { recalc(); aplicarFiltrosAvcTabs(); }));
+    $$('[data-usar-sugerido]').forEach((btn) => btn.addEventListener('click', () => {
+      const inp = $(`[data-cantidad="${btn.dataset.usarSugerido}"]`);
+      if (!inp) return;
+      inp.value = Number(btn.dataset.valorSugerido).toFixed(2).replace(/\.?0+$/, '') || '0';
+      inp.dispatchEvent(new Event('input', { bubbles: true }));
+    }));
+    $$('[data-ver-generador-sugerido]').forEach((btn) => btn.addEventListener('click', () => {
+      openVerGeneradorObraModal(Number(btn.dataset.verGeneradorSugerido));
+    }));
+
+    if (puedeEditar) {
+      $('#btnSaveAvc').addEventListener('click', async () => {
+        const btn = $('#btnSaveAvc');
+        const payloadItems = $$('[data-cantidad]').map((inp) => ({
+          concepto_id: Number(inp.dataset.cantidad),
+          cantidad_ejecutada: inp.value === '' ? 0 : Math.max(0, Number(inp.value)),
+        }));
+        btn.disabled = true; btn.textContent = 'Guardando…';
+        try {
+          const result = await api(`/projects/${state.projectId}/avances/${semana}/conceptos`, { method: 'PUT', body: { items: payloadItems } });
+          closeModal();
+          invalidate('resumen');
+          const pct = result.avance_calculado_pct;
+          const base = pct != null ? `Avance de la semana ${semana} guardado: ${fmtPct(pct)} calculado` : `Avance por concepto de la semana ${semana} guardado`;
+          const numOmitidos = result.omitidos?.length || 0;
+          const excedentes = result.excedentes || [];
+          const partes = [];
+          if (numOmitidos > 0) partes.push(`${numOmitidos} actividad(es) no se guardaron: falta entrega de insumos en obra`);
+          if (excedentes.length > 0) {
+            partes.push(`${excedentes.length} concepto(s) no se guardaron por exceder el presupuesto: ${excedentes.map((e) => e.codigo).join(', ')}`);
+          }
+          const tieneExclusiones = partes.length > 0;
+          toast(tieneExclusiones ? `${base} — ${partes.join(' · ')}` : base, tieneExclusiones ? 'danger' : 'success');
+          renderView();
+        } catch (err) {
+          toast(err.message, 'danger');
+          btn.disabled = false; btn.textContent = 'Guardar avance';
+        }
+      });
+    }
   }
 }
 

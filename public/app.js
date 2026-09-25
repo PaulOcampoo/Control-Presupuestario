@@ -24549,13 +24549,13 @@ async function openVerGeneradorObraModal(generadorId) {
   // más ancha de la preview (.modal.modal-wide.genobra-preview-modal).
   $('#modal').classList.remove('genobra-preview-modal');
   $('#modal').classList.add('modal-wide', 'genobra-detalle-modal');
-  openModal(`<h3>Detalle del generador de obra</h3><div id="verGeneradorObraBody"><div class="empty-state">Cargando…</div></div>
+  openModal(`<div class="genobra-modal-scroll"><h3>Detalle del generador de obra</h3><div id="verGeneradorObraBody"><div class="empty-state">Cargando…</div></div>
     <div class="modal-actions">
       <button class="btn" id="btnCerrarVerGeneradorObra">Cerrar</button>
       <button class="btn" id="btnDescargarExcelGenObra">⭳ Descargar Excel</button>
       <button class="btn" id="btnDescargarPdfGenObra">⭳ Descargar PDF</button>
       <button class="btn btn-primary" id="btnVistaPreviaGenObra">Vista previa</button>
-    </div>`);
+    </div></div>`);
   $('#btnCerrarVerGeneradorObra').addEventListener('click', closeModal);
   // Mismo helper downloadExport()/wireExportButton() ya usado por el resto de
   // exports de la app (ver corte de obra xlsx/pdf, server/app.js:14636 —
@@ -24887,7 +24887,7 @@ async function openVistaPreviaGeneradorObraModal(generadorId) {
   // también o el footer sticky del detalle queda pisando el de la preview.
   $('#modal').classList.remove('genobra-detalle-modal');
   $('#modal').classList.add('modal-wide', 'genobra-preview-modal');
-  openModal(`<h3>Vista previa — Generador de obra</h3><p class="muted fs-088">Así se verá el documento exportado. Solo se incluyen Partida/Subpartida con al menos un renglón o una foto capturada — nada se descarga desde aquí.</p><div id="genobraPreviewBody"><div class="empty-state">Cargando…</div></div><div class="modal-actions"><button class="btn" id="btnVolverGenObraPreview">Volver al detalle</button></div>`);
+  openModal(`<div class="genobra-modal-scroll"><h3>Vista previa — Generador de obra</h3><p class="muted fs-088">Así se verá el documento exportado. Solo se incluyen Partida/Subpartida con al menos un renglón o una foto capturada — nada se descarga desde aquí.</p><div id="genobraPreviewBody"><div class="empty-state">Cargando…</div></div><div class="modal-actions"><button class="btn" id="btnVolverGenObraPreview">Volver al detalle</button></div></div>`);
   $('#btnVolverGenObraPreview').addEventListener('click', () => openVerGeneradorObraModal(generadorId));
   await pintarPreviewGeneradorObra(generadorId);
 }

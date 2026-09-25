@@ -1555,13 +1555,21 @@ body.body-scroll-locked { overflow: hidden; }
    compuesto con .genobra-detalle-modal/.genobra-preview-modal (mismo
    criterio que .modal-wide.gencat-preview-modal arriba) para no afectar a
    los demás modales que comparten .modal-actions.
-   Sticky-safe: .modal-actions es hijo DIRECTO de #modal, que es a la vez
-   el propio scroll container (overflow-y:auto, ver comentario en .modal
-   más arriba) — no hay ningún ancestro intermedio con overflow propio
-   entre el elemento sticky y su scroll container, así que no aplica el
-   problema de iOS Safari documentado en CLAUDE.md ("Patrón conocido:
-   position: sticky + overflow en iOS Safari"). Confirmado con
-   Playwright/WebKit (mobile + desktop, generador largo real). */
+
+   prompt-generadores-obra-ui-borrado.md (parte 4): el scroll real ya NO
+   vive en #modal — ver .genobra-modal-scroll más abajo, mismo patrón que
+   .main-scroll para el sticky vertical del breadcrumb (CLAUDE.md "Patrón
+   conocido: position: sticky + overflow en iOS Safari") — #modal solo
+   posiciona/recorta esquinas, sin overflow propio activo durante el
+   scroll. will-change: transform mantiene la barra en su propia capa de
+   composición para que el navegador no tenga que re-pintar su fondo sobre
+   la marcha en cada frame de scroll (evita quedar un frame "atrás" del
+   contenido que se desplaza detrás). Mitigación de mejor esfuerzo: el
+   glitch (visible solo con scroll de rueda rápido, no reproducible con
+   scrollTop instantáneo) sobrevivió a 5 hipótesis distintas probadas de
+   forma aislada — no se pudo confirmar causa raíz única; este cambio
+   combina las 3 mitigaciones de menor riesgo, sin regresión posible,
+   pendiente de confirmación visual real post-deploy. */
 .modal.genobra-detalle-modal .modal-actions,
 .modal.genobra-preview-modal .modal-actions {
   position: sticky;
@@ -1570,7 +1578,23 @@ body.body-scroll-locked { overflow: hidden; }
   background: var(--bg-surface);
   border-top: 1px solid var(--border-color);
   padding-top: var(--space-10);
+  will-change: transform;
 }
+.modal.genobra-detalle-modal,
+.modal.genobra-preview-modal {
+  padding: 0;
+}
+.genobra-modal-scroll {
+  max-height: 88dvh;
+  overflow-y: auto;
+  overflow-x: clip;
+  padding: var(--space-16);
+  border-radius: inherit;
+}
+/* Aísla el repintado de cada bloque de concepto del resto — el navegador
+   puede saltarse layout/paint de los bloques que no cambiaron en vez de
+   recalcular todo el árbol en cada frame de scroll. */
+.genobra-concepto-block { contain: content; }
 
 /* Buscador + Ubicación/Partida + "Ir a sección" + toggle "solo pendientes"
    del modal "Avance físico por concepto" (prompt-mejora-modal-avance.md).

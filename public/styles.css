@@ -1627,6 +1627,45 @@ body.body-scroll-locked { overflow: hidden; }
   position: sticky; top: 0; z-index: 5;
   background: var(--bg-surface); padding-bottom: var(--space-8); margin-bottom: var(--space-8);
   border-bottom: 1px solid var(--border-color);
+  /* prompt-avance-sticky-fix.md: mismo hueco documentado en CLAUDE.md
+     ("position: sticky + overflow en iOS Safari" → sub-patrón de padding),
+     aquí arriba en vez de abajo. .modal (ver .avc-modal más abajo) le cede
+     su padding-top a esta barra: sticky "top: 0" se resuelve contra el
+     padding-box de #modal, no contra su border-box, así que sin este ajuste
+     el padding-top de #modal quedaba como zona muerta sin nada opaco encima
+     una vez la barra queda fija — confirmado con elementFromPoint() en vivo
+     (devolvía breadcrumbs/títulos de sección reales, no el fondo del
+     modal) contra un catálogo real de 373 conceptos. */
+  padding-top: var(--space-16);
+}
+/* Modal "Avance físico por concepto" (prompt-avance-sticky-fix.md) — mismo
+   patrón que .genobra-detalle-modal/.genobra-preview-modal (PR #302): el
+   scroll real vive en .avc-modal-scroll, no en #modal, que pasa a solo
+   posicionar/recortar esquinas sin padding propio. El padding-top se lo
+   queda .avc-sticky-bar (arriba); el padding-bottom se lo queda
+   .modal-actions (abajo, ver regla siguiente) — ambos extremos evitan la
+   misma "zona muerta" de padding sin cubrir. El h3 inicial recupera su aire
+   superior con margin-top propio (no depende del padding de #modal). */
+.modal.avc-modal { padding: 0; }
+.avc-modal-scroll {
+  max-height: 88dvh;
+  overflow-y: auto;
+  overflow-x: clip;
+  padding: var(--space-16);
+  padding-top: 0;
+  padding-bottom: 0;
+  border-radius: inherit;
+}
+.avc-modal-scroll > h3:first-child { margin-top: var(--space-16); }
+.modal.avc-modal .modal-actions {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+  background: var(--bg-surface);
+  border-top: 1px solid var(--border-color);
+  padding-top: var(--space-10);
+  padding-bottom: var(--space-16);
+  will-change: transform;
 }
 /* #avcFiltros (ver comentario de .avc-sticky-bar arriba) no tiene ningún
    propósito visual propio -- display:contents lo "retira" del árbol de

@@ -3226,6 +3226,7 @@ function closeModal() {
   $('#modal').classList.remove('gencat-preview-modal'); // ver pintarPreviewCatalogoGenerador — mismo criterio
   $('#modal').classList.remove('genobra-preview-modal'); // ver openVistaPreviaGeneradorObraModal — mismo criterio
   $('#modal').classList.remove('genobra-detalle-modal'); // ver openVerGeneradorObraModal — mismo criterio
+  $('#modal').classList.remove('avc-modal'); // ver openAvanceConceptosModal — mismo criterio
   $('#modalOverlay').classList.remove('show');
   $('#modal').innerHTML = '';
   unlockBodyScroll('modal');
@@ -8814,8 +8815,9 @@ async function openAvanceConceptosModal(avance, presupuestoTotal, puedeEditar = 
   // en openVerEstimacionModal/openVerNominaModal — solo agranda en desktop
   // (@media min-width:861px), mobile se queda igual que antes. closeModal()
   // ya limpia la clase sola, no hace falta hacerlo aquí.
-  $('#modal').classList.add('modal-wide');
+  $('#modal').classList.add('modal-wide', 'avc-modal');
   openModal(`
+    <div class="avc-modal-scroll">
     <h3>Avance físico por concepto — Semana ${semana}</h3>
     <p class="muted">${fmtDate(avance.fecha_inicio)} – ${fmtDate(avance.fecha_fin)}<br>
       ${puedeEditar
@@ -8832,6 +8834,7 @@ async function openAvanceConceptosModal(avance, presupuestoTotal, puedeEditar = 
     <div class="modal-actions">
       <button class="btn" id="btnCancelAvc">Cerrar</button>
       ${puedeEditar ? '<button class="btn btn-primary" id="btnSaveAvc">Guardar avance</button>' : ''}
+    </div>
     </div>
   `);
   $('#btnCancelAvc').addEventListener('click', closeModal);

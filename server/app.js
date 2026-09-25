@@ -6941,6 +6941,19 @@ app.post('/api/projects/contrato-confirm', h(auth.allow()), h(auth.checkPermiso(
       return res.status(400).json({ error: `El % de fondo de garantía debe ser un número entre ${FONDO_GARANTIA_PCT_MIN} y ${FONDO_GARANTIA_PCT_MAX}` });
     }
   }
+  // prompt-impuestos-pago-reporte.md: mismo criterio de validación explícita
+  // que porcentaje_fondo_garantia arriba -- a diferencia de ese campo, este
+  // no tiene un endpoint dedicado propio (solo se edita vía este formulario
+  // de Contrato), así que fluye por el upsert genérico de abajo sin función
+  // especial; la validación de rango sí se hace aquí a propósito, igual que
+  // fondo de garantía, por ser un dato que alimenta un cálculo financiero
+  // (Presupuestado de la pestaña Impuestos).
+  if (body.porcentaje_impuestos !== undefined && body.porcentaje_impuestos !== null && body.porcentaje_impuestos !== '') {
+    const pct = Number(body.porcentaje_impuestos);
+    if (!Number.isFinite(pct) || pct < 0 || pct > 100) {
+      return res.status(400).json({ error: 'El % de impuestos debe ser un número entre 0 y 100' });
+    }
+  }
   const upsertMeta = `
     INSERT INTO meta (project_id, clave, valor) VALUES ($1, $2, $3)
     ON CONFLICT (project_id, clave) DO UPDATE SET valor = EXCLUDED.valor
@@ -7037,9 +7050,12 @@ app.get('/api/projects/:id/impuestos', h(auth.allow('tesoreria', 'administracion
 }));
 
 app.get('/api/projects/:id/impuestos/resumen', h(auth.allow('tesoreria', 'administracion')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('impuestos', 'puede_ver')), h(async (req, res) => {
-  const { rows } = await db.pool.query(
-    'SELECT * FROM pagos_impuestos_obra WHERE project_id = $1', [req.project.id]
-  );
+  const pid = req.project.id;
+  const [{ rows }, { rows: metaRows }] = await Promise.all([
+    db.pool.query('SELECT * FROM pagos_impuestos_obra WHERE project_id = $1', [pid]),
+    db.pool.query("SELECT clave, valor FROM meta WHERE project_id = $1 AND clave IN ('total_contratado', 'porcentaje_impuestos')", [pid]),
+  ]);
+  const meta = metaToObject(metaRows);
   const sum = (periodos) => periodos.reduce((acc, p) => {
     acc.imss += Number(p.imss_monto) || 0;
     acc.sat += Number(p.sat_monto) || 0;
@@ -7051,14 +7067,46 @@ app.get('/api/projects/:id/impuestos/resumen', h(auth.allow('tesoreria', 'admini
   const pendientes = rows.filter((p) => p.estado === 'pendiente');
   const acumuladoPagado = sum(pagados);
   const pendienteActual = sum(pendientes);
+  const acumuladoPagadoTotal = acumuladoPagado.imss + acumuladoPagado.sat + acumuladoPagado.infonavit;
+
+  // prompt-impuestos-pago-reporte.md: Presupuestado = valor del Contrato
+  // (meta.total_contratado, capturado en la pestaña Contrato) × % de
+  // impuestos (meta.porcentaje_impuestos, mismo patrón que
+  // porcentaje_fondo_garantia). Si falta CUALQUIERA de los dos, presupuestado
+  // queda null a propósito -- Forbidden Action del prompt: nunca inventar un
+  // % default ni calcular con 0%, el frontend debe mostrar "No configurado"
+  // explícito. pendiente_por_pagar nunca negativo en la UI; si lo pagado ya
+  // superó lo presupuestado, ese exceso se reporta aparte como "excedente"
+  // en vez de ocultarse.
+  const totalContratado = meta.total_contratado != null && meta.total_contratado !== '' ? Number(meta.total_contratado) : null;
+  const porcentajeImpuestos = meta.porcentaje_impuestos != null && meta.porcentaje_impuestos !== '' ? Number(meta.porcentaje_impuestos) : null;
+  const presupuestado = (totalContratado != null && porcentajeImpuestos != null)
+    ? Number((totalContratado * porcentajeImpuestos / 100).toFixed(2))
+    : null;
+  const diferencia = presupuestado != null ? Number((presupuestado - acumuladoPagadoTotal).toFixed(2)) : null;
 
   res.json({
-    acumulado_pagado: { ...acumuladoPagado, total: acumuladoPagado.imss + acumuladoPagado.sat + acumuladoPagado.infonavit },
+    acumulado_pagado: { ...acumuladoPagado, total: acumuladoPagadoTotal },
     pendiente_actual: { ...pendienteActual, total: pendienteActual.imss + pendienteActual.sat + pendienteActual.infonavit },
+    total_contratado: totalContratado,
+    porcentaje_impuestos: porcentajeImpuestos,
+    presupuestado,
+    pendiente_por_pagar: diferencia != null ? Math.max(diferencia, 0) : null,
+    excedente: diferencia != null ? Math.max(-diferencia, 0) : null,
   });
 }));
 
-app.post('/api/projects/:id/impuestos/:periodoId/cargar', h(auth.allow()), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('impuestos', 'puede_editar')), h(async (req, res) => {
+// prompt-impuestos-pago-reporte.md: bug preexistente encontrado con test
+// HTTP real (no en el diagnóstico original de este endpoint) -- auth.allow()
+// SIN roles significa "solo admin/desarrollador" (ver allow() en auth.js:
+// `puestos.includes(p)` con puestos=[] nunca es true para ningún otro
+// puesto), no "cualquier autenticado" como parecía por el nombre. Con eso,
+// tesorería/administración -- los únicos roles con la pestaña Impuestos
+// visible, y para quienes está wireado checkPermiso('impuestos',
+// 'puede_editar') -- nunca llegaban a ese checkPermiso: allow() los
+// rechazaba antes. Corregido a auth.allow('tesoreria', 'administracion'),
+// mismo criterio que los 2 GET de arriba.
+app.post('/api/projects/:id/impuestos/:periodoId/cargar', h(auth.allow('tesoreria', 'administracion')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('impuestos', 'puede_editar')), h(async (req, res) => {
   const periodoId = Number(req.params.periodoId);
   const { imss_monto, imss_referencia, sat_monto, sat_referencia, infonavit_monto, infonavit_referencia } = req.body || {};
 
@@ -7078,6 +7126,38 @@ app.post('/api/projects/:id/impuestos/:periodoId/cargar', h(auth.allow()), h(req
       imss_monto ?? null, imss_referencia || null, sat_monto ?? null, sat_referencia || null,
       infonavit_monto ?? null, infonavit_referencia || null, req.user.id, periodoId,
     ]
+  );
+  res.json(rows[0]);
+}));
+
+// prompt-impuestos-pago-reporte.md: "borrar" un pago de impuestos capturado
+// por equivocación. A diferencia de otras tablas con soft-delete (columna
+// activo/eliminado sobre una fila creada por el usuario), aquí la fila del
+// periodo la crea el cron mensual y SIEMPRE existe (un mes = una fila) —
+// nunca se borra físicamente porque no hay nada análogo a "el registro no
+// debería existir", solo "los montos capturados están mal". El equivalente
+// real de soft-delete en este modelo es revertir la fila a su estado
+// original ('pendiente', sin montos/referencias/autor), que es exactamente
+// lo mismo que insertaría el cron si el periodo nunca se hubiera cargado —
+// no se pierde información estructural, la fila sigue ahí. Verbo separado
+// de 'puede_editar' (checkPermiso 'puede_eliminar') porque revertir un pago
+// ya cargado es una acción más sensible que corregir un monto.
+app.post('/api/projects/:id/impuestos/:periodoId/revertir', h(auth.allow('tesoreria', 'administracion')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('impuestos', 'puede_eliminar')), h(async (req, res) => {
+  const periodoId = Number(req.params.periodoId);
+
+  const { rows: existRows } = await db.pool.query(
+    'SELECT id FROM pagos_impuestos_obra WHERE id = $1 AND project_id = $2', [periodoId, req.project.id]
+  );
+  if (!existRows[0]) return res.status(404).json({ error: 'Periodo no encontrado' });
+
+  const { rows } = await db.pool.query(
+    `UPDATE pagos_impuestos_obra
+     SET imss_monto = NULL, imss_referencia = NULL, sat_monto = NULL, sat_referencia = NULL,
+         infonavit_monto = NULL, infonavit_referencia = NULL, estado = 'pendiente',
+         cargado_por = NULL, cargado_en = NULL
+     WHERE id = $1
+     RETURNING *`,
+    [periodoId]
   );
   res.json(rows[0]);
 }));

@@ -3570,6 +3570,14 @@ html[data-palette="dorada"]:not([data-theme="light"]) .welcome-card {
   font-size: var(--fs-sm); cursor: pointer; white-space: nowrap;
 }
 .genobra-partida-tab.active { background: var(--accent-gold); color: #04212f; border-color: var(--accent-gold); font-weight: 600; }
+/* prompt-avance-tabs-ubicacion-partida.md: tabs de Partida (Nivel 2) dentro
+   del modal de Avance físico por concepto — mismo componente/clase base
+   .genobra-partida-tab (Generadores de Obra, reusado solo como referencia
+   visual), con este modificador para diferenciar jerarquía: más chico, sin
+   mayúsculas forzadas, fondo más plano cuando no está activo. */
+.genobra-partida-tab.avc-tab-partida { padding: var(--space-4) var(--space-10); font-size: var(--fs-xs, 0.78rem); background: transparent; }
+.genobra-partida-tab.avc-tab-partida.active { background: var(--accent-gold); color: #04212f; }
+.avc-tabs-nivel2:empty { display: none; }
 .genobra-subpartida-block { margin: var(--space-8) 0 var(--space-8) var(--space-14); }
 .genobra-subpartida-title { margin: var(--space-8) 0 var(--space-4); font-size: var(--fs-sm); color: var(--text-secondary); }
 .genobra-concepto-block { padding: var(--space-8) 0; border-top: 1px solid var(--border-color); }

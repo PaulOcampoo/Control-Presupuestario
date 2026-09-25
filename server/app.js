@@ -14908,6 +14908,32 @@ app.put('/api/projects/:id/generadores-obra/:genId/estado', h(auth.allow('reside
   res.json(rows[0]);
 }));
 
+// prompt-generadores-obra-ui-borrado.md: soft-delete de un generador COMPLETO
+// (columna 'activo', ya existente desde prompt-generadores-de-obra.md — nunca
+// se hace DELETE físico, mismo criterio que estimaciones). checkPermiso ya
+// exige puede_eliminar=true en la sección para llegar aquí (residente con el
+// permiso revocado nunca pasa de ahí), pero eso NO basta para el estatus: la
+// regla de negocio es más estricta que el permiso granular una vez que el
+// generador salió de 'borrador' — solo admin/desarrollador pueden borrar (o
+// editar) un generador Enviada/Aprobada/Rechazada, sin importar que el
+// usuario tenga puede_eliminar=true (ej. residente creador). Ese segundo
+// candado vive aquí, no en checkPermiso, porque depende del ESTADO de la fila,
+// no solo de la sección.
+app.delete('/api/projects/:id/generadores-obra/:genId', h(auth.allow('residente')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('generadores_obra', 'puede_eliminar')), h(async (req, res) => {
+  const genId = Number(req.params.genId);
+  const esAdmin = ['admin', 'desarrollador'].includes(req.user.puesto);
+  const { rows } = await db.pool.query(
+    'SELECT id, estado FROM generadores_obra WHERE id = $1 AND project_id = $2 AND activo = true',
+    [genId, req.project.id]
+  );
+  if (!rows[0]) return res.status(404).json({ error: 'Generador no encontrado' });
+  if (rows[0].estado !== 'borrador' && !esAdmin) {
+    return res.status(403).json({ error: 'Solo admin/desarrollador pueden eliminar un generador que ya fue enviado a aprobación' });
+  }
+  await db.pool.query('UPDATE generadores_obra SET activo = false WHERE id = $1', [genId]);
+  res.json({ ok: true });
+}));
+
 // ---------------------------------------------------------------------------
 // Asistente IA (prompt-asistente-ia-app-cp.md) — chat de ayuda de uso,
 // disponible para cualquier usuario autenticado. Contexto 100% estático (rol

@@ -24262,6 +24262,11 @@ async function openCambioEstadoEstimacionModal(estimacionId, nuevoEstado, pedirC
 const GENOBRA_ESTADO_LABELS = { borrador: 'Borrador', enviada: 'Enviada', aprobada: 'Aprobada', rechazada: 'Rechazada' };
 const GENOBRA_ESTADO_BADGE = { borrador: 'muted', enviada: 'yellow', aprobada: 'green', rechazada: 'red' };
 let generadoresObraRaw = [];
+// prompt-generadores-obra-ui-borrado.md: puede_eliminar granular real de la
+// obra activa, para decidir si se pinta el botón "Eliminar" en la lista —
+// mismo patrón que misPermisos en otras vistas (ej. maquinaria). admin/
+// desarrollador no dependen de esto (isAdmin() los cubre aparte).
+let misPermisosGenObra = { puede_eliminar: false };
 // Estado de edición LOCAL del modal de detalle abierto (nunca persistido) —
 // controla qué renglón se muestra como fila editable/nueva antes de Guardar.
 let generadorObraUiState = { editingRenglonId: null, addingConceptoId: null, activePartida: null };
@@ -24344,7 +24349,12 @@ async function loadGeneradoresObra() {
   const el = $('#generadoresObraList');
   if (!el) return;
   try {
-    generadoresObraRaw = await api(`/projects/${state.projectId}/generadores-obra`);
+    const [lista, misPermisos] = await Promise.all([
+      api(`/projects/${state.projectId}/generadores-obra`),
+      cached('permisosMe', () => api(`/permisos/me?obra_id=${state.projectId}`)),
+    ]);
+    generadoresObraRaw = lista;
+    misPermisosGenObra = misPermisos.generadores_obra || { puede_eliminar: false };
     paintGeneradoresObraList();
   } catch (err) {
     el.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
@@ -24371,7 +24381,15 @@ function paintGeneradoresObraList() {
   const el = $('#generadoresObraList');
   if (!el) return;
   if (!generadoresObraRaw.length) { el.innerHTML = '<div class="empty-state">No hay generadores de obra registrados.</div>'; $('#genObraEmptyState')?.classList.add('hidden-initial'); return; }
-  el.innerHTML = generadoresObraRaw.map((g) => `
+  el.innerHTML = generadoresObraRaw.map((g) => {
+    // prompt-generadores-obra-ui-borrado.md: mismo criterio que el backend
+    // (DELETE /generadores-obra/:genId) — en Borrador, cualquiera con
+    // puede_eliminar=true; en cualquier otro estatus, solo admin/desarrollador
+    // (aunque tengan el permiso granular activo). El backend rechaza igual con
+    // 403 si se intenta forzar, esto es solo para no ofrecer un botón que va
+    // a fallar.
+    const puedeEliminarEste = isAdmin() || (g.estado === 'borrador' && !!misPermisosGenObra.puede_eliminar);
+    return `
     <div class="card" data-genobra-card data-estado="${g.estado}" data-search="${esc(normalizarTexto(`${g.folio} ${g.nombre || ''} ${g.partidas_texto || ''}`))}">
       <div class="row between nomina-row-6">
         <div>
@@ -24389,9 +24407,11 @@ function paintGeneradoresObraList() {
         ${g.estado === 'enviada' && puedeAprobarGeneradorObra() ? `
           <button class="btn small btn-primary" data-aprobar-genobra="${g.id}">Aprobar</button>
           <button class="btn small btn-danger" data-rechazar-genobra="${g.id}">Rechazar</button>` : ''}
+        ${puedeEliminarEste ? `<button class="btn small btn-danger" data-eliminar-genobra="${g.id}" data-folio-genobra="${g.folio}">${iconoEliminar()} Eliminar</button>` : ''}
       </div>
     </div>
-  `).join('');
+  `;
+  }).join('');
   $$('[data-ver-generador-obra]', el).forEach((btn) => {
     btn.addEventListener('click', () => openVerGeneradorObraModal(Number(btn.dataset.verGeneradorObra)));
   });
@@ -24400,6 +24420,21 @@ function paintGeneradoresObraList() {
   });
   $$('[data-aprobar-genobra]', el).forEach((btn) => {
     btn.addEventListener('click', () => openCambioEstadoGeneradorObraModal(Number(btn.dataset.aprobarGenobra), 'aprobada', false, loadGeneradoresObra));
+  });
+  $$('[data-eliminar-genobra]', el).forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const id = Number(btn.dataset.eliminarGenobra);
+      const folio = btn.dataset.folioGenobra;
+      const ok = await confirmDialog(`¿Eliminar el generador de obra #${folio}? Esta acción no se puede deshacer desde la interfaz.`, {
+        titulo: 'Eliminar generador de obra', textoAceptar: 'Eliminar', claseAceptar: 'btn-danger',
+      });
+      if (!ok) return;
+      try {
+        await api(`/projects/${state.projectId}/generadores-obra/${id}`, { method: 'DELETE' });
+        toast('Generador de obra eliminado', 'success');
+        await loadGeneradoresObra();
+      } catch (err) { toast(err.message, 'danger'); }
+    });
   });
   $$('[data-rechazar-genobra]', el).forEach((btn) => {
     btn.addEventListener('click', () => openCambioEstadoGeneradorObraModal(Number(btn.dataset.rechazarGenobra), 'rechazada', true, loadGeneradoresObra));
@@ -24604,8 +24639,13 @@ async function pintarVerGeneradorObra(generadorId) {
       const renglones = renglonesPorConcepto.get(c.id) || [];
       const totalConcepto = renglones.reduce((s, r) => s + Number(r.subtotal || 0), 0);
       const agregando = editable && generadorObraUiState.addingConceptoId === c.id;
+      // prompt-generadores-obra-ui-borrado.md: prioridad visual — un concepto
+      // sin captura (Total: 0) se atenúa (opacity, mismo valor que .card-inactive
+      // en public/styles.css) para que los conceptos CON datos destaquen al
+      // primer vistazo, sin ocultar nada (todos siguen visibles/interactuables).
+      const sinCaptura = totalConcepto === 0;
       return `
-        <div class="genobra-concepto-block">
+        <div class="genobra-concepto-block${sinCaptura ? ' genobra-concepto-sin-captura' : ''}">
           <div class="row between">
             <strong class="fs-088">${esc(c.codigo ? c.codigo + ' — ' : '')}${esc(c.concepto)} <span class="muted fs-08">(${esc(c.unidad || '')})</span></strong>
             <span class="muted fs-088">Total: ${totalConcepto.toLocaleString('es-MX', { maximumFractionDigits: 2 })}</span>

@@ -4496,12 +4496,17 @@ tr.eu-row-critico td { background: color-mix(in srgb, var(--red) 9%, transparent
    que depender de la cascada de .fab sería frágil. Lado IZQUIERDO
    descartado en verificación visual real: el sidebar fijo (--sidebar-w:
    264px) ocupa esa franja en desktop y el FAB/panel le tapaban toda la
-   navegación. Del lado DERECHO, apilado ARRIBA del .fab transitorio de
-   cada vista (Insumos/Requisiciones, Generador de Presupuestos — que
-   también vive en right:18px/bottom:22px) para que, en las pocas vistas
-   donde ambos coinciden, se apilen en vez de solaparse. */
+   navegación. Del lado DERECHO, mismo bottom base que .fab (right:18px/
+   bottom:22px) — el offset de 90px que tenía antes para "apilarse arriba"
+   de .fab en desktop era innecesario: .fab está oculto en TODO desktop sin
+   excepción (".fab { display: none; }" arriba, dentro de @media
+   (min-width: 861px), "en desktop no hay bottom nav"), así que nunca
+   coexisten ahí y no hay nada que tapar. Bug real reportado por Paul:
+   Nyra aparecía "muy arriba" en escritorio. El apilamiento arriba de .fab
+   sigue vigente solo en mobile, vía el override de @media (max-width:
+   860px) más abajo. */
 .fab-asistente {
-  position: fixed; right: 18px; bottom: calc(90px + var(--safe-bottom)); z-index: 150;
+  position: fixed; right: 18px; bottom: calc(22px + var(--safe-bottom)); z-index: 150;
   width: 52px; height: 52px; border-radius: var(--radius-circle); border: none;
   background: var(--accent-gold); color: #04212f; font-size: var(--fs-lg);
   display: flex; align-items: center; justify-content: center; cursor: pointer;
@@ -4523,7 +4528,10 @@ tr.eu-row-critico td { background: color-mix(in srgb, var(--red) 9%, transparent
 }
 
 .asistente-panel {
-  position: fixed; right: 18px; bottom: calc(152px + var(--safe-bottom)); z-index: 150;
+  /* 10px arriba del botón .fab-asistente (bottom:22px, height:52px, top en
+     74px) — mismo criterio que antes, recalculado tras bajar el FAB de
+     90px a 22px en desktop (ver comentario en .fab-asistente). */
+  position: fixed; right: 18px; bottom: calc(84px + var(--safe-bottom)); z-index: 150;
   width: min(92vw, 380px); height: min(70vh, 560px); max-height: 70dvh;
   display: flex; flex-direction: column;
   background: var(--bg-surface); border: 1px solid var(--border-color); border-radius: var(--radius-lg);

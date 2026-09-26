@@ -2979,7 +2979,19 @@ function toggleAsistentePanel(forzarAbrir) {
   const panel = $('#asistentePanel');
   const abrir = forzarAbrir ?? !panel.classList.contains('show');
   panel.classList.toggle('show', abrir);
-  if (abrir) $('#asistenteInput').focus();
+  if (abrir) {
+    // El historial no persiste (se pierde al recargar, ver comentario de
+    // asistenteHistorial más arriba), así que "primera vez" se evalúa en
+    // cada apertura: si #asistenteMensajes está vacío, no hay conversación
+    // en curso y corresponde mostrar la bienvenida de nuevo.
+    if (!$('#asistenteMensajes').children.length) {
+      pintarMensajeAsistente(
+        'Hola, soy Nyra. Te ayudo a moverte dentro de Control Presupuestal de Obra: qué hace cada módulo y dónde encontrar lo que buscas, según tu rol. No tengo acceso a montos, avances ni datos reales de tus obras — para eso te oriento al módulo correcto.',
+        'assistant',
+      );
+    }
+    $('#asistenteInput').focus();
+  }
 }
 
 function pintarMensajeAsistente(texto, tipo) {

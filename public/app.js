@@ -158,6 +158,13 @@ const state = {
   // (sidebar/barra de tabs, ver renderSidebar/renderTabsBar); goToFinanzasCliente/
   // goToFinanzasGlobal lo fuerzan a 'cliente'/'global' antes de navegar.
   finanzasVista: 'obra',
+  // Toggle del widget "Avance físico-financiero" en Inicio (prompt-rediseno-
+  // avance-fisico-financiero.md): 'bullet' (Opción B, default — el dorado
+  // solo domina el 90%+ del área en el donut cuando hay atraso, confuso a
+  // ojo) | 'dona' (Opción A, se conserva como toggle). En memoria, no
+  // localStorage — se resetea a 'bullet' en cada carga de página, igual que
+  // finanzasVista arriba.
+  resumenAvanceVista: 'bullet',
   // Cliente elegido para la vista "Por cliente" de Finanzas; null = mostrar
   // el picker de clientes en esa vista. Ver goToFinanzasCliente.
   finanzasClienteId: null,
@@ -5498,6 +5505,21 @@ async function renderInicio(view) {
   let dashboardHtml = '<h2 class="section-title">Inicio</h2>';
   let resumen = null;
   let m = {};
+  // Ambas se asignan dentro del `if (puedeVerResumen)` de abajo, pero deben
+  // vivir en el scope de la función (no del bloque `if`) porque también las
+  // usa el listener de #avanceViewToggle más abajo, en OTRO bloque `if`
+  // hermano (prompt-rediseno-avance-fisico-financiero.md).
+  let vistaAvance = 'bullet';
+  let avanceWidgetHtml = () => '';
+  // CSP bloquea style="width:...%"/"left:...%" inline en el HTML (server/
+  // app.js, style-src 'self', sin unsafe-inline) — mismo caso ya resuelto
+  // para .wpc-progress-fill: el % viaja en data-width/data-left y se aplica
+  // por JS (element.style.foo = ...) DESPUÉS de insertar el HTML, que sí
+  // está permitido (no pasa por el parser de HTML/CSS que CSP intercepta).
+  const applyAvanceBulletStyles = () => {
+    $$('#avanceWidgetBody [data-width]').forEach((el) => { el.style.width = el.dataset.width + '%'; });
+    $$('#avanceWidgetBody [data-left]').forEach((el) => { el.style.left = el.dataset.left + '%'; });
+  };
 
   // prompt-seccion-costos-implementacion.md: costos gana el tab 'resumen'
   // completo, pero el bloque de avance físico-financiero (los 3 KPIs de
@@ -5514,6 +5536,61 @@ async function renderInicio(view) {
     const fisico = resumen.avance_fisico_ejecutado_actual || 0;
     const desviacion = ejec - prog;
     const desvKind = desviacion >= 0 ? 'green' : (desviacion < -10 ? 'red' : 'yellow');
+    // Fórmula real de "Resto por ejecutar" (prompt-rediseno-avance-fisico-
+    // financiero.md, diagnóstico Fase 0): contra presupuesto_total, NO contra
+    // "Programado" — por eso Programado − Ejecutado no cuadraba con este
+    // número a simple vista. Misma fórmula que ya usaba el donut viejo.
+    const restoPorEjecutar = Math.max(0, resumen.presupuesto_total - Math.max(resumen.importe_programado, resumen.importe_ejecutado));
+    const progPct = Math.max(0, Math.min(100, prog));
+    const ejecPct = Math.max(0, Math.min(100, ejec));
+    // Clamp solo visual (2-98%) para que el marcador de meta no quede
+    // recortado por el border-radius en pill del track cuando prog está muy
+    // cerca de 0% o 100% — progPct real (sin clamp) sigue siendo el que se
+    // muestra en texto/KPIs.
+    const markerPct = Math.min(98, Math.max(2, progPct));
+    vistaAvance = state.resumenAvanceVista === 'dona' ? 'dona' : 'bullet';
+    // HTML del cuerpo del widget, reutilizado tanto en el render inicial como
+    // al togglear Barra/Dona (ver listener de #avanceViewToggle más abajo) —
+    // por eso vive en una función y no inline en el template de dashboardHtml.
+    avanceWidgetHtml = (vista) => {
+      if (vista === 'dona') {
+        return `
+          <div class="global-chart-wrap">
+            <div class="donut-canvas-wrap">
+              <canvas id="chartResumenDona" width="140" height="140"></canvas>
+              <div class="donut-inner-ring"></div>
+              <div class="donut-center">
+                <div class="donut-center-value">${fmtNum(ejec, 1)}<span class="pct-sign">%</span></div>
+                <div class="donut-center-label">Ejecutado</div>
+                <div class="donut-center-sub">de ${fmtMoney(resumen.presupuesto_total)}</div>
+              </div>
+            </div>
+            <div class="global-chart-kpis">
+              <div class="global-kpi"><span class="global-kpi-label"><span class="avance-dot avance-dot-verde"></span>Ejecutado</span><span class="global-kpi-value text-verde">${fmtMoney(resumen.importe_ejecutado)}</span></div>
+              <div class="global-kpi"><span class="global-kpi-label"><span class="avance-dot avance-dot-dorado"></span>Programado (a la fecha)</span><span class="global-kpi-value">${fmtMoney(resumen.importe_programado)}</span></div>
+              <div class="global-kpi"><span class="global-kpi-label"><span class="avance-dot avance-dot-muted"></span>Resto por ejecutar</span><span class="global-kpi-value text-secondary-color">${fmtMoney(restoPorEjecutar)}</span></div>
+            </div>
+          </div>`;
+      }
+      return `
+        <div class="avance-bullet">
+          <div class="avance-bullet-head">
+            <div class="avance-bullet-big">${fmtNum(ejec, 1)}<span class="pct-sign">%</span><span class="avance-bullet-cur">ejecutado · ${fmtMoney(resumen.importe_ejecutado)}</span></div>
+            <span class="badge ${desvKind}">${desviacion >= 0 ? '+' : ''}${fmtNum(desviacion, 1)} pp vs. programa</span>
+          </div>
+          <div class="avance-bullet-track">
+            <div class="avance-bullet-zone" data-width="${progPct}"></div>
+            <div class="avance-bullet-fill" data-width="${ejecPct}"></div>
+            <div class="avance-bullet-marker" data-left="${markerPct}"></div>
+            <div class="avance-bullet-marker-label" data-left="${markerPct}">Meta hoy</div>
+          </div>
+          <div class="avance-bullet-kpis">
+            <div class="avance-bullet-kpi"><div class="k"><span class="avance-dot avance-dot-verde"></span>Ejecutado</div><div class="v">${fmtMoney(resumen.importe_ejecutado)}</div></div>
+            <div class="avance-bullet-kpi"><div class="k"><span class="avance-dot avance-dot-dorado"></span>Programado (a la fecha)</div><div class="v">${fmtMoney(resumen.importe_programado)}</div></div>
+            <div class="avance-bullet-kpi"><div class="k"><span class="avance-dot avance-dot-muted"></span>Resto por ejecutar</div><div class="v">${fmtMoney(restoPorEjecutar)}</div></div>
+          </div>
+        </div>`;
+    };
     dashboardHtml = `
       <h2 class="section-title">Resumen del presupuesto</h2>
       <div class="kpi-grid">
@@ -5530,23 +5607,15 @@ async function renderInicio(view) {
       </div>
 
       ${mostrarAvanceFinanciero ? `
-      <h3 class="section-title">Avance físico-financiero: presupuestado vs ejecutado vs por ejecutar</h3>
+      <h3 class="section-title row between avance-title-row">
+        <span>Avance físico-financiero: presupuestado vs ejecutado vs por ejecutar</span>
+        <span class="avance-view-toggle" id="avanceViewToggle" role="group" aria-label="Cambiar vista del widget">
+          <button type="button" class="avance-view-btn ${vistaAvance === 'bullet' ? 'active' : ''}" data-vista="bullet">Barra</button>
+          <button type="button" class="avance-view-btn ${vistaAvance === 'dona' ? 'active' : ''}" data-vista="dona">Dona</button>
+        </span>
+      </h3>
       <div class="card">
-        <div class="global-chart-wrap">
-          <div class="donut-canvas-wrap">
-            <canvas id="chartResumenDona" width="140" height="140"></canvas>
-            <div class="donut-inner-ring"></div>
-            <div class="donut-center">
-              <div class="donut-center-value">${fmtNum(ejec, 1)}<span class="pct-sign">%</span></div>
-              <div class="donut-center-label">Ejecutado</div>
-            </div>
-          </div>
-          <div class="global-chart-kpis">
-            <div class="global-kpi"><span class="global-kpi-label">Ejecutado</span><span class="global-kpi-value text-verde">${fmtMoney(resumen.importe_ejecutado)}</span></div>
-            <div class="global-kpi"><span class="global-kpi-label">Programado (a la fecha)</span><span class="global-kpi-value">${fmtMoney(resumen.importe_programado)}</span></div>
-            <div class="global-kpi"><span class="global-kpi-label">Resto por ejecutar</span><span class="global-kpi-value text-secondary-color">${fmtMoney(Math.max(0, resumen.presupuesto_total - Math.max(resumen.importe_programado, resumen.importe_ejecutado)))}</span></div>
-          </div>
-        </div>
+        <div id="avanceWidgetBody">${avanceWidgetHtml(vistaAvance)}</div>
       </div>` : ''}
 
       <h3 class="section-title">Datos de la obra</h3>
@@ -5607,59 +5676,87 @@ async function renderInicio(view) {
   `;
 
   if (puedeVerResumen && mostrarAvanceFinanciero) {
-    const ctx = $('#chartResumenDona').getContext('2d');
-    const cc = chartColors();
-    state.charts.resumenDona = new Chart(ctx, {
-      type: 'doughnut',
-      data: {
-        labels: ['Ejecutado', 'Programado por ejecutar (a la fecha)', 'Resto por ejecutar'],
-        datasets: [{
-          data: [
-            resumen.importe_ejecutado,
-            Math.max(0, resumen.importe_programado - resumen.importe_ejecutado),
-            Math.max(0, resumen.presupuesto_total - Math.max(resumen.importe_programado, resumen.importe_ejecutado)),
-          ],
-          // 3er segmento ("Resto por ejecutar"): antes '#334155' fijo — ahora
-          // cc.grid (--border-color), se funde como "vacío" en cualquier paleta.
-          // 2do segmento ("Programado por ejecutar"): cc.atraso (--donut-
-          // atraso) — probó un slate/taupe apagado (prompt-cambio-color-
-          // donut-gris.md), revertido a dorado (#eab308, mismo valor de
-          // antes) por decisión de Paul tras verlo en pantalla (prompt-
-          // revertir-dorado-fix-tooltip-donut.md) — la variable semántica se
-          // conserva, solo cambió su valor en styles.css.
-          backgroundColor: ['#22c55e', cc.atraso, cc.grid],
-          // Este donut sí vive dentro de una .card — el borde de cada segmento
-          // debe fundirse con --bg-surface (fondo real de la tarjeta), no un
-          // hex fijo que solo coincidía con Dorada dark por casualidad.
-          borderColor: cc.surface,
-          borderWidth: 2,
-        }],
-      },
-      options: {
-        // responsive:false + cutout 62% (prompt-rediseno-donuts-avance-
-        // navegacion-detalle.md): mismo tratamiento fijo de 140px que
-        // #globalPieChart — antes era responsive dentro de .chart-wrap
-        // (280px alto, ancho variable), lo que habría hecho imposible
-        // alinear el anillo interior decorativo (.donut-inner-ring, CSS
-        // puro) con el círculo real que dibuja Chart.js. La leyenda se quita
-        // (mismo criterio que el donut global: los 3 valores ya se muestran
-        // como texto en .global-chart-kpis al lado, sin duplicar).
-        responsive: false,
-        cutout: '62%',
-        animation: animationForChart(`resumenDona:${state.projectId}`),
-        plugins: {
-          legend: { display: false },
-          // enabled:false + external: el tooltip nativo (dibujado dentro del
-          // <canvas>, recortado a sus 140px) se empalmaba con .donut-center
-          // — ver externalDonutTooltip() y comentario ahí para la causa raíz
-          // completa (prompt-revertir-dorado-fix-tooltip-donut.md).
-          tooltip: { enabled: false, external: externalDonutTooltip },
+    // Instancia (o destruye) el Chart.js de la vista "Dona" — la vista
+    // "Barra" (default, prompt-rediseno-avance-fisico-financiero.md) es CSS
+    // puro, sin canvas. Extraído a función para poder recrearse al togglear
+    // sin re-fetchear /resumen (resumen ya está en closure).
+    const initAvanceChart = (vista) => {
+      if (state.charts.resumenDona) {
+        state.charts.resumenDona.destroy();
+        state.charts.resumenDona = null;
+      }
+      if (vista !== 'dona') return;
+      const ctx = $('#chartResumenDona')?.getContext('2d');
+      if (!ctx) return;
+      const cc = chartColors();
+      state.charts.resumenDona = new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+          labels: ['Ejecutado', 'Programado por ejecutar (a la fecha)', 'Resto por ejecutar'],
+          datasets: [{
+            data: [
+              resumen.importe_ejecutado,
+              Math.max(0, resumen.importe_programado - resumen.importe_ejecutado),
+              Math.max(0, resumen.presupuesto_total - Math.max(resumen.importe_programado, resumen.importe_ejecutado)),
+            ],
+            // 3er segmento ("Resto por ejecutar"): antes '#334155' fijo — ahora
+            // cc.grid (--border-color), se funde como "vacío" en cualquier paleta.
+            // 2do segmento ("Programado por ejecutar"): cc.atraso (--donut-
+            // atraso) — probó un slate/taupe apagado (prompt-cambio-color-
+            // donut-gris.md), revertido a dorado (#eab308, mismo valor de
+            // antes) por decisión de Paul tras verlo en pantalla (prompt-
+            // revertir-dorado-fix-tooltip-donut.md) — la variable semántica se
+            // conserva, solo cambió su valor en styles.css.
+            backgroundColor: ['#22c55e', cc.atraso, cc.grid],
+            // Este donut sí vive dentro de una .card — el borde de cada segmento
+            // debe fundirse con --bg-surface (fondo real de la tarjeta), no un
+            // hex fijo que solo coincidía con Dorada dark por casualidad.
+            borderColor: cc.surface,
+            borderWidth: 2,
+          }],
         },
-      },
+        options: {
+          // responsive:false + cutout 62% (prompt-rediseno-donuts-avance-
+          // navegacion-detalle.md): mismo tratamiento fijo de 140px que
+          // #globalPieChart — antes era responsive dentro de .chart-wrap
+          // (280px alto, ancho variable), lo que habría hecho imposible
+          // alinear el anillo interior decorativo (.donut-inner-ring, CSS
+          // puro) con el círculo real que dibuja Chart.js. La leyenda se quita
+          // (mismo criterio que el donut global: los 3 valores ya se muestran
+          // como texto en .global-chart-kpis al lado, sin duplicar).
+          responsive: false,
+          cutout: '62%',
+          animation: animationForChart(`resumenDona:${state.projectId}`),
+          plugins: {
+            legend: { display: false },
+            // enabled:false + external: el tooltip nativo (dibujado dentro del
+            // <canvas>, recortado a sus 140px) se empalmaba con .donut-center
+            // — ver externalDonutTooltip() y comentario ahí para la causa raíz
+            // completa (prompt-revertir-dorado-fix-tooltip-donut.md).
+            tooltip: { enabled: false, external: externalDonutTooltip },
+          },
+        },
+      });
+      state.charts.resumenDona._cpBorderSurface = 'surface';
+      state.charts.resumenDona._cpGridBgIndexes = [2]; // 'Resto por ejecutar' (índice 2 en backgroundColor)
+      state.charts.resumenDona._cpAtrasoBgIndex = 1; // 'Programado por ejecutar' (índice 1) — re-derivar de cc.atraso en hot-swap de tema, mismo criterio que _cpGridBgIndexes
+    };
+    initAvanceChart(vistaAvance);
+    applyAvanceBulletStyles();
+
+    $('#avanceViewToggle')?.addEventListener('click', (e) => {
+      const btn = e.target.closest('.avance-view-btn');
+      if (!btn) return;
+      const nuevaVista = btn.dataset.vista === 'dona' ? 'dona' : 'bullet';
+      if (nuevaVista === state.resumenAvanceVista) return;
+      state.resumenAvanceVista = nuevaVista;
+      $('#avanceViewToggle').querySelectorAll('.avance-view-btn').forEach((b) => {
+        b.classList.toggle('active', b.dataset.vista === nuevaVista);
+      });
+      $('#avanceWidgetBody').innerHTML = avanceWidgetHtml(nuevaVista);
+      initAvanceChart(nuevaVista);
+      applyAvanceBulletStyles();
     });
-    state.charts.resumenDona._cpBorderSurface = 'surface';
-    state.charts.resumenDona._cpGridBgIndexes = [2]; // 'Resto por ejecutar' (índice 2 en backgroundColor)
-    state.charts.resumenDona._cpAtrasoBgIndex = 1; // 'Programado por ejecutar' (índice 1) — re-derivar de cc.atraso en hot-swap de tema, mismo criterio que _cpGridBgIndexes
   }
   // Botones de "Datos de la obra": SIEMPRE que puedeVerResumen, sin depender
   // de mostrarAvanceFinanciero — ese bloque se oculta para costos, pero

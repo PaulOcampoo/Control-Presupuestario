@@ -922,6 +922,53 @@ h3.section-title { margin: var(--space-16) var(--space-0) var(--space-10); font-
 .donut-tooltip.show { opacity: 1; }
 .donut-tooltip-swatch { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: var(--space-6); vertical-align: middle; }
 
+/* Toggle Barra/Dona del widget "Avance físico-financiero" (prompt-rediseno-
+   avance-fisico-financiero.md) — "Barra" (bullet chart) es la vista default:
+   el donut de 3 segmentos dejaba el dorado (color de marca) cubriendo 90%+
+   del anillo cuando hay atraso con 0% ejecutado, confundible con "logrado".
+   "Dona" se conserva como toggle sin quitarle el dorado al segmento de
+   atraso (decisión ya tomada por Paul en prompt-revertir-dorado-fix-
+   tooltip-donut.md) — solo se le agregan swatches de color + subtítulo bajo
+   el % para que no dependa de un hover para leerse bien. */
+.avance-title-row { align-items: center; }
+.avance-view-toggle {
+  display: inline-flex; gap: var(--space-2); background: var(--bg-surface-2);
+  border: 1px solid var(--border-color); border-radius: var(--radius-pill); padding: var(--space-2);
+}
+.avance-view-btn {
+  font-family: inherit; font-size: var(--fs-xs); font-weight: 700; text-transform: none; letter-spacing: 0;
+  color: var(--text-secondary); background: none; border: none; border-radius: var(--radius-pill);
+  padding: var(--space-4) var(--space-10); cursor: pointer;
+}
+.avance-view-btn.active { background: var(--bg-surface); color: var(--text-primary); box-shadow: var(--shadow-sm); }
+.avance-view-btn:hover:not(.active) { color: var(--text-primary); }
+
+.avance-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: var(--space-6); vertical-align: middle; }
+.avance-dot-verde { background: var(--green); }
+.avance-dot-dorado { background: var(--yellow); }
+.avance-dot-muted { background: var(--border-color); border: 1px solid var(--accent-silver); }
+.donut-center-sub { font-size: var(--fs-2xs); color: var(--text-secondary); margin-top: var(--space-2); }
+
+/* Vista "Barra" — bullet chart: zona ya cubierta por el programa (banda
+   tenue) + avance real (relleno verde) + marcador de meta (tick dorado) en
+   vez de un anillo de 3 colores donde uno solo (dorado) podía dominar toda
+   el área visual. */
+.avance-bullet-head { display: flex; justify-content: space-between; align-items: flex-end; gap: var(--space-10); flex-wrap: wrap; margin-bottom: var(--space-14); }
+.avance-bullet-big { font-size: var(--fs-xl); font-weight: 800; font-family: var(--font-heading); color: var(--text-primary); }
+.avance-bullet-big .pct-sign { font-size: 0.6em; font-weight: 700; color: var(--text-secondary); }
+.avance-bullet-cur { font-size: var(--fs-sm); font-weight: 600; color: var(--text-secondary); margin-left: var(--space-8); }
+.avance-bullet-track { position: relative; height: 20px; border-radius: var(--radius-pill); background: var(--border-color); margin: var(--space-16) var(--space-0) var(--space-10); }
+.avance-bullet-zone { position: absolute; top: 0; left: 0; height: 100%; border-radius: var(--radius-pill); background: color-mix(in srgb, var(--accent-silver) 22%, transparent); }
+.avance-bullet-fill { position: absolute; top: 0; left: 0; height: 100%; border-radius: var(--radius-pill); background: var(--green); min-width: 4px; }
+.avance-bullet-marker { position: absolute; top: -4px; width: 3px; height: 28px; background: var(--accent-gold); border-radius: 2px; box-shadow: 0 0 0 2px var(--bg-surface); }
+.avance-bullet-marker-label { position: absolute; top: -22px; transform: translateX(-50%); font-size: var(--fs-2xs); font-weight: 700; color: var(--accent-gold-hover); white-space: nowrap; }
+.avance-bullet-kpis { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-12); margin-top: var(--space-24); }
+.avance-bullet-kpi .k { display: flex; align-items: center; font-size: var(--fs-xs); color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.04em; }
+.avance-bullet-kpi .v { font-size: var(--fs-base); font-weight: 700; margin-top: var(--space-4); color: var(--text-primary); }
+@media (max-width: 640px) {
+  .avance-bullet-kpis { grid-template-columns: 1fr; gap: var(--space-8); }
+}
+
 /* "Erogado Real — desglose" estilo ticket/recibo (prompt-rediseno-donuts-
    avance-navegacion-detalle.md): cada renglón etiquetado + un TOTAL con
    línea divisoria punteada (evoca el corte de un recibo real) que suma

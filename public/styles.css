@@ -2536,6 +2536,28 @@ html[data-palette="dorada"]:not([data-theme="light"]) .welcome-card {
   .global-chart-kpis { grid-template-columns: repeat(2, 1fr); width: 100%; }
 }
 
+/* Modificador "tile con ícono" (prompt-rediseno-resumen-global.md, Dirección
+   A elegida por Paul) — SOLO para el widget "Resumen global — N obras"
+   (renderGlobalChart()). .global-kpi/.global-chart-kpis en sí se reusan tal
+   cual en otros 4 widgets (Resumen por obra individual, Dashboard Ejecutivo,
+   Cobertura de matrices, Infra Vivienda), así que el nuevo tratamiento va en
+   selectores compuestos bajo .global-chart-kpis-tiles — cero cambio de
+   apariencia para quien no tenga esa clase extra en el contenedor. */
+.global-chart-kpis-tiles .global-kpi {
+  flex-direction: row; align-items: center; gap: var(--space-8);
+  background: var(--bg-surface-2); border: 1px solid var(--border-color);
+  border-radius: var(--radius-md); padding: var(--space-8) var(--space-10);
+}
+.global-chart-kpis-tiles .global-kpi-text { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; }
+.global-kpi-icon-wrap {
+  width: 28px; height: 28px; border-radius: var(--radius-sm); flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  background: color-mix(in srgb, var(--accent-gold) 14%, transparent);
+  color: var(--accent-gold);
+}
+.global-kpi-icon-wrap svg { width: 15px; height: 15px; }
+.global-kpi-icon-wrap.is-green { background: color-mix(in srgb, var(--green) 16%, transparent); color: var(--green); }
+
 /* prompt-rediseno-dashboard-costos.md: frase de cobertura en lenguaje simple
    bajo la dona (color = semáforo, misma clase text-verde/text-amarillo/
    text-rojo ya usada en el resto de la app) y botón "Ver más" centrado para
@@ -2557,6 +2579,22 @@ html[data-palette="dorada"]:not([data-theme="light"]) .welcome-card {
 .apc-pct { font-size: var(--fs-sm); font-weight: 700; color: var(--accent-gold); font-variant-numeric: tabular-nums; }
 .apc-bar { background: var(--border-color); border-radius: var(--radius-sm); height: 8px; overflow: hidden; }
 .apc-fill { height: 100%; background: var(--accent-gold); border-radius: var(--radius-sm); transition: width 0.6s ease; }
+
+/* Fila con numeración de ranking (prompt-rediseno-resumen-global.md,
+   Dirección A) — SOLO para el top-4 de "Resumen global" (.apc-list, único
+   consumidor de .apc-item sin -full). .apc-item-full (costos básicos,
+   avance-por-cliente completo) nunca lleva estas clases nuevas, así que no
+   se ve afectado. */
+.apc-item.apc-item-ranked { flex-direction: row; align-items: center; gap: var(--space-10); }
+.apc-rank {
+  width: 22px; height: 22px; border-radius: 50%; flex-shrink: 0;
+  background: var(--bg-surface-2); border: 1px solid var(--border-color);
+  display: flex; align-items: center; justify-content: center;
+  font-size: var(--fs-2xs); font-weight: 800; color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+.apc-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: var(--space-4); }
+.apc-bar-gradient .apc-fill { background: linear-gradient(90deg, var(--accent-gold), var(--accent-gold-hover)); }
 
 /* ── Vista "Avance por cliente" completa (prompt-avance-acumulado-cliente-
    global.md) — mismo lenguaje visual de .apc-* de arriba, extendido con

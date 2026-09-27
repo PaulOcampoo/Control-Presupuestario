@@ -4549,6 +4549,25 @@ async function renderGlobalChart() {
 
   if (state.charts.globalPie) { try { state.charts.globalPie.destroy(); } catch {} delete state.charts.globalPie; }
 
+  // Iconos KPI (prompt-rediseno-resumen-global.md, Dirección A "Arco
+  // pulido" elegida por Paul) — SVG inline propios (sin librería externa),
+  // en un objeto local: .global-kpi/.global-chart-kpis se reusan en otros
+  // 4 widgets (Resumen por obra individual, Dashboard Ejecutivo, Cobertura
+  // de matrices, Infra Vivienda — ver grep), así que el ícono vive en un
+  // <span class="global-kpi-icon-wrap"> nuevo y el tile solo se ve
+  // "modernizado" bajo el modificador .global-chart-kpis-tiles de abajo,
+  // sin tocar la clase base compartida.
+  const GLOBAL_KPI_ICONS = {
+    contrato: '<path d="M6 2h9l5 5v15H6z"/><path d="M14 2v6h6"/><path d="M9 13h6M9 17h6"/>',
+    check: '<path d="M20 6 9 17l-5-5"/>',
+    reloj: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/>',
+    tendencia: '<path d="M3 3v18h18"/><path d="M7 15l4-6 3 3 5-8"/>',
+  };
+  const globalKpiIcon = (name, cls = '') => `
+    <span class="global-kpi-icon-wrap${cls ? ' ' + cls : ''}">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${GLOBAL_KPI_ICONS[name]}</svg>
+    </span>`;
+
   el.innerHTML = `
     <div class="global-chart-section">
       <div class="bienvenida-summary-title">Resumen global — ${data.num_proyectos} obra${data.num_proyectos === 1 ? '' : 's'}</div>
@@ -4561,22 +4580,34 @@ async function renderGlobalChart() {
             <div class="donut-center-label">Avance ponderado</div>
           </div>
         </button>
-        <div class="global-chart-kpis">
+        <div class="global-chart-kpis global-chart-kpis-tiles">
           <div class="global-kpi">
-            <span class="global-kpi-label">Total contratos</span>
-            <span class="global-kpi-value">${fmtMoney(data.total_contratos)}</span>
+            ${globalKpiIcon('contrato')}
+            <span class="global-kpi-text">
+              <span class="global-kpi-label">Total contratos</span>
+              <span class="global-kpi-value">${fmtMoney(data.total_contratos)}</span>
+            </span>
           </div>
           <div class="global-kpi">
-            <span class="global-kpi-label">Ejecutado</span>
-            <span class="global-kpi-value text-verde">${fmtMoney(data.importe_ejecutado)}</span>
+            ${globalKpiIcon('check', 'is-green')}
+            <span class="global-kpi-text">
+              <span class="global-kpi-label">Ejecutado</span>
+              <span class="global-kpi-value text-verde">${fmtMoney(data.importe_ejecutado)}</span>
+            </span>
           </div>
           <div class="global-kpi">
-            <span class="global-kpi-label">Por ejecutar</span>
-            <span class="global-kpi-value text-secondary-color">${fmtMoney(data.importe_por_ejecutar)}</span>
+            ${globalKpiIcon('reloj')}
+            <span class="global-kpi-text">
+              <span class="global-kpi-label">Por ejecutar</span>
+              <span class="global-kpi-value text-secondary-color">${fmtMoney(data.importe_por_ejecutar)}</span>
+            </span>
           </div>
           <div class="global-kpi">
-            <span class="global-kpi-label">Avance ponderado</span>
-            <span class="global-kpi-value accent">${data.avance_ponderado_pct.toFixed(1)}%</span>
+            ${globalKpiIcon('tendencia')}
+            <span class="global-kpi-text">
+              <span class="global-kpi-label">Avance ponderado</span>
+              <span class="global-kpi-value accent">${data.avance_ponderado_pct.toFixed(1)}%</span>
+            </span>
           </div>
         </div>
       </div>
@@ -4584,23 +4615,39 @@ async function renderGlobalChart() {
 
   const ctx = $('#globalPieChart').getContext('2d');
   const cc = chartColors();
+  // Gradiente dorado→verde a lo largo del arco de "Ejecutado" (Dirección A):
+  // gradiente estático sobre el canvas completo (no scriptable), así
+  // ds.backgroundColor sigue siendo un array plano — _cpGridBgIndexes (abajo)
+  // necesita eso para re-derivar el segmento "Por ejecutar" en hot-swap de
+  // tema/paleta, igual que antes. El glow/blur que este mismo donut tuvo
+  // alguna vez fue removido a propósito en prompt-rediseno-donuts-avance-
+  // navegacion-detalle.md (Forbidden Action explícita) — NO se reintroduce
+  // aquí; el "pulido" de esta dirección es el cap redondeado + gradiente,
+  // sin sombra ni blur.
+  const arcoGradiente = ctx.createLinearGradient(0, 0, 140, 140);
+  arcoGradiente.addColorStop(0, '#C9A24B');
+  arcoGradiente.addColorStop(1, '#22c55e');
   state.charts.globalPie = new Chart(ctx, {
     type: 'doughnut',
     data: {
       labels: ['Ejecutado', 'Por ejecutar'],
       datasets: [{
         data: [data.importe_ejecutado, data.importe_por_ejecutar],
-        backgroundColor: ['#22c55e', cc.grid],
+        backgroundColor: [arcoGradiente, cc.grid],
         // Este donut vive directo sobre el fondo de página (.global-chart-section
         // no tiene su propio background), no dentro de una .card — el borde de
         // cada segmento debe fundirse con --bg-primary, no con --bg-surface.
         borderColor: cc.primary,
         borderWidth: 3,
+        // Cap redondeado solo en el arco de "Ejecutado" (índice 0) — el
+        // segmento "Por ejecutar" (índice 1, el resto del anillo) se queda
+        // recto para no dejar un hueco visible en la unión de ambos arcos.
+        borderRadius: (c) => (c.dataIndex === 0 ? 8 : 0),
       }],
     },
     options: {
       responsive: false,
-      cutout: '62%',
+      cutout: '70%',
       animation: animationForChart('globalPie'),
       plugins: {
         legend: { display: false },
@@ -4670,15 +4717,18 @@ async function renderAvancePorCliente() {
     <div class="apc-section">
       <div class="bienvenida-summary-title">Avance por cliente</div>
       <div class="apc-list">
-        ${data.map((c) => {
+        ${data.map((c, i) => {
           const pct = Math.min(100, Math.max(0, Number(c.avance_ponderado_pct) || 0));
           return `
-          <div class="apc-item">
-            <div class="apc-row-top">
-              <span class="apc-nombre">${esc(c.cliente_nombre)}</span>
-              <span class="apc-pct">${pct.toFixed(1)}%</span>
+          <div class="apc-item apc-item-ranked">
+            <div class="apc-rank">${String(i + 1).padStart(2, '0')}</div>
+            <div class="apc-main">
+              <div class="apc-row-top">
+                <span class="apc-nombre">${esc(c.cliente_nombre)}</span>
+                <span class="apc-pct">${pct.toFixed(1)}%</span>
+              </div>
+              <div class="apc-bar apc-bar-gradient"><div class="apc-fill" data-pct="${pct}"></div></div>
             </div>
-            <div class="apc-bar"><div class="apc-fill" data-pct="${pct}"></div></div>
           </div>`;
         }).join('')}
       </div>

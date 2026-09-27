@@ -867,6 +867,27 @@ function installApp() {
 }
 
 const fmtMoney = (n) => (n == null ? '—' : Number(n).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 2 }));
+// Monto abreviado ($12.79M en vez de $12,786,539.82) — prompt-fix-resumen-
+// global-overflow.md: los KPI tiles del widget "Resumen Global" (Dirección
+// A, commit a74ce8d) son demasiado angostos para un monto completo en CASI
+// cualquier ancho de ventana (confirmado con Playwright: se reproduce de
+// 360px a 1920px, no solo en un rango intermedio) — con `overflow-wrap:
+// break-word` heredado de .global-kpi-value, el monto se partía a mitad de
+// dígito ("$34,786,02" / "4.39"). Abreviar es la única solución que no
+// depende de adivinar anchos de contenedor (la app no tiene un límite
+// superior real de presupuesto, así que ningún ancho fijo es a prueba de
+// futuro) — el valor completo sigue disponible vía `title` en el propio
+// elemento.
+const fmtMoneyCompacto = (n) => {
+  if (n == null) return '—';
+  const num = Number(n);
+  const signo = num < 0 ? '-' : '';
+  const abs = Math.abs(num);
+  if (abs >= 1e9) return `${signo}$${(abs / 1e9).toFixed(2)}B`;
+  if (abs >= 1e6) return `${signo}$${(abs / 1e6).toFixed(2)}M`;
+  if (abs >= 1e3) return `${signo}$${(abs / 1e3).toFixed(1)}k`;
+  return fmtMoney(num);
+};
 const fmtNum = (n, d = 2) => (n == null ? '—' : Number(n).toLocaleString('es-MX', { maximumFractionDigits: d }));
 const fmtPct = (n) => (n == null ? '—' : `${Number(n).toLocaleString('es-MX', { maximumFractionDigits: 1 })}%`);
 const fmtDate = (s) => {
@@ -4585,21 +4606,21 @@ async function renderGlobalChart() {
             ${globalKpiIcon('contrato')}
             <span class="global-kpi-text">
               <span class="global-kpi-label">Total contratos</span>
-              <span class="global-kpi-value">${fmtMoney(data.total_contratos)}</span>
+              <span class="global-kpi-value" title="${esc(fmtMoney(data.total_contratos))}">${fmtMoneyCompacto(data.total_contratos)}</span>
             </span>
           </div>
           <div class="global-kpi">
             ${globalKpiIcon('check', 'is-green')}
             <span class="global-kpi-text">
               <span class="global-kpi-label">Ejecutado</span>
-              <span class="global-kpi-value text-verde">${fmtMoney(data.importe_ejecutado)}</span>
+              <span class="global-kpi-value text-verde" title="${esc(fmtMoney(data.importe_ejecutado))}">${fmtMoneyCompacto(data.importe_ejecutado)}</span>
             </span>
           </div>
           <div class="global-kpi">
             ${globalKpiIcon('reloj')}
             <span class="global-kpi-text">
               <span class="global-kpi-label">Por ejecutar</span>
-              <span class="global-kpi-value text-secondary-color">${fmtMoney(data.importe_por_ejecutar)}</span>
+              <span class="global-kpi-value text-secondary-color" title="${esc(fmtMoney(data.importe_por_ejecutar))}">${fmtMoneyCompacto(data.importe_por_ejecutar)}</span>
             </span>
           </div>
           <div class="global-kpi">

@@ -2549,6 +2549,14 @@ html[data-palette="dorada"]:not([data-theme="light"]) .welcome-card {
   border-radius: var(--radius-md); padding: var(--space-8) var(--space-10);
 }
 .global-chart-kpis-tiles .global-kpi-text { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; }
+/* prompt-fix-resumen-global-overflow.md: el monto ahora siempre llega
+   abreviado (fmtMoneyCompacto en app.js, ej. "$12.79M"), así que nunca
+   necesita partirse — nowrap lo garantiza en vez de heredar el
+   `overflow-wrap: break-word` de .global-kpi-value (pensado para el monto
+   completo de otros 4 widgets que sí lo usan, no para este). El label sigue
+   pudiendo partirse en palabras normalmente (ninguna es tan larga como para
+   importar). */
+.global-chart-kpis-tiles .global-kpi-value { white-space: nowrap; overflow-wrap: normal; }
 .global-kpi-icon-wrap {
   width: 28px; height: 28px; border-radius: var(--radius-sm); flex-shrink: 0;
   display: flex; align-items: center; justify-content: center;

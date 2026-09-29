@@ -947,9 +947,7 @@ const SCHEMA = `
   -- (México, sin zona); solo capturado_en/actualizado_en son TIMESTAMPTZ.
   -- Horas trabajadas/extra se calculan al leer, no se almacenan. Sin borrado
   -- físico ni endpoint de UPDATE/DELETE sobre el log (append-only).
-  ALTER TABLE trabajadores ADD COLUMN IF NOT EXISTS tipo_jornada TEXT NOT NULL DEFAULT 'con_comida';
-  ALTER TABLE trabajadores DROP CONSTRAINT IF EXISTS trabajadores_tipo_jornada_check;
-  ALTER TABLE trabajadores ADD CONSTRAINT trabajadores_tipo_jornada_check CHECK (tipo_jornada IN ('corrida','con_comida'));
+  ALTER TABLE trabajadores ADD COLUMN IF NOT EXISTS tipo_jornada TEXT NOT NULL DEFAULT 'con_comida' CHECK (tipo_jornada IN ('corrida','con_comida'));
   ALTER TABLE trabajadores ADD COLUMN IF NOT EXISTS horas_jornada NUMERIC(4,2) NOT NULL DEFAULT 8;
 
   CREATE TABLE IF NOT EXISTS asistencia_jornada (

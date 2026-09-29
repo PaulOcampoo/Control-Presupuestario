@@ -22788,6 +22788,7 @@ async function renderNominas(view) {
       semanaAncla: new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate()),
       trabajadorId: null, trabajadores: [], mapa: {}, propuestas: {},
       resumenMensual: [], fechaHoy: null, desde: null, hasta: null,
+      jornadaMapa: {}, vistaJornada: false, jFecha: null,
     };
 
     function modoActual() { return RANGO_MODO_RESUMEN.has(asist.rango) ? 'resumen' : 'detalle'; }
@@ -22905,6 +22906,13 @@ async function renderNominas(view) {
         asist.mapa = {};
         (data.asistencias || []).forEach((a) => { asist.mapa[`${a.trabajador_id}_${a.fecha}`] = a.estado; });
         calcularPropuestas();
+        // Indicadores de jornada (puntos del grid + estadísticas del detalle).
+        // Si falla no debe romper el calendario de 4 estados.
+        asist.jornadaMapa = {};
+        try {
+          const j = await api(`/projects/${state.projectId}/asistencia-jornada/resumen?desde=${desde}&hasta=${hasta}`);
+          (j.registros || []).forEach((r) => { asist.jornadaMapa[`${r.trabajador_id}_${r.fecha}`] = r; });
+        } catch (_) { /* sin indicadores */ }
       }
     }
 
@@ -23028,6 +23036,7 @@ async function renderNominas(view) {
       asist.rango = nuevoRango;
       localStorage.setItem(RANGO_STORAGE_KEY, nuevoRango);
       asist.trabajadorId = null;
+      asist.vistaJornada = false;
       closeAsistRangoMenu();
       syncAsistTabBar();
       await refrescar();
@@ -23065,6 +23074,7 @@ async function renderNominas(view) {
         return;
       }
       if (modoActual() === 'resumen') { renderResumen(panel); return; }
+      if (asist.vistaJornada) { renderJornadaDia(panel); return; }
       if (asist.trabajadorId) renderDetalle(panel); else renderGeneral(panel);
     }
 
@@ -23117,6 +23127,8 @@ async function renderNominas(view) {
           <button class="btn btn-primary btn-icon-inline" id="btnAsistMarcarTodos">${icon('check', 15)} Marcar todos — Hoy ${hoyLabelCorto}</button>
           <button class="btn" id="btnAsistDesmarcarTodos">Desmarcar todos — Hoy ${hoyLabelCorto}</button>
           ${totalPropuestas ? `<button class="btn btn-primary btn-icon-inline" id="btnAsistConfirmarDia">${icon('check', 15)} Confirmar día (<span id="asistConfirmarCount">${totalPropuestas}</span>)</button>` : ''}
+          <button class="btn" id="btnAsistJornada">Registro de jornada</button>
+          ${isAdmin() ? '<button class="btn" id="btnAsistExportJornada">Exportar registro de jornada</button>' : ''}
         </div>` : ''}
         <div class="asist-grid-wrap">
           <div class="asist-fixed-col">
@@ -23155,7 +23167,8 @@ async function renderNominas(view) {
                       const hoyCls = fecha === fechaHoy ? ' asist-cell-hoy' : '';
                       const tituloEstado = estado ? `: ${ASIST_META[estado].label}${esPropuesta ? ' (propuesta, sin confirmar)' : ''}` : '';
                       const tituloBloqueo = bloqueada ? ' (solo se puede editar el día de hoy)' : '';
-                      return `<td class="asist-cell ${cls}${weekStartCls}${propuestaCls}${bloqueadaCls}${hoyCls}" data-tid="${t.id}" data-fecha="${fecha}"${bloqueada ? ' aria-disabled="true"' : ''} title="${esc(t.nombre)} — ${fecha}${tituloEstado}${tituloBloqueo}"></td>`;
+                      const jd = estadoReal === 'presente' ? jornadaDot(asist.jornadaMapa[`${t.id}_${fecha}`]) : null;
+                      return `<td class="asist-cell ${cls}${weekStartCls}${propuestaCls}${bloqueadaCls}${hoyCls}" data-tid="${t.id}" data-fecha="${fecha}"${bloqueada ? ' aria-disabled="true"' : ''} title="${esc(t.nombre)} — ${fecha}${tituloEstado}${tituloBloqueo}${jd ? ' · ' + jd.title : ''}">${jd ? `<span class="jor-dot ${jd.cls}" aria-hidden="true"></span>` : ''}</td>`;
                     }).join('')}
                   </tr>
                 `).join('')}
@@ -23164,6 +23177,7 @@ async function renderNominas(view) {
           </div>
         </div>
         ${asistLeyendaHtml()}
+        ${asistLeyendaJornadaHtml()}
         ${canEdit ? `<p class="muted fs-08 mt-6">Toca una celda para marcar/cambiar el estado.${asist.rango === 'mes' ? ' Toca un nombre para ver el detalle.' : ''}${restringidoSoloHoy ? ' Solo puedes editar el día de hoy.' : ''}</p>` : ''}
       `;
       $('#btnAsistMesPrev').addEventListener('click', () => cambiarAncla(-1));
@@ -23184,6 +23198,8 @@ async function renderNominas(view) {
         $('#btnAsistMarcarTodos').addEventListener('click', () => confirmarMarcadoMasivo('marcar-todos', `¿Marcar a todos como presente hoy (${hoyLabelCorto})? Esto sobreescribirá cualquier marca existente para hoy.`));
         $('#btnAsistDesmarcarTodos').addEventListener('click', () => confirmarMarcadoMasivo('desmarcar-todos', `¿Quitar la marca de asistencia de todos para hoy (${hoyLabelCorto})? Los regresa a "Sin registro".`));
         $('#btnAsistConfirmarDia')?.addEventListener('click', () => confirmarDia(fechaHoy));
+        $('#btnAsistJornada').addEventListener('click', () => { asist.vistaJornada = true; asist.jFecha = asist.fechaHoy; renderPanel(); });
+        $('#btnAsistExportJornada')?.addEventListener('click', openExportJornadaModal);
       }
     }
 
@@ -23339,6 +23355,310 @@ async function renderNominas(view) {
       });
     }
 
+    // ===================================================================
+    // Registro de jornada (prompt-registro-jornada-nomina.md)
+    // Entrada/comida/salida por trabajador × día, SOBRE el calendario de 4
+    // estados (que no cambia). Ningún gesto de la celda se alteró: el
+    // detalle de jornada se abre desde (a) la pantalla "Registro de
+    // jornada" (captura rápida del día) y (b) la lista "Jornada del mes" del
+    // detalle individual — el tap en la celda sigue ciclando el estado.
+    // Horas = strings 'HH:MM' (hora de pared); el servidor calcula
+    // trabajadas/extra y es la fuente de verdad.
+    // ===================================================================
+    const fmtMinJ = (m) => (m == null ? '—' : `${Math.floor(m / 60)}:${String(m % 60).padStart(2, '0')} h`);
+    const hhmmJ = (v) => (v ? String(v).slice(0, 5) : '');
+
+    // Punto del grid: forma + title, no solo color (completo = círculo
+    // lleno, incompleto = aro, extra = rombo).
+    function jornadaDot(r) {
+      if (!r) return null;
+      if (!r.completo) return { cls: 'jor-dot-incompleto', title: 'Jornada incompleta' };
+      if (r.extra_min > 0) return { cls: 'jor-dot-extra', title: `Jornada completa (${fmtMinJ(r.trabajadas_min)}) con horas extra +${fmtMinJ(r.extra_min)}` };
+      return { cls: 'jor-dot-completo', title: `Jornada completa (${fmtMinJ(r.trabajadas_min)})` };
+    }
+
+    function asistLeyendaJornadaHtml() {
+      return `
+        <div class="asist-leyenda">
+          <span class="asist-leyenda-item"><span class="jor-dot jor-dot-completo jor-dot-leyenda"></span>Jornada completa</span>
+          <span class="asist-leyenda-item"><span class="jor-dot jor-dot-incompleto jor-dot-leyenda"></span>Jornada incompleta</span>
+          <span class="asist-leyenda-item"><span class="jor-dot jor-dot-extra jor-dot-leyenda"></span>Con horas extra</span>
+        </div>`;
+    }
+
+    function jornadaChip(j) {
+      if (!j) return { cls: 'sin', label: 'Sin registro' };
+      if (!j.completo) return { cls: 'incompleto', label: 'Incompleto' };
+      if (j.extra_min > 0) return { cls: 'extra', label: `Extra +${fmtMinJ(j.extra_min)}` };
+      return { cls: 'completo', label: 'Completo' };
+    }
+
+    // Cálculo local SOLO para mostrar en vivo dentro del sheet; el servidor
+    // recalcula al guardar/leer.
+    function calcJornadaLocal(v, tipo, horas) {
+      const min = (x) => { const m = /^(\d{2}):(\d{2})$/.exec(x || ''); return m ? Number(m[1]) * 60 + Number(m[2]) : null; };
+      const conComida = tipo === 'con_comida' && !v.sin_comida;
+      const req = conComida ? ['hora_entrada', 'hora_salida_comida', 'hora_regreso_comida', 'hora_salida'] : ['hora_entrada', 'hora_salida'];
+      if (!req.every((k) => min(v[k]) != null)) return null;
+      const trab = (min(v.hora_salida) - min(v.hora_entrada)) - (conComida ? min(v.hora_regreso_comida) - min(v.hora_salida_comida) : 0);
+      return { trabajadas_min: trab, extra_min: Math.max(0, trab - Math.round(Number(horas) * 60)) };
+    }
+
+    // Sheet "Jornada" de un trabajador en una fecha (crear/editar/ver).
+    async function openJornadaSheet(t, fecha, onDone) {
+      let existente = null; let estadoDia = 'sin_registro'; let log = [];
+      let tipo = t.tipo_jornada || 'con_comida'; let horasJ = t.horas_jornada ?? 8;
+      try {
+        const d = await api(`/projects/${state.projectId}/asistencia-jornada?fecha=${fecha}`);
+        const tr = d.trabajadores.find((x) => x.id === t.id);
+        if (tr) { existente = tr.jornada; estadoDia = tr.estado; tipo = tr.tipo_jornada; horasJ = tr.horas_jornada; }
+        if (existente?.editado) log = (await api(`/projects/${state.projectId}/asistencia-jornada/${t.id}/${fecha}/log`)).log || [];
+      } catch (err) { toast(err.message, 'danger'); return; }
+
+      const soloLectura = !puedeEditarNom || (!isAdmin() && fecha !== asist.fechaHoy);
+      const enFalta = estadoDia === 'falta_justificada' || estadoDia === 'falta_injustificada';
+      const orig = {
+        hora_entrada: hhmmJ(existente?.hora_entrada), hora_salida_comida: hhmmJ(existente?.hora_salida_comida),
+        hora_regreso_comida: hhmmJ(existente?.hora_regreso_comida), hora_salida: hhmmJ(existente?.hora_salida),
+        sin_comida: !!existente?.sin_comida,
+      };
+      const dis = soloLectura || enFalta ? ' disabled' : '';
+      const campo = (id, label, k) => `<div class="field"><label for="${id}">${label}</label><input type="time" id="${id}" data-k="${k}" value="${orig[k]}"${dis} /></div>`;
+      openModal(`
+        <h3>Jornada — ${esc(t.nombre)}</h3>
+        <p class="muted fs-08">${esc(fecha)} · ${tipo === 'corrida' ? 'Jornada corrida' : 'Con comida'} · ${horasJ} h de jornada</p>
+        ${enFalta ? '<div class="alert-box danger">Cambia primero el estado del día a presente.</div>' : ''}
+        <div class="jor-sheet-grid">
+          ${campo('jrEntrada', 'Entrada', 'hora_entrada')}
+          ${tipo === 'con_comida' ? campo('jrSalComida', 'Salió a comer', 'hora_salida_comida') : ''}
+          ${tipo === 'con_comida' ? campo('jrRegComida', 'Regresó de comer', 'hora_regreso_comida') : ''}
+          ${campo('jrSalida', 'Salida', 'hora_salida')}
+        </div>
+        ${tipo === 'con_comida' ? `<label class="jor-check"><input type="checkbox" id="jrSinComida" ${orig.sin_comida ? 'checked' : ''}${dis} /> No salió a comer</label>` : ''}
+        <div class="jor-calc" id="jrCalc" aria-live="polite"></div>
+        ${existente && !soloLectura && !enFalta ? '<div class="field"><label for="jrMotivo">Motivo del cambio <span class="muted fs-08">(obligatorio si corriges un valor ya guardado)</span></label><input type="text" id="jrMotivo" maxlength="300" /></div>' : ''}
+        ${existente?.editado ? `<p class="muted fs-08">Editado por ${esc(existente.actualizado_por_nombre || '—')} · ${esc(String(existente.actualizado_en || '').slice(0, 16))}</p>` : ''}
+        ${log.length ? `<details class="jor-log"><summary>Historial de cambios (${log.length})</summary>${log.map((l) => `<div class="fs-08">${esc(String(l.creado_en).slice(0, 16))} · ${esc(l.usuario || '—')} · ${esc(l.campo)}: ${esc(l.valor_anterior ?? '—')} → ${esc(l.valor_nuevo ?? '—')}${l.motivo ? ` — ${esc(l.motivo)}` : ''}</div>`).join('')}</details>` : ''}
+        <div class="modal-actions">
+          <button class="btn" id="btnJrCerrar">${soloLectura || enFalta ? 'Cerrar' : 'Cancelar'}</button>
+          ${soloLectura || enFalta ? '' : '<button class="btn btn-primary" id="btnJrGuardar" disabled>Guardar</button>'}
+        </div>
+      `);
+      $('#btnJrCerrar').addEventListener('click', closeModal);
+      const leer = () => ({
+        hora_entrada: $('#jrEntrada').value || '', hora_salida_comida: $('#jrSalComida')?.value || '',
+        hora_regreso_comida: $('#jrRegComida')?.value || '', hora_salida: $('#jrSalida').value || '',
+        sin_comida: !!$('#jrSinComida')?.checked,
+      });
+      const actualizar = () => {
+        const v = leer();
+        const sinComidaEf = tipo === 'corrida' || v.sin_comida;
+        ['jrSalComida', 'jrRegComida'].forEach((id) => { const el = $(`#${id}`); if (el) el.disabled = v.sin_comida || soloLectura || enFalta; });
+        const c = calcJornadaLocal(v, tipo, horasJ);
+        $('#jrCalc').textContent = c ? `Trabajadas: ${fmtMinJ(c.trabajadas_min)} · Extra: ${fmtMinJ(c.extra_min)}` : 'Captura las horas requeridas para ver horas trabajadas y extra.';
+        const btn = $('#btnJrGuardar');
+        if (!btn) return;
+        const cambios = ['hora_entrada', 'hora_salida_comida', 'hora_regreso_comida', 'hora_salida'].some((k) => (sinComidaEf && k.includes('comida') ? '' : v[k]) !== orig[k]) || (tipo === 'con_comida' && v.sin_comida !== orig.sin_comida);
+        const correccion = !!existente && (['hora_entrada', 'hora_salida_comida', 'hora_regreso_comida', 'hora_salida'].some((k) => orig[k] && (sinComidaEf && k.includes('comida') ? '' : v[k]) !== orig[k]));
+        const motivoOk = !correccion || ($('#jrMotivo')?.value || '').trim().length >= 5;
+        btn.disabled = !(cambios && motivoOk && v.hora_entrada);
+      };
+      $$('#modal input').forEach((el) => el.addEventListener('input', actualizar));
+      actualizar();
+      $('#btnJrGuardar')?.addEventListener('click', async () => {
+        const btn = $('#btnJrGuardar');
+        btn.disabled = true; btn.textContent = 'Guardando…';
+        try {
+          const body = { ...leer(), motivo: $('#jrMotivo')?.value || '' };
+          const r = await api(`/projects/${state.projectId}/asistencia-jornada/${t.id}/${fecha}`, { method: 'PUT', body });
+          closeModal();
+          toast('Jornada guardada', 'success');
+          (r.warnings || []).forEach((w) => toast(w, 'warning'));
+          if (onDone) await onDone();
+        } catch (err) {
+          toast(err.message, 'danger');
+          btn.disabled = false; btn.textContent = 'Guardar';
+        }
+      });
+    }
+
+    // Pantalla de captura rápida del día.
+    async function renderJornadaDia(panel) {
+      panel.innerHTML = '<div class="empty-state">Cargando…</div>';
+      let data;
+      try {
+        data = await api(`/projects/${state.projectId}/asistencia-jornada?fecha=${asist.jFecha}`);
+      } catch (err) {
+        if (asist.vistaJornada) panel.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+        return;
+      }
+      // Respuesta tardía: si el usuario ya salió de esta pantalla o cambió de
+      // fecha mientras cargaba, no pisar el panel actual con datos viejos.
+      if (!asist.vistaJornada || asist.jFecha !== data.fecha) return;
+      const fecha = data.fecha;
+      const editable = puedeEditarNom && (isAdmin() || fecha === data.fecha_hoy);
+      const presentes = data.trabajadores.filter((t) => t.estado === 'presente');
+      const noPresentes = data.trabajadores.length - presentes.length;
+      const completos = presentes.filter((t) => t.jornada?.completo).length;
+      const sinReg = presentes.filter((t) => !t.jornada);
+      const inp = (k, label, val = '') => `<label class="jor-in"><span>${label}</span><input type="time" data-k="${k}" value="${val}" /></label>`;
+
+      panel.innerHTML = `
+        <button class="btn small" id="btnJorVolver">‹ Volver al calendario</button>
+        <div class="jor-head mt-8">
+          <h3 class="jor-title">Registro de jornada</h3>
+          ${isAdmin()
+            ? `<label class="jor-fecha">Fecha <input type="date" id="jorFecha" value="${esc(fecha)}" max="${esc(data.fecha_hoy)}" /></label>`
+            : `<span class="muted">${esc(fecha)} (hoy)</span>`}
+        </div>
+        <div class="jor-contador" id="jorContador"><strong>${completos} de ${presentes.length}</strong> presentes con registro completo</div>
+        ${editable && sinReg.length ? `
+        <div class="jor-lote">
+          <strong class="fs-08">Aplicar a todos los que no tienen registro (${sinReg.length})</strong>
+          <div class="jor-inputs" id="jorLote">
+            ${inp('hora_entrada', 'Entrada')}${inp('hora_salida_comida', 'Salió a comer')}${inp('hora_regreso_comida', 'Regresó')}${inp('hora_salida', 'Salida')}
+          </div>
+          <button class="btn btn-primary" id="btnJorLote">Aplicar a los que no tienen registro</button>
+        </div>` : ''}
+        <div class="jor-lista">
+          ${presentes.length ? presentes.map((t) => {
+            const chip = jornadaChip(t.jornada);
+            const j = t.jornada;
+            const corrida = t.tipo_jornada === 'corrida';
+            return `
+            <div class="jor-row" data-tid="${t.id}">
+              <div class="jor-row-head"><strong>${esc(t.nombre)}</strong><span class="jor-chip jor-chip-${chip.cls}">${esc(chip.label)}</span></div>
+              ${j ? `
+                <div class="jor-times">Entrada ${esc(hhmmJ(j.hora_entrada) || '—')}${corrida || j.sin_comida ? '' : ` · Comida ${esc(hhmmJ(j.hora_salida_comida) || '—')}–${esc(hhmmJ(j.hora_regreso_comida) || '—')}`} · Salida ${esc(hhmmJ(j.hora_salida) || '—')}${j.trabajadas_min != null ? ` · ${fmtMinJ(j.trabajadas_min)}` : ''}</div>
+                ${j.editado ? `<div class="muted fs-08">Editado por ${esc(j.actualizado_por_nombre || '—')} · ${esc(String(j.actualizado_en || '').slice(0, 16))}</div>` : ''}
+                <div class="jor-row-actions"><button class="btn small" data-jor-edit="${t.id}">${editable ? 'Editar' : 'Ver'}</button></div>`
+              : editable ? `
+                <div class="jor-inputs" data-jor-inputs="${t.id}">
+                  ${inp('hora_entrada', 'Entrada')}${corrida ? '' : inp('hora_salida_comida', 'Salió a comer') + inp('hora_regreso_comida', 'Regresó')}${inp('hora_salida', 'Salida')}
+                </div>
+                ${corrida ? '' : `<label class="jor-check"><input type="checkbox" data-k="sin_comida" data-jor-sc="${t.id}" /> No salió a comer</label>`}
+                <div class="jor-row-actions"><button class="btn small btn-primary" data-jor-save="${t.id}">Guardar</button></div>`
+              : '<div class="muted fs-08">Sin registro</div>'}
+            </div>`;
+          }).join('') : '<div class="empty-state">No hay trabajadores presentes ese día. Márcalos presentes en el calendario.</div>'}
+        </div>
+        ${noPresentes ? `<p class="muted fs-08 mt-6">${noPresentes} trabajador${noPresentes === 1 ? '' : 'es'} sin asistencia "presente" ese día no aparece${noPresentes === 1 ? '' : 'n'} aquí.</p>` : ''}
+      `;
+      const recargar = () => renderJornadaDia(panel);
+      $('#btnJorVolver').addEventListener('click', () => { asist.vistaJornada = false; refrescar(); });
+      $('#jorFecha')?.addEventListener('change', (e) => { if (e.target.value) { asist.jFecha = e.target.value; recargar(); } });
+      $$('[data-jor-edit]', panel).forEach((b) => b.addEventListener('click', () => {
+        const t = data.trabajadores.find((x) => x.id === Number(b.dataset.jorEdit));
+        openJornadaSheet(t, fecha, recargar);
+      }));
+      $$('[data-jor-save]', panel).forEach((b) => b.addEventListener('click', async () => {
+        const tid = Number(b.dataset.jorSave);
+        const row = b.closest('.jor-row');
+        const body = { sin_comida: !!$('[data-k="sin_comida"]', row)?.checked };
+        $$('input[type="time"]', row).forEach((el) => { body[el.dataset.k] = el.value || ''; });
+        b.disabled = true;
+        try {
+          const r = await api(`/projects/${state.projectId}/asistencia-jornada/${tid}/${fecha}`, { method: 'PUT', body });
+          (r.warnings || []).forEach((w) => toast(w, 'warning'));
+          await recargar();
+        } catch (err) { toast(err.message, 'danger'); b.disabled = false; }
+      }));
+      $('#btnJorLote')?.addEventListener('click', () => {
+        const body = { fecha, trabajadorIds: sinReg.map((t) => t.id) };
+        $$('#jorLote input[type="time"]', panel).forEach((el) => { body[el.dataset.k] = el.value || ''; });
+        if (!body.hora_entrada || !body.hora_salida) { toast('Captura al menos entrada y salida', 'warning'); return; }
+        openModal(`
+          <h3>Aplicar horario</h3>
+          <p class="muted">Se aplicará a ${sinReg.length} trabajador${sinReg.length === 1 ? '' : 'es'} sin registro el ${esc(fecha)}. No se sobrescribe ningún registro existente.</p>
+          <div class="modal-actions">
+            <button class="btn" id="btnJlCancel">Cancelar</button>
+            <button class="btn btn-primary" id="btnJlOk">Confirmar</button>
+          </div>`);
+        $('#btnJlCancel').addEventListener('click', closeModal);
+        $('#btnJlOk').addEventListener('click', async () => {
+          const ok = $('#btnJlOk'); ok.disabled = true; ok.textContent = 'Guardando…';
+          try {
+            const r = await api(`/projects/${state.projectId}/asistencia-jornada/lote`, { method: 'POST', body });
+            closeModal();
+            toast(`${r.aplicados} aplicado${r.aplicados === 1 ? '' : 's'}${r.omitidos.length ? `, ${r.omitidos.length} omitido(s): ${r.omitidos.map((o) => o.motivo).join('; ')}` : ''}`, r.omitidos.length ? 'warning' : 'success');
+            await recargar();
+          } catch (err) { toast(err.message, 'danger'); ok.disabled = false; ok.textContent = 'Confirmar'; }
+        });
+      });
+    }
+
+    // Exportación (solo admin/desarrollador) — evidencia legal.
+    function openExportJornadaModal() {
+      const hasta = asist.fechaHoy || asist.hasta;
+      openModal(`
+        <h3>Exportar registro de jornada</h3>
+        <div class="trab-form-grid">
+          <div class="field"><label for="exjDesde">Desde</label><input id="exjDesde" type="date" value="${esc(asist.desde)}" /></div>
+          <div class="field"><label for="exjHasta">Hasta</label><input id="exjHasta" type="date" value="${esc(hasta)}" /></div>
+        </div>
+        <div class="modal-actions">
+          <button class="btn" id="btnExjCancel">Cancelar</button>
+          <button class="btn btn-primary" id="btnExjOk">Descargar Excel</button>
+        </div>`);
+      $('#btnExjCancel').addEventListener('click', closeModal);
+      $('#btnExjOk').addEventListener('click', async () => {
+        const d = $('#exjDesde').value; const h = $('#exjHasta').value;
+        if (!d || !h) { toast('Selecciona desde y hasta', 'warning'); return; }
+        const btn = $('#btnExjOk'); btn.disabled = true;
+        try {
+          await apiDownload(`/projects/${state.projectId}/asistencia-jornada/export?desde=${d}&hasta=${h}`, `Registro_Jornada_${d}_${h}.xlsx`);
+          closeModal();
+        } catch (err) { toast(err.message, 'danger'); btn.disabled = false; }
+      });
+    }
+
+    // Detalle individual: resumen del periodo + lista "Jornada del mes" +
+    // ajuste de tipo/horas de jornada (admin/desarrollador).
+    function jornadaDetalleHtml(t, celdas, fechaHoy) {
+      const regs = celdas.filter((c) => c && asist.jornadaMapa[`${t.id}_${c.fecha}`]).map((c) => asist.jornadaMapa[`${t.id}_${c.fecha}`]);
+      const comp = regs.filter((r) => r.completo);
+      const prom = comp.length ? Math.round(comp.reduce((a, r) => a + r.trabajadas_min, 0) / comp.length) : null;
+      const extra = comp.reduce((a, r) => a + (r.extra_min || 0), 0);
+      const dias = celdas.filter((c) => c && c.estado === 'presente' && (!fechaHoy || c.fecha <= fechaHoy));
+      const tipo = t.tipo_jornada || 'con_comida';
+      return `
+        <div class="asist-detalle-card mt-8">
+          <h4 class="jor-title">Jornada del periodo</h4>
+          <div class="asist-resumen-grid">
+            <div class="asist-resumen-item"><div class="asist-resumen-value">${comp.length}</div><div class="asist-resumen-label">Días con registro completo</div></div>
+            <div class="asist-resumen-item"><div class="asist-resumen-value">${fmtMinJ(prom)}</div><div class="asist-resumen-label">Promedio trabajado</div></div>
+            <div class="asist-resumen-item"><div class="asist-resumen-value">${fmtMinJ(extra)}</div><div class="asist-resumen-label">Horas extra</div></div>
+          </div>
+          ${isAdmin() ? `
+          <div class="jor-ajuste">
+            <div class="field"><label for="jorTipo">Tipo de jornada</label>
+              <select id="jorTipo"><option value="con_comida"${tipo === 'con_comida' ? ' selected' : ''}>Con comida</option><option value="corrida"${tipo === 'corrida' ? ' selected' : ''}>Corrida</option></select></div>
+            <div class="field"><label for="jorHoras">Horas de jornada</label><input id="jorHoras" type="number" min="1" max="16" step="0.5" value="${t.horas_jornada ?? 8}" /></div>
+            <button class="btn small" id="btnJorAjuste">Guardar jornada</button>
+          </div>` : `<p class="muted fs-08">${tipo === 'corrida' ? 'Jornada corrida' : 'Con comida'} · ${t.horas_jornada ?? 8} h</p>`}
+          <div class="jor-mes-lista">
+            ${dias.length ? dias.map((c) => {
+              const chip = jornadaChip(asist.jornadaMapa[`${t.id}_${c.fecha}`]);
+              return `<div class="jor-mes-row"><span>${esc(c.fecha)}</span><span class="jor-chip jor-chip-${chip.cls}">${esc(chip.label)}</span><button class="btn small" data-jor-dia="${esc(c.fecha)}">Jornada</button></div>`;
+            }).join('') : '<div class="muted fs-08">Sin días presentes en el mes.</div>'}
+          </div>
+        </div>`;
+    }
+
+    function bindJornadaDetalle(panel, t) {
+      $$('[data-jor-dia]', panel).forEach((b) => b.addEventListener('click', () => openJornadaSheet(t, b.dataset.jorDia, refrescar)));
+      $('#btnJorAjuste')?.addEventListener('click', async (e) => {
+        const btn = e.currentTarget; btn.disabled = true;
+        try {
+          const tipo_jornada = $('#jorTipo').value; const horas_jornada = Number($('#jorHoras').value);
+          await api(`/projects/${state.projectId}/trabajadores/${t.id}/jornada`, { method: 'PATCH', body: { tipo_jornada, horas_jornada } });
+          t.tipo_jornada = tipo_jornada; t.horas_jornada = horas_jornada;
+          toast('Jornada del trabajador actualizada', 'success');
+        } catch (err) { toast(err.message, 'danger'); }
+        btn.disabled = false;
+      });
+    }
+
     function renderDetalle(panel) {
       const t = asist.trabajadores.find((x) => x.id === asist.trabajadorId);
       if (!t) { asist.trabajadorId = null; renderGeneral(panel); return; }
@@ -23407,7 +23727,9 @@ async function renderNominas(view) {
           </div>
         </div>
         ${asistLeyendaHtml()}
+        ${jornadaDetalleHtml(t, celdas, fechaHoy)}
       `;
+      bindJornadaDetalle(panel, t);
       $('#btnAsistVolver').addEventListener('click', () => { asist.trabajadorId = null; renderPanel(); });
       $('#btnAsistMesPrev').addEventListener('click', () => cambiarAncla(-1));
       $('#btnAsistMesNext').addEventListener('click', () => cambiarAncla(1));

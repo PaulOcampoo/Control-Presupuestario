@@ -3450,6 +3450,50 @@ html[data-palette="dorada"]:not([data-theme="light"]) .welcome-card {
 .asist-dot.falta-injust { background: var(--red); }
 .asist-dot.vacio { background: var(--bg-surface-2); border: 1px solid var(--border-color); }
 
+/* Registro de jornada (prompt-registro-jornada-nomina.md). Sin position:
+   sticky ni overflow nuevos. El punto del grid distingue estado por FORMA
+   además de color: círculo lleno = completa, aro = incompleta, rombo = extra. */
+.asist-cell { position: relative; }
+.jor-dot { position: absolute; right: 4px; bottom: 4px; width: 9px; height: 9px; box-sizing: border-box; pointer-events: none; }
+.jor-dot-completo { border-radius: 50%; background: var(--accent-gold); box-shadow: 0 0 0 1px var(--bg-surface); }
+.jor-dot-incompleto { border-radius: 50%; background: transparent; border: 2px solid var(--yellow); box-shadow: 0 0 0 1px var(--bg-surface); }
+.jor-dot-extra { background: var(--accent-gold); transform: rotate(45deg); box-shadow: 0 0 0 1px var(--bg-surface); }
+.jor-dot-leyenda { position: static; display: inline-block; }
+.jor-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-12); flex-wrap: wrap; }
+.jor-title { margin: var(--space-0); font-size: var(--fs-md); }
+.jor-fecha { display: flex; align-items: center; gap: var(--space-6); font-size: var(--fs-sm); color: var(--text-secondary); }
+.jor-contador {
+  margin: var(--space-10) var(--space-0); padding: var(--space-10) var(--space-12);
+  background: var(--bg-surface-2); border-radius: var(--radius); font-size: var(--fs-sm);
+}
+.jor-contador strong { color: var(--accent-gold); }
+.jor-lote, .jor-row {
+  background: var(--bg-surface); border: 1px solid var(--border-color); border-radius: var(--radius);
+  padding: var(--space-12); margin-bottom: var(--space-10);
+}
+.jor-lote { display: flex; flex-direction: column; gap: var(--space-8); }
+.jor-inputs { display: flex; flex-wrap: wrap; gap: var(--space-8); }
+.jor-in { display: flex; flex-direction: column; gap: var(--space-2); font-size: var(--fs-xs); color: var(--text-secondary); flex: 1 1 96px; }
+.jor-in input { width: 100%; }
+.jor-row-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-8); margin-bottom: var(--space-6); }
+.jor-times { font-size: var(--fs-sm); color: var(--text-secondary); }
+.jor-row-actions { display: flex; justify-content: flex-end; margin-top: var(--space-8); }
+.jor-check { display: flex; align-items: center; gap: var(--space-6); font-size: var(--fs-sm); margin-top: var(--space-8); }
+.jor-chip {
+  font-size: var(--fs-xs); font-weight: 700; padding: var(--space-2) var(--space-8);
+  border-radius: 999px; border: 1px solid var(--border-color); white-space: nowrap;
+}
+.jor-chip-completo { color: var(--accent-gold); border-color: var(--accent-gold); }
+.jor-chip-incompleto { color: var(--yellow); border-color: var(--yellow); }
+.jor-chip-extra { color: var(--accent-gold); border-color: var(--accent-gold); background: color-mix(in srgb, var(--accent-gold) 14%, transparent); }
+.jor-chip-sin { color: var(--text-secondary); }
+.jor-sheet-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--space-8); }
+.jor-calc { margin: var(--space-10) var(--space-0); font-size: var(--fs-sm); font-weight: 600; }
+.jor-log { margin-top: var(--space-8); }
+.jor-ajuste { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--space-10); margin-top: var(--space-12); }
+.jor-mes-lista { display: flex; flex-direction: column; gap: var(--space-6); margin-top: var(--space-12); }
+.jor-mes-row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-8); font-size: var(--fs-sm); }
+
 /* Vista de detalle: resumen + heatmap semanal (habit tracker) */
 .asist-detalle-card {
   background: var(--bg-surface); border: 1px solid var(--border-color); border-radius: var(--radius);

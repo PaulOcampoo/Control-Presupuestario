@@ -13106,7 +13106,7 @@ app.get('/api/projects/:id/asistencia-rango', h(auth.allow('residente', 'cabo'))
   const fechaHoy = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Mexico_City' }).format(new Date());
 
   const { rows: trabajadores } = await db.pool.query(
-    `SELECT t.id, t.nombre, t.puesto, t.tipo_pago FROM trabajadores t
+    `SELECT t.id, t.nombre, t.puesto, t.tipo_pago, t.tipo_jornada, t.horas_jornada::float AS horas_jornada FROM trabajadores t
      JOIN trabajador_obras o ON o.trabajador_id = t.id AND o.project_id = $1 AND o.activo = true
      WHERE t.activo = true ORDER BY t.orden, t.nombre`,
     [req.project.id]
@@ -13352,6 +13352,329 @@ app.post('/api/projects/:id/asistencia/marcar-todos', h(auth.allow('residente', 
 
 app.post('/api/projects/:id/asistencia/desmarcar-todos', h(auth.allow('residente', 'cabo')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('nominas', 'puede_editar')), h(async (req, res) => {
   await marcadoMasivoAsistencia(req, res, 'sin_registro');
+}));
+
+// ===========================================================================
+// REGISTRO DE JORNADA (prompt-registro-jornada-nomina.md)
+// ===========================================================================
+// Entrada / comida / salida por trabajador × día, sobre asistencia_diaria
+// (que NO cambia de semántica). Mismo patrón de auth que los endpoints de
+// asistencia (residente + cabo + admin/desarrollador, permiso 'nominas').
+// Residente/cabo solo el día en curso (misma regla que PUT /asistencia);
+// admin/desarrollador corrigen días pasados. Horas = strings 'HH:MM' de hora
+// de pared, jamás derivadas de Date/zona del servidor. Las horas extra son
+// solo informativas: NO tocan cálculo de nómina ni montos.
+const asistJornada = require('./asistenciaJornada');
+const MOTIVO_MIN = 5;
+
+const hoyMexico = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Mexico_City' }).format(new Date());
+const esSuperusuarioJornada = (req) => req.user.puesto === 'admin' || req.user.puesto === 'desarrollador';
+const RE_FECHA = /^\d{4}-\d{2}-\d{2}$/;
+
+function errJornada(status, msg) { const e = new Error(msg); e.status = status; return e; }
+
+// Reglas de fecha/rol compartidas por PUT y lote. Devuelve { aprobada }.
+async function validarContextoJornada(req, fecha) {
+  if (!fecha || !RE_FECHA.test(fecha)) throw errJornada(400, 'fecha inválida (YYYY-MM-DD)');
+  const hoy = hoyMexico();
+  if (fecha > hoy) throw errJornada(400, 'No se puede registrar jornada en una fecha futura');
+  if (!esSuperusuarioJornada(req) && fecha !== hoy) throw errJornada(403, 'Solo se puede registrar jornada del día en curso');
+  const { rows } = await db.pool.query(
+    `SELECT id FROM nominas WHERE project_id=$1 AND estado='aprobada' AND fecha_inicio<=$2 AND fecha_fin>=$2`,
+    [req.project.id, fecha]
+  );
+  if (rows.length && !esSuperusuarioJornada(req)) throw errJornada(403, 'Esta fecha está cubierta por una nómina aprobada; solo un administrador puede editar la jornada');
+  return { aprobada: rows.length > 0 };
+}
+
+async function trabajadorActivoDeObra(trabajadorId, projectId) {
+  const { rows } = await db.pool.query(
+    `SELECT t.id, t.nombre, t.tipo_jornada, t.horas_jornada::float AS horas_jornada
+     FROM trabajadores t
+     JOIN trabajador_obras o ON o.trabajador_id = t.id AND o.project_id = $2 AND o.activo = true
+     WHERE t.id = $1 AND t.activo = true`,
+    [trabajadorId, projectId]
+  );
+  return rows[0] || null;
+}
+
+// Guarda (upsert) la jornada de un trabajador dentro de una transacción ya
+// abierta. Toda escritura pasa por buscarConflictoAsistenciaSimultanea (mismo
+// advisory lock + regla de una sola obra por día).
+async function guardarJornadaTx(client, req, { trab, fecha, valores, sinComida, motivo, aprobada, soloNuevo }) {
+  const conflicto = await buscarConflictoAsistenciaSimultanea(client, { trabajadorId: trab.id, projectId: req.project.id, fecha });
+  if (conflicto) throw errJornada(409, `${conflicto.trabajador_nombre} ya está marcado presente ese día en "${conflicto.obra_nombre}" — no puede quedar presente en dos obras el mismo día`);
+
+  const { rows: asRows } = await client.query(
+    `SELECT estado FROM asistencia_diaria WHERE project_id=$1 AND trabajador_id=$2 AND fecha=$3 FOR UPDATE`,
+    [req.project.id, trab.id, fecha]
+  );
+  const estado = asRows[0]?.estado || 'sin_registro';
+  if (estado === 'falta_justificada' || estado === 'falta_injustificada') {
+    throw errJornada(409, 'Cambia primero el estado del día a presente');
+  }
+  const { rows: exRows } = await client.query(
+    `SELECT * FROM asistencia_jornada WHERE project_id=$1 AND trabajador_id=$2 AND fecha=$3 FOR UPDATE`,
+    [req.project.id, trab.id, fecha]
+  );
+  const existente = exRows[0] || null;
+  if (soloNuevo && existente) return { omitido: 'ya tiene registro' };
+
+  if (estado !== 'presente') {
+    // sin_registro (o sin fila) -> presente. En una nómina aprobada esto
+    // cambiaría los días pagados: se bloquea igual que el PUT /asistencia.
+    if (aprobada) throw errJornada(409, 'Esta fecha está cubierta por una nómina aprobada y no puede cambiar de estado');
+    await client.query(
+      `INSERT INTO asistencia_diaria (project_id, trabajador_id, fecha, presente, estado, capturado_por, actualizado_en)
+       VALUES ($1,$2,$3,true,'presente',$4,NOW())
+       ON CONFLICT (project_id, trabajador_id, fecha)
+       DO UPDATE SET presente=true, estado='presente', capturado_por=EXCLUDED.capturado_por, actualizado_en=NOW()`,
+      [req.project.id, trab.id, fecha, req.user.id]
+    );
+  }
+
+  const nuevo = { ...valores, sin_comida: sinComida };
+  if (!existente) {
+    const { rows } = await client.query(
+      `INSERT INTO asistencia_jornada (project_id, trabajador_id, fecha, hora_entrada, hora_salida_comida, hora_regreso_comida, hora_salida, sin_comida, capturado_por)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
+      [req.project.id, trab.id, fecha, nuevo.hora_entrada, nuevo.hora_salida_comida, nuevo.hora_regreso_comida, nuevo.hora_salida, sinComida, req.user.id]
+    );
+    return { fila: rows[0], creado: true, cambios: 0 };
+  }
+
+  const cambios = asistJornada.diffCampos(existente, nuevo);
+  if (!cambios.length) return { fila: existente, creado: false, cambios: 0 };
+  // Motivo obligatorio si se modifica o borra un valor ya guardado. Completar
+  // una hora que estaba vacía (captura progresiva del día: entrada por la
+  // mañana, salida en la tarde) es captura, no corrección: no exige motivo,
+  // pero igual queda en la bitácora.
+  const esCorreccion = cambios.some((c) => c.valor_anterior !== null && c.valor_anterior !== undefined);
+  const motivoLimpio = typeof motivo === 'string' ? motivo.trim() : '';
+  if (esCorreccion && motivoLimpio.length < MOTIVO_MIN) {
+    throw errJornada(400, `El motivo del cambio es obligatorio (mínimo ${MOTIVO_MIN} caracteres)`);
+  }
+  const { rows } = await client.query(
+    `UPDATE asistencia_jornada SET hora_entrada=$1, hora_salida_comida=$2, hora_regreso_comida=$3, hora_salida=$4,
+            sin_comida=$5, actualizado_por=$6, actualizado_en=NOW()
+     WHERE id=$7 RETURNING *`,
+    [nuevo.hora_entrada, nuevo.hora_salida_comida, nuevo.hora_regreso_comida, nuevo.hora_salida, sinComida, req.user.id, existente.id]
+  );
+  for (const c of cambios) {
+    await client.query(
+      `INSERT INTO asistencia_jornada_log (jornada_id, campo, valor_anterior, valor_nuevo, motivo, usuario_id)
+       VALUES ($1,$2,$3,$4,$5,$6)`,
+      [existente.id, c.campo, c.valor_anterior, c.valor_nuevo, motivoLimpio || null, req.user.id]
+    );
+  }
+  return { fila: rows[0], creado: false, cambios: cambios.length };
+}
+
+const JORNADA_SEL = `
+  SELECT j.*, u.nombre AS actualizado_por_nombre
+  FROM asistencia_jornada j LEFT JOIN usuarios u ON u.id = j.actualizado_por`;
+
+// Lista del día: trabajadores activos de la obra + estado + jornada + calculados.
+app.get('/api/projects/:id/asistencia-jornada', h(auth.allow('residente', 'cabo')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('nominas', 'puede_ver')), h(async (req, res) => {
+  const fecha = req.query.fecha || hoyMexico();
+  if (!RE_FECHA.test(fecha)) return res.status(400).json({ error: 'fecha inválida (YYYY-MM-DD)' });
+  const { rows } = await db.pool.query(
+    `SELECT t.id, t.nombre, t.puesto, t.tipo_jornada, t.horas_jornada::float AS horas_jornada,
+            COALESCE(a.estado, 'sin_registro') AS estado,
+            j.id AS j_id, j.hora_entrada, j.hora_salida_comida, j.hora_regreso_comida, j.hora_salida, j.sin_comida,
+            j.actualizado_en, u.nombre AS actualizado_por_nombre
+     FROM trabajadores t
+     JOIN trabajador_obras o ON o.trabajador_id = t.id AND o.project_id = $1 AND o.activo = true
+     LEFT JOIN asistencia_diaria a ON a.trabajador_id = t.id AND a.project_id = $1 AND a.fecha = $2
+     LEFT JOIN asistencia_jornada j ON j.trabajador_id = t.id AND j.project_id = $1 AND j.fecha = $2
+     LEFT JOIN usuarios u ON u.id = j.actualizado_por
+     WHERE t.activo = true
+     ORDER BY t.orden, t.nombre`,
+    [req.project.id, fecha]
+  );
+  const trabajadores = rows.map((r) => ({
+    id: r.id, nombre: r.nombre, puesto: r.puesto, tipo_jornada: r.tipo_jornada, horas_jornada: r.horas_jornada, estado: r.estado,
+    jornada: r.j_id ? asistJornada.filaAApi({ ...r, id: r.j_id }, r) : null,
+  }));
+  res.json({ fecha, fecha_hoy: hoyMexico(), trabajadores });
+}));
+
+// Resumen por día (indicador de cumplimiento) + registros por trabajador/día
+// (puntos del grid y estadísticas del detalle individual).
+app.get('/api/projects/:id/asistencia-jornada/resumen', h(auth.allow('residente', 'cabo')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('nominas', 'puede_ver')), h(async (req, res) => {
+  const { desde, hasta } = req.query;
+  if (!desde || !RE_FECHA.test(desde) || !hasta || !RE_FECHA.test(hasta)) return res.status(400).json({ error: 'desde y hasta requeridos (YYYY-MM-DD)' });
+  if (desde > hasta) return res.status(400).json({ error: 'desde debe ser anterior o igual a hasta' });
+  if ((new Date(hasta) - new Date(desde)) / 86400000 > 366) return res.status(400).json({ error: 'El rango no puede superar 366 días' });
+  const { rows: pres } = await db.pool.query(
+    `SELECT a.trabajador_id, a.fecha, t.tipo_jornada, t.horas_jornada::float AS horas_jornada,
+            j.hora_entrada, j.hora_salida_comida, j.hora_regreso_comida, j.hora_salida, j.sin_comida, j.id AS j_id
+     FROM asistencia_diaria a
+     JOIN trabajadores t ON t.id = a.trabajador_id AND t.activo = true
+     JOIN trabajador_obras o ON o.trabajador_id = t.id AND o.project_id = $1 AND o.activo = true
+     LEFT JOIN asistencia_jornada j ON j.trabajador_id = a.trabajador_id AND j.project_id = a.project_id AND j.fecha = a.fecha
+     WHERE a.project_id = $1 AND a.estado = 'presente' AND a.fecha BETWEEN $2 AND $3`,
+    [req.project.id, desde, hasta]
+  );
+  const porDia = {};
+  const registros = [];
+  for (const r of pres) {
+    const d = (porDia[r.fecha] ||= { fecha: r.fecha, presentes: 0, completos: 0, incompletos: 0, con_extra: 0 });
+    d.presentes++;
+    if (!r.j_id) continue;
+    const calc = asistJornada.calcularJornada(r, r);
+    if (calc.completo) d.completos++; else d.incompletos++;
+    if (calc.extra_min > 0) d.con_extra++;
+    registros.push({ trabajador_id: r.trabajador_id, fecha: r.fecha, completo: calc.completo, trabajadas_min: calc.trabajadas_min, extra_min: calc.extra_min });
+  }
+  res.json({ desde, hasta, dias: Object.values(porDia).sort((a, b) => (a.fecha < b.fecha ? -1 : 1)), registros });
+}));
+
+// Crear o editar (upsert) la jornada de un trabajador en una fecha.
+app.put('/api/projects/:id/asistencia-jornada/:trabajadorId/:fecha', h(auth.allow('residente', 'cabo')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('nominas', 'puede_editar')), h(async (req, res) => {
+  const trabajadorId = Number(req.params.trabajadorId);
+  const { fecha } = req.params;
+  if (!Number.isInteger(trabajadorId) || trabajadorId <= 0) return res.status(400).json({ error: 'ID de trabajador inválido' });
+  const { aprobada } = await validarContextoJornada(req, fecha);
+  const trab = await trabajadorActivoDeObra(trabajadorId, req.project.id);
+  if (!trab) return res.status(404).json({ error: 'Trabajador no encontrado en esta obra' });
+  const body = req.body || {};
+  const v = asistJornada.validarHoras({ ...body, horas_jornada: trab.horas_jornada }, trab);
+  if (v.error) return res.status(400).json({ error: v.error });
+  let out;
+  await db.withTransaction(async (client) => {
+    out = await guardarJornadaTx(client, req, { trab, fecha, valores: v.valores, sinComida: v.sin_comida, motivo: body.motivo, aprobada });
+  });
+  res.json({ ok: true, creado: out.creado, cambios: out.cambios, warnings: v.warnings, jornada: asistJornada.filaAApi(out.fila, trab) });
+}));
+
+// Lote: mismo horario a varios trabajadores que aún NO tienen registro ese
+// día. Nunca sobrescribe. Patrón de marcar-todos: un conflicto/estado no
+// elegible omite solo a ese trabajador y se reporta (jamás en silencio).
+app.post('/api/projects/:id/asistencia-jornada/lote', h(auth.allow('residente', 'cabo')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('nominas', 'puede_editar')), h(async (req, res) => {
+  const body = req.body || {};
+  const fecha = body.fecha || hoyMexico();
+  const { aprobada } = await validarContextoJornada(req, fecha);
+  const ids = body.trabajadorIds;
+  if (!Array.isArray(ids) || !ids.length) return res.status(400).json({ error: 'trabajadorIds requerido' });
+  if (ids.length > 200) return res.status(400).json({ error: 'Máximo 200 trabajadores por lote' });
+  const uniqueIds = [...new Set(ids.map(Number))];
+  if (uniqueIds.some((id) => !Number.isInteger(id) || id <= 0)) return res.status(400).json({ error: 'ID de trabajador inválido' });
+  const { rows: trabs } = await db.pool.query(
+    `SELECT t.id, t.nombre, t.tipo_jornada, t.horas_jornada::float AS horas_jornada
+     FROM trabajadores t
+     JOIN trabajador_obras o ON o.trabajador_id = t.id AND o.project_id = $2 AND o.activo = true
+     WHERE t.id = ANY($1) AND t.activo = true`,
+    [uniqueIds, req.project.id]
+  );
+  if (trabs.length !== uniqueIds.length) return res.status(400).json({ error: 'Uno o más trabajadores no pertenecen a esta obra' });
+  // Validar el horario una vez contra el tipo más estricto (con_comida) y
+  // luego por trabajador (corrida descarta los campos de comida).
+  const chequeo = asistJornada.validarHoras({ ...body, horas_jornada: 8 }, { tipo_jornada: 'con_comida' });
+  if (chequeo.error) return res.status(400).json({ error: chequeo.error });
+  const omitidos = [];
+  let aplicados = 0;
+  await db.withTransaction(async (client) => {
+    for (const trab of trabs) {
+      const v = asistJornada.validarHoras({ ...body, horas_jornada: trab.horas_jornada }, trab);
+      if (v.error) { omitidos.push({ trabajador_id: trab.id, motivo: v.error }); continue; }
+      try {
+        const r = await guardarJornadaTx(client, req, { trab, fecha, valores: v.valores, sinComida: v.sin_comida, aprobada, soloNuevo: true, motivo: null });
+        if (r.omitido) omitidos.push({ trabajador_id: trab.id, motivo: r.omitido }); else aplicados++;
+      } catch (err) {
+        if (err.status === 409) omitidos.push({ trabajador_id: trab.id, motivo: err.message }); else throw err;
+      }
+    }
+  });
+  res.json({ ok: true, fecha, aplicados, omitidos });
+}));
+
+// Bitácora de un registro (solo lectura; no existe UPDATE/DELETE sobre el log).
+app.get('/api/projects/:id/asistencia-jornada/:trabajadorId/:fecha/log', h(auth.allow('residente', 'cabo')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('nominas', 'puede_ver')), h(async (req, res) => {
+  const trabajadorId = Number(req.params.trabajadorId);
+  if (!RE_FECHA.test(req.params.fecha) || !Number.isInteger(trabajadorId)) return res.status(400).json({ error: 'parámetros inválidos' });
+  const { rows } = await db.pool.query(
+    `SELECT l.campo, l.valor_anterior, l.valor_nuevo, l.motivo, l.creado_en, u.nombre AS usuario
+     FROM asistencia_jornada_log l
+     JOIN asistencia_jornada j ON j.id = l.jornada_id
+     LEFT JOIN usuarios u ON u.id = l.usuario_id
+     WHERE j.project_id = $1 AND j.trabajador_id = $2 AND j.fecha = $3
+     ORDER BY l.id`,
+    [req.project.id, trabajadorId, req.params.fecha]
+  );
+  res.json({ log: rows });
+}));
+
+// Tipo de jornada / horas de jornada del trabajador — solo admin/desarrollador.
+app.patch('/api/projects/:id/trabajadores/:wId/jornada', h(auth.allow('residente', 'cabo')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('nominas', 'puede_editar')), h(async (req, res) => {
+  if (!esSuperusuarioJornada(req)) return res.status(403).json({ error: 'Solo administrador o desarrollador puede cambiar la jornada del trabajador' });
+  const wId = Number(req.params.wId);
+  const trab = await trabajadorActivoDeObra(wId, req.project.id);
+  if (!trab) return res.status(404).json({ error: 'Trabajador no encontrado en esta obra' });
+  const { tipo_jornada } = req.body || {};
+  const horas = Number(req.body?.horas_jornada);
+  if (!['corrida', 'con_comida'].includes(tipo_jornada)) return res.status(400).json({ error: "tipo_jornada debe ser 'corrida' o 'con_comida'" });
+  if (!Number.isFinite(horas) || horas < 1 || horas > 16) return res.status(400).json({ error: 'horas_jornada debe estar entre 1 y 16' });
+  await db.pool.query('UPDATE trabajadores SET tipo_jornada=$1, horas_jornada=$2 WHERE id=$3', [tipo_jornada, horas, wId]);
+  res.json({ ok: true, tipo_jornada, horas_jornada: horas });
+}));
+
+// Export Excel — evidencia legal; solo admin/desarrollador, independiente del
+// estado de la nómina. Mismo rate limit que los demás exports.
+app.get('/api/projects/:id/asistencia-jornada/export', h(auth.allow('residente', 'cabo')), h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+  if (!esSuperusuarioJornada(req)) return res.status(403).json({ error: 'Solo administrador o desarrollador puede exportar el registro de jornada' });
+  const { desde, hasta } = req.query;
+  if (!desde || !RE_FECHA.test(desde) || !hasta || !RE_FECHA.test(hasta)) return res.status(400).json({ error: 'desde y hasta requeridos (YYYY-MM-DD)' });
+  if (desde > hasta) return res.status(400).json({ error: 'desde debe ser anterior o igual a hasta' });
+  if ((new Date(hasta) - new Date(desde)) / 86400000 > 366) return res.status(400).json({ error: 'El rango no puede superar 366 días' });
+  const { rows: rl } = await db.pool.query(
+    `SELECT COUNT(*)::int AS n FROM api_rate_limits WHERE usuario_id = $1 AND endpoint = 'export_jornada' AND creado_en > NOW() - INTERVAL '1 hour'`,
+    [req.user.id]
+  );
+  if (rl[0].n >= EXPORT_RATE_LIMIT) return res.status(429).json({ error: `Límite de exports alcanzado (${EXPORT_RATE_LIMIT} por hora). Intenta más tarde.` });
+  await db.pool.query('INSERT INTO api_rate_limits (usuario_id, endpoint) VALUES ($1, $2)', [req.user.id, 'export_jornada']);
+  const { rows } = await db.pool.query(
+    `SELECT t.nombre AS trabajador, t.tipo_jornada, t.horas_jornada::float AS horas_jornada, j.fecha,
+            j.hora_entrada, j.hora_salida_comida, j.hora_regreso_comida, j.hora_salida, j.sin_comida,
+            uc.nombre AS capturo, j.capturado_en, j.actualizado_en
+     FROM asistencia_jornada j
+     JOIN trabajadores t ON t.id = j.trabajador_id
+     LEFT JOIN usuarios uc ON uc.id = j.capturado_por
+     WHERE j.project_id = $1 AND j.fecha BETWEEN $2 AND $3
+     ORDER BY t.nombre, j.fecha`,
+    [req.project.id, desde, hasta]
+  );
+  const fmtMin = (m) => (m == null ? '' : `${Math.floor(m / 60)}:${String(m % 60).padStart(2, '0')}`);
+  const fmtTs = (ts) => (ts ? new Intl.DateTimeFormat('es-MX', { timeZone: 'America/Mexico_City', dateStyle: 'short', timeStyle: 'short' }).format(new Date(ts)) : '');
+  const data = rows.map((r) => {
+    const calc = asistJornada.calcularJornada(r, r);
+    return {
+      trabajador: r.trabajador, fecha: r.fecha,
+      entrada: asistJornada.normalizarHora(r.hora_entrada) || '',
+      salida_comida: asistJornada.normalizarHora(r.hora_salida_comida) || '',
+      regreso_comida: asistJornada.normalizarHora(r.hora_regreso_comida) || '',
+      salida: asistJornada.normalizarHora(r.hora_salida) || '',
+      trabajadas: fmtMin(calc.trabajadas_min), extra: fmtMin(calc.extra_min),
+      capturo: r.capturo || '', capturado_en: fmtTs(r.capturado_en), editado: r.actualizado_en ? 'Sí' : 'No',
+    };
+  });
+  const columns = [
+    { header: 'Trabajador', key: 'trabajador', width: 30 },
+    { header: 'Fecha', key: 'fecha', width: 12 },
+    { header: 'Entrada', key: 'entrada', width: 10 },
+    { header: 'Salida comida', key: 'salida_comida', width: 14 },
+    { header: 'Regreso comida', key: 'regreso_comida', width: 15 },
+    { header: 'Salida', key: 'salida', width: 10 },
+    { header: 'Horas trabajadas', key: 'trabajadas', width: 16 },
+    { header: 'Horas extra', key: 'extra', width: 12 },
+    { header: 'Capturó', key: 'capturo', width: 24 },
+    { header: 'Fecha/hora de captura', key: 'capturado_en', width: 22 },
+    { header: 'Editado', key: 'editado', width: 10 },
+  ];
+  await sendXlsxExport(res, {
+    filename: buildExportFilename(`Jornada_${desde}_${hasta}`, req.project.nombre),
+    sheets: [{ sheetName: 'Registro de Jornada', columns, rows: data, headerFill: true }],
+  });
 }));
 
 // ===========================================================================

@@ -942,6 +942,46 @@ const SCHEMA = `
   -- Si se quiere que falta_justificada pague, cambiar la constante en el cálculo de nómina.
   ALTER TABLE asistencia_diaria ADD COLUMN IF NOT EXISTS estado TEXT NOT NULL DEFAULT 'presente';
 
+  -- Registro de jornada (prompt-registro-jornada-nomina.md): entrada/comida/
+  -- salida por trabajador × día. Solo aditivo. Horas = TIME de reloj de pared
+  -- (México, sin zona); solo capturado_en/actualizado_en son TIMESTAMPTZ.
+  -- Horas trabajadas/extra se calculan al leer, no se almacenan. Sin borrado
+  -- físico ni endpoint de UPDATE/DELETE sobre el log (append-only).
+  ALTER TABLE trabajadores ADD COLUMN IF NOT EXISTS tipo_jornada TEXT NOT NULL DEFAULT 'con_comida';
+  ALTER TABLE trabajadores DROP CONSTRAINT IF EXISTS trabajadores_tipo_jornada_check;
+  ALTER TABLE trabajadores ADD CONSTRAINT trabajadores_tipo_jornada_check CHECK (tipo_jornada IN ('corrida','con_comida'));
+  ALTER TABLE trabajadores ADD COLUMN IF NOT EXISTS horas_jornada NUMERIC(4,2) NOT NULL DEFAULT 8;
+
+  CREATE TABLE IF NOT EXISTS asistencia_jornada (
+    id SERIAL PRIMARY KEY,
+    project_id INTEGER NOT NULL REFERENCES proyectos(id) ON DELETE CASCADE,
+    trabajador_id INTEGER NOT NULL REFERENCES trabajadores(id) ON DELETE CASCADE,
+    fecha DATE NOT NULL,
+    hora_entrada TIME,
+    hora_salida_comida TIME,
+    hora_regreso_comida TIME,
+    hora_salida TIME,
+    sin_comida BOOLEAN NOT NULL DEFAULT false,
+    capturado_por INTEGER REFERENCES usuarios(id),
+    capturado_en TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    actualizado_por INTEGER REFERENCES usuarios(id),
+    actualizado_en TIMESTAMPTZ,
+    UNIQUE(project_id, trabajador_id, fecha)
+  );
+  CREATE INDEX IF NOT EXISTS idx_asistencia_jornada_fecha ON asistencia_jornada(project_id, fecha);
+
+  CREATE TABLE IF NOT EXISTS asistencia_jornada_log (
+    id SERIAL PRIMARY KEY,
+    jornada_id INTEGER NOT NULL REFERENCES asistencia_jornada(id),
+    campo TEXT NOT NULL,
+    valor_anterior TEXT,
+    valor_nuevo TEXT,
+    motivo TEXT,
+    usuario_id INTEGER REFERENCES usuarios(id),
+    creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
+  CREATE INDEX IF NOT EXISTS idx_asistencia_jornada_log_jornada ON asistencia_jornada_log(jornada_id);
+
   -- Nóminas — cabecera de periodo de pago con flujo de autorización
   CREATE TABLE IF NOT EXISTS nominas (
     id SERIAL PRIMARY KEY,

@@ -3478,7 +3478,33 @@ html[data-palette="dorada"]:not([data-theme="light"]) .welcome-card {
 .jor-row-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-8); margin-bottom: var(--space-6); }
 .jor-times { font-size: var(--fs-sm); color: var(--text-secondary); }
 .jor-row-actions { display: flex; justify-content: flex-end; margin-top: var(--space-8); }
-.jor-check { display: flex; align-items: center; gap: var(--space-6); font-size: var(--fs-sm); margin-top: var(--space-8); }
+/* Checkbox propio "No salió a comer": fila única alineada a la izquierda, toda
+   la fila es el <label> (>= 44px de alto); palomita dibujada solo con CSS. */
+.jor-check {
+  display: inline-flex; align-items: center; justify-content: flex-start; gap: var(--space-10);
+  min-height: 44px; margin-top: var(--space-4); font-size: var(--fs-sm); cursor: pointer;
+  white-space: nowrap; -webkit-tap-highlight-color: transparent;
+}
+.jor-check-input {
+  -webkit-appearance: none; appearance: none; flex: none; position: relative;
+  width: 22px; height: 22px; margin: 0; border-radius: 6px;
+  border: 2px solid var(--text-secondary); background: var(--bg-surface); cursor: pointer;
+  transition: background-color 0.15s var(--ease-out), border-color 0.15s var(--ease-out);
+}
+.jor-check-input:checked { background: var(--accent-gold); border-color: var(--accent-gold); }
+.jor-check-input:checked::after {
+  content: ''; position: absolute; left: 6px; top: 2px; width: 6px; height: 11px;
+  border: solid #04212f; border-width: 0 2.5px 2.5px 0; transform: rotate(45deg);
+}
+.jor-check-input:focus-visible { outline: 2px solid var(--accent-gold); outline-offset: 2px; }
+.jor-check-input:disabled { opacity: 0.5; cursor: not-allowed; }
+.jor-row-foot { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--space-8); margin-top: var(--space-8); }
+.jor-row-foot .btn { margin-left: auto; }
+@media (max-width: 420px) {
+  .jor-row-foot { flex-direction: column; align-items: stretch; }
+  .jor-row-foot .jor-check { white-space: normal; }
+  .jor-row-foot .btn { margin-left: 0; align-self: flex-end; }
+}
 .jor-chip {
   font-size: var(--fs-xs); font-weight: 700; padding: var(--space-2) var(--space-8);
   border-radius: 999px; border: 1px solid var(--border-color); white-space: nowrap;
@@ -3489,6 +3515,74 @@ html[data-palette="dorada"]:not([data-theme="light"]) .welcome-card {
 .jor-chip-extra { border-color: var(--accent-gold); background: color-mix(in srgb, var(--accent-gold) 22%, transparent); }
 .jor-chip-sin { color: var(--text-secondary); border-style: dotted; }
 .jor-sheet-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--space-8); }
+
+/* Campo de hora (botón) + aviso de orden */
+.hora-campo-label { font-size: var(--fs-xs); color: var(--text-secondary); }
+.hora-campo {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--space-8);
+  width: 100%; min-height: 44px; padding: var(--space-8) var(--space-10);
+  background: var(--bg-surface-2); border: 1px solid var(--border-color); border-radius: var(--radius);
+  color: var(--text-primary); font: inherit; font-size: var(--fs-sm); text-align: left; cursor: pointer;
+  transition: border-color 0.15s var(--ease-out), background-color 0.15s var(--ease-out);
+}
+.hora-campo-valor { white-space: nowrap; }
+.hora-campo.vacio .hora-campo-valor { color: var(--text-secondary); opacity: 0.8; }
+.hora-campo .icon-svg { flex: none; color: var(--text-secondary); }
+.hora-campo:focus-visible { outline: 2px solid var(--accent-gold); outline-offset: 2px; }
+.hora-campo:disabled { opacity: 0.5; cursor: not-allowed; pointer-events: none; }
+.hora-aviso { flex: 1 0 100%; grid-column: 1 / -1; font-size: var(--fs-xs); color: var(--text-primary); border-left: 3px solid var(--yellow); padding-left: var(--space-8); }
+.hora-aviso[hidden], .horasel-aviso[hidden] { display: none; }
+@media (hover: hover) and (pointer: fine) {
+  .hora-campo:hover:not(:disabled) { border-color: var(--accent-gold); }
+}
+
+/* Selector de hora propio: bottom sheet en móvil, tarjeta centrada >= 640px.
+   z-index 176: sobre .modal(170)/#modalOverlay(160), bajo .toast(180). */
+.horasel-overlay {
+  position: fixed; inset: 0; z-index: 176; background: rgba(0,0,0,0.5);
+  display: flex; align-items: flex-end; justify-content: center;
+  opacity: 0; transition: opacity 0.15s var(--ease-out);
+}
+.horasel-overlay.show { opacity: 1; }
+.horasel {
+  width: 100%; max-width: 440px; max-height: 94dvh; overflow-y: auto; box-sizing: border-box;
+  background: var(--bg-surface); border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  padding: var(--space-16); padding-bottom: calc(var(--space-16) + env(safe-area-inset-bottom, 0px));
+  transform: translateY(24px); transition: transform 0.18s var(--ease-out);
+}
+.horasel-overlay.show .horasel { transform: none; }
+@media (min-width: 640px) {
+  .horasel-overlay { align-items: center; }
+  .horasel { border-radius: var(--radius-lg); transform: scale(0.96); }
+}
+.horasel-titulo { font-size: var(--fs-sm); font-weight: 700; color: var(--text-secondary); text-align: center; }
+.horasel-display {
+  margin: var(--space-6) var(--space-0) var(--space-10); text-align: center;
+  font-size: 2rem; font-weight: 800; color: var(--text-primary); border-radius: var(--radius);
+}
+.horasel-display:focus-visible { outline: 2px solid var(--accent-gold); outline-offset: 2px; }
+.horasel-aviso { text-align: center; font-size: var(--fs-xs); color: var(--text-primary); margin-bottom: var(--space-8); }
+.horasel-seccion { font-size: var(--fs-xs); color: var(--text-secondary); margin: var(--space-10) var(--space-0) var(--space-4); }
+.horasel-seg { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-6); }
+.horasel-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--space-6); }
+.horasel-fino { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-6); margin-top: var(--space-6); }
+.horasel-btn {
+  min-height: 44px; border-radius: var(--radius-md); border: 1px solid var(--border-color);
+  background: var(--bg-surface-2); color: var(--text-primary); font: inherit; font-size: var(--fs-sm); font-weight: 600; cursor: pointer;
+  transition: background-color 0.12s var(--ease-out), border-color 0.12s var(--ease-out);
+}
+.horasel-btn[aria-pressed="true"] { background: var(--accent-gold); border-color: var(--accent-gold); color: #04212f; }
+.horasel-btn:focus-visible { outline: 2px solid var(--accent-gold); outline-offset: 2px; }
+.horasel-acciones { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-8); margin-top: var(--space-14); }
+.horasel-acciones .btn { min-height: 44px; }
+@media (hover: hover) and (pointer: fine) {
+  .horasel-btn:hover:not([aria-pressed="true"]) { border-color: var(--accent-gold); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .horasel-overlay, .horasel, .horasel-btn, .hora-campo, .jor-check-input { transition: none; }
+  .horasel { transform: none; }
+}
 .jor-calc { margin: var(--space-10) var(--space-0); font-size: var(--fs-sm); font-weight: 600; }
 .jor-log { margin-top: var(--space-8); }
 .jor-ajuste { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--space-10); margin-top: var(--space-12); }

@@ -22695,6 +22695,205 @@ async function renderNominasGlobal(view) {
   await showTodas();
 }
 
+// ---------------------------------------------------------------------------
+// Selector de hora propio (Registro de jornada) — prompt-selector-hora-
+// checkbox-jornada.md. Reemplaza el <input type="time"> nativo. Contrato con
+// el backend SIN cambios: 'HH:MM' 24 h. Cada campo es un <button> con su
+// <input type="hidden" data-hora> (mismo id/data-k/value que tenía el input
+// de hora), de modo que el código de guardado sigue leyendo el mismo valor.
+// ---------------------------------------------------------------------------
+
+// 'HH:MM' (24 h) -> { h: 1..12, m: 0..59, pm: bool } | null
+function horaA12h(hhmm) {
+  const m = /^(\d{2}):(\d{2})$/.exec(hhmm || '');
+  if (!m) return null;
+  const H = Number(m[1]); const M = Number(m[2]);
+  if (H > 23 || M > 59) return null;
+  return { h: H % 12 === 0 ? 12 : H % 12, m: M, pm: H >= 12 };
+}
+// (1..12, 0..59, pm) -> 'HH:MM' 24 h  (12 a. m. = 00, 12 p. m. = 12)
+function horaA24h(h, m, pm) {
+  const H = (h % 12) + (pm ? 12 : 0);
+  return `${String(H).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+}
+// 'HH:MM' -> '8:05 a. m.' ; vacío/ inválido -> '--:--'
+function formatoHora12(hhmm) {
+  const p = horaA12h(hhmm);
+  if (!p) return '--:--';
+  return `${p.h}:${String(p.m).padStart(2, '0')} ${p.pm ? 'p. m.' : 'a. m.'}`;
+}
+
+const HORASEL_CLOCK_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="icon-svg"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 14"/></svg>';
+let horaSelectorAbierto = false;
+
+// Devuelve Promise<'HH:MM' | null (Borrar hora) | undefined (cancelado)>.
+function abrirSelectorHora({ valor = '', titulo = 'Hora', minimo = '', opener = null } = {}) {
+  if (horaSelectorAbierto) return Promise.resolve(undefined);
+  horaSelectorAbierto = true;
+  return new Promise((resolve) => {
+    const ini = horaA12h(valor) || horaA12h('08:00');
+    const st = { h: ini.h, m: ini.m, pm: ini.pm };
+    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const overlay = document.createElement('div');
+    overlay.className = 'horasel-overlay';
+    const tid = `horaselTitulo${Date.now()}`;
+    overlay.innerHTML = `
+      <div class="horasel" role="dialog" aria-modal="true" aria-labelledby="${tid}">
+        <div class="horasel-titulo" id="${tid}">${esc(titulo)}</div>
+        <div class="horasel-display" tabindex="0" role="status" aria-live="polite" data-hs-display></div>
+        <div class="horasel-aviso" data-hs-aviso hidden></div>
+        <div class="horasel-seg" role="group" aria-label="a. m. o p. m.">
+          <button type="button" class="horasel-btn" data-hs-ampm="0">a. m.</button>
+          <button type="button" class="horasel-btn" data-hs-ampm="1">p. m.</button>
+        </div>
+        <div class="horasel-seccion">Hora</div>
+        <div class="horasel-grid">
+          ${[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((n) => `<button type="button" class="horasel-btn" data-hs-h="${n}" aria-label="${n} horas">${n}</button>`).join('')}
+        </div>
+        <div class="horasel-seccion">Minutos</div>
+        <div class="horasel-grid">
+          ${Array.from({ length: 12 }, (_, i) => i * 5).map((n) => `<button type="button" class="horasel-btn" data-hs-m="${n}" aria-label="${n} minutos">${String(n).padStart(2, '0')}</button>`).join('')}
+        </div>
+        <div class="horasel-fino">
+          <button type="button" class="horasel-btn" data-hs-delta="-1" aria-label="Restar un minuto">− 1 min</button>
+          <button type="button" class="horasel-btn" data-hs-delta="1" aria-label="Sumar un minuto">+ 1 min</button>
+        </div>
+        <div class="horasel-acciones">
+          <button type="button" class="btn" data-hs-ahora>Ahora</button>
+          <button type="button" class="btn" data-hs-borrar>Borrar hora</button>
+          <button type="button" class="btn" data-hs-cancelar>Cancelar</button>
+          <button type="button" class="btn btn-primary" data-hs-listo>Listo</button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+    lockBodyScroll('horasel');
+    const dlg = overlay.querySelector('.horasel');
+    const $q = (s) => overlay.querySelector(s);
+    const $$q = (s) => [...overlay.querySelectorAll(s)];
+
+    const actual24 = () => horaA24h(st.h, st.m, st.pm);
+    function pintar() {
+      $q('[data-hs-display]').textContent = formatoHora12(actual24());
+      $$q('[data-hs-ampm]').forEach((b) => b.setAttribute('aria-pressed', String(Number(b.dataset.hsAmpm) === (st.pm ? 1 : 0))));
+      $$q('[data-hs-h]').forEach((b) => b.setAttribute('aria-pressed', String(Number(b.dataset.hsH) === st.h)));
+      $$q('[data-hs-m]').forEach((b) => b.setAttribute('aria-pressed', String(Number(b.dataset.hsM) === st.m)));
+      const av = $q('[data-hs-aviso]');
+      const anterior = minimo && actual24() < minimo;
+      av.hidden = !anterior;
+      if (anterior) av.textContent = `Es anterior a la hora previa (${formatoHora12(minimo)}).`;
+    }
+    function fijarTotal(min) {
+      const t = ((min % 1440) + 1440) % 1440;
+      const p = horaA12h(`${String(Math.floor(t / 60)).padStart(2, '0')}:${String(t % 60).padStart(2, '0')}`);
+      st.h = p.h; st.m = p.m; st.pm = p.pm;
+    }
+
+    let cerrado = false;
+    function cerrar(resultado) {
+      if (cerrado) return;
+      cerrado = true;
+      document.removeEventListener('keydown', onKey, true);
+      overlay.classList.remove('show');
+      setTimeout(() => { overlay.remove(); unlockBodyScroll('horasel'); horaSelectorAbierto = false; }, reduce ? 0 : 160);
+      if (opener && document.contains(opener)) opener.focus();
+      resolve(resultado);
+    }
+    function onKey(e) {
+      if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); cerrar(undefined); return; }
+      if (e.key === 'Enter' && !(e.target.matches && e.target.matches('[data-hs-ahora],[data-hs-borrar],[data-hs-cancelar],[data-hs-listo]'))) { e.preventDefault(); e.stopImmediatePropagation(); cerrar(actual24()); return; }
+      if (e.key === 'Tab') {
+        const f = $$q('button, [tabindex="0"]').filter((el) => !el.disabled);
+        if (!f.length) return;
+        const primero = f[0]; const ultimo = f[f.length - 1];
+        if (e.shiftKey && (document.activeElement === primero || !dlg.contains(document.activeElement))) { e.preventDefault(); ultimo.focus(); }
+        else if (!e.shiftKey && (document.activeElement === ultimo || !dlg.contains(document.activeElement))) { e.preventDefault(); primero.focus(); }
+      }
+    }
+    document.addEventListener('keydown', onKey, true);
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) { cerrar(undefined); return; }
+      const b = e.target.closest('button');
+      if (!b) return;
+      if (b.dataset.hsAmpm != null) { st.pm = b.dataset.hsAmpm === '1'; pintar(); }
+      else if (b.dataset.hsH != null) { st.h = Number(b.dataset.hsH); pintar(); }
+      else if (b.dataset.hsM != null) { st.m = Number(b.dataset.hsM); pintar(); }
+      else if (b.dataset.hsDelta != null) { fijarTotal((horaA12h(actual24()).h % 12 + (st.pm ? 12 : 0)) * 60 + st.m + Number(b.dataset.hsDelta)); pintar(); }
+      else if (b.hasAttribute('data-hs-ahora')) { const d = new Date(); fijarTotal(d.getHours() * 60 + d.getMinutes()); pintar(); }
+      else if (b.hasAttribute('data-hs-borrar')) cerrar(null);
+      else if (b.hasAttribute('data-hs-cancelar')) cerrar(undefined);
+      else if (b.hasAttribute('data-hs-listo')) cerrar(actual24());
+    });
+    pintar();
+    requestAnimationFrame(() => { overlay.classList.add('show'); $q('[data-hs-display]').focus(); });
+  });
+}
+
+// Campo de hora: <button> + <input type="hidden" data-hora> (mismo id/data-k).
+function campoHoraHtml({ k, label, valor = '', id = '', deshabilitado = false }) {
+  const idAttr = id ? ` id="${id}"` : '';
+  const dis = deshabilitado ? ' disabled' : '';
+  return `<div class="jor-in hora-campo-wrap">
+    <span class="hora-campo-label">${esc(label)}</span>
+    <button type="button" class="hora-campo${valor ? '' : ' vacio'}" data-hora-campo data-k="${k}" data-label="${esc(label)}" aria-label="${esc(label)}: ${valor ? formatoHora12(valor) : 'sin hora'}"${dis}>
+      <span class="hora-campo-valor">${formatoHora12(valor)}</span>${HORASEL_CLOCK_SVG}
+    </button>
+    <input type="hidden" data-hora data-k="${k}"${idAttr} value="${esc(valor)}"${dis} />
+  </div>`;
+}
+
+function setCampoHoraDisabled(hidden, deshabilitado) {
+  if (!hidden) return;
+  hidden.disabled = deshabilitado;
+  const btn = hidden.parentElement.querySelector('[data-hora-campo]');
+  if (btn) btn.disabled = deshabilitado;
+}
+
+function pintarCampoHora(hidden) {
+  const wrap = hidden.parentElement;
+  const btn = wrap.querySelector('[data-hora-campo]');
+  const v = hidden.value;
+  btn.querySelector('.hora-campo-valor').textContent = formatoHora12(v);
+  btn.classList.toggle('vacio', !v);
+  btn.setAttribute('aria-label', `${btn.dataset.label}: ${v ? formatoHora12(v) : 'sin hora'}`);
+}
+
+// Aviso sutil (no bloquea; el servidor valida) si el orden
+// entrada < salió a comer < regresó < salida se rompe dentro de un grupo.
+function avisoOrdenHoras(grupo) {
+  const v = {};
+  grupo.querySelectorAll('input[data-hora]').forEach((i) => { if (!i.disabled && i.value) v[i.dataset.k] = i.value; });
+  const orden = ['hora_entrada', 'hora_salida_comida', 'hora_regreso_comida', 'hora_salida'].filter((k) => v[k]);
+  let mal = false;
+  for (let i = 1; i < orden.length; i++) if (!(v[orden[i - 1]] < v[orden[i]])) mal = true;
+  let av = grupo.querySelector('.hora-aviso');
+  if (!av) { av = document.createElement('div'); av.className = 'hora-aviso'; av.setAttribute('role', 'status'); grupo.appendChild(av); }
+  av.hidden = !mal;
+  av.textContent = mal ? 'Revisa el orden: entrada, salió a comer, regresó y salida deben ir en ese orden.' : '';
+}
+
+// Engancha los botones de campo dentro de `root` (por botón: seguro tras re-render).
+function bindCamposHora(root) {
+  const grupos = new Set();
+  root.querySelectorAll('[data-hora-campo]').forEach((btn) => {
+    const hidden = btn.parentElement.querySelector('input[data-hora]');
+    const grupo = btn.closest('.jor-inputs, .jor-sheet-grid') || root;
+    grupos.add(grupo);
+    btn.addEventListener('click', async () => {
+      const todos = [...grupo.querySelectorAll('input[data-hora]')].filter((i) => !i.disabled);
+      const idx = todos.indexOf(hidden);
+      const previa = todos.slice(0, Math.max(0, idx)).map((i) => i.value).filter(Boolean).pop() || '';
+      const inicial = hidden.value || previa || '08:00';
+      const r = await abrirSelectorHora({ valor: inicial, titulo: btn.dataset.label, minimo: previa, opener: btn });
+      if (r === undefined) return;
+      hidden.value = r === null ? '' : r;
+      pintarCampoHora(hidden);
+      hidden.dispatchEvent(new Event('input', { bubbles: true }));
+      avisoOrdenHoras(grupo);
+    });
+  });
+  grupos.forEach(avisoOrdenHoras);
+}
+
 async function renderNominas(view) {
   // Antes hardcodeado a isAdmin()||residente (mismo bug que renderTrabajadores
   // tenía antes de prompts-cotizador-sidebar-permisos-estimaciones.md) — cabo
@@ -23423,7 +23622,7 @@ async function renderNominas(view) {
         sin_comida: !!existente?.sin_comida,
       };
       const dis = soloLectura || enFalta ? ' disabled' : '';
-      const campo = (id, label, k) => `<div class="field"><label for="${id}">${label}</label><input type="time" id="${id}" data-k="${k}" value="${orig[k]}"${dis} /></div>`;
+      const campo = (id, label, k) => campoHoraHtml({ id, k, label, valor: orig[k], deshabilitado: !!dis });
       openModal(`
         <h3>Jornada — ${esc(t.nombre)}</h3>
         <p class="muted fs-08">${esc(fecha)} · ${tipo === 'corrida' ? 'Jornada corrida' : 'Con comida'} · ${horasJ} h de jornada</p>
@@ -23434,7 +23633,7 @@ async function renderNominas(view) {
           ${tipo === 'con_comida' ? campo('jrRegComida', 'Regresó de comer', 'hora_regreso_comida') : ''}
           ${campo('jrSalida', 'Salida', 'hora_salida')}
         </div>
-        ${tipo === 'con_comida' ? `<label class="jor-check"><input type="checkbox" id="jrSinComida" ${orig.sin_comida ? 'checked' : ''}${dis} /> No salió a comer</label>` : ''}
+        ${tipo === 'con_comida' ? `<label class="jor-check"><input type="checkbox" class="jor-check-input" id="jrSinComida" ${orig.sin_comida ? 'checked' : ''}${dis} /><span>No salió a comer</span></label>` : ''}
         <div class="jor-calc" id="jrCalc" aria-live="polite"></div>
         ${existente && !soloLectura && !enFalta ? '<div class="field"><label for="jrMotivo">Motivo del cambio <span class="muted fs-08">(obligatorio si corriges un valor ya guardado)</span></label><input type="text" id="jrMotivo" maxlength="300" /></div>' : ''}
         ${existente?.editado ? `<p class="muted fs-08">Editado por ${esc(existente.actualizado_por_nombre || '—')} · ${esc(String(existente.actualizado_en || '').slice(0, 16))}</p>` : ''}
@@ -23453,7 +23652,7 @@ async function renderNominas(view) {
       const actualizar = () => {
         const v = leer();
         const sinComidaEf = tipo === 'corrida' || v.sin_comida;
-        ['jrSalComida', 'jrRegComida'].forEach((id) => { const el = $(`#${id}`); if (el) el.disabled = v.sin_comida || soloLectura || enFalta; });
+        ['jrSalComida', 'jrRegComida'].forEach((id) => setCampoHoraDisabled($(`#${id}`), v.sin_comida || soloLectura || enFalta));
         const c = calcJornadaLocal(v, tipo, horasJ);
         $('#jrCalc').textContent = c ? `Trabajadas: ${fmtMinJ(c.trabajadas_min)} · Extra: ${fmtMinJ(c.extra_min)}` : 'Captura las horas requeridas para ver horas trabajadas y extra.';
         const btn = $('#btnJrGuardar');
@@ -23464,6 +23663,7 @@ async function renderNominas(view) {
         btn.disabled = !(cambios && motivoOk && v.hora_entrada);
       };
       $$('#modal input').forEach((el) => el.addEventListener('input', actualizar));
+      bindCamposHora($('#modal'));
       actualizar();
       $('#btnJrGuardar')?.addEventListener('click', async () => {
         const btn = $('#btnJrGuardar');
@@ -23501,7 +23701,7 @@ async function renderNominas(view) {
       const noPresentes = data.trabajadores.length - presentes.length;
       const completos = presentes.filter((t) => t.jornada?.completo).length;
       const sinReg = presentes.filter((t) => !t.jornada);
-      const inp = (k, label, val = '') => `<label class="jor-in"><span>${label}</span><input type="time" data-k="${k}" value="${val}" /></label>`;
+      const inp = (k, label, val = '') => campoHoraHtml({ k, label, valor: val });
 
       panel.innerHTML = `
         <button class="btn small" id="btnJorVolver">‹ Volver al calendario</button>
@@ -23536,8 +23736,10 @@ async function renderNominas(view) {
                 <div class="jor-inputs" data-jor-inputs="${t.id}">
                   ${inp('hora_entrada', 'Entrada')}${corrida ? '' : inp('hora_salida_comida', 'Salió a comer') + inp('hora_regreso_comida', 'Regresó')}${inp('hora_salida', 'Salida')}
                 </div>
-                ${corrida ? '' : `<label class="jor-check"><input type="checkbox" data-k="sin_comida" data-jor-sc="${t.id}" /> No salió a comer</label>`}
-                <div class="jor-row-actions"><button class="btn small btn-primary" data-jor-save="${t.id}">Guardar</button></div>`
+                <div class="jor-row-foot">
+                  ${corrida ? '' : `<label class="jor-check"><input type="checkbox" class="jor-check-input" data-k="sin_comida" data-jor-sc="${t.id}" /><span>No salió a comer</span></label>`}
+                  <button class="btn small btn-primary" data-jor-save="${t.id}">Guardar</button>
+                </div>`
               : '<div class="muted fs-08">Sin registro</div>'}
             </div>`;
           }).join('') : '<div class="empty-state">No hay trabajadores presentes ese día. Márcalos presentes en el calendario.</div>'}
@@ -23545,6 +23747,12 @@ async function renderNominas(view) {
         ${noPresentes ? `<p class="muted fs-08 mt-6">${noPresentes} trabajador${noPresentes === 1 ? '' : 'es'} sin asistencia "presente" ese día no aparece${noPresentes === 1 ? '' : 'n'} aquí.</p>` : ''}
       `;
       const recargar = () => renderJornadaDia(panel);
+      bindCamposHora(panel);
+      $$('[data-jor-sc]', panel).forEach((cb) => cb.addEventListener('change', () => {
+        const row = cb.closest('.jor-row');
+        ['hora_salida_comida', 'hora_regreso_comida'].forEach((k) => setCampoHoraDisabled($(`input[data-hora][data-k="${k}"]`, row), cb.checked));
+        avisoOrdenHoras($('.jor-inputs', row));
+      }));
       $('#btnJorVolver').addEventListener('click', () => { asist.vistaJornada = false; refrescar(); });
       $('#jorFecha')?.addEventListener('change', (e) => { if (e.target.value) { asist.jFecha = e.target.value; recargar(); } });
       $$('[data-jor-edit]', panel).forEach((b) => b.addEventListener('click', () => {
@@ -23555,7 +23763,7 @@ async function renderNominas(view) {
         const tid = Number(b.dataset.jorSave);
         const row = b.closest('.jor-row');
         const body = { sin_comida: !!$('[data-k="sin_comida"]', row)?.checked };
-        $$('input[type="time"]', row).forEach((el) => { body[el.dataset.k] = el.value || ''; });
+        $$('input[data-hora]', row).forEach((el) => { body[el.dataset.k] = el.value || ''; });
         b.disabled = true;
         try {
           const r = await api(`/projects/${state.projectId}/asistencia-jornada/${tid}/${fecha}`, { method: 'PUT', body });
@@ -23565,7 +23773,7 @@ async function renderNominas(view) {
       }));
       $('#btnJorLote')?.addEventListener('click', () => {
         const body = { fecha, trabajadorIds: sinReg.map((t) => t.id) };
-        $$('#jorLote input[type="time"]', panel).forEach((el) => { body[el.dataset.k] = el.value || ''; });
+        $$('#jorLote input[data-hora]', panel).forEach((el) => { body[el.dataset.k] = el.value || ''; });
         if (!body.hora_entrada || !body.hora_salida) { toast('Captura al menos entrada y salida', 'warning'); return; }
         openModal(`
           <h3>Aplicar horario</h3>

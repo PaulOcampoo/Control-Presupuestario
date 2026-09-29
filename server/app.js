@@ -13403,7 +13403,7 @@ async function trabajadorActivoDeObra(trabajadorId, projectId) {
 // advisory lock + regla de una sola obra por día).
 async function guardarJornadaTx(client, req, { trab, fecha, valores, sinComida, motivo, aprobada, soloNuevo }) {
   const conflicto = await buscarConflictoAsistenciaSimultanea(client, { trabajadorId: trab.id, projectId: req.project.id, fecha });
-  if (conflicto) throw errJornada(409, `${conflicto.trabajador_nombre} ya está marcado presente ese día en "${conflicto.obra_nombre}" — no puede quedar presente en dos obras el mismo día`);
+  if (conflicto) throw errJornada(409, `${conflicto.trabajador_nombre} ya está marcado presente hoy en "${conflicto.obra_nombre}" — no puede quedar presente en dos obras el mismo día`);
 
   const { rows: asRows } = await client.query(
     `SELECT estado FROM asistencia_diaria WHERE project_id=$1 AND trabajador_id=$2 AND fecha=$3 FOR UPDATE`,

@@ -3455,9 +3455,9 @@ html[data-palette="dorada"]:not([data-theme="light"]) .welcome-card {
    además de color: círculo lleno = completa, aro = incompleta, rombo = extra. */
 .asist-cell { position: relative; }
 .jor-dot { position: absolute; right: 4px; bottom: 4px; width: 9px; height: 9px; box-sizing: border-box; pointer-events: none; }
-.jor-dot-completo { border-radius: 50%; background: var(--accent-gold); box-shadow: 0 0 0 1px var(--bg-surface); }
-.jor-dot-incompleto { border-radius: 50%; background: transparent; border: 2px solid var(--yellow); box-shadow: 0 0 0 1px var(--bg-surface); }
-.jor-dot-extra { background: var(--accent-gold); transform: rotate(45deg); box-shadow: 0 0 0 1px var(--bg-surface); }
+.jor-dot-completo { border-radius: 50%; background: var(--accent-gold); box-shadow: 0 0 0 1.5px var(--text-primary); }
+.jor-dot-incompleto { border-radius: 50%; background: var(--bg-surface); border: 2px solid var(--yellow); box-shadow: 0 0 0 1.5px var(--text-primary); }
+.jor-dot-extra { background: var(--accent-gold); transform: rotate(45deg); box-shadow: 0 0 0 1.5px var(--text-primary); }
 .jor-dot-leyenda { position: static; display: inline-block; }
 .jor-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-12); flex-wrap: wrap; }
 .jor-title { margin: var(--space-0); font-size: var(--fs-md); }
@@ -3466,7 +3466,7 @@ html[data-palette="dorada"]:not([data-theme="light"]) .welcome-card {
   margin: var(--space-10) var(--space-0); padding: var(--space-10) var(--space-12);
   background: var(--bg-surface-2); border-radius: var(--radius); font-size: var(--fs-sm);
 }
-.jor-contador strong { color: var(--accent-gold); }
+.jor-contador strong { color: var(--text-primary); }
 .jor-lote, .jor-row {
   background: var(--bg-surface); border: 1px solid var(--border-color); border-radius: var(--radius);
   padding: var(--space-12); margin-bottom: var(--space-10);
@@ -3483,10 +3483,11 @@ html[data-palette="dorada"]:not([data-theme="light"]) .welcome-card {
   font-size: var(--fs-xs); font-weight: 700; padding: var(--space-2) var(--space-8);
   border-radius: 999px; border: 1px solid var(--border-color); white-space: nowrap;
 }
-.jor-chip-completo { color: var(--accent-gold); border-color: var(--accent-gold); }
-.jor-chip-incompleto { color: var(--yellow); border-color: var(--yellow); }
-.jor-chip-extra { color: var(--accent-gold); border-color: var(--accent-gold); background: color-mix(in srgb, var(--accent-gold) 14%, transparent); }
-.jor-chip-sin { color: var(--text-secondary); }
+.jor-chip { color: var(--text-primary); }
+.jor-chip-completo { border-color: var(--accent-gold); }
+.jor-chip-incompleto { border-color: var(--yellow); border-style: dashed; }
+.jor-chip-extra { border-color: var(--accent-gold); background: color-mix(in srgb, var(--accent-gold) 22%, transparent); }
+.jor-chip-sin { color: var(--text-secondary); border-style: dotted; }
 .jor-sheet-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--space-8); }
 .jor-calc { margin: var(--space-10) var(--space-0); font-size: var(--fs-sm); font-weight: 600; }
 .jor-log { margin-top: var(--space-8); }

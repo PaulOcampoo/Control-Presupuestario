@@ -190,3 +190,75 @@ describe('Lectura, PATCH y export', () => {
     expect(filas.length).toBeGreaterThan(1);
   });
 });
+
+describe('Conflicto de obra simultánea (buscarConflictoAsistenciaSimultanea)', () => {
+  let wConf;
+  beforeAll(async () => {
+    wConf = await mkTrab(obra1, 'QA Jornada Conflicto');
+    // Mismo trabajador asignado también a obra2 y ya "presente" hoy allá.
+    await db.pool.query('INSERT INTO trabajador_obras (trabajador_id, project_id, activo) VALUES ($1,$2,true)', [wConf, obra2]);
+    await marcar(obra2, wConf, hoy, 'presente');
+  });
+  it('PUT jornada devuelve el MISMO 409 que PUT /asistencia', async () => {
+    const asis = await request(app).put(`/api/projects/${obra1}/asistencia`).set(A(adminToken))
+      .send({ fecha: hoy, asistencia: [{ trabajador_id: wConf, estado: 'presente' }] });
+    const jor = await put(adminToken, obra1, wConf, hoy, full);
+    console.log('CONFLICTO asistencia:', asis.status, JSON.stringify(asis.body));
+    console.log('CONFLICTO jornada   :', jor.status, JSON.stringify(jor.body));
+    expect(asis.status).toBe(409);
+    expect(jor.status).toBe(409);
+    expect(jor.body.error).toBe(asis.body.error);
+    const { rows } = await db.pool.query('SELECT 1 FROM asistencia_jornada WHERE trabajador_id=$1', [wConf]);
+    expect(rows).toHaveLength(0);
+  });
+  it('lote omite al trabajador en conflicto y lo reporta', async () => {
+    const r = await request(app).post(`/api/projects/${obra1}/asistencia-jornada/lote`).set(A(resToken))
+      .send({ trabajadorIds: [wConf], ...full });
+    console.log('CONFLICTO lote:', r.status, JSON.stringify(r.body));
+    expect(r.status).toBe(200);
+    expect(r.body.aplicados).toBe(0);
+    expect(r.body.omitidos[0].motivo).toMatch(/dos obras el mismo día/);
+  });
+});
+
+describe('Nómina APROBADA', () => {
+  let wA, wB, nomId;
+  beforeAll(async () => {
+    wA = await mkTrab(obra1, 'QA Jornada Aprobada A');
+    wB = await mkTrab(obra1, 'QA Jornada Aprobada B');
+    await marcar(obra1, wA, hoy, 'presente');
+    expect((await put(resToken, obra1, wA, hoy, full)).status).toBe(200); // captura previa a la aprobación
+    const n = await request(app).post(`/api/projects/${obra1}/nominas`).set(A(adminToken)).send({ fecha_inicio: hoy, fecha_fin: hoy });
+    expect(n.status).toBe(201);
+    nomId = n.body.id;
+    for (const estado of ['revision', 'aprobada']) {
+      const r = await request(app).put(`/api/projects/${obra1}/nominas/${nomId}/estado`).set(A(adminToken)).send({ estado });
+      expect(r.status).toBe(200);
+    }
+    const { rows } = await db.pool.query('SELECT estado FROM nominas WHERE id=$1', [nomId]);
+    expect(rows[0].estado).toBe('aprobada');
+  });
+  it('(a) residente -> 403', async () => {
+    const r = await put(resToken, obra1, wA, hoy, { ...full, hora_salida: '19:30', motivo: 'Intento en periodo aprobado' });
+    console.log('APROBADA (a) residente:', r.status, JSON.stringify(r.body));
+    expect(r.status).toBe(403);
+  });
+  it('(b) admin edita horas de un día ya presente -> 200 + log', async () => {
+    const r = await put(adminToken, obra1, wA, hoy, { ...full, hora_salida: '19:30', motivo: 'Corrección admin en periodo aprobado' });
+    console.log('APROBADA (b) admin:', r.status, JSON.stringify({ cambios: r.body.cambios, salida: r.body.jornada?.hora_salida }));
+    expect(r.status).toBe(200);
+    const { rows } = await db.pool.query(
+      `SELECT l.campo, l.valor_anterior, l.valor_nuevo, l.motivo, u.usuario FROM asistencia_jornada_log l
+       JOIN asistencia_jornada j ON j.id=l.jornada_id LEFT JOIN usuarios u ON u.id=l.usuario_id WHERE j.trabajador_id=$1`, [wA]);
+    console.log('APROBADA (b) log:', JSON.stringify(rows));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ campo: 'hora_salida', valor_anterior: '18:00', valor_nuevo: '19:30' });
+  });
+  it('(c) admin con cambio de estado sin_registro -> presente -> 409', async () => {
+    const r = await put(adminToken, obra1, wB, hoy, full);
+    console.log('APROBADA (c) admin sin_registro->presente:', r.status, JSON.stringify(r.body));
+    expect(r.status).toBe(409);
+    const { rows } = await db.pool.query('SELECT 1 FROM asistencia_diaria WHERE trabajador_id=$1', [wB]);
+    expect(rows).toHaveLength(0);
+  });
+});

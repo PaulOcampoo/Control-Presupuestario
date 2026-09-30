@@ -5174,18 +5174,3 @@ button.rs-ai:hover { border-color: var(--border-color); }
 .modal, .modal-panel .panel-body, .cmdk-list, .sheet2-panel { overscroll-behavior: contain; }
 /* Sin tap highlight gris de WebKit sobre los controles nuevos */
 .chip, .rq-row, .panel-tab, .sheet2-cell, .cmdk-item { -webkit-tap-highlight-color: transparent; }
-
-/* ==========================================================================
-   Barra inferior móvil con el shell v2: anclada al borde inferior, ancho completo, sin isla flotante ni
-   hueco debajo. El safe-area del home indicator se absorbe como padding DENTRO de la barra (su fondo llega
-   hasta el borde real de la pantalla). --mobile-nav-h incluye el safe-area y --mobile-nav-clear es 0, así
-   que todo lo que se posiciona sobre la barra (FAB, toast, hojas, Nyra) sigue calculando bien.
-   ========================================================================== */
-@media (max-width: 860px) {
-  html.ui-v2 { --mobile-nav-clear: 0px; --mobile-nav-h: calc(56px + var(--safe-bottom)); }
-  .ui-v2 .mobile-nav {
-    left: 0; right: 0; bottom: 0; border-radius: 0; border: none; border-top: 1px solid var(--line);
-    box-shadow: none; background: color-mix(in srgb, var(--bg-sidebar) 94%, transparent);
-    padding: 0 var(--space-6) var(--safe-bottom);
-  }
-}

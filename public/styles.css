@@ -5126,3 +5126,35 @@ button.rs-ai:hover { border-color: var(--border-color); }
 .rs-curve .chart-wrap { height: 260px; }
 .kpi[data-goto] { cursor: pointer; }
 .kpi[data-goto]:hover { border-color: var(--accent-line); }
+
+/* ==========================================================================
+   Rediseño UI v2 — Fase 6: Requisiciones y Órdenes de Compra (lista + panel).
+   Tabla en escritorio (>=861px), tarjetas en celular. Sin sticky nuevo.
+   ========================================================================== */
+.chip-row-v2 { flex-wrap: wrap; overflow: visible; gap: var(--space-8); margin: var(--space-10) 0; }
+.chip-row-v2.hidden-initial { display: none; }
+.chip-n { opacity: 0.7; font-variant-numeric: tabular-nums; margin-left: var(--space-4); }
+.rq-table th { white-space: nowrap; }
+.rq-table td { vertical-align: middle; }
+.rq-row { cursor: pointer; }
+.rq-concept { max-width: 260px; color: var(--text-secondary); }
+.rq-folio-btn { background: none; border: none; padding: 0; font: inherit; font-weight: 700; color: var(--accent-gold); cursor: pointer; text-align: left; }
+.rq-folio-btn:hover { text-decoration: underline; }
+.rq-table-wrap { padding: 0; overflow: hidden; }
+.rq-cards { display: none; }
+@media (max-width: 860px) {
+  .rq-table-wrap { display: none; }
+  .rq-cards { display: block; }
+}
+.rq-cards .card { cursor: default; }
+
+/* Panel de detalle: pestañas internas (OC) y cabecera */
+.modal-panel .panel-head h3 { margin: 0 0 var(--space-4); }
+.modal-panel .panel-head .badge { margin-left: var(--space-6); }
+.panel-tabs { flex: none; display: flex; gap: var(--space-4); padding: var(--space-8) var(--space-20) 0; border-bottom: 1px solid var(--line); overflow-x: auto; }
+.panel-tab { background: none; border: none; border-bottom: 2px solid transparent; color: var(--text-secondary); font: inherit; font-weight: 600; padding: var(--space-8) var(--space-12); min-height: 40px; cursor: pointer; white-space: nowrap; }
+.panel-tab:hover { color: var(--text-primary); }
+.panel-tab.active { color: var(--text-primary); border-bottom-color: var(--accent-gold); }
+.oc-pane.hidden-initial { display: none; }
+.modal-panel .panel-body .card:first-child { margin-top: 0; }
+.rq-row:focus-visible { outline: 2px solid var(--accent-gold); outline-offset: -2px; }

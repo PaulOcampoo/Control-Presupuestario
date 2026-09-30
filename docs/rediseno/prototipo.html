@@ -1,0 +1,778 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#faf9f5;color:#141413}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>Rediseño Control Presupuestal</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap">
+<style>
+/* Concepto: shell de "cabina de mando". Una sola barra lateral con 8 secciones,
+   subnavegación contextual arriba, y paneles laterales en lugar de modales.
+   Dark-first (carbón cálido de Roforb). El acento se calcula desde un matiz,
+   así las 4 paletas existentes (Roforb, Nyra, Jade, Terra) cambian con una variable. */
+:root{
+  color-scheme:dark;
+  --bg:#0e0d0c; --side:#121110; --surf:#191817; --surf2:#211f1d; --surf3:#2b2926;
+  --line:rgba(255,244,225,.08); --line2:rgba(255,244,225,.15);
+  --fg:#efebe4; --fg2:#a39e94; --fg3:#75716a;
+  --ok:#3cc08a; --warn:#e8b23c; --bad:#ee6262; --info:#6aa3f2;
+  --al:.79; --ac:.13; --ah:85;
+  --shadow:0 18px 50px rgba(0,0,0,.45);
+  --font-h:'Manrope',-apple-system,'Segoe UI',sans-serif;
+  --font-b:'Inter',-apple-system,'Segoe UI',sans-serif;
+}
+@media (prefers-color-scheme:light){:root:not([data-theme="dark"]){
+  color-scheme:light;
+  --bg:#f3efe6; --side:#ece7db; --surf:#fbf9f4; --surf2:#f2eee3; --surf3:#e6dfcf;
+  --line:rgba(40,30,10,.09); --line2:rgba(40,30,10,.17);
+  --fg:#1d1a15; --fg2:#5f5a50; --fg3:#8b8579;
+  --ok:#17875b; --warn:#a97400; --bad:#c9383a; --info:#2a6fd1;
+  --al:.56; --ac:.12; --shadow:0 18px 40px rgba(60,40,10,.14);
+}}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --bg:#0e0d0c; --side:#121110; --surf:#191817; --surf2:#211f1d; --surf3:#2b2926;
+  --line:rgba(255,244,225,.08); --line2:rgba(255,244,225,.15);
+  --fg:#efebe4; --fg2:#a39e94; --fg3:#75716a;
+  --ok:#3cc08a; --warn:#e8b23c; --bad:#ee6262; --info:#6aa3f2;
+  --al:.79; --ac:.13; --shadow:0 18px 50px rgba(0,0,0,.45);
+}
+:root[data-theme="light"]{
+  color-scheme:light;
+  --bg:#f3efe6; --side:#ece7db; --surf:#fbf9f4; --surf2:#f2eee3; --surf3:#e6dfcf;
+  --line:rgba(40,30,10,.09); --line2:rgba(40,30,10,.17);
+  --fg:#1d1a15; --fg2:#5f5a50; --fg3:#8b8579;
+  --ok:#17875b; --warn:#a97400; --bad:#c9383a; --info:#2a6fd1;
+  --al:.56; --ac:.12; --shadow:0 18px 40px rgba(60,40,10,.14);
+}
+body{
+  --accent:oklch(var(--al) var(--ac) var(--ah));
+  --accent-soft:color-mix(in oklab,var(--accent) 15%,transparent);
+  --accent-line:color-mix(in oklab,var(--accent) 45%,transparent);
+  --on-accent:oklch(.2 .03 var(--ah));
+  background:var(--bg);color:var(--fg);font-family:var(--font-b);font-size:14px;line-height:1.5;
+  padding-inline:16px;padding-block:28px 64px;margin:0;
+}
+body.pal-nyra{--ah:305}body.pal-jade{--ah:165}body.pal-terra{--ah:48}
+*{box-sizing:border-box}
+button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer;text-align:inherit}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:6px}
+.i{flex:none;display:block}
+.num{font-variant-numeric:tabular-nums}
+
+/* ---------- Página de presentación ---------- */
+.wrap{max-width:1240px;margin:0 auto;display:flex;flex-direction:column;gap:44px}
+.pg-head{display:flex;flex-wrap:wrap;gap:24px 40px;justify-content:space-between;align-items:flex-end}
+.pg-head>div:first-child{min-width:0;flex:1 1 420px}
+.eyebrow{font-size:11.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);font-weight:600}
+.pg-head h1{font-family:var(--font-h);font-weight:800;font-size:clamp(28px,4.2vw,46px);line-height:1.05;letter-spacing:-.025em;margin:10px 0 12px;text-wrap:balance}
+.pg-head p{margin:0;color:var(--fg2);max-width:62ch}
+.ctrls{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+.seg{display:inline-flex;padding:3px;border-radius:12px;background:var(--surf);border:1px solid var(--line)}
+.seg button{padding:7px 14px;border-radius:9px;font-weight:600;font-size:13px;color:var(--fg2);display:inline-flex;gap:7px;align-items:center}
+.seg button[aria-pressed="true"]{background:var(--surf3);color:var(--fg)}
+.dots{display:inline-flex;gap:8px;padding:8px 10px;border-radius:12px;background:var(--surf);border:1px solid var(--line)}
+.dot{width:18px;height:18px;border-radius:50%;border:2px solid transparent;background:var(--c)}
+.dot[aria-pressed="true"]{border-color:var(--fg);box-shadow:0 0 0 2px var(--bg) inset}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip{padding:7px 13px;border-radius:999px;border:1px solid var(--line2);font-size:13px;font-weight:500;color:var(--fg2)}
+.chip[aria-pressed="true"]{background:var(--accent-soft);border-color:var(--accent-line);color:var(--fg)}
+.stage-wrap{display:flex;flex-direction:column;gap:14px}
+.stage{position:relative;width:100%}
+.scaler{position:absolute;top:0;left:0;transform-origin:0 0}
+.hint{font-size:12.5px;color:var(--fg3)}
+
+.sec-title{font-family:var(--font-h);font-weight:800;font-size:clamp(22px,2.6vw,30px);letter-spacing:-.02em;margin:0 0 6px;text-wrap:balance}
+.sec-sub{margin:0 0 22px;color:var(--fg2);max-width:70ch}
+.cmp{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:14px}
+.cmp article{background:var(--surf);border:1px solid var(--line);border-radius:16px;padding:20px;display:flex;flex-direction:column;gap:12px;min-width:0}
+.cmp h3{font-family:var(--font-h);font-size:16px;margin:0;letter-spacing:-.01em}
+.ba{display:grid;gap:8px;font-size:13px}
+.ba div{display:grid;grid-template-columns:64px 1fr;gap:10px}
+.ba b{font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;padding-top:2px;color:var(--fg3)}
+.ba .af b{color:var(--accent)}
+.ba .bf span{color:var(--fg2)}
+.tok{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
+.tok div{border-radius:12px;padding:12px;border:1px solid var(--line);background:var(--surf);font-size:12px;color:var(--fg2)}
+.tok i{display:block;height:34px;border-radius:8px;margin-bottom:8px;border:1px solid var(--line)}
+.spec{display:flex;flex-wrap:wrap;gap:12px;align-items:center;padding:20px;border-radius:16px;background:var(--surf);border:1px solid var(--line)}
+.plan{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px;counter-reset:s}
+.plan li{list-style:none;background:var(--surf);border:1px solid var(--line);border-radius:14px;padding:16px;font-size:13.5px;color:var(--fg2)}
+.plan b{display:block;color:var(--fg);font-family:var(--font-h);margin-bottom:4px}
+.plan ul{padding:0;margin:0;display:contents}
+.keep{background:var(--accent-soft);border:1px solid var(--accent-line);border-radius:14px;padding:16px 18px;color:var(--fg)}
+
+/* ---------- Componentes del rediseño (comparten escritorio y celular) ---------- */
+.dapp,.mapp{background:var(--bg);color:var(--fg);font-size:13.5px;position:relative;overflow:hidden}
+.dapp{width:1280px;height:800px;border-radius:20px;border:1px solid var(--line2);box-shadow:var(--shadow);display:grid;grid-template-columns:248px 1fr}
+h1,h2,h3,h4{font-family:var(--font-h);letter-spacing:-.015em}
+.btn{display:inline-flex;align-items:center;gap:8px;height:36px;padding:0 14px;border-radius:10px;font-weight:600;font-size:13px;border:1px solid var(--line2);background:var(--surf2);white-space:nowrap}
+.btn:hover{background:var(--surf3)}
+.btn.pri{background:var(--accent);color:var(--on-accent);border-color:transparent}
+.btn.pri:hover{filter:brightness(1.08)}
+.btn.ghost{background:transparent}
+.btn.ico{width:36px;padding:0;justify-content:center}
+.pill{display:inline-flex;align-items:center;gap:6px;height:22px;padding:0 9px;border-radius:999px;font-size:11.5px;font-weight:600;white-space:nowrap;background:var(--surf3);color:var(--fg2)}
+.pill::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor}
+.pill.ok{color:var(--ok);background:color-mix(in oklab,var(--ok) 14%,transparent)}
+.pill.warn{color:var(--warn);background:color-mix(in oklab,var(--warn) 15%,transparent)}
+.pill.bad{color:var(--bad);background:color-mix(in oklab,var(--bad) 15%,transparent)}
+.pill.info{color:var(--info);background:color-mix(in oklab,var(--info) 15%,transparent)}
+.pill.acc{color:var(--accent);background:var(--accent-soft)}
+.pill.nd::before{display:none}
+.card{background:var(--surf);border:1px solid var(--line);border-radius:16px;min-width:0}
+.lbl{font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:var(--fg3);font-weight:600}
+.mono{width:38px;height:38px;border-radius:11px;display:grid;place-items:center;font-family:var(--font-h);font-weight:800;font-size:13px;background:var(--accent-soft);color:var(--accent);border:1px solid var(--accent-line);flex:none}
+.bar{position:relative;height:8px;border-radius:99px;background:var(--surf3)}
+.bar .z{position:absolute;inset:0 auto 0 0;border-radius:99px;background:color-mix(in oklab,var(--accent) 35%,var(--surf3))}
+.bar .f{position:absolute;inset:0 auto 0 0;border-radius:99px;background:var(--ok)}
+.bar .m{position:absolute;top:-4px;bottom:-4px;width:2px;background:var(--accent);border-radius:2px}
+.dot6{width:8px;height:8px;border-radius:50%;display:inline-block;flex:none}
+
+/* Escritorio: barra lateral */
+.dside{background:var(--side);border-right:1px solid var(--line);display:flex;flex-direction:column;padding:16px 12px;gap:14px;min-height:0}
+.brand{display:flex;align-items:center;gap:10px;padding:2px 6px}
+.brand .lg{width:32px;height:32px;border-radius:9px;background:linear-gradient(140deg,var(--accent),color-mix(in oklab,var(--accent) 50%,#000));display:grid;place-items:center;color:var(--on-accent);font-family:var(--font-h);font-weight:800}
+.brand b{font-family:var(--font-h);font-size:14.5px;letter-spacing:-.01em;display:block;line-height:1.1}
+.brand small{color:var(--fg3);font-size:11px}
+.proj{display:flex;align-items:center;gap:10px;padding:10px;border-radius:12px;background:var(--surf);border:1px solid var(--line);width:100%}
+.proj:hover{border-color:var(--line2)}
+.proj .t{min-width:0;flex:1}
+.proj b{display:block;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.proj small{color:var(--fg3);font-size:11.5px}
+.nav{display:flex;flex-direction:column;gap:2px;overflow-y:auto;min-height:0;flex:1}
+.nav .grp{margin:12px 8px 4px}
+.ni{display:flex;align-items:center;gap:11px;height:38px;padding:0 10px;border-radius:10px;color:var(--fg2);font-weight:500;position:relative}
+.ni:hover{background:var(--surf);color:var(--fg)}
+.ni[aria-current="page"]{background:var(--surf2);color:var(--fg);font-weight:600}
+.ni[aria-current="page"]::before{content:"";position:absolute;left:-12px;top:9px;bottom:9px;width:3px;border-radius:0 3px 3px 0;background:var(--accent)}
+.ni[aria-current="page"] .i{color:var(--accent)}
+.ni .cnt{margin-left:auto;font-size:11px;font-weight:700;min-width:20px;height:20px;border-radius:99px;display:grid;place-items:center;padding:0 6px;background:var(--surf3);color:var(--fg2)}
+.ni .cnt.al{background:color-mix(in oklab,var(--bad) 18%,transparent);color:var(--bad)}
+.me{display:flex;align-items:center;gap:10px;padding:10px;border-radius:12px;border:1px solid var(--line);background:var(--surf);width:100%}
+.av{width:32px;height:32px;border-radius:50%;background:var(--surf3);display:grid;place-items:center;font-weight:700;font-size:12px;flex:none;border:1px solid var(--line2)}
+.me b{display:block;font-size:12.5px;line-height:1.2}.me small{color:var(--fg3);font-size:11.5px}
+
+/* Escritorio: barra superior y contenido */
+.dmain{display:flex;flex-direction:column;min-width:0;min-height:0;height:800px}
+.dtop{height:60px;flex:none;display:flex;align-items:center;gap:14px;padding:0 24px;border-bottom:1px solid var(--line);background:color-mix(in oklab,var(--bg) 88%,transparent)}
+.crumb{display:flex;align-items:center;gap:6px;color:var(--fg3);font-size:13px;min-width:0;white-space:nowrap}
+.crumb button:hover{color:var(--fg)}
+.crumb b{color:var(--fg);font-weight:600}
+.search{margin-left:auto;display:flex;align-items:center;gap:10px;height:36px;width:300px;padding:0 12px;border-radius:10px;background:var(--surf);border:1px solid var(--line);color:var(--fg3);font-size:13px}
+.search:hover{border-color:var(--line2)}
+.kbd{margin-left:auto;font-size:11px;border:1px solid var(--line2);border-radius:6px;padding:1px 6px;color:var(--fg3)}
+.bellb{position:relative}
+.bellb i{position:absolute;top:6px;right:7px;width:8px;height:8px;border-radius:50%;background:var(--bad);border:2px solid var(--bg)}
+.dbody{flex:1;overflow-y:auto;padding:26px 28px 40px;min-height:0;display:flex;flex-direction:column;gap:20px}
+.dbody::-webkit-scrollbar{width:8px}.dbody::-webkit-scrollbar-thumb{background:var(--surf3);border-radius:8px}
+.ph{display:flex;align-items:flex-end;gap:16px;justify-content:space-between}
+.ph h1{margin:0;font-size:26px;font-weight:800;line-height:1.15}
+.ph p{margin:4px 0 0;color:var(--fg2)}
+.ph .act{display:flex;gap:8px}
+.subnav{display:flex;gap:2px;padding:4px;border-radius:12px;background:var(--surf);border:1px solid var(--line);width:max-content;max-width:100%;overflow-x:auto}
+.subnav button{height:32px;padding:0 12px;border-radius:9px;color:var(--fg2);font-weight:500;white-space:nowrap;display:inline-flex;gap:8px;align-items:center}
+.subnav button[aria-current="page"]{background:var(--surf3);color:var(--fg);font-weight:600}
+.subnav small{font-size:10.5px;background:color-mix(in oklab,var(--bad) 18%,transparent);color:var(--bad);border-radius:99px;padding:0 6px;font-weight:700}
+
+/* Clientes */
+.sumstrip{display:grid;grid-template-columns:1.5fr 1fr 1fr 1fr;gap:0;padding:22px 24px;background:linear-gradient(160deg,var(--surf2),var(--surf));border:1px solid var(--line2);border-radius:18px}
+.sumstrip>div{padding-left:24px;border-left:1px solid var(--line);display:flex;flex-direction:column;gap:6px;justify-content:center}
+.sumstrip>div:first-child{padding-left:0;border:0}
+.big{font-family:var(--font-h);font-weight:800;letter-spacing:-.03em;line-height:1}
+.stack{display:flex;height:10px;border-radius:99px;overflow:hidden;gap:2px;margin-top:6px}
+.stack span{display:block;height:100%}
+.legend{display:flex;gap:14px;color:var(--fg2);font-size:12px;margin-top:4px}
+.legend span{display:inline-flex;gap:6px;align-items:center}
+.cols{display:grid;grid-template-columns:1fr 300px;gap:22px;align-items:start}
+.tools{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.cgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.ccard{display:flex;flex-direction:column;gap:14px;padding:16px;border-radius:16px;background:var(--surf);border:1px solid var(--line);transition:transform .18s,border-color .18s}
+.ccard:hover{transform:translateY(-2px);border-color:var(--accent-line)}
+.ccard .hd{display:flex;gap:11px;align-items:center}
+.ccard .hd b{display:block;font-family:var(--font-h);font-size:14.5px}
+.ccard .hd small{color:var(--fg3);font-size:12px}
+.ccard .st{margin-left:auto;color:var(--fg3)}
+.ccard .st.on{color:var(--accent)}
+.ccard .pc{display:flex;align-items:baseline;justify-content:space-between}
+.ccard .pc .big{font-size:28px}
+.ccard .ft{display:flex;align-items:center;justify-content:space-between;color:var(--fg2);font-size:12px}
+.rail{display:flex;flex-direction:column;gap:14px}
+.rail .card{padding:16px}
+.rail h4{margin:0 0 10px;font-size:13px}
+.li{display:flex;gap:10px;align-items:flex-start;padding:9px 0;border-top:1px solid var(--line)}
+.li:first-of-type{border-top:0}
+.li b{display:block;font-size:13px;font-weight:600}.li small{color:var(--fg3);font-size:12px}
+.li .dot6{margin-top:6px}
+
+/* Resumen */
+.g2{display:grid;grid-template-columns:1fr 340px;gap:16px;align-items:stretch}
+.hero{padding:24px;display:flex;flex-direction:column;gap:18px}
+.hero .top{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+.hero .big{font-size:56px}
+.hero .big small{font-size:26px;color:var(--fg2);font-weight:700;margin-left:2px}
+.hero .sub{color:var(--fg2);margin-top:8px}
+.trackw{position:relative;padding-top:20px}
+.trackw .tag{position:absolute;top:0;transform:translateX(-50%);font-size:11px;font-weight:700;color:var(--accent);white-space:nowrap}
+.trackw .bar{height:12px}
+.figs{display:grid;grid-template-columns:repeat(4,1fr);gap:0;border-top:1px solid var(--line);padding-top:16px}
+.figs>div{padding-left:16px;border-left:1px solid var(--line)}
+.figs>div:first-child{padding:0;border:0}
+.figs b{display:block;font-family:var(--font-h);font-size:18px;margin-top:4px;letter-spacing:-.02em}
+.att{padding:18px;display:flex;flex-direction:column;gap:6px}
+.att h3{margin:0 0 6px;font-size:15px;display:flex;justify-content:space-between;align-items:center}
+.ai{display:flex;gap:12px;align-items:center;padding:11px;border-radius:12px;background:var(--surf2);border:1px solid transparent;width:100%}
+.ai:hover{border-color:var(--line2)}
+.ai .ic{width:34px;height:34px;border-radius:10px;display:grid;place-items:center;flex:none}
+.ai b{display:block;font-size:13px;line-height:1.25}.ai small{color:var(--fg3);font-size:12px}
+.ai .ic.bad{background:color-mix(in oklab,var(--bad) 16%,transparent);color:var(--bad)}
+.ai .ic.warn{background:color-mix(in oklab,var(--warn) 16%,transparent);color:var(--warn)}
+.ai .ic.info{background:color-mix(in oklab,var(--info) 16%,transparent);color:var(--info)}
+.ai>.i:last-child{margin-left:auto;color:var(--fg3)}
+.cardp{padding:20px}
+.cardp .hd{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;gap:8px}
+.cardp h3{margin:0;font-size:15px}
+.dl{display:grid;gap:0}
+.dl div{display:flex;justify-content:space-between;gap:12px;padding:10px 0;border-top:1px solid var(--line)}
+.dl div:first-child{border-top:0}
+.dl dt{color:var(--fg3)}.dl dd{margin:0;font-weight:600;text-align:right}
+.kp4{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
+.kp{padding:16px;display:flex;flex-direction:column;gap:6px}
+.kp .big{font-size:26px}
+.kp.link:hover{border-color:var(--accent-line)}
+
+/* Tiles de sección */
+.tiles{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.tile{padding:20px;border-radius:16px;background:var(--surf);border:1px solid var(--line);display:flex;flex-direction:column;gap:14px;min-height:150px;transition:transform .18s,border-color .18s}
+.tile:hover:not([disabled]){transform:translateY(-2px);border-color:var(--accent-line)}
+.tile .ic{width:40px;height:40px;border-radius:12px;background:var(--accent-soft);color:var(--accent);display:grid;place-items:center}
+.tile b{font-family:var(--font-h);font-size:15.5px;display:block}
+.tile p{margin:3px 0 0;color:var(--fg2);font-size:12.5px}
+.tile .ft{margin-top:auto;display:flex;justify-content:space-between;align-items:center}
+.tile[disabled]{opacity:.55;cursor:default}
+
+/* Tabla */
+.tbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.field{display:flex;align-items:center;gap:8px;height:36px;padding:0 12px;border-radius:10px;background:var(--surf);border:1px solid var(--line);color:var(--fg3);width:260px}
+.field input{all:unset;flex:1;color:var(--fg);min-width:0}
+.tbl{width:100%;border-collapse:separate;border-spacing:0}
+.tbl th{position:sticky;top:0;text-align:left;font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:var(--fg3);font-weight:600;padding:12px 16px;background:var(--surf);border-bottom:1px solid var(--line)}
+.tbl td{padding:0 16px;height:56px;border-bottom:1px solid var(--line);white-space:nowrap}
+.tbl tr.r{cursor:pointer}
+.tbl tr.r:hover td{background:var(--surf2)}
+.tbl tr:last-child td{border-bottom:0}
+.tbl .r2{text-align:right}
+.tbl td b{font-weight:600}.tbl td small{display:block;color:var(--fg3);font-size:12px}
+.tw{overflow:hidden}
+.scrim{position:absolute;inset:0;background:rgba(0,0,0,.45);z-index:20;backdrop-filter:blur(2px)}
+.panel{position:absolute;top:0;right:0;bottom:0;width:440px;background:var(--surf);border-left:1px solid var(--line2);z-index:21;display:flex;flex-direction:column;box-shadow:var(--shadow);animation:sl .22s cubic-bezier(.23,1,.32,1)}
+@keyframes sl{from{transform:translateX(30px);opacity:0}}
+.panel .ph2{padding:20px 22px;border-bottom:1px solid var(--line);display:flex;gap:12px;align-items:flex-start;justify-content:space-between}
+.panel .pb{padding:20px 22px;overflow-y:auto;flex:1;display:flex;flex-direction:column;gap:16px}
+.panel .pf{padding:16px 22px;border-top:1px solid var(--line);display:flex;gap:8px;justify-content:flex-end}
+.part{padding:14px;border-radius:12px;background:var(--surf2);display:flex;flex-direction:column;gap:8px}
+.part .row{display:flex;justify-content:space-between;gap:8px;align-items:center}
+.pop{position:absolute;z-index:30;background:var(--surf);border:1px solid var(--line2);border-radius:14px;box-shadow:var(--shadow);padding:8px;animation:pp .16s ease-out}
+@keyframes pp{from{transform:translateY(-4px);opacity:0}}
+.pop .mi{display:flex;gap:11px;align-items:center;padding:10px;border-radius:9px;width:100%;font-weight:500}
+.pop .mi:hover{background:var(--surf2)}
+.pop .mi .i{color:var(--accent)}
+.pop .mi small{display:block;color:var(--fg3);font-weight:400;font-size:12px}
+.cmd{position:absolute;z-index:30;left:50%;top:90px;transform:translateX(-50%);width:600px;background:var(--surf);border:1px solid var(--line2);border-radius:16px;box-shadow:var(--shadow);overflow:hidden;animation:pp .16s ease-out}
+.cmd .in{display:flex;gap:12px;align-items:center;padding:16px 18px;border-bottom:1px solid var(--line);font-size:15px;color:var(--fg3)}
+.cmd .grp{padding:10px 18px 4px}
+.cmd .mi{display:flex;gap:12px;align-items:center;padding:10px 18px;width:100%}
+.cmd .mi:hover,.cmd .mi.sel{background:var(--surf2)}
+.cmd .mi .i{color:var(--fg3)}
+.cmd .mi span:last-child{margin-left:auto;color:var(--fg3);font-size:12px}
+.toast{position:absolute;left:50%;bottom:22px;transform:translateX(-50%);z-index:40;background:var(--fg);color:var(--bg);padding:10px 16px;border-radius:12px;font-weight:600;font-size:13px;box-shadow:var(--shadow);animation:pp .2s}
+
+/* ---------- Celular ---------- */
+.phone{width:414px;height:836px;border-radius:52px;padding:12px;background:#000;border:1px solid var(--line2);box-shadow:var(--shadow)}
+.mapp{width:390px;height:812px;border-radius:40px;display:flex;flex-direction:column}
+.sb{height:46px;flex:none;display:flex;justify-content:space-between;align-items:flex-end;padding:0 30px 6px;font-weight:700;font-size:14px}
+.sb span:last-child{display:flex;gap:5px;align-items:center}
+.mhead{flex:none;display:flex;align-items:center;gap:10px;padding:8px 18px 10px}
+.mhead h1{margin:0;font-size:20px;font-weight:800;line-height:1.15}
+.mhead small{display:block;color:var(--fg3);font-size:12px}
+.mhead .sp{margin-left:auto;display:flex;gap:8px}
+.ib{width:40px;height:40px;border-radius:12px;background:var(--surf);border:1px solid var(--line);display:grid;place-items:center;position:relative}
+.ib.acc{background:var(--accent-soft);border-color:var(--accent-line);color:var(--accent)}
+.ib i.bd{position:absolute;top:8px;right:9px;width:8px;height:8px;border-radius:50%;background:var(--bad);border:2px solid var(--surf)}
+.mbody{flex:1;overflow-y:auto;padding:4px 18px 24px;display:flex;flex-direction:column;gap:16px;min-height:0;scrollbar-width:none}
+.mbody::-webkit-scrollbar{display:none}
+.tabbar{flex:none;height:88px;padding:8px 14px 26px;display:grid;grid-template-columns:1fr 1fr 76px 1fr 1fr;align-items:center;background:color-mix(in oklab,var(--side) 92%,transparent);border-top:1px solid var(--line);position:relative}
+.tabbar .t{display:flex;flex-direction:column;align-items:center;gap:3px;font-size:10.5px;font-weight:600;color:var(--fg3);height:52px;justify-content:center;position:relative}
+.tabbar .t[aria-current="page"]{color:var(--accent)}
+.tabbar .t i.bd{position:absolute;top:4px;left:calc(50% + 6px);width:8px;height:8px;border-radius:50%;background:var(--bad)}
+.fab{width:56px;height:56px;border-radius:19px;background:var(--accent);color:var(--on-accent);display:grid;place-items:center;margin:-26px auto 0;box-shadow:0 8px 24px color-mix(in oklab,var(--accent) 38%,transparent)}
+.mc{display:flex;flex-direction:column;gap:12px;padding:14px;border-radius:16px;background:var(--surf);border:1px solid var(--line);width:100%}
+.mc .hd{display:flex;gap:11px;align-items:center}
+.mc .hd b{display:block;font-family:var(--font-h);font-size:14.5px}
+.mc .hd small{color:var(--fg3);font-size:12px}
+.ring{position:relative;width:46px;height:46px;flex:none;margin-left:auto}
+.ring b{position:absolute;inset:0;display:grid;place-items:center;font-size:11px;font-family:var(--font-h)}
+.hs{display:flex;gap:10px;overflow-x:auto;scroll-snap-type:x mandatory;margin-inline:-18px;padding-inline:18px;scrollbar-width:none}
+.hs::-webkit-scrollbar{display:none}
+.hs>*{scroll-snap-align:start;flex:none}
+.kpm{width:148px;padding:14px;border-radius:16px;background:var(--surf);border:1px solid var(--line);display:flex;flex-direction:column;gap:6px}
+.kpm .big{font-size:22px}
+.sheet-scrim{position:absolute;inset:0;background:rgba(0,0,0,.55);z-index:20;border-radius:40px}
+.sheet{position:absolute;left:0;right:0;bottom:0;z-index:21;background:var(--surf);border-radius:28px 28px 40px 40px;border-top:1px solid var(--line2);padding:10px 18px 34px;animation:up .28s cubic-bezier(.23,1,.32,1);max-height:82%;overflow-y:auto}
+@keyframes up{from{transform:translateY(40px);opacity:0}}
+.grab{width:38px;height:4px;border-radius:4px;background:var(--line2);margin:0 auto 14px}
+.sheet h3{margin:0 0 12px;font-size:17px}
+.qa{display:flex;align-items:center;gap:14px;padding:13px 4px;border-top:1px solid var(--line);width:100%;font-weight:600}
+.qa:first-of-type{border-top:0}
+.qa .ic{width:42px;height:42px;border-radius:13px;background:var(--accent-soft);color:var(--accent);display:grid;place-items:center}
+.qa small{display:block;color:var(--fg3);font-weight:400;font-size:12px}
+.mgrid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+.mg{display:flex;flex-direction:column;align-items:center;gap:7px;font-size:11.5px;font-weight:600;color:var(--fg2);text-align:center}
+.mg .ic{width:56px;height:56px;border-radius:17px;background:var(--surf2);border:1px solid var(--line);display:grid;place-items:center;color:var(--accent);position:relative}
+.mg .ic i{position:absolute;top:-3px;right:-3px;min-width:18px;height:18px;border-radius:99px;background:var(--bad);color:#fff;font-size:10px;font-style:normal;display:grid;place-items:center;font-weight:700}
+.mtiles{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.mtiles .tile{padding:14px;min-height:130px;gap:10px}
+.mtiles .tile .ic{width:34px;height:34px}
+.mtiles .tile b{font-size:14px}.mtiles .tile p{font-size:11.5px}
+.mrq{width:100%;padding:14px;border-radius:16px;background:var(--surf);border:1px solid var(--line);display:flex;flex-direction:column;gap:9px}
+.mrq .row{display:flex;justify-content:space-between;gap:8px;align-items:center}
+.sec{display:flex;justify-content:space-between;align-items:baseline}
+.sec h3{margin:0;font-size:15px}.sec button{color:var(--accent);font-size:12.5px;font-weight:600}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+
+<div class="wrap">
+  <header class="pg-head">
+    <div>
+      <div class="eyebrow">Propuesta de rediseño · datos de ejemplo</div>
+      <h1>Control Presupuestal, más claro y más rápido</h1>
+      <p>Misma app, mismas reglas y mismos permisos. Cambia la navegación, la jerarquía visual y la forma de capturar. Toca el prototipo: el menú, la búsqueda, las tarjetas y las filas responden.</p>
+    </div>
+    <div class="ctrls" role="group" aria-label="Opciones del prototipo">
+      <div class="seg" id="segDev"><button data-dev="desktop" aria-pressed="true">Escritorio</button><button data-dev="mobile" aria-pressed="false">Celular</button></div>
+      <div class="seg" id="segTheme"><button data-theme-set="dark" aria-pressed="true">Oscuro</button><button data-theme-set="light" aria-pressed="false">Claro</button></div>
+      <div class="dots" id="dots" role="group" aria-label="Paleta"></div>
+    </div>
+  </header>
+
+  <section class="stage-wrap" aria-label="Prototipo">
+    <div class="chips" id="chips" role="group" aria-label="Pantallas"></div>
+    <div class="stage" id="stage"><div class="scaler" id="scaler"></div></div>
+    <div class="hint" id="hint"></div>
+  </section>
+
+  <section>
+    <h2 class="sec-title">Qué cambia y por qué</h2>
+    <p class="sec-sub">Cada punto sale de leer el código actual: el sidebar, la barra superior, Inicio, los modales y la barra móvil.</p>
+    <div class="cmp" id="cmp"></div>
+  </section>
+
+  <section>
+    <h2 class="sec-title">Sistema visual</h2>
+    <p class="sec-sub">Se conserva la identidad: carbón cálido, dorado de acento, Manrope para títulos e Inter para el cuerpo. Se ordena y se reduce el ruido: sin brillos neón, superficies en capas y un solo acento por pantalla.</p>
+    <div class="tok" id="tok"></div>
+    <div class="spec" style="margin-top:14px">
+      <button class="btn pri"><svg class="i" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>Nueva requisición</button>
+      <button class="btn">Exportar</button>
+      <button class="btn ghost">Cancelar</button>
+      <span class="pill ok">Al día</span><span class="pill warn">Atraso leve</span><span class="pill bad">Atraso crítico</span><span class="pill info">Informativo</span><span class="pill acc nd">Favorito</span>
+      <span style="font-family:var(--font-h);font-weight:800;font-size:30px;letter-spacing:-.03em" class="num">46.5<small style="font-size:16px;color:var(--fg2)">%</small></span>
+      <span class="hint">Cifras con numerales tabulares; 44 px mínimo de área táctil en celular.</span>
+    </div>
+  </section>
+
+  <section>
+    <h2 class="sec-title">Cómo aplicarlo sin romper nada</h2>
+    <p class="sec-sub">El rediseño vive en <code>styles.css</code>, en los templates de <code>renderSidebar</code>, <code>renderInicio</code> y compañía, y en <code>index.html</code>. Endpoints, permisos, roles y cálculos no se tocan.</p>
+    <ul class="plan" id="plan"></ul>
+    <p class="keep" style="margin-top:14px"><b>No cambia:</b> cómo se calculan Avance programado, ejecutado, físico y desviación; permisos por rol; simulación de vista; PWA; los ids y clases que usa el JS. Cada commit con código sube <code>SW_VERSION</code>, como pide tu CLAUDE.md.</p>
+  </section>
+</div>
+
+<script>
+/* ========== Íconos (línea, 24px) ========== */
+const P={
+home:'<path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/>',
+search:'<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
+bell:'<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/>',
+plus:'<path d="M12 5v14M5 12h14"/>',
+cr:'<path d="m9 6 6 6-6 6"/>',cd:'<path d="m6 9 6 6 6-6"/>',cl:'<path d="m15 6-6 6 6 6"/>',
+star:'<path d="m12 3 2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z"/>',
+building:'<path d="M4 21V5a1 1 0 0 1 1-1h8a1 1 0 0 1 1 1v16"/><path d="M14 10h5a1 1 0 0 1 1 1v10"/><path d="M8 8h2M8 12h2M8 16h2M2 21h20"/>',
+cart:'<circle cx="9" cy="20" r="1.4"/><circle cx="18" cy="20" r="1.4"/><path d="M2 3h3l2.6 12.2a1 1 0 0 0 1 .8H18a1 1 0 0 0 1-.8L21 7H6"/>',
+wallet:'<path d="M3 7a2 2 0 0 1 2-2h13v4"/><path d="M3 7v11a2 2 0 0 0 2 2h15a1 1 0 0 0 1-1V10a1 1 0 0 0-1-1H5a2 2 0 0 1-2-2z"/><circle cx="16.5" cy="14.5" r="1"/>',
+folder:'<path d="M3 6a2 2 0 0 1 2-2h4l2 2.5h8a2 2 0 0 1 2 2V18a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
+truck:'<path d="M2 6h11v10H2zM13 9h4l4 4v3h-8"/><circle cx="7" cy="18" r="1.8"/><circle cx="17" cy="18" r="1.8"/>',
+calc:'<rect x="5" y="3" width="14" height="18" rx="2"/><path d="M8.5 7.5h7M8.5 12h.01M12 12h.01M15.5 12h.01M8.5 16h.01M12 16h.01M15.5 16h.01"/>',
+book:'<path d="M5 4a1 1 0 0 1 1-1h13v16H6a1 1 0 0 0-1 1z"/><path d="M5 20a1 1 0 0 0 1 1h13"/>',
+key:'<circle cx="8" cy="15" r="4"/><path d="m11 12 9-9M16 7l3 3"/>',
+spark:'<path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/><path d="M19 16v4M17 18h4"/>',
+alert:'<path d="M12 3 2 20h20z"/><path d="M12 10v5M12 17.5v.01"/>',
+check:'<path d="m5 12.5 4.5 4.5L19 7"/>',
+clock:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+more:'<circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/>',
+x:'<path d="M6 6l12 12M18 6 6 18"/>',
+filter:'<path d="M3 5h18l-7 8v6l-4-2v-4z"/>',
+users:'<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16 4.6a3.5 3.5 0 0 1 0 6.8M18 14.2A6.5 6.5 0 0 1 21.5 20"/>',
+box:'<path d="M12 3 3.5 7.5v9L12 21l8.5-4.5v-9z"/><path d="M3.5 7.5 12 12l8.5-4.5M12 12v9"/>',
+file:'<path d="M6 3h8l5 5v13H6z"/><path d="M14 3v5h5"/>',
+dash:'<rect x="3" y="3" width="8" height="10" rx="1.5"/><rect x="13" y="3" width="8" height="6" rx="1.5"/><rect x="13" y="11" width="8" height="10" rx="1.5"/><rect x="3" y="15" width="8" height="6" rx="1.5"/>',
+chart:'<path d="M3 3v18h18"/><path d="m7 15 4-5 3 3 5-6"/>',
+grid:'<rect x="4" y="4" width="6.5" height="6.5" rx="1.5"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.5"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.5"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.5"/>',
+refresh:'<path d="M20 11a8 8 0 0 0-14-4L4 9M4 4v5h5M4 13a8 8 0 0 0 14 4l2-2M20 20v-5h-5"/>',
+upload:'<path d="M12 16V4M7 9l5-5 5 5M4 20h16"/>',
+download:'<path d="M12 4v12M7 11l5 5 5-5M4 20h16"/>',
+edit:'<path d="M4 20h4L19 9l-4-4L4 16z"/>',
+archive:'<rect x="3" y="4" width="18" height="5" rx="1"/><path d="M5 9v10h14V9M10 13h4"/>',
+tag:'<path d="M3 12V4h8l10 10-8 8z"/><circle cx="7.5" cy="8.5" r="1"/>',
+sun:'<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
+logout:'<path d="M9 4H5a1 1 0 0 0-1 1v14a1 1 0 0 0 1 1h4M16 8l4 4-4 4M20 12H9"/>',
+shield:'<path d="M12 3 4 6v6c0 5 3.5 8 8 9 4.5-1 8-4 8-9V6z"/><path d="m9 12 2 2 4-4"/>',
+lock:'<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>',
+gift:'<rect x="3" y="8" width="18" height="4" rx="1"/><path d="M5 12v8h14v-8M12 8v12M12 8c-2-4-6-3-5 0M12 8c2-4 6-3 5 0"/>',
+handshake:'<path d="M3 12l4-4 4 2 4-3 6 5-5 6-3-2-3 2-4-2z"/>'
+};
+const I=(n,s=18,w=1.75)=>`<svg class="i" width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${w}" stroke-linecap="round" stroke-linejoin="round">${P[n]||''}</svg>`;
+
+/* ========== Datos de ejemplo ========== */
+const CL=[
+ {n:'Vinte',o:4,p:46.5,g:50.8,m:96.4,a:5,fav:1,i:'VN'},
+ {n:'Residencial Los Pinos',o:2,p:71.3,g:68.0,m:41.7,a:0,fav:1,i:'LP'},
+ {n:'Valle Real',o:3,p:22.4,g:35.9,m:58.2,a:2,fav:0,i:'VR'},
+ {n:'Torre Mirador',o:2,p:12.0,g:14.5,m:33.1,a:1,fav:0,i:'TM'},
+ {n:'Hacienda Norte',o:1,p:59.6,g:58.0,m:19.9,a:0,fav:0,i:'HN'},
+ {n:'Costa Serena',o:1,p:88.9,g:90.0,m:12.6,a:0,fav:0,i:'CS'}];
+const SEC=[
+ {id:'obra',n:'Obra',d:'Programa, avance, destajo y estimaciones',ic:'building',c:'6 módulos',a:0},
+ {id:'ventas',n:'Ventas',d:'Compradores, apartados, cobranza y entregas',ic:'home',c:'5 módulos',a:0},
+ {id:'compras',n:'Compras',d:'Requisiciones, insumos, órdenes y almacén',ic:'cart',c:'7 módulos',a:5},
+ {id:'tesoreria',n:'Tesorería',d:'Finanzas, compromisos y fondo de garantía',ic:'wallet',c:'7 módulos',a:0},
+ {id:'admin',n:'Administración',d:'Contrato, trabajadores, nóminas y cuentas',ic:'folder',c:'6 módulos',a:1},
+ {id:'maq',n:'Maquinaria',d:'Equipos, horas, bitácora y consumibles',ic:'truck',c:'6 módulos',a:0},
+ {id:'costos',n:'Costos',d:'Matrices, composición y catálogo de básicos',ic:'calc',c:'8 módulos',a:0},
+ {id:'conta',n:'Contabilidad',d:'Pólizas, CFDI, pagos y conciliación',ic:'book',c:'7 módulos',a:0}];
+const TABS=[['Requisiciones','req',5],['Insumos'],['Proveedores'],['Cumplimiento'],['Órdenes de compra'],['Cotizador'],['Almacén']];
+const RQ=[
+ {f:'RQ-0238',t:'Tubería PVC hidráulico 4"',s:'Marcos Ibarra',d:'28 sep',v:184320,al:'Cantidad +12%',k:'bad',e:'Enviada'},
+ {f:'RQ-0237',t:'Cemento gris CPC 30R',s:'Laura Peña',d:'27 sep',v:96750,al:'Precio +6%',k:'warn',e:'Enviada'},
+ {f:'RQ-0236',t:'Válvulas de compuerta 6"',s:'Marcos Ibarra',d:'26 sep',v:241900,al:null,e:'Aprobada'},
+ {f:'RQ-0235',t:'Arena y grava a granel',s:'Diego Ruiz',d:'25 sep',v:58400,al:null,e:'Surtida'},
+ {f:'RQ-0234',t:'Codos y tees PVC 6"',s:'Laura Peña',d:'24 sep',v:73210,al:'Precio +3%',k:'warn',e:'Aprobada'},
+ {f:'RQ-0233',t:'Acero de refuerzo #4',s:'Diego Ruiz',d:'22 sep',v:312800,al:null,e:'Surtida'},
+ {f:'RQ-0232',t:'Cinta señalizadora y EPP',s:'Marcos Ibarra',d:'21 sep',v:18940,al:null,e:'Borrador'}];
+const AV=[
+ {k:'bad',ic:'alert',t:'3 alertas de cantidad',s:'Insumos solicitados por encima del presupuesto',go:'req'},
+ {k:'warn',ic:'tag',t:'2 alertas de precio',s:'Precio solicitado mayor al del presupuesto',go:'req'},
+ {k:'info',ic:'clock',t:'Contrato vence en 118 días',s:'Fin de obra: 25 ene 2027',go:null}];
+const TOT=96412300;
+
+/* Curva S: mismo criterio que el programa (logística normalizada) */
+const DIAS=238,HOY=120;
+const curve=t=>{const s=x=>1/(1+Math.exp(-8*(x-.5)));return (s(t)-s(0))/(s(1)-s(0))};
+const progNow=curve(HOY/DIAS)*100, desv=-4.3, ejecNow=progNow+desv, fisNow=ejecNow-3.4;
+const real=d=>curve(d/DIAS)*100*(1-(1-ejecNow/progNow)*Math.pow(d/HOY,1.4));
+
+/* ========== Utilidades ========== */
+const fm=n=>'$'+Math.round(n).toLocaleString('es-MX');
+const fM=n=>'$'+n.toLocaleString('es-MX',{minimumFractionDigits:1,maximumFractionDigits:1})+' M';
+const f1=n=>n.toLocaleString('es-MX',{minimumFractionDigits:1,maximumFractionDigits:1});
+const dk=(e,g)=>{const d=e-g;return d>=0?'ok':d<-10?'bad':'warn'};
+const dtxt=(e,g)=>{const d=e-g;return (d>=0?'+':'−')+f1(Math.abs(d))+' pp'};
+const dlbl=(e,g)=>{const k=dk(e,g);return k==='ok'?'Al día':k==='warn'?'Atraso leve':'Atraso crítico'};
+
+function chart(w,h,pad){
+  const L=pad.l,R=pad.r,T=pad.t,B=pad.b,x=d=>L+(w-L-R)*d/DIAS,y=v=>T+(h-T-B)*(1-v/100);
+  let g='';
+  [0,25,50,75,100].forEach(v=>{g+=`<line x1="${L}" x2="${w-R}" y1="${y(v)}" y2="${y(v)}" stroke="var(--line)" stroke-width="1"/><text x="${L-8}" y="${y(v)+4}" text-anchor="end" font-size="10.5" fill="var(--fg3)" font-family="Inter">${v}%</text>`});
+  [['Jun',0],['Jul',30],['Ago',61],['Sep',92],['Oct',122],['Nov',153],['Dic',183],['Ene',214]].forEach(([m,d])=>{g+=`<text x="${x(d)}" y="${h-4}" font-size="10.5" fill="var(--fg3)" font-family="Inter">${m}</text>`});
+  let pp='',rr='';
+  for(let d=0;d<=DIAS;d+=4){pp+=(d?'L':'M')+x(d).toFixed(1)+' '+y(curve(d/DIAS)*100).toFixed(1)}
+  for(let d=0;d<=HOY;d+=4){rr+=(d?'L':'M')+x(d).toFixed(1)+' '+y(real(d)).toFixed(1)}
+  rr+='L'+x(HOY).toFixed(1)+' '+y(ejecNow).toFixed(1);
+  const area=rr+`L${x(HOY)} ${y(0)} L${x(0)} ${y(0)}Z`;
+  return `<svg viewBox="0 0 ${w} ${h}" width="100%" role="img" aria-label="Curva S: programado contra ejecutado" style="display:block">
+   <defs><linearGradient id="ga${w}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="var(--ok)" stop-opacity=".28"/><stop offset="1" stop-color="var(--ok)" stop-opacity="0"/></linearGradient></defs>
+   ${g}
+   <line x1="${x(HOY)}" x2="${x(HOY)}" y1="${T}" y2="${y(0)}" stroke="var(--accent)" stroke-dasharray="3 4" stroke-width="1.2"/>
+   <text x="${x(HOY)+6}" y="${T+10}" font-size="10.5" fill="var(--accent)" font-weight="700" font-family="Inter">Hoy</text>
+   <path d="${area}" fill="url(#ga${w})"/>
+   <path d="${pp}" fill="none" stroke="var(--accent)" stroke-width="2" stroke-dasharray="1 0"/>
+   <path d="${rr}" fill="none" stroke="var(--ok)" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+   <circle cx="${x(HOY)}" cy="${y(ejecNow)}" r="5" fill="var(--ok)" stroke="var(--surf)" stroke-width="2.5"/>
+   <circle cx="${x(HOY)}" cy="${y(progNow)}" r="4.5" fill="var(--accent)" stroke="var(--surf)" stroke-width="2.5"/>
+  </svg>`;
+}
+function donut(sz,st){
+  const r=(sz-st)/2,c=2*Math.PI*r,e=ejecNow/100,pr=(progNow-ejecNow)/100,rs=1-e-pr;
+  const seg=(v,off,col)=>`<circle cx="${sz/2}" cy="${sz/2}" r="${r}" fill="none" stroke="${col}" stroke-width="${st}" stroke-dasharray="${Math.max(0,c*v-3)} ${c}" stroke-dashoffset="${-c*off}" transform="rotate(-90 ${sz/2} ${sz/2})" stroke-linecap="round"/>`;
+  return `<svg width="${sz}" height="${sz}" viewBox="0 0 ${sz} ${sz}">${seg(1,0,'var(--surf3)')}${seg(e,0,'var(--ok)')}${seg(pr,e,'var(--accent)')}</svg>`;
+}
+const ring=(v,g)=>{const r=19,c=2*Math.PI*r,k='var(--'+(dk(v,g)==='ok'?'ok':dk(v,g)==='warn'?'warn':'bad')+')';return `<div class="ring"><svg width="46" height="46" viewBox="0 0 46 46"><circle cx="23" cy="23" r="${r}" fill="none" stroke="var(--surf3)" stroke-width="4"/><circle cx="23" cy="23" r="${r}" fill="none" stroke="${k}" stroke-width="4" stroke-linecap="round" stroke-dasharray="${c*v/100} ${c}" transform="rotate(-90 23 23)"/></svg><b class="num">${Math.round(v)}</b></div>`};
+
+/* ========== Estado ========== */
+const S={dev:'desktop',ds:'clientes',ms:'clientes',menu:null,panel:null,sheet:null,filter:'todos',avV:'barra',toast:null};
+const cur=()=>S.dev==='desktop'?S.ds:S.ms;
+
+/* ========== Escritorio ========== */
+function dside(mode,active){
+  const ni=(ic,l,id,cnt,al)=>`<button class="ni" data-go="${id||''}" ${active===id?'aria-current="page"':''}>${I(ic,18)}<span>${l}</span>${cnt?`<span class="cnt ${al?'al':''}">${cnt}</span>`:''}</button>`;
+  let nav;
+  if(mode==='global'){
+    nav=`<div class="lbl grp">General</div>`+ni('home','Clientes','clientes')+ni('dash','Dashboard ejecutivo','x-dash')+ni('users','Trabajadores','x-tr')+ni('wallet','Nóminas','x-no')+ni('calc','Costos globales','x-co')+ni('truck','Maquinaria','x-ma')+
+    `<div class="lbl grp">Administración</div>`+ni('key','Usuarios y permisos','x-us')+ni('archive','Archivados','x-ar')+ni('check','Completados','x-cm');
+  }else{
+    nav=ni('chart','Resumen','resumen')+`<div class="lbl grp">Secciones</div>`+SEC.map(s=>ni(s.ic,s.n,s.id==='compras'?'compras':'x-'+s.id,s.a,s.a>0)).join('').replace(/aria-current="page"/g,'');
+    nav=nav.replace(new RegExp(`(data-go="${active==='req'?'compras':active}"\\s*)`),'$1aria-current="page" ');
+  }
+  return `<aside class="dside">
+   <div class="brand"><div class="lg">R</div><div><b>Grupo Roforb</b><small>Control Presupuestal</small></div></div>
+   ${mode==='obra'?`<button class="proj" data-go="clientes" aria-label="Cambiar de obra"><span class="mono">VN</span><span class="t"><b>Red de Distribución C732</b><small>Vinte · 4 obras</small></span>${I('cd',15)}</button>`:''}
+   <nav class="nav">${nav}</nav>
+   <div style="display:flex;flex-direction:column;gap:2px">${''}
+     <button class="ni" data-go="x-nov">${I('gift',18)}<span>Novedades</span><span class="cnt">2</span></button>
+   </div>
+   <button class="me" data-act="menu:perfil"><span class="av">RO</span><span style="flex:1;min-width:0"><b>Ricardo Ocampo</b><small>Administrador</small></span>${I('cd',14)}</button>
+  </aside>`;
+}
+function dtop(crumbs){
+  return `<header class="dtop">
+   <nav class="crumb" aria-label="Ruta">${crumbs.map((c,i)=>i===crumbs.length-1?`<b>${c[0]}</b>`:`<button data-go="${c[1]}">${c[0]}</button>${I('cr',13)}`).join('')}</nav>
+   <button class="search" data-act="menu:cmd">${I('search',16)}<span>Buscar obra, insumo o folio…</span><span class="kbd">Ctrl K</span></button>
+   <button class="btn ico ghost" data-act="toast:Datos sincronizados" aria-label="Sincronizar">${I('refresh',17)}</button>
+   <button class="btn ico ghost bellb" data-act="menu:avisos" aria-label="Avisos">${I('bell',18)}<i></i></button>
+   <button class="btn" data-act="toast:Nyra: pregúntame por avances, alertas o insumos">${I('spark',16)}Nyra</button>
+   <button class="btn pri" data-act="menu:nuevo">${I('plus',16,2.2)}Nuevo${I('cd',14)}</button>
+  </header>`;
+}
+function dClientes(){
+  const L=CL.filter(c=>S.filter==='todos'||(S.filter==='alertas'&&c.a>0)||(S.filter==='atraso'&&c.p-c.g<-10));
+  const tot=CL.reduce((a,c)=>a+c.m,0), ej=CL.reduce((a,c)=>a+c.m*c.p,0)/tot, pg=CL.reduce((a,c)=>a+c.m*c.g,0)/tot, al=CL.reduce((a,c)=>a+c.a,0);
+  const cards=[...L].sort((a,b)=>b.fav-a.fav).map(c=>`<button class="ccard" data-go="resumen">
+    <div class="hd"><span class="mono">${c.i}</span><div><b>${c.n}</b><small>${c.o} obras · ${fM(c.m)}</small></div><span class="st ${c.fav?'on':''}" data-act="star" title="Fijar">${I('star',18)}</span></div>
+    <div><div class="pc"><span class="big num">${f1(c.p)}<small style="font-size:15px;color:var(--fg2)">%</small></span><span class="pill ${dk(c.p,c.g)}">${dtxt(c.p,c.g)}</span></div>
+    <div class="bar" style="margin-top:12px"><div class="z" style="width:${c.g}%"></div><div class="f" style="width:${c.p}%"></div></div></div>
+    <div class="ft"><span>${dlbl(c.p,c.g)} vs. programa</span>${c.a?`<span class="pill bad nd">${I('alert',12)}${c.a} alertas</span>`:`<span style="color:var(--fg3)">Sin alertas</span>`}</div>
+  </button>`).join('');
+  return `<div class="dbody">
+   <div class="ph"><div><h1>Buenos días, Ricardo</h1><p>Martes 29 de septiembre · 13 obras activas en 6 clientes</p></div>
+    <div class="act"><button class="btn" data-act="toast:Cargar presupuesto (.xlsx)">${I('upload',16)}Cargar presupuesto</button><button class="btn" data-act="toast:Nuevo cliente">${I('plus',16)}Nuevo cliente</button></div></div>
+   <section class="sumstrip" aria-label="Resumen global">
+    <div><span class="lbl">Presupuesto total</span><span class="big num" style="font-size:38px">${fM(tot)}</span>
+      <div class="stack"><span style="width:${ej}%;background:var(--ok)"></span><span style="width:${pg-ej}%;background:var(--accent)"></span><span style="flex:1;background:var(--surf3)"></span></div>
+      <div class="legend"><span><i class="dot6" style="background:var(--ok)"></i>Ejecutado</span><span><i class="dot6" style="background:var(--accent)"></i>Programado a hoy</span><span><i class="dot6" style="background:var(--surf3)"></i>Resto</span></div></div>
+    <div><span class="lbl">Ejecutado</span><span class="big num" style="font-size:28px">${f1(ej)}%</span><span style="color:var(--fg2)">${fM(tot*ej/100)}</span></div>
+    <div><span class="lbl">Programado a hoy</span><span class="big num" style="font-size:28px">${f1(pg)}%</span><span class="pill ${dk(ej,pg)}" style="width:max-content">${dtxt(ej,pg)}</span></div>
+    <div><span class="lbl">Alertas activas</span><span class="big num" style="font-size:28px;color:var(--bad)">${al}</span><button style="color:var(--accent);font-weight:600;text-align:left" data-act="menu:avisos">Ver todas →</button></div>
+   </section>
+   <div class="cols"><div style="display:flex;flex-direction:column;gap:14px;min-width:0">
+     <div class="tools"><h2 style="margin:0;font-size:18px;margin-right:auto">Clientes</h2>
+      <div class="chips" role="group" aria-label="Filtro">${[['todos','Todos'],['alertas','Con alertas'],['atraso','En atraso']].map(([k,l])=>`<button class="chip" aria-pressed="${S.filter===k}" data-act="filter:${k}">${l}</button>`).join('')}</div></div>
+     <div class="cgrid">${cards||'<p style="color:var(--fg2)">Ningún cliente coincide con el filtro.</p>'}</div></div>
+    <aside class="rail">
+     <div class="card"><h4>Continúa donde lo dejaste</h4>
+      <button class="li" data-go="resumen" style="width:100%;text-align:left"><span class="mono" style="width:34px;height:34px;font-size:12px">VN</span><div><b>Red de Distribución C732</b><small>Vinte · hace 2 h</small></div></button>
+      <button class="li" data-go="resumen" style="width:100%;text-align:left"><span class="mono" style="width:34px;height:34px;font-size:12px">LP</span><div><b>Etapa 2, Urbanización</b><small>Los Pinos · ayer</small></div></button>
+      <button class="li" data-go="resumen" style="width:100%;text-align:left"><span class="mono" style="width:34px;height:34px;font-size:12px">VR</span><div><b>Casa Club</b><small>Valle Real · lun</small></div></button></div>
+     <div class="card"><h4>Alertas recientes</h4>
+      <div class="li"><i class="dot6" style="background:var(--bad)"></i><div><b>RQ-0238 excede cantidad</b><small>Vinte · hace 1 h</small></div></div>
+      <div class="li"><i class="dot6" style="background:var(--warn)"></i><div><b>Atraso de 13.5 pp</b><small>Valle Real · hoy</small></div></div>
+      <div class="li"><i class="dot6" style="background:var(--info)"></i><div><b>Nómina lista para autorizar</b><small>Torre Mirador · ayer</small></div></div></div>
+    </aside></div>
+  </div>`;
+}
+function dResumen(){
+  const rest=Math.max(0,TOT*(1-progNow/100));
+  const hero=S.avV==='barra'
+   ?`<div class="trackw"><span class="tag" style="left:${progNow}%">Meta hoy · ${f1(progNow)}%</span><div class="bar"><div class="z" style="width:${progNow}%"></div><div class="f" style="width:${ejecNow}%"></div><div class="m" style="left:${progNow}%"></div></div></div>`
+   :`<div style="display:flex;gap:22px;align-items:center;justify-content:center;padding:4px 0">${donut(120,14)}<div class="legend" style="flex-direction:column;gap:8px"><span><i class="dot6" style="background:var(--ok)"></i>Ejecutado ${fM(TOT*ejecNow/1e8)}</span><span><i class="dot6" style="background:var(--accent)"></i>Programado por ejecutar</span><span><i class="dot6" style="background:var(--surf3)"></i>Resto por ejecutar</span></div></div>`;
+  return `<div class="dbody">
+   <div class="ph"><div><h1>Red de Distribución C732</h1><p style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">Vinte · Zumpango, Edo. Méx. <span class="pill ${dk(ejecNow,progNow)}">${dlbl(ejecNow,progNow)}</span><span class="pill info nd">${I('clock',12)}Vence en 118 días</span></p></div>
+    <div class="act"><button class="btn" data-act="toast:Corregir inicio y fin de obra">${I('edit',15)}Editar fechas</button><button class="btn" data-act="toast:Reporte exportado">${I('download',15)}Exportar</button></div></div>
+   <div class="g2">
+    <section class="card hero"><div class="top"><div><span class="lbl">Avance ejecutado</span><div class="big num" style="margin-top:8px">${f1(ejecNow)}<small>%</small></div><div class="sub num">${fm(TOT*ejecNow/100)} de ${fm(TOT)}</div></div>
+      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:10px"><span class="pill ${dk(ejecNow,progNow)}">${dtxt(ejecNow,progNow)} vs. programa</span><div class="seg" role="group" aria-label="Vista"><button data-act="av:barra" aria-pressed="${S.avV==='barra'}">Barra</button><button data-act="av:dona" aria-pressed="${S.avV==='dona'}">Dona</button></div></div></div>
+     ${hero}
+     <div class="figs"><div><span class="lbl">Programado a hoy</span><b class="num">${f1(progNow)}%</b></div><div><span class="lbl">Avance físico</span><b class="num">${f1(fisNow)}%</b></div><div><span class="lbl">Resto por ejecutar</span><b class="num">${fM(rest/1e6)}</b></div><div><span class="lbl">Presupuesto sin IVA</span><b class="num">${fM(TOT/1e6)}</b></div></div>
+    </section>
+    <aside class="card att"><h3>Requiere atención <span class="pill bad nd">3</span></h3>
+     ${AV.map(a=>`<button class="ai" ${a.go?`data-go="${a.go}"`:'data-act="toast:Editar fecha de fin de obra"'}><span class="ic ${a.k}">${I(a.ic,18)}</span><span><b>${a.t}</b><small>${a.s}</small></span>${I('cr',16)}</button>`).join('')}
+    </aside></div>
+   <div class="g2">
+    <section class="card cardp"><div class="hd"><h3>Curva de avance</h3><div class="legend" style="margin:0"><span><i class="dot6" style="background:var(--accent)"></i>Programado</span><span><i class="dot6" style="background:var(--ok)"></i>Ejecutado</span></div></div>${chart(760,250,{l:38,r:12,t:12,b:24})}</section>
+    <section class="card cardp"><div class="hd"><h3>Datos de la obra</h3></div><dl class="dl" style="margin:0">
+      <div><dt>Inicio de obra</dt><dd>1 jun 2026</dd></div><div><dt>Fin de obra</dt><dd>25 ene 2027</dd></div><div><dt>Total sin IVA</dt><dd class="num">${fm(TOT)}</dd></div><div><dt>Total con IVA</dt><dd class="num">${fm(TOT*1.16)}</dd></div><div><dt>Actualizado por</dt><dd>M. Ibarra · 12 sep</dd></div></dl></section>
+   </div>
+   <div><div class="tools" style="margin-bottom:10px"><h3 style="margin:0;font-size:15px;margin-right:auto">Requisiciones de compra</h3><button style="color:var(--accent);font-weight:600" data-go="req">Ver todas →</button></div>
+    <div class="kp4"><button class="card kp link" data-go="req"><span class="lbl">Activas</span><span class="big num">38</span></button><button class="card kp link" data-go="req"><span class="lbl">Importe requisitado</span><span class="big num">$12.4 M</span></button><button class="card kp link" data-go="req"><span class="lbl">Alertas de cantidad</span><span class="big num" style="color:var(--bad)">3</span></button><button class="card kp link" data-go="req"><span class="lbl">Alertas de precio</span><span class="big num" style="color:var(--warn)">2</span></button></div></div>
+  </div>`;
+}
+function dCompras(){
+  return `<div class="dbody"><div class="ph"><div><h1>Compras</h1><p>Todo lo que entra a la obra, del pedido a la bodega.</p></div></div>
+  <div class="tiles">${[['Requisiciones','Captura y revisa pedidos con alertas automáticas','file','38 activas',5,'req'],['Insumos','Catálogo con cantidades y precios presupuestados','box','412 insumos',0,'x'],['Proveedores','Directorio y condiciones de pago','handshake','24 activos',0,'x'],['Cumplimiento','Entregas a tiempo y calidad por proveedor','shield','91% a tiempo',0,'x'],['Órdenes de compra','Genera, autoriza y da seguimiento','cart','12 abiertas',0,'x'],['Cotizador','Compara precios entre proveedores','search','Nuevo',0,'x'],['Almacén','Entradas, salidas y existencias','archive','8 movimientos hoy',0,'x']].map(t=>`<button class="tile" data-go="${t[5]==='req'?'req':'x-'+t[0]}"><div class="ic">${I(t[2],20)}</div><div><b>${t[0]}</b><p>${t[1]}</p></div><div class="ft"><span style="color:var(--fg3);font-size:12.5px">${t[3]}</span>${t[4]?`<span class="pill bad nd">${I('alert',12)}${t[4]} alertas</span>`:I('cr',16)}</div></button>`).join('')}
+   <button class="tile" disabled><div class="ic">${I('lock',20)}</div><div><b>Subcontratos</b><p>Próximamente</p></div></button></div></div>`;
+}
+function dReq(){
+  return `<div class="dbody">
+   <div class="ph"><div><h1>Requisiciones</h1><p>38 activas · $12.4 M requisitado</p></div><div class="act"><button class="btn" data-act="toast:Exportado a Excel">${I('download',15)}Exportar</button><button class="btn pri" data-act="toast:Nueva requisición">${I('plus',16,2.2)}Nueva requisición</button></div></div>
+   <nav class="subnav" aria-label="Compras">${TABS.map(t=>`<button ${t[1]==='req'?'aria-current="page"':`data-act="toast:${t[0]} (fuera de esta propuesta)"`}>${t[0]}${t[2]?`<small>${t[2]}</small>`:''}</button>`).join('')}</nav>
+   <div class="tbar"><label class="field">${I('search',15)}<input id="q" placeholder="Buscar por folio o insumo" aria-label="Buscar"></label>
+    <div class="chips"><button class="chip" aria-pressed="true">Todas</button><button class="chip" aria-pressed="false">Con alertas</button><button class="chip" aria-pressed="false">Por autorizar</button></div>
+    <button class="btn ghost" style="margin-left:auto">${I('filter',15)}Filtros</button></div>
+   <div class="card tw"><table class="tbl"><thead><tr><th>Folio</th><th>Pedido</th><th>Solicita</th><th>Fecha</th><th class="r2">Importe</th><th>Alerta</th><th>Estado</th><th></th></tr></thead><tbody>
+    ${RQ.map(r=>`<tr class="r" data-act="panel:${r.f}"><td><b>${r.f}</b></td><td>${r.t}</td><td style="color:var(--fg2)">${r.s}</td><td style="color:var(--fg2)">${r.d}</td><td class="r2 num"><b>${fm(r.v)}</b></td><td>${r.al?`<span class="pill ${r.k}">${r.al}</span>`:'<span style="color:var(--fg3)">—</span>'}</td><td><span class="pill ${r.e==='Surtida'?'ok':r.e==='Borrador'?'nd':r.e==='Enviada'?'info':'acc'}">${r.e}</span></td><td style="color:var(--fg3)">${I('cr',16)}</td></tr>`).join('')}
+   </tbody></table></div></div>`;
+}
+function dPanel(){
+  const r=RQ.find(x=>x.f===S.panel);if(!r)return'';
+  const rows=[['Tubería PVC hidráulico 4" (m)','560','500','$142.00','$142.00','Cantidad +12%','bad'],['Empaque de hule 4" (pza)','80','90','$38.50','$36.30','Precio +6%','warn'],['Lubricante para junta (lt)','12','15','$96.00','$96.00',null]];
+  return `<div class="scrim" data-act="panel:"></div><aside class="panel" role="dialog" aria-label="Detalle de requisición"><div class="ph2"><div><span class="lbl">${r.f}</span><h2 style="margin:4px 0 6px;font-size:19px">${r.t}</h2><span class="pill ${r.e==='Surtida'?'ok':'info'}">${r.e}</span></div><button class="btn ico ghost" data-act="panel:" aria-label="Cerrar">${I('x',18)}</button></div>
+   <div class="pb"><dl class="dl" style="margin:0"><div><dt>Solicita</dt><dd>${r.s}</dd></div><div><dt>Fecha</dt><dd>${r.d} 2026</dd></div><div><dt>Importe</dt><dd class="num">${fm(r.v)}</dd></div></dl>
+    <div><span class="lbl">Partidas</span><div style="display:flex;flex-direction:column;gap:8px;margin-top:8px">${rows.map(p=>`<div class="part"><div class="row"><b style="font-size:13px">${p[0]}</b>${p[5]?`<span class="pill ${p[6]}">${p[5]}</span>`:''}</div><div class="row num" style="color:var(--fg2);font-size:12.5px"><span>Solicitado ${p[1]} / Ppto ${p[2]}</span><span>${p[3]} vs. ${p[4]}</span></div></div>`).join('')}</div></div></div>
+   <div class="pf"><button class="btn" data-act="panel:">Cerrar</button><button class="btn" data-act="toast:Requisición devuelta">Devolver</button><button class="btn pri" data-act="toast:Requisición aprobada">Aprobar</button></div></aside>`;
+}
+function dOverlays(){
+  const m=S.menu;let h='';
+  if(m==='nuevo')h=`<div class="scrim" style="background:transparent;backdrop-filter:none" data-act="menu:"></div><div class="pop" style="right:24px;top:56px;width:300px">${[['file','Nueva requisición','Ctrl R'],['chart','Registrar avance semanal','Ctrl A'],['cart','Nueva orden de compra',''],['upload','Cargar presupuesto (.xlsx)',''],['file','Cargar contrato (PDF)','']].map(x=>`<button class="mi" data-act="toast:${x[1]}">${I(x[0],18)}<span style="flex:1">${x[1]}</span><span class="kbd" style="${x[2]?'':'display:none'}">${x[2]}</span></button>`).join('')}</div>`;
+  if(m==='avisos')h=`<div class="scrim" style="background:transparent;backdrop-filter:none" data-act="menu:"></div><div class="pop" style="right:130px;top:56px;width:380px;padding:0"><div style="padding:14px 16px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--line)"><b style="font-family:var(--font-h)">Avisos</b><button style="color:var(--accent);font-weight:600;font-size:12.5px" data-act="toast:Todo marcado como leído">Marcar todo como leído</button></div>
+   <div style="padding:8px">${[['bad','alert','RQ-0238 excede la cantidad presupuestada','Vinte · hace 1 h'],['warn','tag','RQ-0237 con precio +6%','Vinte · hace 3 h'],['info','shield','Activa la verificación en dos pasos','Recomendado · Configurar'],['info','gift','Novedades: nuevo Resumen de obra','Ver qué cambió'],['info','refresh','Hay una actualización disponible','Recargar ahora'],['info','download','Instala la app en tu equipo','Instalar']].map(x=>`<button class="ai" style="background:transparent;padding:10px" data-act="toast:${x[2]}"><span class="ic ${x[0]}">${I(x[1],17)}</span><span><b>${x[2]}</b><small>${x[3]}</small></span></button>`).join('')}</div></div>`;
+  if(m==='perfil')h=`<div class="scrim" style="background:transparent;backdrop-filter:none" data-act="menu:"></div><div class="pop" style="left:14px;bottom:76px;width:280px"><div style="padding:8px 10px 10px"><span class="lbl">Apariencia</span><div style="display:flex;gap:8px;margin-top:8px"><button class="btn" style="flex:1;justify-content:center" data-theme-set="light">${I('sun',15)}Claro</button><button class="btn" style="flex:1;justify-content:center" data-theme-set="dark">Oscuro</button></div><div style="display:flex;gap:10px;margin-top:12px">${PAL.map(p=>`<button class="dot" style="--c:${p[2]};width:24px;height:24px" data-pal="${p[0]}" aria-label="${p[1]}" aria-pressed="${PALS===p[0]}"></button>`).join('')}</div></div>
+   <button class="mi" data-act="toast:Mi cuenta">${I('users',17)}Mi cuenta</button><button class="mi" data-act="toast:Accesibilidad: movimiento y contraste">${I('shield',17)}Accesibilidad</button><button class="mi" data-act="toast:Sesión cerrada">${I('logout',17)}Cerrar sesión</button></div>`;
+  if(m==='cmd')h=`<div class="scrim" data-act="menu:"></div><div class="cmd"><div class="in">${I('search',18)}<span>Buscar o ir a…</span><span class="kbd">Esc</span></div>
+   <div class="grp lbl">Ir a</div>${[['chart','Resumen de la obra','resumen'],['cart','Compras','compras'],['file','Requisiciones','req'],['home','Clientes','clientes']].map((x,i)=>`<button class="mi ${i===0?'sel':''}" data-go="${x[2]}">${I(x[0],17)}<span>${x[1]}</span><span>Ir</span></button>`).join('')}
+   <div class="grp lbl">Acciones</div><button class="mi" data-act="toast:Nueva requisición">${I('plus',17)}<span>Nueva requisición</span><span>Ctrl R</span></button><button class="mi" data-act="toast:Registrar avance">${I('chart',17)}<span>Registrar avance semanal</span><span>Ctrl A</span></button><div style="height:8px"></div></div>`;
+  return h;
+}
+function desktop(){
+  const s=S.ds;
+  const mode=s==='clientes'?'global':'obra';
+  const crumbs={clientes:[['Clientes']],resumen:[['Clientes','clientes'],['Vinte','clientes'],['Red de Distribución C732']],compras:[['Vinte','clientes'],['Red de Distribución C732','resumen'],['Compras']],req:[['Vinte','clientes'],['Compras','compras'],['Requisiciones']]}[s];
+  const body={clientes:dClientes,resumen:dResumen,compras:dCompras,req:dReq}[s]();
+  return `<div class="dapp">${dside(mode,s)}<div class="dmain">${dtop(crumbs)}${body}</div>${s==='req'?dPanel():''}${dOverlays()}${S.toast?`<div class="toast">${S.toast}</div>`:''}</div>`;
+}
+
+/* ========== Celular ========== */
+function mtab(){
+  const s=S.ms;
+  const t=(ic,l,go,on,bd)=>`<button class="t" ${go?`data-go="${go}"`:''} ${on?'aria-current="page"':''} ${!go?`data-act="sheet:${l==='Alertas'?'avisos':'mas'}"`:''}>${I(ic,22)}<span>${l}</span>${bd?'<i class="bd"></i>':''}</button>`;
+  return `<nav class="tabbar" aria-label="Navegación">${t('home','Inicio','clientes',s==='clientes')}${t('building','Obra','resumen',s==='resumen')}<button class="fab" data-act="sheet:quick" aria-label="Acciones rápidas">${I('plus',26,2.4)}</button>${t('bell','Alertas','',false,true)}${t('grid','Más','',s==='compras'||s==='req')}</nav>`;
+}
+function mClientes(){
+  const L=CL.filter(c=>S.filter==='todos'||(S.filter==='alertas'&&c.a>0)||(S.filter==='atraso'&&c.p-c.g<-10));
+  const tot=CL.reduce((a,c)=>a+c.m,0), ej=CL.reduce((a,c)=>a+c.m*c.p,0)/tot;
+  return `<div class="mhead"><span class="av" style="width:40px;height:40px">RO</span><div><small>Martes 29 de septiembre</small><h1>Hola, Ricardo</h1></div><div class="sp"><button class="ib acc" data-act="toast:Nyra: ¿en qué te ayudo?" aria-label="Nyra">${I('spark',19)}</button></div></div>
+  <div class="mbody">
+   <button class="field" style="width:100%;height:44px;border-radius:14px" data-act="toast:Buscar obra, insumo o folio">${I('search',16)}<span>Buscar obra, insumo o folio</span></button>
+   <section class="card" style="padding:18px;background:linear-gradient(160deg,var(--surf2),var(--surf));border-color:var(--line2)"><span class="lbl">Presupuesto total</span><div class="big num" style="font-size:34px;margin:8px 0 12px">${fM(tot)}</div>
+    <div class="stack"><span style="width:${ej}%;background:var(--ok)"></span><span style="width:${CL.reduce((a,c)=>a+c.m*c.g,0)/tot-ej}%;background:var(--accent)"></span><span style="flex:1;background:var(--surf3)"></span></div>
+    <div style="display:flex;justify-content:space-between;margin-top:12px;font-size:12.5px;color:var(--fg2)"><span>Ejecutado <b class="num" style="color:var(--fg)">${f1(ej)}%</b></span><span>Alertas <b style="color:var(--bad)">8</b></span></div></section>
+   <div class="chips" role="group" aria-label="Filtro">${[['todos','Todos'],['alertas','Con alertas'],['atraso','En atraso']].map(([k,l])=>`<button class="chip" aria-pressed="${S.filter===k}" data-act="filter:${k}" style="padding:9px 14px">${l}</button>`).join('')}</div>
+   <div style="display:flex;flex-direction:column;gap:10px">${[...L].sort((a,b)=>b.fav-a.fav).map(c=>`<button class="mc" data-go="resumen"><div class="hd"><span class="mono">${c.i}</span><div><b>${c.n} ${c.fav?`<span style="color:var(--accent)">${I('star',13)}</span>`:''}</b><small>${c.o} obras · ${fM(c.m)}</small></div>${ring(c.p,c.g)}</div>
+     <div style="display:flex;justify-content:space-between;align-items:center"><span class="pill ${dk(c.p,c.g)}">${dlbl(c.p,c.g)} ${dtxt(c.p,c.g)}</span>${c.a?`<span class="pill bad nd">${c.a} alertas</span>`:''}</div></button>`).join('')}</div>
+  </div>`;
+}
+function mResumen(){
+  const rest=TOT*(1-progNow/100);
+  return `<div class="mhead"><button class="ib" data-go="clientes" aria-label="Volver">${I('cl',20)}</button><div style="min-width:0"><small>Vinte</small><h1 style="font-size:17px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Red de Distribución C732</h1></div><div class="sp"><button class="ib acc" data-act="toast:Nyra: ¿en qué te ayudo?" aria-label="Nyra">${I('spark',19)}</button></div></div>
+  <div class="mbody">
+   <section class="card" style="padding:18px;display:flex;flex-direction:column;gap:14px"><div style="display:flex;justify-content:space-between;align-items:flex-start"><div><span class="lbl">Avance ejecutado</span><div class="big num" style="font-size:46px;margin-top:6px">${f1(ejecNow)}<small style="font-size:22px;color:var(--fg2)">%</small></div></div><span class="pill ${dk(ejecNow,progNow)}">${dtxt(ejecNow,progNow)}</span></div>
+    <div class="trackw"><span class="tag" style="left:${Math.min(85,progNow)}%">Meta hoy</span><div class="bar"><div class="z" style="width:${progNow}%"></div><div class="f" style="width:${ejecNow}%"></div><div class="m" style="left:${progNow}%"></div></div></div>
+    <div style="color:var(--fg2);font-size:12.5px" class="num">${fm(TOT*ejecNow/100)} de ${fm(TOT)}</div></section>
+   <div class="hs" aria-label="Indicadores"><div class="kpm"><span class="lbl">Programado</span><span class="big num">${f1(progNow)}%</span></div><div class="kpm"><span class="lbl">Físico</span><span class="big num">${f1(fisNow)}%</span></div><div class="kpm"><span class="lbl">Resto</span><span class="big num">${fM(rest/1e6)}</span></div><div class="kpm"><span class="lbl">Ppto. sin IVA</span><span class="big num">${fM(TOT/1e6)}</span></div></div>
+   <section class="card" style="padding:16px"><div class="sec" style="margin-bottom:8px"><h3>Requiere atención</h3></div><div style="display:flex;flex-direction:column;gap:8px">${AV.map(a=>`<button class="ai" ${a.go?`data-go="${a.go}"`:'data-act="toast:Editar fecha de fin"'}><span class="ic ${a.k}">${I(a.ic,17)}</span><span><b>${a.t}</b><small>${a.s}</small></span>${I('cr',15)}</button>`).join('')}</div></section>
+   <section class="card" style="padding:16px 12px 10px"><div class="sec" style="padding:0 4px 8px"><h3>Curva de avance</h3></div>${chart(330,170,{l:32,r:8,t:8,b:22})}</section>
+   <section class="card" style="padding:6px 16px"><dl class="dl" style="margin:0"><div><dt>Inicio</dt><dd>1 jun 2026</dd></div><div><dt>Fin</dt><dd>25 ene 2027</dd></div><div><dt>Total con IVA</dt><dd class="num">${fm(TOT*1.16)}</dd></div></dl></section>
+  </div>`;
+}
+function mCompras(){
+  return `<div class="mhead"><button class="ib" data-go="resumen" aria-label="Volver">${I('cl',20)}</button><div><small>Red de Distribución C732</small><h1>Compras</h1></div></div>
+  <div class="mbody"><div class="mtiles">${[['Requisiciones','Pedidos con alertas','file','38 activas',5,'req'],['Insumos','Catálogo y precios','box','412',0],['Proveedores','Directorio','handshake','24',0],['Cumplimiento','Entregas a tiempo','shield','91%',0],['Órdenes de compra','Autoriza y sigue','cart','12 abiertas',0],['Almacén','Existencias','archive','8 hoy',0]].map(t=>`<button class="tile" ${t[5]?`data-go="req"`:`data-act="toast:${t[0]} (fuera de esta propuesta)"`}><div class="ic">${I(t[2],18)}</div><div><b>${t[0]}</b><p>${t[1]}</p></div><div class="ft"><span style="color:var(--fg3);font-size:12px">${t[3]}</span>${t[4]?`<span class="pill bad nd" style="padding:0 7px">${t[4]}</span>`:''}</div></button>`).join('')}</div></div>`;
+}
+function mReq(){
+  return `<div class="mhead"><button class="ib" data-go="compras" aria-label="Volver">${I('cl',20)}</button><div><small>Compras</small><h1>Requisiciones</h1></div><div class="sp"><button class="ib" data-act="toast:Filtros" aria-label="Filtros">${I('filter',18)}</button></div></div>
+  <div class="mbody"><button class="field" style="width:100%;height:44px;border-radius:14px">${I('search',16)}<span>Buscar por folio o insumo</span></button>
+   <div class="chips"><button class="chip" aria-pressed="true" style="padding:9px 14px">Todas</button><button class="chip" aria-pressed="false" style="padding:9px 14px">Con alertas</button><button class="chip" aria-pressed="false" style="padding:9px 14px">Por autorizar</button></div>
+   ${RQ.map(r=>`<button class="mrq" data-act="toast:${r.f}: detalle en hoja inferior"><div class="row"><b>${r.f}</b><span class="pill ${r.e==='Surtida'?'ok':r.e==='Borrador'?'nd':r.e==='Enviada'?'info':'acc'}">${r.e}</span></div><div style="font-weight:500">${r.t}</div><div class="row" style="color:var(--fg2);font-size:12.5px"><span>${r.s} · ${r.d}</span><b class="num" style="color:var(--fg)">${fm(r.v)}</b></div>${r.al?`<span class="pill ${r.k}" style="width:max-content">${r.al}</span>`:''}</button>`).join('')}</div>`;
+}
+function mSheet(){
+  if(!S.sheet)return'';
+  let c='';
+  if(S.sheet==='quick')c=`<h3>Acción rápida</h3>${[['file','Nueva requisición','Pedir insumos a la obra'],['chart','Registrar avance','Captura semanal'],['cart','Nueva orden de compra','Desde requisiciones aprobadas'],['upload','Cargar presupuesto','Archivo .xlsx']].map(x=>`<button class="qa" data-act="toast:${x[1]}"><span class="ic">${I(x[0],20)}</span><span>${x[1]}<small>${x[2]}</small></span></button>`).join('')}`;
+  if(S.sheet==='avisos')c=`<h3>Avisos</h3><div style="display:flex;flex-direction:column;gap:6px">${[['bad','alert','RQ-0238 excede la cantidad','Vinte · hace 1 h'],['warn','tag','RQ-0237 con precio +6%','Vinte · hace 3 h'],['info','shield','Activa la verificación en dos pasos','Recomendado'],['info','refresh','Hay una actualización','Recargar ahora']].map(x=>`<button class="ai" data-act="toast:${x[2]}"><span class="ic ${x[0]}">${I(x[1],17)}</span><span><b>${x[2]}</b><small>${x[3]}</small></span></button>`).join('')}</div>`;
+  if(S.sheet==='mas')c=`<h3>Secciones</h3><div class="mgrid">${SEC.map(s=>`<button class="mg" ${s.id==='compras'?'data-go="compras"':`data-act="toast:${s.n} (fuera de esta propuesta)"`}><span class="ic">${I(s.ic,24)}${s.a?`<i>${s.a}</i>`:''}</span>${s.n.replace('Administración','Admin.')}</button>`).join('')}</div><div style="height:16px"></div><button class="qa" data-act="toast:Novedades">${''}<span class="ic">${I('gift',20)}</span><span>Novedades</span></button><button class="qa" data-act="toast:Ajustes y apariencia"><span class="ic">${I('shield',20)}</span><span>Ajustes, apariencia y cuenta</span></button>`;
+  return `<div class="sheet-scrim" data-act="sheet:"></div><div class="sheet" role="dialog"><div class="grab"></div>${c}</div>`;
+}
+function mobile(){
+  const s=S.ms,b={clientes:mClientes,resumen:mResumen,compras:mCompras,req:mReq}[s]();
+  return `<div class="phone"><div class="mapp"><div class="sb"><span class="num">9:41</span><span><svg width="18" height="12" viewBox="0 0 18 12" fill="currentColor"><rect x="0" y="8" width="3" height="4" rx="1"/><rect x="5" y="5" width="3" height="7" rx="1"/><rect x="10" y="2" width="3" height="10" rx="1"/><rect x="15" y="0" width="3" height="12" rx="1"/></svg><svg width="26" height="12" viewBox="0 0 26 12"><rect x=".5" y=".5" width="22" height="11" rx="3.5" fill="none" stroke="currentColor" opacity=".5"/><rect x="2" y="2" width="16" height="8" rx="2" fill="currentColor"/></svg></span></div>${b}${mtab()}${mSheet()}${S.toast?`<div class="toast" style="bottom:100px;width:max-content;max-width:88%;text-align:center">${S.toast}</div>`:''}</div></div>`;
+}
+
+/* ========== Render + escalado ========== */
+const PAL=[['roforb','Roforb','oklch(.79 .13 85)'],['nyra','Nyra','oklch(.72 .16 305)'],['jade','Jade','oklch(.75 .13 165)'],['terra','Terra','oklch(.74 .13 48)']];
+let PALS='roforb';
+const $=s=>document.querySelector(s);
+const SCR={desktop:[['clientes','Clientes'],['resumen','Resumen de obra'],['compras','Sección Compras'],['req','Requisiciones + panel']],mobile:[['clientes','Inicio'],['resumen','Resumen de obra'],['compras','Compras'],['req','Requisiciones']]};
+const HINT={desktop:{clientes:'Filtra los clientes, abre el resumen global de alertas o entra a una obra.',resumen:'Cambia entre Barra y Dona. Toca una alerta para ir directo a las requisiciones.',compras:'La galería de subsecciones se conserva, ahora con estado y alertas en cada tarjeta.',req:'Haz clic en una fila: el detalle abre en un panel lateral, sin perder la tabla.'},
+ mobile:{clientes:'Nyra pasa al encabezado; el botón + queda solo para crear. Prueba +, Alertas y Más.',resumen:'Un solo héroe de avance y los indicadores en carrusel táctil.',compras:'Tarjetas de 2 columnas con áreas táctiles amplias.',req:'Las filas de tabla pasan a tarjetas legibles con el estado a la vista.'}};
+function fit(){
+  const st=$('#stage'),sc=$('#scaler'),el=sc.firstElementChild;if(!el)return;
+  const W=el.offsetWidth,H=el.offsetHeight,k=Math.min(1,st.clientWidth/W);
+  sc.style.transform=`scale(${k})`;
+  sc.style.left=Math.max(0,(st.clientWidth-W*k)/2)+'px';
+  st.style.height=(H*k)+'px';
+}
+function render(keepScroll){
+  const sc=$('#scaler');
+  const olds=[...sc.querySelectorAll('.dbody,.mbody')].map(e=>e.scrollTop);
+  sc.innerHTML=S.dev==='desktop'?desktop():mobile();
+  if(keepScroll)sc.querySelectorAll('.dbody,.mbody').forEach((e,i)=>e.scrollTop=olds[i]||0);
+  $('#chips').innerHTML=SCR[S.dev].map(([k,l])=>`<button class="chip" aria-pressed="${cur()===k}" data-go="${k}">${l}</button>`).join('');
+  $('#hint').textContent=HINT[S.dev][cur()];
+  document.querySelectorAll('#segDev button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.dev===S.dev));
+  document.querySelectorAll('#segTheme button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.themeSet===theme()));
+  $('#dots').innerHTML=PAL.map(p=>`<button class="dot" style="--c:${p[2]}" data-pal="${p[0]}" aria-label="Paleta ${p[1]}" aria-pressed="${PALS===p[0]}"></button>`).join('');
+  fit();
+}
+const theme=()=>document.documentElement.dataset.theme||(matchMedia('(prefers-color-scheme:light)').matches?'light':'dark');
+let tT;
+function toast(m){S.toast=m;render(true);clearTimeout(tT);tT=setTimeout(()=>{S.toast=null;render(true)},1900)}
+document.addEventListener('click',e=>{
+  const th=e.target.closest('[data-theme-set]');if(th){document.documentElement.dataset.theme=th.dataset.themeSet;render(true);return}
+  const pl=e.target.closest('[data-pal]');if(pl){PALS=pl.dataset.pal;document.body.className=PALS==='roforb'?'':'pal-'+PALS;render(true);return}
+  const dv=e.target.closest('[data-dev]');if(dv){S.dev=dv.dataset.dev;S.menu=S.panel=S.sheet=null;render();return}
+  const a=e.target.closest('[data-act]');
+  if(a&&!a.hasAttribute('data-go')){
+    const [k,...r]=a.dataset.act.split(':'),v=r.join(':');
+    if(k==='star'){e.stopPropagation();return}
+    if(k==='menu'){S.menu=v||null;render(true);return}
+    if(k==='panel'){S.panel=v||null;render(true);return}
+    if(k==='sheet'){S.sheet=v||null;render(true);return}
+    if(k==='filter'){S.filter=v;render(true);return}
+    if(k==='av'){S.avV=v;render(true);return}
+    if(k==='toast'){S.menu=null;S.sheet=null;toast(v);return}
+  }
+  const g=e.target.closest('[data-go]');
+  if(g){const id=g.dataset.go;
+    if(id.startsWith('x')||!id){S.menu=null;S.sheet=null;toast('Pantalla fuera de esta propuesta: mantiene su contenido actual');return}
+    if(S.dev==='desktop')S.ds=id;else S.ms=id;S.menu=S.panel=S.sheet=null;render();
+    const sc=document.querySelector('.dbody,.mbody');if(sc)sc.scrollTop=0}
+});
+addEventListener('keydown',e=>{if(e.key==='Escape'){S.menu=S.panel=S.sheet=null;render(true)}
+ if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='k'&&S.dev==='desktop'){e.preventDefault();S.menu='cmd';render(true)}});
+addEventListener('resize',fit);
+if(document.fonts&&document.fonts.ready)document.fonts.ready.then(fit);
+
+/* ========== Contenido de la página ========== */
+const CMP=[
+['Tres capas de navegación, una sola','Sidebar acordeón con ~80 entradas, más barra de tabs, más galería de tiles: la misma pantalla se alcanza por tres caminos.','Sidebar de 8 secciones, subnavegación contextual arriba y búsqueda Ctrl K para saltar a cualquier módulo.'],
+['Emojis por íconos de línea','TAB_ICONS usa ~90 emojis (📦 🧾 🩺 🏘️…). Cambian de forma según el sistema operativo y no se pueden teñir.','Un set único de íconos de línea que toma el color del tema y del acento.'],
+['Barra superior con 7 botones sueltos','Menú, tema, sincronizar, alertas, subir, cerrar sesión y nombre de obra compiten en la misma fila.','Búsqueda, alertas, Nyra y un solo botón “Nuevo”. Tema, paleta, cuenta y cerrar sesión pasan al menú de perfil.'],
+['Cuatro banners apilados sobre el contenido','Instalar app, 2FA, novedades y actualización empujan la pantalla hacia abajo cada vez que aparecen.','Un solo Centro de avisos en la campana. El contenido siempre empieza en el mismo lugar.'],
+['Un Resumen que se lee de arriba abajo','Cinco tarjetas de KPI iguales, un widget, una tabla de datos con párrafos de ayuda y más KPIs.','Un héroe de avance con “Meta hoy”, desviación en píldora, curva S y una lista “Requiere atención” con acceso directo.'],
+['Modales largos por paneles','Cada detalle abre un modal con texto explicativo y botones al final, y pierde el contexto de la lista.','Panel lateral en escritorio y hoja inferior en celular. La tabla queda visible detrás.'],
+['Celular: dos botones flotantes compiten','El “+” central y el 💬 de Nyra flotan juntos; el drawer de galería lista 10 botones de ancho completo.','Nyra vive en el encabezado, el “+” abre acciones rápidas y “Más” muestra las secciones en cuadrícula.'],
+['Menos brillo, más jerarquía','Sombras de neón en la tarjeta de bienvenida, el resumen y la galería quitan foco a los datos.','Superficies en capas, bordes finos y un solo acento. El color semántico (verde, ámbar, rojo) queda para el estado.']];
+$('#cmp').innerHTML=CMP.map(c=>`<article><h3>${c[0]}</h3><div class="ba"><div class="bf"><b>Hoy</b><span>${c[1]}</span></div><div class="af"><b>Propuesta</b><span>${c[2]}</span></div></div></article>`).join('');
+$('#tok').innerHTML=[['Fondo','var(--bg)'],['Barra lateral','var(--side)'],['Superficie','var(--surf)'],['Superficie 2','var(--surf2)'],['Acento','var(--accent)'],['Ejecutado / ok','var(--ok)'],['Advertencia','var(--warn)'],['Crítico','var(--bad)']].map(t=>`<div><i style="background:${t[1]}"></i>${t[0]}</div>`).join('');
+$('#plan').innerHTML=[['1. Tokens','Reemplazar variables de <code>:root</code> por esta paleta y escala. Las 4 paletas pasan a depender de un solo matiz.'],['2. Íconos','Cambiar <code>TAB_ICONS</code> y los emojis de <code>SECTION_DEFS</code> por el set SVG que ya usa <code>icon()</code>.'],['3. Shell','Rehacer sidebar y topbar. Mover tema, paleta y sesión al menú de perfil; unificar banners en la campana.'],['4. Pantallas clave','Clientes, Resumen, galerías de sección: solo cambia el markup y el CSS.'],['5. Tablas y paneles','Convertir modales de detalle a panel lateral y hoja inferior; tablas con encabezado fijo.'],['6. Celular','Barra inferior nueva, Nyra al encabezado, hoja “Más”. Probar sticky en iOS según tu CLAUDE.md.']].map(p=>`<li><b>${p[0]}</b>${p[1]}</li>`).join('');
+render();
+</script>
+
+</body></html>

@@ -132,11 +132,32 @@
          obra seleccionada: tema, accesibilidad, cuenta, sesión. Reutiliza las
          funciones existentes (setTheme/applyTheme, setReduceMotion,
          setHighContrast, openMiCuentaModal, logout) sin duplicar su lógica. -->
-    <aside id="galleryDrawer" class="gallery-drawer" aria-label="Ajustes">
+    <aside id="galleryDrawer" class="gallery-drawer" aria-label="Menú principal">
       <div class="gallery-drawer-header">
-        <strong>Ajustes</strong>
-        <button id="btnGalleryDrawerClose" class="icon-btn" aria-label="Cerrar">✕</button>
+        <div class="gd-brand">
+          <img src="/assets/logo-roforb-icon.png" alt="" class="gd-brand-logo" />
+          <span class="gd-brand-t"><b>Grupo Roforb</b><small>Control Presupuestal</small></span>
+        </div>
+        <button id="btnGalleryDrawerClose" class="icon-btn" aria-label="Ocultar panel" title="Ocultar panel">✕</button>
       </div>
+      <!-- Accesos globales: visibilidad real la decide updateGalleryDrawerGlobalLinks() (mismo criterio que protege esas vistas) -->
+      <div class="gd-lbl">General</div>
+      <button id="btnGalleryGoClientes" class="btn full gd-active" aria-current="page">Clientes</button>
+      <button id="btnGalleryGoDashboardEjecutivo" class="btn full hidden-initial">Dashboard Ejecutivo</button>
+      <button id="btnGalleryGoDashboardCostos" class="btn full hidden-initial">Dashboard de Costos (Global)</button>
+      <button id="btnGalleryGoTrabajadoresGlobal" class="btn full hidden-initial">Trabajadores (Todas las Obras)</button>
+      <button id="btnGalleryGoNominasGlobal" class="btn full hidden-initial">Nóminas (Todas las Obras)</button>
+      <button id="btnGalleryGoMaquinaria" class="btn full hidden-initial">Maquinaria</button>
+      <div class="gd-lbl hidden-initial" id="galleryDrawerAdminLabel">Administración</div>
+      <hr class="ajustes-divider hidden-initial" id="galleryDrawerAdminDivider">
+      <button id="btnGalleryGoUsuarios" class="btn full hidden-initial">Usuarios</button>
+      <button id="btnGalleryGoPermisos" class="btn full hidden-initial">Permisos</button>
+      <button id="btnGalleryGoClientesArchivados" class="btn full hidden-initial">Clientes archivados</button>
+      <button id="btnGalleryGoClientesCompletados" class="btn full hidden-initial">Clientes completados</button>
+      <div class="gd-spacer"></div>
+      <button id="btnGalleryGoNovedades" class="btn full">Novedades</button>
+      <details class="gd-settings">
+        <summary>Apariencia y accesibilidad</summary>
       <label class="ajustes-tema-label">Tema</label>
       <div class="theme-selector" id="galleryDrawerThemeSelector">
         <button class="theme-opt" data-theme-set="light"><span id="galleryThemeIconLight"></span>Claro</button>
@@ -182,36 +203,17 @@
           <span class="a11y-switch-track"><span class="a11y-switch-thumb"></span></span>
         </label>
       </div>
-      <!-- Accesos globales de administración — mismas vistas del sidebar real
-           (#app), solo un punto de entrada adicional para no obligar a elegir
-           una obra primero. Ocultos por defecto (hidden-initial); visibilidad
-           real la decide updateGalleryDrawerGlobalLinks() en app.js según
-           state.allowedTabs, mismo criterio que ya protege esas vistas. -->
-      <hr class="ajustes-divider hidden-initial" id="galleryDrawerAdminDivider">
-      <label class="ajustes-tema-label hidden-initial" id="galleryDrawerAdminLabel">Administración</label>
-      <button id="btnGalleryGoUsuarios" class="btn full hidden-initial">Usuarios</button>
-      <button id="btnGalleryGoDashboardEjecutivo" class="btn full hidden-initial">Dashboard Ejecutivo</button>
-      <!-- prompt-accesos-dashboard-costos-global.md: mismo Dashboard de Costos
-           que ya existe dentro de cada obra (Costos → Dashboard de Costos),
-           pero entrando sin obra seleccionada — admin/desarrollador only,
-           gate real en updateGalleryDrawerGlobalLinks() (isAdmin()) y en el
-           backend (GET /api/costos/dashboard-global, auth.allow() sin roles
-           extra = solo admin/desarrollador). -->
-      <button id="btnGalleryGoDashboardCostos" class="btn full hidden-initial">Dashboard de Costos (Global)</button>
-      <button id="btnGalleryGoTrabajadoresGlobal" class="btn full hidden-initial">Trabajadores (Todas las Obras)</button>
-      <button id="btnGalleryGoNominasGlobal" class="btn full hidden-initial">Nóminas (Todas las Obras)</button>
-      <button id="btnGalleryGoPermisos" class="btn full hidden-initial">Permisos</button>
-      <button id="btnGalleryGoMaquinaria" class="btn full hidden-initial">Maquinaria</button>
-      <button id="btnGalleryGoClientesArchivados" class="btn full hidden-initial">Clientes archivados</button>
-      <button id="btnGalleryGoClientesCompletados" class="btn full hidden-initial">Clientes completados</button>
-      <hr class="ajustes-divider">
-      <!-- Novedades: informativa para TODOS los roles (mismo criterio que en
-           el sidebar real, ver renderSidebar() en app.js), por eso NO pasa
-           por updateGalleryDrawerGlobalLinks() — siempre visible, sin gate
-           de permiso. -->
-      <button id="btnGalleryGoNovedades" class="btn full">Novedades</button>
-      <button id="btnMiCuentaGalleryDrawer" class="btn full">Mi cuenta</button>
-      <button id="btnLogoutGalleryDrawer" class="btn full">Cerrar sesión</button>
+      </details>
+      <div class="gd-profile">
+        <div class="gd-profile-info">
+          <div class="sidebar-avatar" id="galleryProfileAvatar"></div>
+          <div class="gd-profile-t"><b id="galleryProfileName"></b><small id="galleryProfileRole"></small></div>
+        </div>
+        <div class="gd-profile-actions">
+          <button id="btnMiCuentaGalleryDrawer" class="btn full">Mi cuenta</button>
+          <button id="btnLogoutGalleryDrawer" class="btn full">Cerrar sesión</button>
+        </div>
+      </div>
     </aside>
     <div id="galleryDrawerOverlay" class="gallery-drawer-overlay"></div>
   </div>

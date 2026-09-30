@@ -1190,6 +1190,7 @@ function showClientGallery() {
   ocultarPantalla('welcomeScreen');
   mostrarPantalla('clientGalleryScreen', 'flex');
   setAsistenteFabVisible(true);
+  syncGalleryDock(); // panel lateral abierto por defecto en escritorio
 }
 function showWelcomeScreen() {
   ocultarPantalla('loginScreen');
@@ -2012,10 +2013,46 @@ function openGalleryDrawer() {
 }
 
 function closeGalleryDrawer() {
-  $('#galleryDrawer').classList.remove('show');
+  $('#galleryDrawer').classList.remove('show', 'docked');
   $('#galleryDrawerOverlay').classList.remove('show');
+  $('#clientGalleryScreen')?.classList.remove('drawer-docked');
   unlockBodyScroll('gallery-drawer');
 }
+
+// Panel lateral fijo en la bienvenida (escritorio >= 861px): visible al entrar, se oculta/muestra con ☰ y
+// recuerda la preferencia. En celular sigue siendo un cajón con overlay. closeGalleryDrawer() (usado al navegar
+// desde un enlace del panel) solo lo esconde de forma transitoria; la preferencia se guarda únicamente con ☰ o ✕.
+const GALLERY_DOCK_KEY = 'cp_gallery_dock'; // 'closed' | ausente = abierto
+function galleryDockable() { return window.matchMedia('(min-width: 861px)').matches; }
+function galleryDockWanted() { try { return localStorage.getItem(GALLERY_DOCK_KEY) !== 'closed'; } catch (_) { return true; } }
+function setGalleryDockWanted(on) { try { if (on) localStorage.removeItem(GALLERY_DOCK_KEY); else localStorage.setItem(GALLERY_DOCK_KEY, 'closed'); } catch (_) { /* sin storage */ } }
+function syncGalleryDock() {
+  const d = $('#galleryDrawer'); const scr = $('#clientGalleryScreen');
+  if (!d || !scr) return;
+  if (galleryDockable()) {
+    const on = galleryDockWanted();
+    d.classList.toggle('docked', on); d.classList.toggle('show', on);
+    scr.classList.toggle('drawer-docked', on);
+    $('#galleryDrawerOverlay').classList.remove('show');
+    unlockBodyScroll('gallery-drawer');
+    if (on) {
+      applyTheme(getTheme());
+      const rm = $('#chkReduceMotionGallery'); if (rm) rm.checked = getReduceMotion();
+      const hc = $('#chkHighContrastGallery'); if (hc) hc.checked = getHighContrast();
+    }
+  } else if (d.classList.contains('docked')) {
+    closeGalleryDrawer(); // al pasar a celular el panel fijo se convierte en cajón cerrado
+  }
+}
+function toggleGalleryDock() {
+  if (!galleryDockable()) { openGalleryDrawer(); return; }
+  setGalleryDockWanted(!galleryDockWanted());
+  syncGalleryDock();
+}
+window.matchMedia('(min-width: 861px)').addEventListener('change', () => {
+  const scr = $('#clientGalleryScreen');
+  if (scr && scr.style.display !== 'none' && scr.classList.contains('show')) syncGalleryDock();
+});
 
 // Accesos globales de administración del drawer de galería (Usuarios,
 // Trabajadores/Nóminas todas las obras, Permisos) — visibilidad calculada
@@ -2030,7 +2067,7 @@ const GALLERY_DRAWER_ICONS = {
   btnGalleryGoUsuarios: ['usuarios', 2], btnGalleryGoDashboardEjecutivo: ['dash', 1], btnGalleryGoDashboardCostos: ['dash', 7],
   btnGalleryGoTrabajadoresGlobal: ['users', 5], btnGalleryGoNominasGlobal: ['tesoreria', 4], btnGalleryGoPermisos: ['key', 3],
   btnGalleryGoMaquinaria: ['maquinaria', 6], btnGalleryGoClientesArchivados: ['archive', 7], btnGalleryGoClientesCompletados: ['check', 4],
-  btnGalleryGoNovedades: ['gift', 2], btnMiCuentaGalleryDrawer: ['usuarios', 6], btnLogoutGalleryDrawer: ['log-out', 5],
+  btnGalleryGoClientes: ['home', 1], btnGalleryGoNovedades: ['gift', 2], btnMiCuentaGalleryDrawer: ['usuarios', 6], btnLogoutGalleryDrawer: ['log-out', 5],
 };
 // Se repinta al cambiar la preferencia de íconos (Color / Minimalista): quita el SVG anterior y pone el nuevo.
 function decorateGalleryDrawerIcons() {
@@ -2083,16 +2120,17 @@ function updateGalleryDrawerGlobalLinks() {
   decorateGalleryDrawerIcons();
   const puedeVer = (tab) => !!state.user && state.allowedTabs.includes(tab);
   const links = enlacesGlobalesVisibles();
-  let anyVisible = false;
+  const GRUPO_ADMIN = ['btnGalleryGoUsuarios', 'btnGalleryGoPermisos', 'btnGalleryGoClientesArchivados', 'btnGalleryGoClientesCompletados'];
+  let anyAdmin = false;
   links.forEach(([id, visible]) => {
     const btn = $('#' + id);
     if (btn) btn.classList.toggle('hidden-initial', !visible);
-    if (visible) anyVisible = true;
+    if (visible && GRUPO_ADMIN.includes(id)) anyAdmin = true;
   });
   const divider = $('#galleryDrawerAdminDivider');
   const label = $('#galleryDrawerAdminLabel');
-  if (divider) divider.classList.toggle('hidden-initial', !anyVisible);
-  if (label) label.classList.toggle('hidden-initial', !anyVisible);
+  if (divider) divider.classList.toggle('hidden-initial', !anyAdmin);
+  if (label) label.classList.toggle('hidden-initial', !anyAdmin);
 }
 
 // Navega a una vista global de administración (sin obra seleccionada) desde
@@ -4772,6 +4810,11 @@ function renderGalleryGreeting() {
       <button type="button" class="btn btn-icon-inline gh-btn" id="ghCargarPpto">${icon('upload', 16)} Cargar presupuesto</button>
       <button type="button" class="btn btn-icon-inline gh-btn gh-btn-pri" id="ghNuevoCliente">${icon('plus', 16)} Nuevo cliente</button>
     </div>` : ''}`;
+  // Tarjeta de perfil del panel lateral
+  const ini = (state.user.nombre || '?').split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join('').toUpperCase();
+  const gpa = $('#galleryProfileAvatar'); if (gpa) gpa.textContent = ini;
+  const gpn = $('#galleryProfileName'); if (gpn) gpn.textContent = state.user.nombre || '';
+  const gpr = $('#galleryProfileRole'); if (gpr) gpr.textContent = PUESTO_LABELS[state.user.puesto] || state.user.puesto || '';
   $('#ghCargarPpto')?.addEventListener('click', () => promptUpload());
   $('#ghNuevoCliente')?.addEventListener('click', () => openNuevoClienteModal());
 }
@@ -5082,8 +5125,12 @@ $('#btnGalleryLogout').addEventListener('click', logout);
 $('#btnNuevoClienteDrawer').addEventListener('click', () => { closeDrawer(); openNuevoClienteModal(); });
 $('#btnCargarContratoDrawer').addEventListener('click', () => { closeDrawer(); promptUploadContrato(); });
 
-$('#btnGalleryMenu').addEventListener('click', openGalleryDrawer);
-$('#btnGalleryDrawerClose').addEventListener('click', closeGalleryDrawer);
+$('#btnGalleryMenu').addEventListener('click', toggleGalleryDock);
+$('#btnGalleryGoClientes').addEventListener('click', () => {
+  if (!galleryDockable()) closeGalleryDrawer();
+  const scr = $('#clientGalleryScreen'); if (scr) scr.scrollTo({ top: 0, behavior: 'smooth' });
+});
+$('#btnGalleryDrawerClose').addEventListener('click', () => { if (galleryDockable()) { setGalleryDockWanted(false); syncGalleryDock(); } else closeGalleryDrawer(); });
 $('#galleryDrawerOverlay').addEventListener('click', closeGalleryDrawer);
 $('#chkReduceMotionGallery').addEventListener('change', (e) => setReduceMotion(e.target.checked));
 $('#chkHighContrastGallery').addEventListener('change', (e) => setHighContrast(e.target.checked));

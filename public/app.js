@@ -5877,21 +5877,12 @@ async function renderInicio(view) {
           </div>`;
       }
       return `
-        <div class="avance-bullet">
-          <div class="avance-bullet-head">
-            <div class="avance-bullet-big">${fmtNum(ejec, 1)}<span class="pct-sign">%</span><span class="avance-bullet-cur">ejecutado · ${fmtMoney(resumen.importe_ejecutado)}</span></div>
-            <span class="badge ${desvKind}">${desviacion >= 0 ? '+' : ''}${fmtNum(desviacion, 1)} pp vs. programa</span>
-          </div>
-          <div class="avance-bullet-track">
-            <div class="avance-bullet-zone" data-width="${progPct}"></div>
-            <div class="avance-bullet-fill" data-width="${ejecPct}"></div>
-            <div class="avance-bullet-marker" data-left="${markerPct}"></div>
-            <div class="avance-bullet-marker-label" data-left="${markerPct}">Meta hoy</div>
-          </div>
-          <div class="avance-bullet-kpis">
-            <div class="avance-bullet-kpi"><div class="k"><span class="avance-dot avance-dot-verde"></span>Ejecutado</div><div class="v">${fmtMoney(resumen.importe_ejecutado)}</div></div>
-            <div class="avance-bullet-kpi"><div class="k"><span class="avance-dot avance-dot-dorado"></span>Programado (a la fecha)</div><div class="v">${fmtMoney(resumen.importe_programado)}</div></div>
-            <div class="avance-bullet-kpi"><div class="k"><span class="avance-dot avance-dot-muted"></span>Resto por ejecutar</div><div class="v">${fmtMoney(restoPorEjecutar)}</div></div>
+        <div class="rs-track">
+          <span class="rs-tag" data-left="${markerPct}">Meta hoy · ${fmtNum(prog, 1)}%</span>
+          <div class="rs-bar">
+            <div class="rs-bar-z" data-width="${progPct}"></div>
+            <div class="rs-bar-f" data-width="${ejecPct}"></div>
+            <div class="rs-bar-m" data-left="${markerPct}"></div>
           </div>
         </div>`;
     };
@@ -5918,73 +5909,71 @@ async function renderInicio(view) {
       }).join('')
       : `<div class="rs-ai rs-ai-ok"><span class="rs-ai-ic green">${icon('check', 16)}</span><span class="rs-ai-txt"><b>Todo en orden</b><small>Sin alertas ni vencimientos pendientes</small></span></div>`;
 
+    const fmM = (n) => (Math.abs(n) >= 1e6 ? `$${(n / 1e6).toFixed(1)} M` : fmtMoney(n));
     dashboardHtml = `
       <div class="rs-head">
         <div class="rs-head-t">
-          <h2 class="rs-title">${esc(m.obra || (proyActual && proyActual.nombre) || 'Resumen del presupuesto')}</h2>
-          <p class="muted rs-sub">${esc([clienteActual && clienteActual.nombre, m.lugar].filter(Boolean).join(' · ') || '—')}</p>
-          <div class="rs-pills">
+          <h1 class="rs-title">${esc(m.obra || (proyActual && proyActual.nombre) || 'Resumen del presupuesto')}</h1>
+          <p class="rs-sub">${esc([clienteActual && clienteActual.nombre, m.lugar].filter(Boolean).join(' · ') || '—')}
             ${mostrarAvanceFinanciero ? `<span class="badge ${desvKind}">${estadoLbl}</span>` : ''}
-            ${finEstado ? `<span class="badge ${finEstado.vencido ? 'red' : 'info'}">${finEstado.vencido ? `Vencido hace ${Math.abs(finEstado.dias)} d` : `Vence en ${finEstado.dias} d`}</span>` : ''}
-          </div>
+            ${finEstado ? `<span class="badge ${finEstado.vencido ? 'red' : 'info'}">${icon('clock', 12)} ${finEstado.vencido ? `Vencido hace ${Math.abs(finEstado.dias)} días` : `Vence en ${finEstado.dias} días`}</span>` : ''}</p>
         </div>
-        <div class="rs-actions"><button class="btn small btn-icon-inline" id="btnEditFechasObra">${icon('pencil', 14)} Editar fechas</button></div>
+        <div class="rs-actions"><button class="btn btn-icon-inline" id="btnEditFechasObra" title="Corregir inicio y fin de obra — al guardar se regenera el Programa y la curva de Avance">${icon('pencil', 15)} Editar fechas</button></div>
       </div>
 
       ${mostrarAvanceFinanciero ? `
       <div class="rs-grid">
-        <div class="card rs-hero">
-          <h3 class="section-title row between avance-title-row">
-            <span>Avance físico-financiero</span>
-            <span class="avance-view-toggle" id="avanceViewToggle" role="group" aria-label="Cambiar vista del widget">
-              <button type="button" class="avance-view-btn ${vistaAvance === 'bullet' ? 'active' : ''}" data-vista="bullet">Barra</button>
-              <button type="button" class="avance-view-btn ${vistaAvance === 'dona' ? 'active' : ''}" data-vista="dona">Dona</button>
-            </span>
-          </h3>
+        <section class="card rs-hero">
+          <div class="rs-hero-top">
+            <div>
+              <span class="rs-lbl">Avance ejecutado</span>
+              <div class="rs-big num">${fmtNum(ejec, 1)}<small>%</small></div>
+              <div class="rs-hero-sub num">${fmtMoney(resumen.importe_ejecutado)} de ${fmtMoney(resumen.presupuesto_total)}</div>
+            </div>
+            <div class="rs-hero-side">
+              <span class="badge ${desvKind}">${desviacion >= 0 ? '+' : '−'}${fmtNum(Math.abs(desviacion), 1)} pp vs. programa</span>
+              <span class="avance-view-toggle" id="avanceViewToggle" role="group" aria-label="Cambiar vista del widget">
+                <button type="button" class="avance-view-btn ${vistaAvance === 'bullet' ? 'active' : ''}" data-vista="bullet">Barra</button>
+                <button type="button" class="avance-view-btn ${vistaAvance === 'dona' ? 'active' : ''}" data-vista="dona">Dona</button>
+              </span>
+            </div>
+          </div>
           <div id="avanceWidgetBody">${avanceWidgetHtml(vistaAvance)}</div>
           <!-- Avance físico: % SIMPLE de conceptos (no ponderado por $), independiente de "ejecutado"
                (financiero); pueden divergir a propósito, esa es la señal útil. -->
           <div class="rs-figs">
-            <div><span class="k">Programado a hoy</span><b class="num">${fmtPct(prog)}</b></div>
-            <div><span class="k">Avance físico</span><b class="num">${fmtPct(fisico)}</b></div>
-            <div><span class="k">Resto por ejecutar</span><b class="num">${fmtMoney(restoPorEjecutar)}</b></div>
-            <div><span class="k">Presupuesto sin IVA</span><b class="num">${fmtMoney(resumen.presupuesto_total)}</b></div>
+            <div><span class="rs-lbl">Programado a hoy</span><b class="num">${fmtNum(prog, 1)}%</b></div>
+            <div><span class="rs-lbl">Avance físico</span><b class="num">${fmtNum(fisico, 1)}%</b></div>
+            <div><span class="rs-lbl">Resto por ejecutar</span><b class="num" title="${esc(fmtMoney(restoPorEjecutar))}">${fmM(restoPorEjecutar)}</b></div>
+            <div><span class="rs-lbl">Presupuesto sin IVA</span><b class="num" title="${esc(fmtMoney(resumen.presupuesto_total))}">${fmM(resumen.presupuesto_total)}</b></div>
           </div>
-        </div>
-        <div class="card rs-att">
-          <h3 class="section-title">Requiere atención</h3>
+        </section>
+        <aside class="card rs-att">
+          <h3>Requiere atención ${atenciones.length ? `<span class="badge red">${atenciones.length}</span>` : ''}</h3>
           <div class="rs-att-list">${atencionHtml}</div>
-        </div>
-      </div>
-      <div class="card rs-curve hidden-initial" id="rsCurveCard">
-        <h3 class="section-title">Curva de avance</h3>
-        <div class="chart-wrap"><canvas id="chartResumenCurva"></canvas></div>
+        </aside>
       </div>` : `
       <div class="rs-grid rs-grid-solo">
-        <div class="card rs-att"><h3 class="section-title">Requiere atención</h3><div class="rs-att-list">${atencionHtml}</div></div>
+        <aside class="card rs-att"><h3>Requiere atención ${atenciones.length ? `<span class="badge red">${atenciones.length}</span>` : ''}</h3><div class="rs-att-list">${atencionHtml}</div></aside>
         <div class="kpi accent"><div class="label">Presupuesto total (sin IVA)</div><div class="value num">${fmtMoney(resumen.presupuesto_total)}</div></div>
       </div>`}
 
-      <h3 class="section-title">Datos de la obra</h3>
-      ${finEstado ? `
-        <div class="alert-box ${finEstado.vencido ? 'danger' : 'warn'} mb-12">
-          <div class="row between">
-            <span>${finEstado.vencido
-              ? `El contrato de esta obra venció hace ${Math.abs(finEstado.dias)} día(s) (fin de obra: ${fmtDate(m.fin_obra)}).`
-              : `El contrato de esta obra vence en ${finEstado.dias} día(s) (fin de obra: ${fmtDate(m.fin_obra)}).`}</span>
-            ${isAdmin() ? '<button class="btn small" id="btnActualizarFinObra">Actualizar fecha</button>' : ''}
-          </div>
-        </div>` : ''}
-      <div class="card">
-        <div class="card-row"><span class="k">Obra</span><span class="v">${esc(m.obra || '—')}</span></div>
-        <div class="card-row"><span class="k">Lugar</span><span class="v">${esc(m.lugar || '—')}</span></div>
-        <div class="card-row"><span class="k">Inicio de obra</span><span class="v">${fmtDate(m.inicio_obra)}</span></div>
-        <div class="card-row"><span class="k">Fin de obra</span><span class="v">${fmtDate(m.fin_obra)}</span></div>
-        ${m.fin_obra_actualizado_por ? `<div class="card-row"><span class="k muted fs-078">Última actualización</span><span class="v muted fs-078">${esc(m.fin_obra_actualizado_por)} · ${fmtDateShort(m.fin_obra_actualizado_en)}</span></div>` : ''}
-        <div class="card-row"><span class="k">Total sin IVA</span><span class="v num">${fmtMoney(resumen.presupuesto_total)}</span></div>
-        ${m.total_con_iva ? (
+      <div class="rs-grid ${mostrarAvanceFinanciero ? '' : 'rs-grid-solo'}" id="rsGridCurva">
+        ${mostrarAvanceFinanciero ? `
+        <section class="card rs-cardp hidden-initial" id="rsCurveCard">
+          <div class="rs-hd"><h3>Curva de avance</h3>
+            <div class="rs-legend"><span><i class="rs-dot rs-dot-acc"></i>Programado</span><span><i class="rs-dot rs-dot-ok"></i>Ejecutado</span></div></div>
+          <div class="chart-wrap"><canvas id="chartResumenCurva"></canvas></div>
+        </section>` : ''}
+        <section class="card rs-cardp">
+          <div class="rs-hd"><h3>Datos de la obra</h3></div>
+          <dl class="rs-dl">
+            <div><dt>Inicio de obra</dt><dd>${fmtDate(m.inicio_obra)}</dd></div>
+            <div><dt>Fin de obra</dt><dd>${fmtDate(m.fin_obra)}${finEstado && isAdmin() ? ` <button class="btn small" id="btnActualizarFinObra">Actualizar fecha</button>` : ''}</dd></div>
+            <div><dt>Total sin IVA</dt><dd class="num">${fmtMoney(resumen.presupuesto_total)}</dd></div>
+            ${m.total_con_iva ? (
           resumen.total_con_iva_valido
-            ? `<div class="card-row"><span class="k">Total con IVA</span><span class="v">${fmtMoney(m.total_con_iva)}</span></div>`
+            ? `<div><dt>Total con IVA</dt><dd class="num">${fmtMoney(m.total_con_iva)}</dd></div>`
             // prompt-12-fix-totales-iva-invertidos.md: "Total sin IVA" y
             // "Total con IVA" se extraen de 2 filas distintas del Excel
             // origen, nunca se derivan una de otra — cuando "con IVA" queda
@@ -5994,17 +5983,21 @@ async function renderInicio(view) {
             // corregir con una fórmula aquí. Se avisa en vez de mostrar la
             // cifra imposible en silencio — decisión consultada con Paul:
             // no tocar el valor guardado en este PR.
-            : `<div class="card-row"><span class="k">Total con IVA</span><span class="v"><span class="badge red" title="El valor guardado ($${fmtMoney(m.total_con_iva)}) es menor que el Total sin IVA — dato capturado incorrectamente al subir el presupuesto, revisar con el equipo antes de confiar en esta cifra.">${icon('warning', 14)} Dato inconsistente</span></span></div>`
+            : `<div><dt>Total con IVA</dt><dd class="num"><span class="badge red" title="El valor guardado ($${fmtMoney(m.total_con_iva)}) es menor que el Total sin IVA — dato capturado incorrectamente al subir el presupuesto, revisar con el equipo antes de confiar en esta cifra.">${icon('warning', 14)} Dato inconsistente</span></dd></div>`
         ) : ''}
-        <p class="muted inicio-fechas-note">Si el archivo traía las fechas de inicio/fin vacías o incorrectas, usa "Editar fechas" arriba — al guardar se regenera todo el Programa y la curva de Avance.</p>
+            ${m.fin_obra_actualizado_por ? `<div><dt>Última actualización</dt><dd>${esc(m.fin_obra_actualizado_por)} · ${fmtDateShort(m.fin_obra_actualizado_en)}</dd></div>` : ''}
+          </dl>
+        </section>
       </div>
 
-      <h3 class="section-title">Requisiciones de compra</h3>
-      <div class="kpi-grid">
-        <div class="kpi"${gotoAttr('requisiciones')}><div class="label">Requisiciones activas</div><div class="value num">${resumen.requisiciones.num_requisiciones}</div></div>
-        <div class="kpi"${gotoAttr('requisiciones')}><div class="label">Importe requisitado</div><div class="value num">${fmtMoney(resumen.requisiciones.importe_requisitado)}</div></div>
-        <div class="kpi ${resumen.requisiciones.alertas_cantidad ? 'red' : 'green'}"${gotoAttr('requisiciones')}><div class="label">Alertas de cantidad</div><div class="value num">${resumen.requisiciones.alertas_cantidad}</div></div>
-        <div class="kpi ${resumen.requisiciones.alertas_precio ? 'red' : 'green'}"${gotoAttr('requisiciones')}><div class="label">Alertas de precio</div><div class="value num">${resumen.requisiciones.alertas_precio}</div></div>
+      <div>
+        <div class="rs-tools"><h3>Requisiciones de compra</h3>${puedeIr('requisiciones') ? '<button type="button" class="rs-link" data-goto="requisiciones">Ver todas →</button>' : ''}</div>
+        <div class="rs-kp4">
+          <div class="card rs-kp"${gotoAttr('requisiciones')}><span class="rs-lbl">Activas</span><span class="rs-big2 num">${resumen.requisiciones.num_requisiciones}</span></div>
+          <div class="card rs-kp"${gotoAttr('requisiciones')}><span class="rs-lbl">Importe requisitado</span><span class="rs-big2 num" title="${esc(fmtMoney(resumen.requisiciones.importe_requisitado))}">${fmM(resumen.requisiciones.importe_requisitado)}</span></div>
+          <div class="card rs-kp"${gotoAttr('requisiciones')}><span class="rs-lbl">Alertas de cantidad</span><span class="rs-big2 num ${resumen.requisiciones.alertas_cantidad ? 'rs-neg' : ''}">${resumen.requisiciones.alertas_cantidad}</span></div>
+          <div class="card rs-kp"${gotoAttr('requisiciones')}><span class="rs-lbl">Alertas de precio</span><span class="rs-big2 num ${resumen.requisiciones.alertas_precio ? 'rs-neg' : ''}">${resumen.requisiciones.alertas_precio}</span></div>
+        </div>
       </div>
     `;
   }
@@ -6104,32 +6097,61 @@ async function renderInicio(view) {
   if (puedeVerResumen && mostrarAvanceFinanciero) {
     (async () => {
       const card = $('#rsCurveCard');
+      const grid = $('#rsGridCurva');
+      const sinCurva = () => { if (grid) grid.classList.add('rs-grid-solo'); };
       try {
         const avances = await cached('resumenCurva', () => api(`/projects/${state.projectId}/avances`));
-        if (!card || !document.body.contains(card) || !Array.isArray(avances) || !avances.length) return;
+        if (!card || !document.body.contains(card)) return;
+        if (!Array.isArray(avances) || !avances.length) { sinCurva(); return; }
         card.classList.remove('hidden-initial');
         if (state.charts.resumenCurva) { state.charts.resumenCurva.destroy(); state.charts.resumenCurva = null; }
         const cc = chartColors();
-        state.charts.resumenCurva = new Chart($('#chartResumenCurva').getContext('2d'), {
+        // Índice de "hoy": la semana cuyo rango cubre hoy; si no hay, la última con avance real.
+        const hoyISO = new Date().toISOString().slice(0, 10);
+        let idxHoy = avances.findIndex((a) => a.fecha_inicio && a.fecha_fin && String(a.fecha_inicio).slice(0, 10) <= hoyISO && hoyISO <= String(a.fecha_fin).slice(0, 10));
+        if (idxHoy < 0) { for (let i = avances.length - 1; i >= 0; i--) { if (avances[i].avance_financiero_real != null) { idxHoy = i; break; } } }
+        const hoyPlugin = {
+          id: 'rsHoy',
+          afterDatasetsDraw(chart) {
+            if (idxHoy < 0) return;
+            const x = chart.scales.x.getPixelForValue(idxHoy);
+            const { top, bottom } = chart.chartArea;
+            const cs = getComputedStyle(document.documentElement);
+            const col = cs.getPropertyValue('--accent-gold').trim() || '#D4AC55';
+            const ctx = chart.ctx;
+            ctx.save();
+            ctx.setLineDash([3, 4]); ctx.strokeStyle = col; ctx.lineWidth = 1.2;
+            ctx.beginPath(); ctx.moveTo(x, top); ctx.lineTo(x, bottom); ctx.stroke();
+            ctx.setLineDash([]); ctx.fillStyle = col; ctx.font = '700 10.5px Inter, sans-serif';
+            ctx.fillText('Hoy', x + 6, top + 10);
+            ctx.restore();
+          },
+        };
+        const g = $('#chartResumenCurva').getContext('2d');
+        const grad = g.createLinearGradient(0, 0, 0, 260);
+        grad.addColorStop(0, 'rgba(60,192,138,0.28)'); grad.addColorStop(1, 'rgba(60,192,138,0)');
+        state.charts.resumenCurva = new Chart(g, {
           type: 'line',
           data: {
             labels: avances.map((a) => `S${a.semana}`),
             datasets: [
-              { label: 'Programado %', data: avances.map((a) => a.avance_financiero_programado), borderColor: cc.atraso, backgroundColor: 'transparent', tension: 0.25, pointRadius: 0 },
-              { label: 'Ejecutado %', data: avances.map((a) => a.avance_financiero_real), borderColor: '#22c55e', backgroundColor: 'rgba(34,197,94,0.12)', tension: 0.25, spanGaps: true, fill: true, pointRadius: 0 },
+              { label: 'Programado %', data: avances.map((a) => a.avance_financiero_programado), borderColor: cc.atraso, backgroundColor: 'transparent', borderWidth: 2, tension: 0.35, pointRadius: 0 },
+              { label: 'Ejecutado %', data: avances.map((a) => a.avance_financiero_real), borderColor: '#3cc08a', backgroundColor: grad, borderWidth: 2.6, tension: 0.35, spanGaps: true, fill: true, pointRadius: 0 },
             ],
           },
           options: {
             responsive: true, maintainAspectRatio: false,
             animation: animationForChart(`resumenCurva:${state.projectId}`),
+            interaction: { mode: 'index', intersect: false },
             scales: {
-              x: { ticks: { color: cc.tick, maxRotation: 0, autoSkip: true, font: { size: 10 } }, grid: { color: cc.grid } },
-              y: { min: 0, max: 100, ticks: { color: cc.tick, callback: (v) => `${v}%` }, grid: { color: cc.grid } },
+              x: { ticks: { color: cc.tick, maxRotation: 0, autoSkip: true, maxTicksLimit: 8, font: { size: 10.5 } }, grid: { display: false } },
+              y: { min: 0, max: 100, ticks: { color: cc.tick, stepSize: 25, callback: (v) => `${v}%`, font: { size: 10.5 } }, grid: { color: cc.grid } },
             },
-            plugins: { legend: { position: 'bottom', labels: { color: cc.text, boxWidth: 14, font: { size: 11 } } } },
+            plugins: { legend: { display: false } },
           },
+          plugins: [hoyPlugin],
         });
-      } catch (_) { /* sin permiso o sin fechas de obra: la tarjeta queda oculta, sin error visible */ }
+      } catch (_) { sinCurva(); /* sin permiso o sin fechas de obra: la tarjeta queda oculta, sin error visible */ }
     })();
   }
   // Botones de "Datos de la obra": SIEMPRE que puedeVerResumen, sin depender
@@ -6140,6 +6162,7 @@ async function renderInicio(view) {
     $('#btnActualizarFinObra')?.addEventListener('click', () => openQuickFinObraModal(m));
   }
 
+  if (window.CPShellV2 && isUiV2()) window.CPShellV2.onNav(); // refresca contadores del sidebar con el resumen ya cargado
   $$('.section-card', view).forEach((el) => el.addEventListener('click', () => goToSection(el.dataset.section)));
   $$('[data-goto]', view).forEach((btn) => btn.addEventListener('click', () => switchToView(btn.dataset.goto)));
 }

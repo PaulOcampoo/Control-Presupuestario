@@ -20,18 +20,21 @@
   function crumbHtml() {
     const parts = [];
     const proj = state.projectId ? (state.projects || []).find((p) => p.id === state.projectId) : null;
-    if (proj) parts.push({ label: proj.nombre, go: 'resumen' });
-    const sec = state.section && SECTION_DEFS[state.section];
-    if (sec) parts.push({ label: sec.label, go: 'section' });
-    const viewLabel = TAB_LABELS[state.view];
-    if (viewLabel && viewLabel !== (sec && sec.label)) parts.push({ label: viewLabel, go: null });
-    if (!parts.length) parts.push({ label: 'Clientes', go: null });
+    const cli = proj && (state.clientes || []).find((c) => c.id === proj.cliente_id);
+    parts.push({ label: 'Clientes', go: proj ? 'clientes' : null });
+    if (proj) {
+      if (cli) parts.push({ label: cli.nombre, go: 'cliente', id: cli.id });
+      parts.push({ label: proj.nombre, go: 'resumen' });
+      const sec = state.section && SECTION_DEFS[state.section];
+      if (sec) parts.push({ label: sec.label, go: 'section' });
+      const viewLabel = TAB_LABELS[state.view];
+      if (viewLabel && viewLabel !== (sec && sec.label) && state.view !== 'resumen') parts.push({ label: viewLabel, go: null });
+    }
     return parts.map((c, i) => {
       const last = i === parts.length - 1;
-      const chev = last ? '' : icon('chevron-right', 13);
       return last || !c.go
         ? `<b>${esc2(c.label)}</b>`
-        : `<button type="button" class="v2-crumb-link" data-v2-go="${c.go}">${esc2(c.label)}</button>${chev}`;
+        : `<button type="button" class="v2-crumb-link" data-v2-go="${c.go}"${c.id != null ? ` data-v2-id="${c.id}"` : ''}>${esc2(c.label)}</button>${icon('chevron-right', 13)}`;
     }).join('');
   }
   V2.renderCrumb = function () {
@@ -169,7 +172,46 @@
   };
 
   // ── Ganchos desde app.js ─────────────────────────────────────────────────
-  V2.onNav = function () { V2.renderCrumb(); V2.renderAvisos(); };
+  // Ajustes de marcado del marco (sidebar/topbar) para igualar el prototipo, sin tocar la lógica de v1.
+  V2.decorate = function () {
+    // Marca: logo en cuadro redondeado + nombre en dos líneas
+    const brandName = document.querySelector('#btnSidebarBrand .sidebar-brand-name');
+    if (brandName && !brandName.dataset.v2) {
+      brandName.dataset.v2 = '1';
+      brandName.innerHTML = '<b>Grupo Roforb</b><small>Control Presupuestal</small>';
+    }
+    // Tarjeta de obra: monograma del cliente + nombre + "Cliente · N obras"
+    const projBtn = document.getElementById('btnSidebarProject');
+    if (projBtn) {
+      const proj = state.projectId ? (state.projects || []).find((p) => p.id === state.projectId) : null;
+      const cli = proj && (state.clientes || []).find((c) => c.id === proj.cliente_id);
+      const ic = document.getElementById('sidebarProjectIcon');
+      if (ic) ic.textContent = proj ? clienteMonograma((cli && cli.nombre) || proj.nombre) : '·';
+      let sub = projBtn.querySelector('.v2-proj-sub');
+      if (!sub) { sub = document.createElement('small'); sub.className = 'v2-proj-sub'; const chev = document.getElementById('sidebarProjectChevron'); projBtn.insertBefore(sub, chev); }
+      const n = cli ? (state.projects || []).filter((p) => p.cliente_id === cli.id).length : 0;
+      sub.textContent = cli ? `${cli.nombre} · ${n} obra${n === 1 ? '' : 's'}` : '';
+    }
+    const nav = document.getElementById('sidebarNav');
+    if (nav) {
+      // Rótulo "SECCIONES" antes del primer grupo de sección
+      nav.querySelectorAll('.v2-nav-lbl').forEach((e) => e.remove());
+      const first = nav.querySelector('.sbar-group');
+      if (first) { const l = document.createElement('div'); l.className = 'v2-nav-lbl'; l.textContent = 'Secciones'; nav.insertBefore(l, first); }
+      // Contador de alertas de requisiciones en Compras (dato del resumen ya cargado)
+      nav.querySelectorAll('.v2-cnt').forEach((e) => e.remove());
+      const res = state.projectId && state.cache && state.cache[state.projectId] && state.cache[state.projectId].resumen;
+      const n = res && res.requisiciones ? (res.requisiciones.alertas_cantidad || 0) + (res.requisiciones.alertas_precio || 0) : 0;
+      const head = n > 0 && nav.querySelector('.sbar-group-header[data-sbar-group="compras"]');
+      if (head) { const c = document.createElement('span'); c.className = 'v2-cnt al'; c.textContent = String(n); head.appendChild(c); }
+    }
+    // Botones del topbar con ícono (una sola vez)
+    const setOnce = (id, html) => { const el = document.getElementById(id); if (el && !el.dataset.v2) { el.dataset.v2 = '1'; el.innerHTML = html; } };
+    setOnce('btnNyraV2', icon('spark', 16) + '<span>Nyra</span>');
+    setOnce('btnNuevoV2', icon('plus', 16) + '<span>Nuevo</span>' + icon('chevron-down', 14));
+    setOnce('btnSync', icon('refresh', 17));
+  };
+  V2.onNav = function () { V2.renderCrumb(); V2.renderAvisos(); V2.decorate(); };
   V2.renderMobileNav = function () { V2.sync(); };
   // Etiqueta/ícono del ítem "Ajustes" del nav móvil: "Más" en v2, "Ajustes" en v1.
   V2.sync = function () {
@@ -220,6 +262,8 @@
       const b = e.target.closest('[data-v2-go]');
       if (!b) return;
       if (b.dataset.v2Go === 'section') goToSection(state.section);
+      else if (b.dataset.v2Go === 'clientes') goToClientGallery();
+      else if (b.dataset.v2Go === 'cliente') selectCliente(Number(b.dataset.v2Id));
       else switchToView(b.dataset.v2Go);
     });
 

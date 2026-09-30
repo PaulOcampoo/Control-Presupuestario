@@ -1,3 +1,27 @@
+/* Fuentes autoalojadas (Rediseño UI v2, Fase 1). Variables, subsets latin +
+   latin-ext. Licencia OFL: public/vendor/fonts/LICENSE. Antes venían de Google
+   Fonts, que la CSP (style-src 'self') bloquea. */
+@font-face {
+  font-family: 'Inter'; font-style: normal; font-weight: 400 700; font-display: swap;
+  src: url('/vendor/fonts/inter-latin-ext.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'Inter'; font-style: normal; font-weight: 400 700; font-display: swap;
+  src: url('/vendor/fonts/inter-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Manrope'; font-style: normal; font-weight: 600 800; font-display: swap;
+  src: url('/vendor/fonts/manrope-latin-ext.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'Manrope'; font-style: normal; font-weight: 600 800; font-display: swap;
+  src: url('/vendor/fonts/manrope-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
 /* Paleta Grupo Roforb — plata/cromo + acento dorado, siguiendo la
    identidad del logotipo (public/assets/logo-roforb.png). Modo oscuro es
    el default (:root); [data-theme="light"] sobreescribe solo lo que
@@ -165,15 +189,28 @@
      imperceptible (R≥G≥B por 1-2 unidades) para que combine con el acento
      dorado en vez de competirle en temperatura de color. Solo la paleta
      Roforb dark — Morada/Jade/Terra y el modo light de Roforb no cambian. */
-  --bg-primary: #121110;
-  --bg-surface: #1A1917;
-  --bg-surface-2: #242220;
-  --border-color: #34312D;
-  --text-primary: #E7EAF2;
-  --text-secondary: #93A0B8;
-  --accent-gold: #C9A24B;
-  --accent-gold-hover: #DEBB6C;
+  /* Rediseño UI v2, Fase 1 (docs/rediseno/): valores nuevos, mismos nombres. */
+  --bg-primary: #0E0D0C;
+  --bg-surface: #191817;
+  --bg-surface-2: #211F1D;
+  --border-color: #2C2A27;
+  --text-primary: #EFEBE4;
+  --text-secondary: #A39E94;
+  --accent-gold: #D4AC55;
+  --accent-gold-hover: #E4C275;
   --accent-silver: #9CA6B4;
+
+  /* Tokens nuevos del rediseño. Derivados de los tokens base para que las 5
+     paletas los hereden sin reescribirse; dorada los fija explícito abajo. */
+  --bg-sidebar: color-mix(in srgb, var(--bg-primary) 55%, var(--bg-surface));
+  --bg-surface-3: color-mix(in srgb, var(--bg-surface-2) 82%, var(--text-primary));
+  --line: color-mix(in srgb, var(--text-primary) 9%, transparent);
+  /* Solo rótulos no esenciales >= 12px: no cumple 4.5:1 como texto de cuerpo. */
+  --text-tertiary: color-mix(in srgb, var(--text-secondary) 72%, var(--bg-primary));
+  --accent-soft: color-mix(in srgb, var(--accent-gold) 15%, transparent);
+  --accent-line: color-mix(in srgb, var(--accent-gold) 45%, transparent);
+  --on-accent: #1A1405;
+  --fs-display: 3.25rem;
 
   --green: #22c55e;
   --yellow: #eab308;
@@ -189,11 +226,11 @@
      dataset de Chart.js) — solo cambia su valor, para no perder el punto de
      extensión si se revisita el color más adelante.*/
   --donut-atraso: #eab308;
-  --radius: 12px;
+  --radius: 14px;
   --radius-control: 10px;
   --radius-md: 8px;
   --radius-sm: 6px;
-  --radius-lg: 18px;
+  --radius-lg: 20px;
   --radius-pill: 999px;
   --radius-circle: 50%;
   --safe-top: env(safe-area-inset-top, 0px);
@@ -233,9 +270,9 @@
   --shadow-md: 0 8px 28px rgba(0,0,0,0.32);
   --shadow-lg: 0 12px 40px rgba(0,0,0,0.42);
   --shadow-xl: 0 20px 60px rgba(0,0,0,0.45);
-  --shadow-glow-accent: 0 0 14px color-mix(in srgb, var(--accent-gold) 20%, transparent);
-  --shadow-glow-accent-strong: 0 0 22px color-mix(in srgb, var(--accent-gold) 42%, transparent);
-  --shadow-glow-accent-hover: 0 0 16px color-mix(in srgb, var(--accent-gold) 25%, transparent);
+  --shadow-glow-accent: 0 0 14px color-mix(in srgb, var(--accent-gold) 8%, transparent);
+  --shadow-glow-accent-strong: 0 0 22px color-mix(in srgb, var(--accent-gold) 17%, transparent);
+  --shadow-glow-accent-hover: 0 0 16px color-mix(in srgb, var(--accent-gold) 10%, transparent);
   --shadow-ring-accent: 0 0 0 2px color-mix(in srgb, var(--accent-gold) 35%, transparent);
   --shadow-ring-accent-focus: 0 0 0 3px color-mix(in srgb, var(--accent-gold) 25%, transparent);
   /* --shadow-glow-hero (prompt-paleta-roforb-carbon-glow.md): complementa
@@ -247,8 +284,8 @@
      busca el efecto neón/LED real del moodboard, no solo feedback de
      interacción. */
   --shadow-glow-hero:
-    0 0 28px color-mix(in srgb, var(--accent-gold) 45%, transparent),
-    0 0 56px color-mix(in srgb, var(--accent-gold) 18%, transparent);
+    0 0 28px color-mix(in srgb, var(--accent-gold) 18%, transparent),
+    0 0 56px color-mix(in srgb, var(--accent-gold) 7%, transparent);
 
   /* Alias de deuda técnica (prompt_deuda_css): --border/--muted/--color-warning
      se usaban en styles.css sin estar definidas — no son colores nuevos, son
@@ -275,9 +312,8 @@
   --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
   --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
 
-  /* Manrope (títulos/wordmark) + Inter (cuerpo/UI) vía Google Fonts, cargadas
-     en el <head> de index.html. Fallback al stack de sistema si el link de
-     Google Fonts no llega a cargar (offline en el primer visit, red lenta). */
+  /* Manrope (títulos/wordmark) + Inter (cuerpo/UI) autoalojadas (@font-face arriba, public/vendor/fonts/). Fallback al stack de sistema si el archivo
+     no llega a cargar (offline en el primer visit, red lenta). */
   --font-heading: 'Manrope', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   --font-body: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 }
@@ -298,6 +334,14 @@ html[data-density="compacta"] {
   --space-24: 18px;
   --space-28: 20px;
   --space-32: 24px;
+}
+
+/* Dorada oscuro: valores explícitos de los tokens nuevos (Fase 1). */
+html[data-palette="dorada"] {
+  --bg-sidebar: #121110;
+  --bg-surface-3: #2B2926;
+  --line: rgba(255, 244, 225, 0.08);
+  --text-tertiary: #75716A;
 }
 
 [data-theme="light"] {
@@ -335,10 +379,20 @@ html[data-density="compacta"] {
    fondo baja de ~3.13:1 a ~3.02:1, una diferencia marginal que no lo hace
    ilegible. */
 html[data-palette="dorada"][data-theme="light"] {
-  --bg-primary: #F6E9C7;
-  --bg-surface: #FBF3DE;
-  --bg-surface-2: #EEDDAE;
-  --border-color: #DFC48C;
+  /* Fase 1 rediseño UI v2: crema menos saturado que el #F6E9C7 original. */
+  --bg-primary: #F3EFE6;
+  --bg-surface: #FBF9F4;
+  --bg-surface-2: #F2EEE3;
+  --border-color: #DDD5C3;
+  --text-primary: #1D1A15;
+  --text-secondary: #5F5A50;
+  --accent-gold: #8F6A24;
+  --accent-gold-hover: #7A5A1E;
+  --bg-sidebar: #ECE7DB;
+  --bg-surface-3: #E6DFCF;
+  --line: rgba(40, 30, 10, 0.09);
+  --text-tertiary: #8B8579;
+  --on-accent: #FFFDF7;
 }
 
 /* Paleta Morada (prompt-selector-paleta-colores.md) — inspirada en la
@@ -578,7 +632,7 @@ button, a, select, label,
 }
 .icon-btn:active { transform: scale(0.96); }
 .icon-btn-accent {
-  background: var(--accent-gold); color: #04212f; border-color: var(--accent-gold); font-weight: 700;
+  background: var(--accent-gold); color: var(--on-accent); border-color: var(--accent-gold); font-weight: 700;
 }
 /* Botón de ícono chico, en línea con texto (ej. lápiz de renombrar junto a
    un título) — a diferencia de .icon-btn (40px, pensado para topbar/headers)
@@ -776,7 +830,7 @@ button, a, select, label,
 }
 .tab-icon { font-size: 0.95em; line-height: 1; }
 .tab.active {
-  background: var(--accent-gold); color: #04212f; border-color: var(--accent-gold); font-weight: 600;
+  background: var(--accent-gold); color: var(--on-accent); border-color: var(--accent-gold); font-weight: 600;
   box-shadow: var(--shadow-ring-accent);
 }
 .tab-back {
@@ -1052,7 +1106,7 @@ h3.section-title { margin: var(--space-16) var(--space-0) var(--space-10); font-
   min-height: 44px;
 }
 .btn:active { transform: scale(0.98); }
-.btn-primary { background: var(--accent-gold); border-color: var(--accent-gold); color: #04212f; font-weight: 700; }
+.btn-primary { background: var(--accent-gold); border-color: var(--accent-gold); color: var(--on-accent); font-weight: 700; }
 
 /* Glow + micro-interacción de CTAs primarios (prompt-animaciones-y-galeria-
    clientes.md, Prompt A) — .btn-primary/.icon-btn-accent/.fab son los 3
@@ -1167,9 +1221,9 @@ input[type="date"] { color-scheme: dark; cursor: pointer; }
 .custom-select-option:first-child { border-top: none; }
 .custom-select-option.selected { font-weight: 700; }
 @media (hover: hover) and (pointer: fine) {
-  .custom-select-option:hover { background: var(--accent-gold); color: #04212f; }
+  .custom-select-option:hover { background: var(--accent-gold); color: var(--on-accent); }
 }
-.custom-select-option.highlighted { background: var(--accent-gold); color: #04212f; }
+.custom-select-option.highlighted { background: var(--accent-gold); color: var(--on-accent); }
 
 /* prompt-checkbox-circular-diseno.md: checkbox estilizado tipo círculo,
    mismo look & feel que .custom-select-trigger (borde/radius/transición) en
@@ -1197,7 +1251,7 @@ input[type="date"] { color-scheme: dark; cursor: pointer; }
 }
 .checkbox-circle-visual::after {
   content: ''; width: 9px; height: 5px; margin-top: -1px;
-  border-left: 2px solid #04212f; border-bottom: 2px solid #04212f; transform: rotate(-45deg) scale(0);
+  border-left: 2px solid var(--on-accent); border-bottom: 2px solid var(--on-accent); transform: rotate(-45deg) scale(0);
   transition: transform 0.15s var(--ease-out);
 }
 .checkbox-circle input[type="checkbox"]:checked + .checkbox-circle-visual {
@@ -1267,7 +1321,7 @@ label { display: block; font-size: var(--fs-sm); color: var(--text-secondary); m
   flex: 0 0 auto; padding: var(--space-6) var(--space-12); border-radius: var(--radius-pill); border: 1px solid var(--border-color);
   background: var(--bg-surface-2); color: var(--text-secondary); font-size: var(--fs-sm); cursor: pointer; white-space: nowrap;
 }
-.chip.active { background: var(--accent-gold); color: #04212f; border-color: var(--accent-gold); font-weight: 600; }
+.chip.active { background: var(--accent-gold); color: var(--on-accent); border-color: var(--accent-gold); font-weight: 600; }
 
 .insumo-card { display: flex; flex-direction: column; gap: var(--space-6); }
 .insumo-card .title { font-weight: 600; font-size: var(--fs-base); }
@@ -1333,6 +1387,8 @@ thead th {
   border-bottom: 2px solid color-mix(in srgb, var(--accent-gold) 18%, var(--border-color));
 }
 td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+/* Rediseño UI v2: cifras alineadas en KPIs, tablas y montos. */
+.num, .kpi .value, .kpi-value, table td { font-variant-numeric: tabular-nums; }
 .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
 /* prompt-rediseno-presupuesto-vs-estimaciones.md: zebra striping (tabla
    larga, monótona con solo bordes) y encabezados de grupo del modo "detalle
@@ -1460,7 +1516,7 @@ tr.row-pendiente { background: color-mix(in srgb, var(--yellow) 10%, transparent
 .fab {
   position: fixed; right: 18px; bottom: calc(22px + var(--safe-bottom));
   width: 58px; height: 58px; border-radius: var(--radius-circle); border: none;
-  background: var(--accent-gold); color: #04212f; font-size: var(--fs-xl); font-weight: 700;
+  background: var(--accent-gold); color: var(--on-accent); font-size: var(--fs-xl); font-weight: 700;
   display: flex; align-items: center; justify-content: center; cursor: pointer;
   box-shadow: 0 8px 24px color-mix(in srgb, var(--accent-gold) 45%, transparent); z-index: 30;
 }
@@ -1483,7 +1539,7 @@ tr.row-pendiente { background: color-mix(in srgb, var(--yellow) 10%, transparent
    que puede iniciar desde cualquier tarjeta de Insumos. */
 .fab-fly-dot {
   position: fixed; width: 24px; height: 24px; border-radius: var(--radius-circle);
-  background: var(--accent-gold); color: #04212f; font-size: 12px; font-weight: 700;
+  background: var(--accent-gold); color: var(--on-accent); font-size: 12px; font-weight: 700;
   display: flex; align-items: center; justify-content: center; z-index: 200; pointer-events: none;
   transition: transform 0.45s var(--ease-out), opacity 0.45s var(--ease-out);
 }
@@ -2121,7 +2177,7 @@ body.body-scroll-locked { overflow: hidden; }
     color-mix(in srgb, var(--accent-gold) 65%, black) 100%);
   box-shadow: 0 10px 30px color-mix(in srgb, var(--accent-gold) 30%, transparent);
   display: flex; flex-direction: column; justify-content: space-between;
-  color: #04212f;
+  color: var(--on-accent);
 }
 .gallery-hero-top {
   display: flex; justify-content: space-between; align-items: center;
@@ -2147,11 +2203,11 @@ body.body-scroll-locked { overflow: hidden; }
 .gallery-hero-top .topbar-brand { gap: var(--space-12); align-items: center; }
 .gallery-hero-top .topbar-brand strong {
   font-family: var(--font-heading);
-  color: #04212f; font-size: clamp(2rem, 6.5vw, 3.6rem); font-weight: 800; letter-spacing: 0.01em;
+  color: var(--on-accent); font-size: clamp(2rem, 6.5vw, 3.6rem); font-weight: 800; letter-spacing: 0.01em;
 }
 .gallery-hero-top .topbar-logo { height: clamp(44px, 7vw, 58px); }
 .gallery-hero-top .btn.small {
-  background: rgba(4,33,47,0.12); border-color: rgba(4,33,47,0.25); color: #04212f;
+  background: color-mix(in srgb, var(--on-accent) 12%, transparent); border-color: color-mix(in srgb, var(--on-accent) 25%, transparent); color: var(--on-accent);
 }
 /* Mobile (≤480px, mismo breakpoint que el resto de "Mejoras móvil" de la
    hoja): el flex-wrap que se había agregado como red de seguridad SÍ se
@@ -2189,9 +2245,9 @@ body.body-scroll-locked { overflow: hidden; }
   }
 }
 .gallery-greeting h2 {
-  font-size: clamp(1.5rem, 5vw, 2rem); font-weight: 800; color: #04212f; margin: var(--space-0) var(--space-0) var(--space-6);
+  font-size: clamp(1.5rem, 5vw, 2rem); font-weight: 800; color: var(--on-accent); margin: var(--space-0) var(--space-0) var(--space-6);
 }
-.gallery-greeting .muted { font-size: var(--fs-base); margin: var(--space-0); color: color-mix(in srgb, #04212f 65%, transparent); }
+.gallery-greeting .muted { font-size: var(--fs-base); margin: var(--space-0); color: color-mix(in srgb, var(--on-accent) 65%, transparent); }
 
 /* Contenido debajo del header: sin la tarjeta/borde de antes, scrollea junto
    con la pantalla completa (.gallery-screen ya es el scroll container).
@@ -2916,7 +2972,7 @@ html[data-palette="dorada"]:not([data-theme="light"]) .welcome-card {
 }
 .sidebar-avatar {
   flex-shrink: 0; width: 32px; height: 32px; border-radius: var(--radius-circle);
-  background: var(--accent-gold); color: #04212f;
+  background: var(--accent-gold); color: var(--on-accent);
   display: flex; align-items: center; justify-content: center;
   font-size: var(--fs-xs); font-weight: 700; letter-spacing: 0.02em; line-height: 1;
 }
@@ -2954,7 +3010,7 @@ html[data-palette="dorada"]:not([data-theme="light"]) .welcome-card {
   transition: background 0.15s, color 0.15s, border-color 0.15s;
 }
 .theme-opt.active {
-  background: var(--accent-gold); color: #04212f;
+  background: var(--accent-gold); color: var(--on-accent);
   border-color: var(--accent-gold); font-weight: 600;
 }
 
@@ -3037,7 +3093,7 @@ html[data-palette="dorada"]:not([data-theme="light"]) .welcome-card {
 .mobile-notif-wrap .notif-badge { top: 10px; right: 6px; }
 .mobile-nav-fab {
   flex-shrink: 0; width: 42px; height: 42px; border-radius: var(--radius-circle); border: none;
-  background: var(--accent-gold); color: #04212f;
+  background: var(--accent-gold); color: var(--on-accent);
   display: flex; align-items: center; justify-content: center;
   font-size: var(--fs-lg); font-weight: 700; line-height: 1;
   box-shadow: 0 2px 10px color-mix(in srgb, var(--accent-gold) 45%, transparent);
@@ -3192,11 +3248,11 @@ html[data-palette="dorada"]:not([data-theme="light"]) .welcome-card {
      ".gallery-hero-top .btn.small" ("Salir") sobre este mismo banner, para
      no inventar un segundo criterio de contraste ahí. */
   #btnGalleryMenu {
-    background: rgba(4,33,47,0.12);
-    border: 1px solid rgba(4,33,47,0.25);
+    background: color-mix(in srgb, var(--on-accent) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--on-accent) 25%, transparent);
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
-    color: #04212f;
+    color: var(--on-accent);
   }
   /* Título de proyecto: pill interactiva con chevron — indica que es tappable */
   .topbar-title {
@@ -3408,7 +3464,7 @@ html[data-palette="dorada"]:not([data-theme="light"]) .welcome-card {
   transition: background-color 150ms ease, color 150ms ease, border-color 150ms ease;
 }
 .asist-tab:hover { background: var(--bg-surface-2); }
-.asist-tab.active { background: var(--accent-gold); border-color: var(--accent-gold); color: #04212f; }
+.asist-tab.active { background: var(--accent-gold); border-color: var(--accent-gold); color: var(--on-accent); }
 .asist-tab-more { padding: var(--space-8) var(--space-10); letter-spacing: 1px; }
 .asist-rango-menu {
   position: fixed; background: var(--bg-surface); border: 1px solid var(--border-color);
@@ -3494,7 +3550,7 @@ html[data-palette="dorada"]:not([data-theme="light"]) .welcome-card {
 .jor-check-input:checked { background: var(--accent-gold); border-color: var(--accent-gold); }
 .jor-check-input:checked::after {
   content: ''; position: absolute; left: 6px; top: 2px; width: 6px; height: 11px;
-  border: solid #04212f; border-width: 0 2.5px 2.5px 0; transform: rotate(45deg);
+  border: solid var(--on-accent); border-width: 0 2.5px 2.5px 0; transform: rotate(45deg);
 }
 .jor-check-input:focus-visible { outline: 2px solid var(--accent-gold); outline-offset: 2px; }
 .jor-check-input:disabled { opacity: 0.5; cursor: not-allowed; }
@@ -3572,7 +3628,7 @@ html[data-palette="dorada"]:not([data-theme="light"]) .welcome-card {
   background: var(--bg-surface-2); color: var(--text-primary); font: inherit; font-size: var(--fs-sm); font-weight: 600; cursor: pointer;
   transition: background-color 0.12s var(--ease-out), border-color 0.12s var(--ease-out);
 }
-.horasel-btn[aria-pressed="true"] { background: var(--accent-gold); border-color: var(--accent-gold); color: #04212f; }
+.horasel-btn[aria-pressed="true"] { background: var(--accent-gold); border-color: var(--accent-gold); color: var(--on-accent); }
 .horasel-btn:focus-visible { outline: 2px solid var(--accent-gold); outline-offset: 2px; }
 .horasel-acciones { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-8); margin-top: var(--space-14); }
 .horasel-acciones .btn { min-height: 44px; }
@@ -3874,14 +3930,14 @@ html[data-palette="dorada"]:not([data-theme="light"]) .welcome-card {
   border: 1px solid var(--border-color); background: var(--bg-surface-2); color: var(--text-secondary);
   font-size: var(--fs-sm); cursor: pointer; white-space: nowrap;
 }
-.genobra-partida-tab.active { background: var(--accent-gold); color: #04212f; border-color: var(--accent-gold); font-weight: 600; }
+.genobra-partida-tab.active { background: var(--accent-gold); color: var(--on-accent); border-color: var(--accent-gold); font-weight: 600; }
 /* prompt-avance-tabs-ubicacion-partida.md: tabs de Partida (Nivel 2) dentro
    del modal de Avance físico por concepto — mismo componente/clase base
    .genobra-partida-tab (Generadores de Obra, reusado solo como referencia
    visual), con este modificador para diferenciar jerarquía: más chico, sin
    mayúsculas forzadas, fondo más plano cuando no está activo. */
 .genobra-partida-tab.avc-tab-partida { padding: var(--space-4) var(--space-10); font-size: var(--fs-xs, 0.78rem); background: transparent; }
-.genobra-partida-tab.avc-tab-partida.active { background: var(--accent-gold); color: #04212f; }
+.genobra-partida-tab.avc-tab-partida.active { background: var(--accent-gold); color: var(--on-accent); }
 .avc-tabs-nivel2:empty { display: none; }
 .genobra-subpartida-block { margin: var(--space-8) 0 var(--space-8) var(--space-14); }
 .genobra-subpartida-title { margin: var(--space-8) 0 var(--space-4); font-size: var(--fs-sm); color: var(--text-secondary); }
@@ -4333,7 +4389,7 @@ html[data-palette="dorada"]:not([data-theme="light"]) .welcome-card {
     box-shadow: var(--shadow-glow-accent-strong);
   }
   .search-bar-fancy .search-clear:hover { background: var(--border-color); color: var(--text-primary); }
-  .gallery-hero-top .btn.small:hover { background: rgba(4,33,47,0.2); }
+  .gallery-hero-top .btn.small:hover { background: color-mix(in srgb, var(--on-accent) 20%, transparent); }
   .cliente-card:hover { border-color: var(--accent-gold); box-shadow: var(--shadow-glow-accent-hover); }
   .galeria-reciente-item:hover { border-color: var(--accent-gold); }
   .icon-size-btn:hover { border-color: var(--accent-gold); color: var(--text-primary); }
@@ -4359,7 +4415,7 @@ html[data-palette="dorada"]:not([data-theme="light"]) .welcome-card {
 
   .tab:hover { border-color: var(--accent-silver); color: var(--text-primary); }
   .tab.active:hover {
-    background: var(--accent-gold); color: #04212f; border-color: var(--accent-gold); font-weight: 600;
+    background: var(--accent-gold); color: var(--on-accent); border-color: var(--accent-gold); font-weight: 600;
     box-shadow: var(--shadow-ring-accent);
   }
 
@@ -4391,7 +4447,7 @@ html[data-palette="dorada"]:not([data-theme="light"]) .welcome-card {
 
   .theme-opt:hover { color: var(--text-primary); border-color: var(--accent-silver); }
   .theme-opt.active:hover {
-    background: var(--accent-gold); color: #04212f;
+    background: var(--accent-gold); color: var(--on-accent);
     border-color: var(--accent-gold); font-weight: 600;
   }
 
@@ -4740,7 +4796,7 @@ tr.eu-row-critico td { background: color-mix(in srgb, var(--red) 9%, transparent
 .fab-asistente {
   position: fixed; right: 18px; bottom: calc(22px + var(--safe-bottom)); z-index: 150;
   width: 52px; height: 52px; border-radius: var(--radius-circle); border: none;
-  background: var(--accent-gold); color: #04212f; font-size: var(--fs-lg);
+  background: var(--accent-gold); color: var(--on-accent); font-size: var(--fs-lg);
   display: flex; align-items: center; justify-content: center; cursor: pointer;
   box-shadow: 0 8px 24px color-mix(in srgb, var(--accent-gold) 45%, transparent);
 }
@@ -4783,7 +4839,7 @@ tr.eu-row-critico td { background: color-mix(in srgb, var(--red) 9%, transparent
   flex: 1; overflow-y: auto; padding: var(--space-14); display: flex; flex-direction: column; gap: var(--space-10);
 }
 .asistente-msg { max-width: 85%; padding: var(--space-8) var(--space-12); border-radius: var(--radius); font-size: var(--fs-sm); line-height: 1.4; white-space: pre-wrap; word-break: break-word; }
-.asistente-msg.user { align-self: flex-end; background: var(--accent-gold); color: #04212f; }
+.asistente-msg.user { align-self: flex-end; background: var(--accent-gold); color: var(--on-accent); }
 .asistente-msg.assistant { align-self: flex-start; background: var(--bg-surface-2); color: var(--text-primary); }
 .asistente-msg.error { align-self: flex-start; background: color-mix(in srgb, var(--red) 15%, transparent); color: var(--red); }
 .asistente-msg.escribiendo { align-self: flex-start; color: var(--text-secondary); font-style: italic; }

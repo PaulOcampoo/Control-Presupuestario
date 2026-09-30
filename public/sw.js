@@ -1,6 +1,6 @@
 'use strict';
 
-const CACHE = 'ctrl-ppto-v533';
+const CACHE = 'ctrl-ppto-v534';
 const SHELL = [
   '/',
   '/index.html',
@@ -13,6 +13,10 @@ const SHELL = [
   '/vendor/sortable.min.js',
   '/vendor/sentry-browser.js',
   '/vendor/posthog-browser.js',
+  '/vendor/fonts/inter-latin.woff2',
+  '/vendor/fonts/inter-latin-ext.woff2',
+  '/vendor/fonts/manrope-latin.woff2',
+  '/vendor/fonts/manrope-latin-ext.woff2',
   '/icons/icon-192.png',
   '/icons/icon-512.png',
   '/assets/logo-roforb.png',

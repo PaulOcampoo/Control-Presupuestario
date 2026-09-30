@@ -1597,8 +1597,62 @@ const SECTION_ICON_NAMES = {
   obra: 'obra', ventas: 'home', compras: 'compras', tesoreria: 'tesoreria', administracion: 'administracion',
   maquinaria: 'maquinaria', costos: 'calc', contabilidad: 'book',
 };
-function tabIcon(tabId, size = 18) { return icon(TAB_ICON_NAMES[tabId] || 'list', size); }
-function sectionIcon(sectionId, size = 18) { return icon(SECTION_ICON_NAMES[sectionId] || 'folder', size); }
+// Emojis alternos (preferencia del usuario "Iconos con emojis", Ajustes > Apariencia).
+const TAB_EMOJIS = {
+  resumen: '📊', contrato: '📄', impuestos: '🧾', insumos: '📦', requisiciones: '🧾',
+  proveedores: '🏭', cumplimiento: '✅', ordenes: '🛒', programa: '🗓️', avance: '📈', destajo: '👷', estadoActivo: '🩺', presupuestoEstimaciones: '📐',
+  finanzas: '💰', compromisos: '📌', fondoGarantia: '🔒', mapeo: '🔗', usuarios: '👤', trabajadores: '👷', nominas: '💵', estimaciones: '🧮', generadoresObra: '📐', ordenesCambio: '📝', lotes: '🏘️', modelosVivienda: '🏡', compradores: '🧑‍🤝‍🧑', apartados: '🔖', contratosVenta: '📜', cobranza: '💵', entregas: '📦', infraVivienda: '🏙️',
+  maquinaria_catalogo: '🛠️', maquinaria_horas: '⏱️', maquinaria_bitacora: '🔧', maquinaria_estado_unidad: '🚦',
+  maquinaria_consumibles: '⛽', maquinaria_reportes_cliente: '📊',
+  nominas_global: '💵', trabajadores_global: '👷', cotizador: '🔍',
+  estadoResultados: '📈', estadoResultadosGlobal: '📈', costos: '💲', avance_clientes: '📈', composicion_costos: '🧮',
+  cuentas: '🏦', matrices: '🧱', generadorPresupuestos: '⚙️', controlFinanciero: '💹', dashboardEjecutivo: '📊', costosDashboard: '📊', catalogoBasicos: '📚',
+  contabilidadCuentas: '📒', contabilidadPolizas: '🧾', contabilidadCfdi: '📑', contabilidadPagos: '💳',
+  contabilidadConciliacion: '🏦', contabilidadDepreciacion: '📉', contabilidadExport: '📤',
+  almacen: '🏬',
+};
+const SECTION_EMOJIS = {
+  obra: '🏗️', ventas: '🏠', compras: '🛒', tesoreria: '💰', administracion: '📂', maquinaria: '🚜', costos: '📑', contabilidad: '📘',
+};
+
+// Preferencia de estilo de ícono: 'lines' (SVG de línea, por defecto) | 'emoji'. Solo dispositivo (localStorage).
+const ICON_STYLE_KEY = 'cp_icon_style';
+function getIconStyle() { try { return localStorage.getItem(ICON_STYLE_KEY) === 'emoji' ? 'emoji' : 'lines'; } catch (_) { return 'lines'; } }
+function setIconStyle(val) { try { localStorage.setItem(ICON_STYLE_KEY, val === 'emoji' ? 'emoji' : 'lines'); } catch (_) { /* sin storage */ } }
+
+// Tono de color por ícono (clases .ico-t1..t8 en styles.css, sin estilos inline por la CSP).
+// Cada sección tiene el suyo; dentro de una sección, los tabs rotan en orden para que vecinos difieran.
+const SECTION_TONES = { obra: 1, ventas: 2, compras: 3, tesoreria: 4, administracion: 5, maquinaria: 6, costos: 7, contabilidad: 8 };
+const TAB_TONES = {};
+(function buildTabTones() {
+  let i = 0;
+  Object.values(SECTION_DEFS).forEach((def) => {
+    def.tabs.forEach((t) => { if (!(t in TAB_TONES)) { TAB_TONES[t] = (i % 8) + 1; i += 1; } });
+  });
+  ['resumen', 'novedades', 'sugerencias', 'developer'].forEach((t) => { if (!(t in TAB_TONES)) { TAB_TONES[t] = (i % 8) + 1; i += 1; } });
+})();
+function toneIcon(name, size, tone) {
+  return icon(name, size).replace('class="icon-svg"', `class="icon-svg ico-t${tone || 1}"`);
+}
+function emojiIcon(emoji, size) {
+  return `<span class="emoji-ico" aria-hidden="true">${emoji}</span>`;
+}
+function tabIcon(tabId, size = 18) {
+  if (getIconStyle() === 'emoji' && TAB_EMOJIS[tabId]) return emojiIcon(TAB_EMOJIS[tabId], size);
+  return toneIcon(TAB_ICON_NAMES[tabId] || 'list', size, TAB_TONES[tabId]);
+}
+function sectionIcon(sectionId, size = 18) {
+  if (getIconStyle() === 'emoji' && SECTION_EMOJIS[sectionId]) return emojiIcon(SECTION_EMOJIS[sectionId], size);
+  return toneIcon(SECTION_ICON_NAMES[sectionId] || 'folder', size, SECTION_TONES[sectionId]);
+}
+// Vuelve a pintar lo que muestra íconos de navegación tras cambiar la preferencia.
+function refreshNavIcons() {
+  try {
+    renderSidebar();
+    if (typeof renderTabsBar === 'function') renderTabsBar();
+    if (state.view === 'inicio' || String(state.view).endsWith('_gallery')) renderView();
+  } catch (_) { /* pantalla sin proyecto: se actualiza en la próxima navegación */ }
+}
 // Compat: los emojis de navegación se retiraron; queda vacío hasta que un grep confirme 0 usos.
 const TAB_ICONS = {};
 const TAB_LABELS = {
@@ -2471,6 +2525,16 @@ function openMobileAjustes() {
         </div>
         <div class="muted fs-08">Compacta muestra más contenido por pantalla, reduciendo espaciados.</div>
       </div>
+      <div class="ajustes-item">
+        <div class="a11y-switch">
+          <span class="a11y-switch-label">Íconos con emojis</span>
+          <label class="a11y-switch-toggle">
+            <input type="checkbox" id="chkIconEmoji" ${getIconStyle() === 'emoji' ? 'checked' : ''} />
+            <span class="a11y-switch-track"><span class="a11y-switch-thumb"></span></span>
+          </label>
+        </div>
+        <div class="muted fs-08">Cambia los íconos de línea de menús y secciones por emojis.</div>
+      </div>
     </div>
 
     <hr class="ajustes-divider">
@@ -2560,6 +2624,7 @@ function openMobileAjustes() {
     });
   });
   $('#chkReduceMotion').addEventListener('change', (e) => setReduceMotion(e.target.checked));
+  $('#chkIconEmoji').addEventListener('change', (e) => { setIconStyle(e.target.checked ? 'emoji' : 'lines'); refreshNavIcons(); });
   $('#chkHighContrast').addEventListener('change', (e) => setHighContrast(e.target.checked));
   $('#ajustesSearchInput').addEventListener('input', (e) => {
     const q = e.target.value.trim().toLowerCase();

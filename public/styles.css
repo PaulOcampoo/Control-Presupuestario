@@ -4958,3 +4958,19 @@ body.a11y-reduce-motion .skeleton { animation: none; }
   .icon-btn { width: 44px; height: 44px; }
   .btn.small:not(table .btn):not([class*="asist-"] .btn) { min-height: 44px; }
 }
+
+/* Íconos a color por sección/módulo (preferencia "Íconos con emojis" en Ajustes las reemplaza). */
+:root {
+  --ico-1: #F5A524; --ico-2: #22D3EE; --ico-3: #A78BFA; --ico-4: #34D399;
+  --ico-5: #F472B6; --ico-6: #60A5FA; --ico-7: #FB923C; --ico-8: #A3E635;
+}
+[data-theme="light"] {
+  --ico-1: #B45309; --ico-2: #0E7490; --ico-3: #6D28D9; --ico-4: #047857;
+  --ico-5: #BE185D; --ico-6: #1D4ED8; --ico-7: #C2410C; --ico-8: #4D7C0F;
+}
+.ico-t1 { color: var(--ico-1); } .ico-t2 { color: var(--ico-2); } .ico-t3 { color: var(--ico-3); } .ico-t4 { color: var(--ico-4); }
+.ico-t5 { color: var(--ico-5); } .ico-t6 { color: var(--ico-6); } .ico-t7 { color: var(--ico-7); } .ico-t8 { color: var(--ico-8); }
+.emoji-ico { font-size: 1.1em; line-height: 1; display: inline-block; }
+/* Sobre fondo de acento (pestaña activa) el ícono hereda el color de texto para no perder contraste. */
+.tab.active .icon-svg[class*="ico-t"] { color: inherit; }
+.section-card .section-icon, .quick-action-icon { color: inherit; }

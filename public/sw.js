@@ -1,12 +1,13 @@
 'use strict';
 
-const CACHE = 'ctrl-ppto-v537';
+const CACHE = 'ctrl-ppto-v538';
 const SHELL = [
   '/',
   '/index.html',
   '/theme-init.js',
   '/styles.css',
   '/app.js',
+  '/shell-v2.js',
   '/manifest.webmanifest',
   '/vendor/chart.umd.min.js',
   '/vendor/vercel-blob-client.js',

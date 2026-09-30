@@ -204,7 +204,7 @@ const ICON_SVG = {
   resumen:       '<line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>',
   contrato:      '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>',
   impuestos:     '<path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1z"/><line x1="14" y1="8" x2="8" y2="8"/><line x1="16" y1="12" x2="8" y2="12"/><line x1="13" y1="16" x2="8" y2="16"/>',
-  insumos:       '<line x1="16.5" y1="9.4" x2="7.5" y2="4.21"/><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/>',
+  insumos:       '<line x1="16.5" y1="9.4" x2="7.5" y2="4.21"/><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/>',
   requisiciones: '<path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/><line x1="9" y1="12" x2="15" y2="12"/><line x1="9" y1="16" x2="11" y2="16"/>',
   proveedores:   '<path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>',
   ordenes:       '<circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/>',
@@ -220,7 +220,7 @@ const ICON_SVG = {
   'chevron-left':  '<polyline points="15 18 9 12 15 6"/>',
   'chevron-right': '<polyline points="9 18 15 12 9 6"/>',
   monitor:         '<rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>',
-  warning:       '<path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>',
+  warning:       '<path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>',
   check:         '<polyline points="20 6 9 17 4 12"/>',
   x:             '<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>',
   pencil:        '<path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>',
@@ -1851,6 +1851,35 @@ function switchToView(viewId) {
   pushTabHistory();
 }
 
+// Fuente única de visibilidad de secciones (Rediseño UI v2, Fase 4): mismo filtro que ya usaba
+// renderSidebar() — state.allowedTabs + excepciones de tile por rol. v1, galerías y shell v2 lo consumen.
+function tabsVisiblesDeSeccion(def) {
+  return def.tabs.filter((t) => state.allowedTabs.includes(t) && tabCuentaParaTileDeSeccion(t));
+}
+function seccionesVisiblesParaRol() {
+  return Object.entries(SECTION_DEFS)
+    .map(([id, def]) => ({ id, def, tabs: tabsVisiblesDeSeccion(def) }))
+    .filter((sec) => sec.tabs.length > 0);
+}
+
+// ---------------------------------------------------------------------------
+// Shell v2 (Rediseño UI v2, Fase 4) — detrás de localStorage.ui_v2 === '1', solo admin/desarrollador
+// REAL (no el rol simulado). Todo el CSS del shell nuevo cuelga de html.ui-v2.
+// ---------------------------------------------------------------------------
+function isUiV2() {
+  try { return localStorage.getItem('ui_v2') === '1' && !!state.user && ['admin', 'desarrollador'].includes(state.user.puesto); }
+  catch (_) { return false; }
+}
+function puedeProbarUiV2() { return !!state.user && ['admin', 'desarrollador'].includes(state.user.puesto); }
+function applyUiV2Class() {
+  document.documentElement.classList.toggle('ui-v2', isUiV2());
+}
+function setUiV2(on) {
+  try { if (on) localStorage.setItem('ui_v2', '1'); else localStorage.removeItem('ui_v2'); } catch (_) { /* sin storage */ }
+  applyUiV2Class();
+  renderSidebar(); renderTabsBar(); renderMobileNav();
+}
+
 function goToSection(sectionId) {
   const def = SECTION_DEFS[sectionId];
   if (!def) return;
@@ -1874,6 +1903,10 @@ function goToSection(sectionId) {
 // en las galerías de subsecciones (*_gallery) — ahí todavía no hay una
 // subsección activa que resaltar, la elección misma es la vista de galería.
 function renderTabsBar() {
+  renderTabsBarV1();
+  if (isUiV2() && window.CPShellV2) window.CPShellV2.onNav();
+}
+function renderTabsBarV1() {
   const nav = $('#tabs');
   if (!nav) return;
   if (!state.projectId || state.view === 'inicio' || state.view.endsWith('_gallery')) { nav.innerHTML = ''; nav.style.display = 'none'; return; }
@@ -2001,8 +2034,9 @@ function decorateGalleryDrawerIcons() {
     btn.insertAdjacentHTML('afterbegin', icon(name, 16));
   });
 }
-function updateGalleryDrawerGlobalLinks() {
-  decorateGalleryDrawerIcons();
+// [idBotonDrawer, visible] de los accesos globales (sin obra). Fuente única para el drawer de la galería
+// y para Ctrl K / hoja "Más" del shell v2.
+function enlacesGlobalesVisibles() {
   const puedeVer = (tab) => !!state.user && state.allowedTabs.includes(tab);
   const links = [
     ['btnGalleryGoUsuarios', puedeVer('usuarios')],
@@ -2034,6 +2068,12 @@ function updateGalleryDrawerGlobalLinks() {
     ['btnGalleryGoClientesArchivados', isAdmin()],
     ['btnGalleryGoClientesCompletados', isAdmin()],
   ];
+  return links;
+}
+function updateGalleryDrawerGlobalLinks() {
+  decorateGalleryDrawerIcons();
+  const puedeVer = (tab) => !!state.user && state.allowedTabs.includes(tab);
+  const links = enlacesGlobalesVisibles();
   let anyVisible = false;
   links.forEach(([id, visible]) => {
     const btn = $('#' + id);
@@ -2072,6 +2112,11 @@ function sbarGroupIsOpen(sectionId, isActive) {
 }
 
 function renderSidebar() {
+  applyUiV2Class();
+  renderSidebarV1();
+  if (isUiV2() && window.CPShellV2) window.CPShellV2.onNav();
+}
+function renderSidebarV1() {
   updateGalleryDrawerGlobalLinks();
   const nav = $('#sidebarNav');
   if (!nav) return;
@@ -2145,7 +2190,7 @@ function renderSidebar() {
     // seccionesGridHtml() — un tab en EXCEPCIONES_TILE_SECCION para el rol
     // activo no cuenta para decidir si este grupo se pinta (ya se listó
     // arriba como ítem suelto en su lugar).
-    const sectionRenderableTabs = def.tabs.filter((t) => renderableTabs.includes(t) && tabCuentaParaTileDeSeccion(t));
+    const sectionRenderableTabs = tabsVisiblesDeSeccion(def);
     if (!sectionRenderableTabs.length) return;
 
     const isActive = state.section === sectionId;
@@ -2166,7 +2211,7 @@ function renderSidebar() {
     });
     def.proximamente.forEach((nombre) => {
       html += `<span class="sbar-item sbar-subitem sbar-soon" title="${esc(nombre)} — Próximamente">
-        <span class="sbar-icon">🔒</span>
+        <span class="sbar-icon">${icon('lock', 16)}</span>
         <span class="sbar-label">${esc(nombre)}</span>
       </span>`;
     });
@@ -2181,12 +2226,12 @@ function renderSidebar() {
   html += `<div class="sbar-divider"></div>`;
   const activeNov = state.view === 'novedades' ? 'active' : '';
   html += `<button class="sbar-item ${activeNov}" id="sbarNovedades" title="Novedades">
-    <span class="sbar-icon">🆕</span>
+    <span class="sbar-icon">${tabIcon('novedades', 18)}</span>
     <span class="sbar-label">Novedades</span>
   </button>`;
   const activeSug = state.view === 'sugerencias' ? 'active' : '';
   html += `<button class="sbar-item ${activeSug}" id="sbarSugerencias" title="Sugerencias">
-    <span class="sbar-icon">💡</span>
+    <span class="sbar-icon">${tabIcon('sugerencias', 18)}</span>
     <span class="sbar-label">Sugerencias</span>
     <span id="sbarSugerenciasBadge" class="sbar-badge-count" style="display:none;"></span>
   </button>`;
@@ -2195,7 +2240,7 @@ function renderSidebar() {
     if (!state.simulatedPuesto) {
       const activeDev = state.view === 'developer' ? 'active' : '';
       html += `<button class="sbar-item ${activeDev}" id="sbarDevPanel" title="Panel de desarrollador">
-        <span class="sbar-icon">🛠️</span>
+        <span class="sbar-icon">${tabIcon('developer', 18)}</span>
         <span class="sbar-label">Desarrollador</span>
       </button>`;
     }
@@ -2230,6 +2275,8 @@ function renderSidebar() {
       const group = btn.closest('.sbar-group');
       const sectionId = btn.dataset.sbarGroup;
       const isCollapsed = $('#sidebar').classList.contains('collapsed');
+      // Shell v2: una sola capa — el nombre de la sección navega a su galería (sin acordeón).
+      if (isUiV2()) { goToSection(sectionId); closeSidebar(); return; }
 
       // Sidebar colapsada (desktop icono-solo): no hay espacio para
       // desplegar la lista inline — navega a la galería de la sección
@@ -2295,6 +2342,10 @@ function renderSidebar() {
 // Mobile nav — actualiza estados activos
 // ---------------------------------------------------------------------------
 function renderMobileNav() {
+  renderMobileNavV1();
+  if (isUiV2() && window.CPShellV2) window.CPShellV2.renderMobileNav();
+}
+function renderMobileNavV1() {
   const iniBtn = $('#mobileNavInicio');
   if (iniBtn) iniBtn.classList.toggle('active', !state.projectId && !$('#app').style.display);
   const resBtn = $('#mobileNavResumen');
@@ -2327,6 +2378,11 @@ function openUserPopover() {
   applyTheme(getTheme());
   const rmChk = $('#chkReduceMotionPopover'); if (rmChk) rmChk.checked = getReduceMotion();
   const hcChk = $('#chkHighContrastPopover'); if (hcChk) hcChk.checked = getHighContrast();
+  const v2Btn = $('#btnUiV2Popover');
+  if (v2Btn) {
+    v2Btn.classList.toggle('hidden-initial', !puedeProbarUiV2());
+    v2Btn.textContent = isUiV2() ? 'Volver a la interfaz actual' : 'Probar nueva interfaz';
+  }
 }
 
 function closeUserPopover() {
@@ -2338,10 +2394,9 @@ function closeUserPopover() {
 // ---------------------------------------------------------------------------
 // Quick action menu (móvil)
 // ---------------------------------------------------------------------------
-function openQuickActionMenu() {
-  const menu = $('#quickActionMenu'); if (!menu) return;
-  const list = $('#quickActionList'); if (!list) return;
-
+// Acciones del botón "+"/"Nuevo" según rol y permisos. Fuente única para el menú de
+// acciones rápidas (v1) y para Ctrl K / "Nuevo" del shell v2 (Rediseño UI v2, Fase 4).
+function accionesRapidasParaRol() {
   const actions = [];
   // Requieren un presupuesto/obra ya seleccionado.
   if (state.projectId) {
@@ -2372,6 +2427,14 @@ function openQuickActionMenu() {
     actions.push({ label: 'Cargar presupuesto (.xlsx)', icon: 'plus', fn: promptUpload });
     actions.push({ label: 'Cargar Contrato PDF',        icon: 'file', fn: promptUploadContrato });
   }
+  return actions;
+}
+
+function openQuickActionMenu() {
+  const menu = $('#quickActionMenu'); if (!menu) return;
+  const list = $('#quickActionList'); if (!list) return;
+
+  const actions = accionesRapidasParaRol();
 
   // Sin presupuesto seleccionado y sin ninguna acción disponible (rol no admin):
   // no hay nada que ofrecer en el modal — mismo aviso que antes.

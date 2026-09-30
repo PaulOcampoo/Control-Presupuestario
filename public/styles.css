@@ -4974,3 +4974,96 @@ body.a11y-reduce-motion .skeleton { animation: none; }
 /* Sobre fondo de acento (pestaña activa) el ícono hereda el color de texto para no perder contraste. */
 .tab.active .icon-svg[class*="ico-t"] { color: inherit; }
 .section-card .section-icon, .quick-action-icon { color: inherit; }
+
+/* ==========================================================================
+   Rediseño UI v2 — Fase 4: shell v2 (html.ui-v2). Con el interruptor apagado
+   nada de esto aplica. Layout como v1: sidebar position:fixed, .main-area sin
+   overflow, scroll de documento, .topbar con su sticky actual. SIN sticky nuevo.
+   ========================================================================== */
+.v2-only { display: none; }
+.ui-v2 .v2-only { display: inline-flex; }
+
+/* Lo que v2 reemplaza: los 4 banners viven en el Centro de avisos, el "+" del topbar en "Nuevo",
+   el FAB de Nyra en el topbar y el título "Trabajando en" en el breadcrumb. El código de v1 no se toca. */
+.ui-v2 #installBanner, .ui-v2 #totpReminderBanner, .ui-v2 #novedadesBanner, .ui-v2 #swUpdateBanner,
+.ui-v2 #btnAsistenteFab, .ui-v2 #btnUpload, .ui-v2 .topbar-title { display: none !important; }
+
+/* Sidebar de una sola capa: las secciones navegan a su galería, sin acordeón */
+.ui-v2 .sbar-group-body, .ui-v2 .sbar-chevron { display: none !important; }
+.ui-v2 .sidebar { background: var(--bg-sidebar); border-right: 1px solid var(--line); }
+.ui-v2 .sbar-item, .ui-v2 .sbar-group-header { border-radius: 10px; min-height: 38px; position: relative; }
+.ui-v2 .sbar-group-header.active, .ui-v2 .sbar-item.active { background: var(--bg-surface-2); color: var(--text-primary); font-weight: 600; }
+.ui-v2 .sbar-group-header.active::before, .ui-v2 .sbar-item.active::before {
+  content: ""; position: absolute; left: -8px; top: 9px; bottom: 9px; width: 3px; border-radius: 0 3px 3px 0; background: var(--accent-gold);
+}
+
+/* Topbar v2 */
+.ui-v2 .topbar { background: color-mix(in srgb, var(--bg-primary) 88%, transparent); border-bottom: 1px solid var(--line); }
+.v2-crumb { align-items: center; gap: var(--space-6); color: var(--text-secondary); font-size: var(--fs-sm); min-width: 0; white-space: nowrap; overflow: hidden; flex: 0 1 auto; }
+.v2-crumb b { color: var(--text-primary); font-weight: 600; overflow: hidden; text-overflow: ellipsis; }
+.v2-crumb-link { background: none; border: none; color: inherit; cursor: pointer; padding: 0; font: inherit; }
+.v2-crumb-link:hover { color: var(--text-primary); }
+.v2-search {
+  margin-left: auto; align-items: center; gap: var(--space-10); height: 36px; width: min(300px, 32vw); padding: 0 var(--space-12);
+  border-radius: var(--radius-control); background: var(--bg-surface); border: 1px solid var(--line); color: var(--text-secondary); font-size: var(--fs-sm); cursor: pointer;
+}
+.v2-search:hover { border-color: var(--border-color); }
+.v2-search-txt { flex: 1; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.v2-search-ic { display: inline-flex; }
+.v2-kbd { font: inherit; font-size: 11px; border: 1px solid var(--border-color); border-radius: 6px; padding: 1px 6px; color: var(--text-secondary); }
+@media (max-width: 860px) {
+  .ui-v2 .v2-crumb, .ui-v2 .v2-kbd, .ui-v2 #btnNyraV2, .ui-v2 #btnNuevoV2 { display: none; }
+  .v2-search { width: 44px; margin-left: auto; padding: 0; justify-content: center; }
+  .ui-v2 .v2-search-txt { display: none; }
+}
+
+/* Subnavegación contextual: #tabs como control segmentado */
+.ui-v2 .tabs { background: transparent; border-bottom: none; gap: var(--space-4); padding: var(--space-10) var(--space-16) var(--space-6); }
+.ui-v2 .tab { height: 36px; padding: 0 var(--space-14); border-radius: 10px; border-color: transparent; background: transparent; font-size: var(--fs-sm); }
+.ui-v2 .tab:hover { background: var(--bg-surface-2); color: var(--text-primary); }
+.ui-v2 .tab.active { background: var(--bg-surface-3); color: var(--text-primary); border-color: var(--line); box-shadow: none; }
+.ui-v2 .tab-back { width: 36px; height: 36px; border-radius: 10px; }
+
+/* Centro de avisos (dentro del dropdown de la campana) */
+.avisos-v2:empty { display: none; }
+.avisos-v2 { padding: var(--space-8) var(--space-10); border-bottom: 1px solid var(--line); display: flex; flex-direction: column; gap: var(--space-6); }
+.avisos-v2-title { font-size: var(--fs-2xs); text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-secondary); font-weight: 600; }
+.aviso-v2 { display: flex; align-items: center; gap: var(--space-8); padding: var(--space-8); border-radius: var(--radius-control); background: var(--bg-surface-2); font-size: var(--fs-sm); }
+.aviso-v2.crit { background: color-mix(in srgb, var(--red) 12%, var(--bg-surface-2)); }
+.aviso-v2-ic { display: inline-flex; color: var(--accent-gold); }
+.aviso-v2.crit .aviso-v2-ic { color: var(--red); }
+.aviso-v2-txt { flex: 1; min-width: 0; }
+/* Punto rojo en la campana cuando hay una actualización pendiente (crítico: no debe perderse) */
+.notif-wrap { position: relative; }
+.notif-wrap.aviso-crit::after { content: ""; position: absolute; top: 6px; right: 6px; width: 9px; height: 9px; border-radius: 50%; background: var(--red); border: 2px solid var(--bg-primary); pointer-events: none; }
+
+/* Ctrl K */
+.cmdk { position: fixed; inset: 0; z-index: 200; display: flex; justify-content: center; align-items: flex-start; padding: 12dvh var(--space-16) 0; }
+.cmdk.hidden-initial { display: none; }
+.cmdk-backdrop { position: absolute; inset: 0; background: rgba(0, 0, 0, 0.5); backdrop-filter: blur(2px); }
+.cmdk-box { position: relative; width: min(600px, 100%); background: var(--bg-surface); border: 1px solid var(--border-color); border-radius: var(--radius-lg); box-shadow: var(--shadow-xl); overflow: hidden; display: flex; flex-direction: column; max-height: 70dvh; }
+.cmdk-input-row { display: flex; align-items: center; gap: var(--space-10); padding: var(--space-12) var(--space-16); border-bottom: 1px solid var(--line); }
+.cmdk-input-row input { flex: 1; border: none; background: transparent; box-shadow: none; padding: var(--space-8) 0; font-size: 16px; }
+.cmdk-input-row input:focus-visible { box-shadow: none; }
+.cmdk-list { overflow-y: auto; padding: var(--space-6) 0 var(--space-8); }
+.cmdk-group { padding: var(--space-8) var(--space-16) var(--space-4); font-size: var(--fs-2xs); text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-secondary); font-weight: 600; }
+.cmdk-item { display: flex; align-items: center; gap: var(--space-12); width: 100%; padding: var(--space-10) var(--space-16); background: none; border: none; color: var(--text-primary); font: inherit; font-size: var(--fs-base); cursor: pointer; text-align: left; min-height: 44px; }
+.cmdk-item:hover, .cmdk-item.sel { background: var(--bg-surface-2); }
+.cmdk-ic { display: inline-flex; flex: none; }
+.cmdk-lbl { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cmdk-hint { color: var(--text-secondary); font-size: var(--fs-xs); flex: none; }
+.cmdk-empty { padding: var(--space-24) var(--space-16); text-align: center; color: var(--text-secondary); }
+
+/* Hoja "Más" (celular) */
+.sheet2 { position: fixed; inset: 0; z-index: 200; display: flex; align-items: flex-end; }
+.sheet2.hidden-initial { display: none; }
+.sheet2-backdrop { position: absolute; inset: 0; background: rgba(0, 0, 0, 0.55); }
+.sheet2-panel { position: relative; width: 100%; background: var(--bg-surface); border-radius: var(--radius-lg) var(--radius-lg) 0 0; border-top: 1px solid var(--border-color); padding: var(--space-8) var(--space-16) calc(var(--space-24) + var(--safe-bottom)); max-height: 82dvh; overflow-y: auto; }
+.sheet2-grab { width: 38px; height: 4px; border-radius: 4px; background: var(--border-color); margin: 0 auto var(--space-14); }
+.sheet2-title { margin: 0 0 var(--space-12); font-size: var(--fs-md); }
+.sheet2-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--space-12); }
+.sheet2-cell { display: flex; flex-direction: column; align-items: center; gap: var(--space-6); background: none; border: none; color: var(--text-secondary); font: inherit; font-size: var(--fs-xs); font-weight: 600; text-align: center; cursor: pointer; min-height: 44px; }
+.sheet2-ic { width: 56px; height: 56px; border-radius: 17px; background: var(--bg-surface-2); border: 1px solid var(--line); display: grid; place-items: center; }
+@media (min-width: 861px) { .sheet2 { display: none !important; } }
+
+.cmdk-input-row input:focus-visible { border-color: transparent; box-shadow: none; }

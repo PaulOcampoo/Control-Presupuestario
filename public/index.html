@@ -316,6 +316,7 @@
         </label>
       </div>
       <button id="btnInstallAppPopover" class="btn full">📲 Instalar app</button>
+      <button id="btnUiV2Popover" class="btn full hidden-initial">Probar nueva interfaz</button>
       <button id="btnMiCuentaPopover" class="btn full">Mi cuenta</button>
       <button id="btnLogoutPopover" class="btn full">Cerrar sesión</button>
     </div>
@@ -330,9 +331,15 @@
 
       <header class="topbar">
         <button id="btnMenu" class="icon-btn" aria-label="Menú">☰</button>
+        <nav id="v2Crumb" class="v2-only v2-crumb" aria-label="Ruta"></nav>
         <div class="topbar-title">
           <span id="projectName" class="muted">Selecciona un presupuesto</span>
         </div>
+        <button id="btnCmdk" class="v2-only v2-search" aria-label="Buscar (Ctrl K)" title="Buscar (Ctrl K)">
+          <span class="v2-search-ic" aria-hidden="true"></span><span class="v2-search-txt">Buscar módulo, acción u obra…</span><kbd class="v2-kbd">Ctrl K</kbd>
+        </button>
+        <button id="btnNyraV2" class="btn small v2-only" aria-label="Abrir Nyra">Nyra</button>
+        <button id="btnNuevoV2" class="btn small btn-primary v2-only" aria-label="Nuevo">+ Nuevo</button>
         <button id="btnThemeToggle" class="icon-btn" aria-label="Cambiar tema" title="Cambiar tema claro/oscuro"></button>
         <button id="btnSync" class="icon-btn" aria-label="Sincronizar" title="Sincronizar datos">↺</button>
         <div class="notif-wrap">
@@ -343,6 +350,7 @@
               <strong>Notificaciones</strong>
               <button id="btnMarcarTodasLeidas" class="btn small">Marcar todas como leídas</button>
             </div>
+            <div id="avisosV2" class="avisos-v2"></div>
             <div id="notifList" class="notif-list"></div>
           </div>
         </div>
@@ -425,6 +433,26 @@
 
   </div>
 
+  <!-- Shell v2 (Fase 4): paleta Ctrl K y hoja "Más" (solo se muestran con html.ui-v2) -->
+  <div id="cmdk" class="cmdk hidden-initial" role="dialog" aria-modal="true" aria-label="Buscar">
+    <div class="cmdk-backdrop" id="cmdkBackdrop"></div>
+    <div class="cmdk-box">
+      <div class="cmdk-input-row">
+        <input id="cmdkInput" type="text" placeholder="Buscar módulo, acción u obra…" autocomplete="off" aria-label="Buscar" />
+        <kbd class="v2-kbd">Esc</kbd>
+      </div>
+      <div id="cmdkList" class="cmdk-list" role="listbox"></div>
+    </div>
+  </div>
+  <div id="sheet2" class="sheet2 hidden-initial" role="dialog" aria-modal="true" aria-label="Más">
+    <div class="sheet2-backdrop" id="sheet2Backdrop"></div>
+    <div class="sheet2-panel">
+      <div class="sheet2-grab"></div>
+      <h3 class="sheet2-title">Más</h3>
+      <div id="sheet2Grid" class="sheet2-grid"></div>
+    </div>
+  </div>
+
   <!-- Drawer: lista de presupuestos -->
   <div id="drawer" class="drawer">
     <div class="drawer-header">
@@ -482,5 +510,6 @@
   <script src="/vendor/sentry-browser.js"></script>
   <script src="/vendor/posthog-browser.js"></script>
   <script src="/app.js"></script>
+  <script src="/shell-v2.js"></script>
 </body>
 </html>

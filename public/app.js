@@ -880,7 +880,7 @@ function installApp() {
   openModal(`
     <div class="install-header-row">
       <h3 class="modal-title">📲 Instalar app</h3>
-      <button class="icon-btn modal-close-btn" id="btnCloseInstallGuide">✕</button>
+      <button class="icon-btn modal-close-btn" id="btnCloseInstallGuide">${icon('x', 14)} </button>
     </div>
     <p class="install-intro">Sigue estos pasos para instalar la app en tu dispositivo:</p>
     <ol class="install-steps-list">${stepsHtml}</ol>
@@ -2522,7 +2522,7 @@ function openMobileAjustes() {
   openModal(`
     <div class="modal-header-row">
       <h3 class="modal-title">Ajustes</h3>
-      <button class="icon-btn modal-close-btn" id="btnCloseProfile" aria-label="Cerrar">✕</button>
+      <button class="icon-btn modal-close-btn" id="btnCloseProfile" aria-label="Cerrar">${icon('x', 14)} </button>
     </div>
     <div class="ajustes-user-info">
       <strong>${esc(state.user?.nombre || '')}</strong>
@@ -3077,7 +3077,7 @@ async function bootApp() {
       await attempt();
     } catch (err2) {
       showApp();
-      $('#view').innerHTML = `<div class="alert-box danger">⚠️ El servidor está iniciando. Espera unos segundos y recarga la página. (${esc(err2.message)})</div>`;
+      $('#view').innerHTML = `<div class="alert-box danger">${icon('warning', 14)} El servidor está iniciando. Espera unos segundos y recarga la página. (${esc(err2.message)})</div>`;
     }
   }
 }
@@ -3324,7 +3324,7 @@ function openBackupCodesModal(codes, sessionData) {
   blockOverlayDismiss = true;
   openModal(`
     <h3>Guarda tus códigos de respaldo</h3>
-    <div class="alert-box warning mb-12">⚠️ Estos códigos NO se van a volver a mostrar. Guárdalos en un lugar seguro — cada uno sirve una sola vez para entrar si pierdes tu teléfono o tu app autenticadora.</div>
+    <div class="alert-box warning mb-12">${icon('warning', 14)} Estos códigos NO se van a volver a mostrar. Guárdalos en un lugar seguro — cada uno sirve una sola vez para entrar si pierdes tu teléfono o tu app autenticadora.</div>
     <div class="totp-backup-grid">
       ${codes.map((c) => `<code class="totp-backup-code">${esc(c)}</code>`).join('')}
     </div>
@@ -4023,7 +4023,7 @@ function openAyudaModal(clave) {
   openModal(`
     <div class="modal-header-row">
       <h3 class="modal-title">${esc(contenido.titulo)}</h3>
-      <button class="icon-btn modal-close-btn" id="btnCloseAyuda" aria-label="Cerrar">✕</button>
+      <button class="icon-btn modal-close-btn" id="btnCloseAyuda" aria-label="Cerrar">${icon('x', 14)} </button>
     </div>
     <ol class="ayuda-pasos">
       ${contenido.pasos.map((p) => `<li>${esc(p)}</li>`).join('')}
@@ -5353,7 +5353,7 @@ async function procesarArchivoPresupuestoNuevo(file, clienteId) {
       <h3>Cargando presupuesto…</h3>
       <p class="muted">Subiendo "${esc(file.name)}" y generando una base de datos independiente para este presupuesto.</p>
       <div class="spinner"></div>
-      ${slow ? `<div class="alert-box danger upload-slow-warning">⚠️ Esto está tardando más de lo normal (posiblemente tu conexión es lenta). Puedes seguir esperando o cancelar e intentar de nuevo.</div>` : ''}
+      ${slow ? `<div class="alert-box danger upload-slow-warning">${icon('warning', 14)} Esto está tardando más de lo normal (posiblemente tu conexión es lenta). Puedes seguir esperando o cancelar e intentar de nuevo.</div>` : ''}
       <div class="modal-actions">
         ${slow ? '<button class="btn" id="btnSeguirEsperando">Seguir esperando</button>' : ''}
         <button class="btn btn-danger" id="btnCancelarCarga">Cancelar</button>
@@ -5461,28 +5461,28 @@ async function renderView() {
       else if (state.view === 'maquinaria_reportes_cliente') await renderMaquinariaReportesCliente(view);
       else if (state.view === 'clientes_archivados') await renderClientesArchivados(view);
       else if (state.view === 'clientes_completados') await renderClientesCompletados(view);
-    } catch (err) { view.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`; }
+    } catch (err) { view.innerHTML = `<div class="alert-box danger">${icon('warning', 14)} ${esc(err.message)}</div>`; }
     syncFab();
     return;
   }
   if (state.view === 'sugerencias') {
-    try { await renderSugerencias(view); } catch (err) { view.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`; }
+    try { await renderSugerencias(view); } catch (err) { view.innerHTML = `<div class="alert-box danger">${icon('warning', 14)} ${esc(err.message)}</div>`; }
     syncFab();
     return;
   }
   if (state.view === 'novedades') {
-    try { await renderNovedades(view, state.novedadesSubView); state.novedadesSubView = null; } catch (err) { view.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`; }
+    try { await renderNovedades(view, state.novedadesSubView); state.novedadesSubView = null; } catch (err) { view.innerHTML = `<div class="alert-box danger">${icon('warning', 14)} ${esc(err.message)}</div>`; }
     syncFab();
     return;
   }
   if (state.view === 'developer') {
-    if (!isDesarrollador()) { view.innerHTML = `<div class="alert-box danger">⚠️ Acceso restringido al rol Desarrollador.</div>`; syncFab(); return; }
-    try { await renderDevPanel(view); } catch (err) { view.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`; }
+    if (!isDesarrollador()) { view.innerHTML = `<div class="alert-box danger">${icon('warning', 14)} Acceso restringido al rol Desarrollador.</div>`; syncFab(); return; }
+    try { await renderDevPanel(view); } catch (err) { view.innerHTML = `<div class="alert-box danger">${icon('warning', 14)} ${esc(err.message)}</div>`; }
     syncFab();
     return;
   }
   if (state.view.endsWith('_gallery')) {
-    try { await renderSeccionGaleria(view, state.view.replace('_gallery', '')); } catch (err) { view.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`; }
+    try { await renderSeccionGaleria(view, state.view.replace('_gallery', '')); } catch (err) { view.innerHTML = `<div class="alert-box danger">${icon('warning', 14)} ${esc(err.message)}</div>`; }
     syncFab();
     return;
   }
@@ -5570,7 +5570,7 @@ async function renderView() {
       default: view.innerHTML = '';
     }
   } catch (err) {
-    view.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+    view.innerHTML = `<div class="alert-box danger">${icon('warning', 14)} ${esc(err.message)}</div>`;
   }
   syncFab();
 }
@@ -5984,7 +5984,7 @@ async function renderInicio(view) {
             // corregir con una fórmula aquí. Se avisa en vez de mostrar la
             // cifra imposible en silencio — decisión consultada con Paul:
             // no tocar el valor guardado en este PR.
-            : `<div class="card-row"><span class="k">Total con IVA</span><span class="v"><span class="badge red" title="El valor guardado ($${fmtMoney(m.total_con_iva)}) es menor que el Total sin IVA — dato capturado incorrectamente al subir el presupuesto, revisar con el equipo antes de confiar en esta cifra.">⚠️ Dato inconsistente</span></span></div>`
+            : `<div class="card-row"><span class="k">Total con IVA</span><span class="v"><span class="badge red" title="El valor guardado ($${fmtMoney(m.total_con_iva)}) es menor que el Total sin IVA — dato capturado incorrectamente al subir el presupuesto, revisar con el equipo antes de confiar en esta cifra.">${icon('warning', 14)} Dato inconsistente</span></span></div>`
         ) : ''}
         <p class="muted inicio-fechas-note">Si el archivo traía las fechas de inicio/fin vacías o incorrectas, usa "Editar fechas" arriba — al guardar se regenera todo el Programa y la curva de Avance.</p>
       </div>
@@ -6254,7 +6254,7 @@ async function renderResumenCliente(view) {
   try {
     data = await api(`/clientes/${state.clienteId}/resumen-agregado`);
   } catch (err) {
-    view.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+    view.innerHTML = `<div class="alert-box danger">${icon('warning', 14)} ${esc(err.message)}</div>`;
     return;
   }
   const { proyectos, total_contratos, importe_ejecutado, importe_por_ejecutar, avance_ponderado_pct } = data;
@@ -6424,7 +6424,7 @@ function vencimientoBadgeHtml(finObraIso) {
 // confirmada como la de total_con_iva_valido.
 function totalContratadoSospechosoBadgeHtml(sospechoso) {
   if (!sospechoso) return '';
-  return ` <span class="badge yellow" title="Este mismo importe coincide exactamente con el de otro proyecto, mientras que Total sin IVA y Total con IVA sí son distintos entre ambos — no se pudo confirmar contra el contrato PDF original. El valor guardado no se modificó.">⚠️ Posible dato duplicado — pendiente de verificar contra el contrato original</span>`;
+  return ` <span class="badge yellow" title="Este mismo importe coincide exactamente con el de otro proyecto, mientras que Total sin IVA y Total con IVA sí son distintos entre ambos — no se pudo confirmar contra el contrato PDF original. El valor guardado no se modificó.">${icon('warning', 14)} Posible dato duplicado — pendiente de verificar contra el contrato original</span>`;
 }
 
 // Punto de entrada (a): galería de clientes → crea una obra nueva a partir del PDF
@@ -6539,7 +6539,7 @@ function openContratoFormModal(preview, ctx) {
   openModal(`
     <h3>Datos del contrato</h3>
     ${escaneado
-      ? `<div class="alert-box danger">⚠️ Este PDF parece ser una imagen escaneada sin texto extraíble. Captura los datos manualmente.</div>`
+      ? `<div class="alert-box danger">${icon('warning', 14)} Este PDF parece ser una imagen escaneada sin texto extraíble. Captura los datos manualmente.</div>`
       : '<p class="muted">Revisa y corrige los datos extraídos antes de guardar. Los campos con borde amarillo no se detectaron en el documento.</p>'}
     ${clienteHtml}
     ${fieldsHtml}
@@ -7017,7 +7017,7 @@ function openMaterialesDisponiblesModal() {
           : '<p class="muted">Sin obras de este cliente asignadas.</p>';
       }
     } catch (err) {
-      $('#matDispResult').innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+      $('#matDispResult').innerHTML = `<div class="alert-box danger">${icon('warning', 14)} ${esc(err.message)}</div>`;
     }
   }
 
@@ -7062,7 +7062,7 @@ let mapeoSelectedConceptoId = null;
 
 async function renderMapeo(view) {
   if (!puedeVerMapeo()) {
-    view.innerHTML = `<div class="alert-box danger">⚠️ No tienes permiso para ver esta sección.</div>`;
+    view.innerHTML = `<div class="alert-box danger">${icon('warning', 14)} No tienes permiso para ver esta sección.</div>`;
     return;
   }
   const [conceptos, resumen] = await Promise.all([
@@ -7251,7 +7251,7 @@ function pintarPreviewActualizacionPresupuesto(preview, archivoUrl) {
     </div>
     ${hayConflictos ? `
       <div class="alert-box danger">
-        <strong>⚠️ ${preview.conflictos.length} conflicto(s) de emparejamiento sin resolver.</strong>
+        <strong>${icon('warning', 14)} ${preview.conflictos.length} conflicto(s) de emparejamiento sin resolver.</strong>
         <p class="fs-08 mt-4">Hay conceptos ambiguos (mismo nombre repetido en varios lados). Corrige el Excel — por ejemplo agregando un código único a cada concepto — y vuelve a intentar. No se puede confirmar mientras existan conflictos.</p>
         <ul class="fs-08">
           ${preview.conflictos.map((c) => `<li>"${esc(c.descripcion)}" — ${c.nuevos.length} en el Excel nuevo vs. ${c.existentes.length} ya existente(s)</li>`).join('')}
@@ -7260,7 +7260,7 @@ function pintarPreviewActualizacionPresupuesto(preview, archivoUrl) {
     ` : ''}
     ${ambiguos.length ? `
       <div class="alert-box warn">
-        <strong>⚠️ ${ambiguos.length} concepto(s) con cambio de precio Y cantidad al mismo tiempo.</strong>
+        <strong>${icon('warning', 14)} ${ambiguos.length} concepto(s) con cambio de precio Y cantidad al mismo tiempo.</strong>
         <p class="fs-08 mt-4">No es claro si el cambio real es de precio, de cantidad, o ambos. Elige cómo aplicar cada uno antes de poder confirmar.</p>
         <ul class="fs-08" style="list-style:none;padding:0;">
           ${ambiguos.map((m) => `
@@ -7591,7 +7591,7 @@ async function renderProgramaSuministros(view, renderSubNav, bindSubNav) {
     try {
       data = await api(`/requisiciones/programa${q}`);
     } catch (err) {
-      $('#programaBody').innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+      $('#programaBody').innerHTML = `<div class="alert-box danger">${icon('warning', 14)} ${esc(err.message)}</div>`;
       return;
     }
     filtroDesde = data.desde; filtroHasta = data.hasta;
@@ -7606,7 +7606,7 @@ async function renderProgramaSuministros(view, renderSubNav, bindSubNav) {
       return;
     }
     body.innerHTML = `
-      ${totalRiesgo ? `<div class="alert-box danger">⚠️ ${totalRiesgo} renglón${totalRiesgo === 1 ? '' : 'es'} en riesgo: fecha de suministro dentro de ${data.umbral_riesgo_dias} días y la requisición aún no está autorizada o no tiene Orden de Compra confirmada.</div>` : `<div class="alert-box info">✓ Sin renglones en riesgo (umbral: ${data.umbral_riesgo_dias} días antes de la fecha de suministro).</div>`}
+      ${totalRiesgo ? `<div class="alert-box danger">${icon('warning', 14)} ${totalRiesgo} renglón${totalRiesgo === 1 ? '' : 'es'} en riesgo: fecha de suministro dentro de ${data.umbral_riesgo_dias} días y la requisición aún no está autorizada o no tiene Orden de Compra confirmada.</div>` : `<div class="alert-box info">✓ Sin renglones en riesgo (umbral: ${data.umbral_riesgo_dias} días antes de la fecha de suministro).</div>`}
       ${data.obras.map((o) => `
         <div class="card mt-12">
           <h3 class="section-title">${esc(o.obra_nombre)}${o.cliente_id != null && clientesMap.has(o.cliente_id) ? ` <span class="muted fs-08">· ${esc(clientesMap.get(o.cliente_id))}</span>` : ''}</h3>
@@ -7624,7 +7624,7 @@ async function renderProgramaSuministros(view, renderSubNav, bindSubNav) {
                       <td>${esc(it.folio)}</td>
                       <td><span class="badge ${it.requisicion_estado === 'autorizada' ? 'green' : 'muted'}">${esc(it.requisicion_estado)}</span></td>
                       <td>${it.oc_confirmada ? '<span class="badge green">Confirmada</span>' : '<span class="badge muted">Sin OC</span>'}</td>
-                      <td>${it.en_riesgo ? '<span class="badge red">⚠️ En riesgo</span>' : ''}</td>
+                      <td>${it.en_riesgo ? '<span class="badge red">' + icon('warning', 14) + ' En riesgo</span>' : ''}</td>
                     </tr>
                     `).join('')}
                   </tbody>
@@ -7719,7 +7719,7 @@ async function renderSeguimientoMateriales(view, renderSubNav, bindSubNav) {
       const data = await api(`/requisiciones/seguimiento-materiales${q}`);
       items = data.items;
     } catch (err) {
-      $('#seguimientoBody').innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+      $('#seguimientoBody').innerHTML = `<div class="alert-box danger">${icon('warning', 14)} ${esc(err.message)}</div>`;
       return;
     }
     pintarTabla();
@@ -7899,7 +7899,7 @@ function openDraftModal() {
             <div class="item-title">${esc(i.concepto)}</div>
             <div class="code muted">${esc(i.codigo)} · presup: ${fmtNum(i.cantidad_presupuesto, 3)} ${esc(i.unidad || '')} a ${fmtMoney(i.precio_presupuesto)}</div>
           </div>
-          <button class="btn small btn-ghost" data-remove="${idx}">✕</button>
+          <button class="btn small btn-ghost" data-remove="${idx}">${icon('x', 14)} </button>
         </div>
         <div class="qty-row">
           <div><label>Cantidad</label><input type="number" min="0" step="any" data-field="cantidad_solicitada" data-idx="${idx}" value="${d.cantidad_solicitada}" /></div>
@@ -7945,10 +7945,10 @@ function openDraftModal() {
       const alerts = [];
       result.items.forEach((it) => {
         if (it.alerta_cantidad) {
-          alerts.push(`<div class="alert-box danger">⚠️<strong>${esc(it.insumo.codigo)}</strong>: la cantidad acumulada (${fmtNum(it.cantidad_acumulada_previa + it.cantidad_solicitada, 3)} ${esc(it.insumo.unidad || '')}) sobrepasa la cantidad presupuestada (${fmtNum(it.insumo.cantidad_presupuesto, 3)} ${esc(it.insumo.unidad || '')}).</div>`);
+          alerts.push(`<div class="alert-box danger">${icon('warning', 14)} <strong>${esc(it.insumo.codigo)}</strong>: la cantidad acumulada (${fmtNum(it.cantidad_acumulada_previa + it.cantidad_solicitada, 3)} ${esc(it.insumo.unidad || '')}) sobrepasa la cantidad presupuestada (${fmtNum(it.insumo.cantidad_presupuesto, 3)} ${esc(it.insumo.unidad || '')}).</div>`);
         }
         if (it.alerta_precio) {
-          alerts.push(`<div class="alert-box warn">⚠️<strong>${esc(it.insumo.codigo)}</strong>: el precio solicitado (${fmtMoney(it.precio_solicitado)}) sobrepasa el precio presupuestado (${fmtMoney(it.insumo.precio_presupuesto)}).</div>`);
+          alerts.push(`<div class="alert-box warn">${icon('warning', 14)} <strong>${esc(it.insumo.codigo)}</strong>: el precio solicitado (${fmtMoney(it.precio_solicitado)}) sobrepasa el precio presupuestado (${fmtMoney(it.insumo.precio_presupuesto)}).</div>`);
         }
       });
       box.innerHTML = alerts.join('') || `<div class="alert-box info">✓ Sin alertas: las cantidades y precios están dentro del presupuesto.</div>`;
@@ -8066,8 +8066,8 @@ async function openRequisicionDetail(reqId) {
         <div class="muted code">${esc(it.insumo_codigo)} · ${esc(it.unidad || '')}</div>
         <div class="row between"><span class="muted">Solicitado</span><span>${fmtNum(it.cantidad_solicitada, 3)} ${esc(it.unidad || '')}${puedeVerImportesRequisicion() && it.precio_solicitado != null ? ` a ${fmtMoney(it.precio_solicitado)}` : ''}</span></div>
         <div class="row between"><span class="muted">Presupuestado</span><span>${fmtNum(it.cantidad_presupuesto, 3)} ${esc(it.unidad || '')}${puedeVerImportesRequisicion() && it.precio_presupuesto != null ? ` a ${fmtMoney(it.precio_presupuesto)}` : ''}</span></div>
-        ${it.alerta_cantidad ? `<div class="alert-box danger">⚠️ Cantidad acumulada sobrepasa lo presupuestado</div>` : ''}
-        ${it.alerta_precio ? `<div class="alert-box warn">⚠️ Precio solicitado sobrepasa el precio presupuestado</div>` : ''}
+        ${it.alerta_cantidad ? `<div class="alert-box danger">${icon('warning', 14)} Cantidad acumulada sobrepasa lo presupuestado</div>` : ''}
+        ${it.alerta_precio ? `<div class="alert-box warn">${icon('warning', 14)} Precio solicitado sobrepasa el precio presupuestado</div>` : ''}
         ${it.observaciones ? `<div class="muted">${esc(it.observaciones)}</div>` : ''}
         ${ajuste ? `<div class="muted fs-078">✎ Corregido por ${esc(ajuste.actor_nombre)} el ${fmtDate(ajuste.creado_en)}</div>` : ''}
         ${puedeCorregirPostOc ? `<div class="row end mt-6"><button class="btn small" data-corregir-item="${it.id}">Corregir</button></div>` : ''}
@@ -8245,7 +8245,7 @@ function openEditRequisicionModal(requisicion) {
             <div class="item-title">${esc(i.concepto)}</div>
             <div class="code muted">${esc(i.codigo)} · presup: ${fmtNum(i.cantidad_presupuesto, 3)} ${esc(i.unidad || '')} a ${fmtMoney(i.precio_presupuesto)}</div>
           </div>
-          <button class="btn small btn-ghost" data-remove="${idx}">✕</button>
+          <button class="btn small btn-ghost" data-remove="${idx}">${icon('x', 14)} </button>
         </div>
         <div class="qty-row">
           <div><label>Cantidad</label><input type="number" min="0" step="any" data-field="cantidad_solicitada" data-idx="${idx}" value="${d.cantidad_solicitada}" /></div>
@@ -8318,10 +8318,10 @@ function openEditRequisicionModal(requisicion) {
       const alerts = [];
       result.items.forEach((it) => {
         if (it.alerta_cantidad) {
-          alerts.push(`<div class="alert-box danger">⚠️<strong>${esc(it.insumo.codigo)}</strong>: la cantidad acumulada (${fmtNum(it.cantidad_acumulada_previa + it.cantidad_solicitada, 3)} ${esc(it.insumo.unidad || '')}) sobrepasa la cantidad presupuestada (${fmtNum(it.insumo.cantidad_presupuesto, 3)} ${esc(it.insumo.unidad || '')}).</div>`);
+          alerts.push(`<div class="alert-box danger">${icon('warning', 14)} <strong>${esc(it.insumo.codigo)}</strong>: la cantidad acumulada (${fmtNum(it.cantidad_acumulada_previa + it.cantidad_solicitada, 3)} ${esc(it.insumo.unidad || '')}) sobrepasa la cantidad presupuestada (${fmtNum(it.insumo.cantidad_presupuesto, 3)} ${esc(it.insumo.unidad || '')}).</div>`);
         }
         if (it.alerta_precio) {
-          alerts.push(`<div class="alert-box warn">⚠️<strong>${esc(it.insumo.codigo)}</strong>: el precio solicitado (${fmtMoney(it.precio_solicitado)}) sobrepasa el precio presupuestado (${fmtMoney(it.insumo.precio_presupuesto)}).</div>`);
+          alerts.push(`<div class="alert-box warn">${icon('warning', 14)} <strong>${esc(it.insumo.codigo)}</strong>: el precio solicitado (${fmtMoney(it.precio_solicitado)}) sobrepasa el precio presupuestado (${fmtMoney(it.insumo.precio_presupuesto)}).</div>`);
         }
       });
       box.innerHTML = alerts.join('') || `<div class="alert-box info">✓ Sin alertas: las cantidades y precios están dentro del presupuesto.</div>`;
@@ -8491,7 +8491,7 @@ async function openGenerarOrdenModal(requisicion) {
   // vacío nunca deja confirmar (checkbox del botón deshabilitado).
   function mostrarConfirmacionSobreOrdenModal(excedentes, onConfirmar) {
     openModal(`
-      <h3>⚠️ Vas a ordenar más de lo pendiente</h3>
+      <h3>${icon('warning', 14)} Vas a ordenar más de lo pendiente</h3>
       <p class="muted">Estos insumos exceden lo disponible de la requisición (lo solicitado menos lo ya ordenado en OCs previas de esta misma requisición). Puedes continuar, pero indica por qué.</p>
       <div class="card bg-panel2 mb-12">
         ${excedentes.map((e) => `
@@ -8875,7 +8875,7 @@ async function paintOcRecepciones(ocId) {
         ${r.observaciones ? `<div class="muted fs-078">${esc(r.observaciones)}</div>` : ''}
       </div>`).join('');
   } catch (err) {
-    box.innerHTML = `<div class="alert-box danger">⚠️${esc(err.message)}</div>`;
+    box.innerHTML = `<div class="alert-box danger">${icon('warning', 14)} ${esc(err.message)}</div>`;
   }
 }
 
@@ -8927,7 +8927,7 @@ async function paintOcPagos(ocId) {
       });
     });
   } catch (err) {
-    box.innerHTML = `<div class="alert-box danger">⚠️${esc(err.message)}</div>`;
+    box.innerHTML = `<div class="alert-box danger">${icon('warning', 14)} ${esc(err.message)}</div>`;
   }
 }
 
@@ -9157,7 +9157,7 @@ async function renderAvance(view) {
 
     <h3 class="section-title">Captura de avance real por semana</h3>
     <p class="muted">La columna "Presupuesto del periodo" muestra la cantidad presupuestada (en pesos) para esa semana, según la curva programada — úsala como referencia para anotar tu avance real de esa misma semana. Toca <strong>"Por concepto"</strong> para anotar las cantidades realmente ejecutadas de cada concepto del catálogo (con su descripción, unidad y cantidad presupuestada) — el % de avance real se calculará automáticamente a partir de esas cantidades.</p>
-    ${puedeEditar ? `<div class="alert-box info">⚠️ Los % que edites y guardes aquí directamente se sobrescriben la próxima vez que guardes algo desde "Por concepto" de esa misma semana — ese modal siempre recalcula el % a partir de las cantidades capturadas ahí.</div>` : ''}
+    ${puedeEditar ? `<div class="alert-box info">${icon('warning', 14)} Los % que edites y guardes aquí directamente se sobrescriben la próxima vez que guardes algo desde "Por concepto" de esa misma semana — ese modal siempre recalcula el % a partir de las cantidades capturadas ahí.</div>` : ''}
     <div class="card">
       <div class="table-scroll">
         <table>
@@ -9521,7 +9521,7 @@ async function openAvanceConceptosModal(avance, presupuestoTotal, puedeEditar = 
     const data = await api(`/projects/${state.projectId}/avances/${semana}/conceptos`);
     items = data.items;
   } catch (err) {
-    $('#avcList').innerHTML = `<div class="alert-box danger">⚠️${esc(err.message)}</div>`;
+    $('#avcList').innerHTML = `<div class="alert-box danger">${icon('warning', 14)} ${esc(err.message)}</div>`;
     return;
   }
 
@@ -10852,7 +10852,7 @@ async function toggleDestajoSemanal(btn, destajistas) {
     paintDestajoSemanaChart(destId, data.semanas);
     paintDestajoSemanaTable(destId, data.semanas, dest ? dest.nombre : '');
   } catch (err) {
-    body.innerHTML = `<div class="alert-box danger">⚠️${esc(err.message)}</div>`;
+    body.innerHTML = `<div class="alert-box danger">${icon('warning', 14)} ${esc(err.message)}</div>`;
   }
 }
 
@@ -10965,7 +10965,7 @@ async function openDestajoSemanaModal(destId, semana, nombre) {
     const dest = todos.find((d) => d.id === destId);
     totalAsignado = dest ? dest.total_asignado : 0;
   } catch (err) {
-    $('#destAvcList').innerHTML = `<div class="alert-box danger">⚠️${esc(err.message)}</div>`;
+    $('#destAvcList').innerHTML = `<div class="alert-box danger">${icon('warning', 14)} ${esc(err.message)}</div>`;
     return;
   }
 
@@ -11377,7 +11377,7 @@ function openPostUploadModal(result) {
 async function openMiCuentaModal(mustChange) {
   openModal(`
     <h3>Mi cuenta</h3>
-    ${mustChange ? `<div class="alert-box warning mb-12">⚠️ Debes cambiar tu contraseña antes de continuar.</div>` : ''}
+    ${mustChange ? `<div class="alert-box warning mb-12">${icon('warning', 14)} Debes cambiar tu contraseña antes de continuar.</div>` : ''}
     <div class="field"><label>Nombre completo</label><input id="mcNombre" value="${esc(state.user?.nombre || '')}" /></div>
     <div class="field"><label>Usuario (login)</label><input id="mcUsuario" value="${esc(state.user?.usuario || '')}" autocomplete="username" /></div>
     <hr class="hr-14">
@@ -11706,7 +11706,7 @@ async function renderSugerencias(view) {
     area.innerHTML = sugFiles.map((f, i) => `
       <div class="sug-thumb-wrap" data-thumb="${i}">
         <img src="${URL.createObjectURL(f)}" class="sug-thumb-img">
-        <button data-rm="${i}" class="sug-thumb-remove">✕</button>
+        <button data-rm="${i}" class="sug-thumb-remove">${icon('x', 14)} </button>
       </div>`).join('');
     $$('[data-rm]', area).forEach((btn) => {
       btn.addEventListener('click', () => {
@@ -12282,7 +12282,7 @@ function openNovedadFormModal(novedad, onSaved) {
           <option value="correccion" ${it.tipo === 'correccion' ? 'selected' : ''}>Corrección</option>
         </select>
         <input type="text" class="novFormItemTexto" data-idx="${idx}" value="${esc(it.texto)}" placeholder="Descripción en lenguaje de negocio…" />
-        <button class="icon-btn-inline" data-remove-item="${idx}" type="button" title="Quitar" aria-label="Quitar">✕</button>
+        <button class="icon-btn-inline" data-remove-item="${idx}" type="button" title="Quitar" aria-label="Quitar">${icon('x', 14)} </button>
       </div>
     `).join('') : '<p class="muted">Sin ítems agregados.</p>';
     $$('.novFormItemTipo', box).forEach((sel) => sel.addEventListener('change', (e) => { items[Number(e.target.dataset.idx)].tipo = e.target.value; }));
@@ -12406,7 +12406,7 @@ async function renderNovedades(view, initialSubView) {
 
 async function renderUsuarios(view, initialSubView) {
   if (!puedeGestionarUsuarios()) {
-    view.innerHTML = `<div class="alert-box danger">⚠️ No tienes permiso para ver esta sección.</div>`;
+    view.innerHTML = `<div class="alert-box danger">${icon('warning', 14)} No tienes permiso para ver esta sección.</div>`;
     return;
   }
   let subView = 'cuentas'; // 'cuentas' | 'permisos'
@@ -12502,7 +12502,7 @@ async function renderUsuarios(view, initialSubView) {
       try {
         await renderMatrizPermisos(wrap, usuarioId, puesto);
       } catch (err) {
-        wrap.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+        wrap.innerHTML = `<div class="alert-box danger">${icon('warning', 14)} ${esc(err.message)}</div>`;
       }
     });
   }
@@ -13387,7 +13387,7 @@ function openProveedorDocumentosModal(proveedorId, nombreProveedor, tipos, puede
   openModal(`
     <div class="modal-header-row">
       <h3 class="modal-title">Documentos — ${esc(nombreProveedor)}</h3>
-      <button class="icon-btn modal-close-btn" id="btnCerrarCumplDocs">✕</button>
+      <button class="icon-btn modal-close-btn" id="btnCerrarCumplDocs">${icon('x', 14)} </button>
     </div>
     <div id="cumplDocsListEl"><div class="empty-state">Cargando…</div></div>
     ${puedeCrear ? `
@@ -13586,7 +13586,7 @@ async function renderCotizador(view) {
     if (!ultimaBusqueda) { cont.innerHTML = ''; return; }
     const { query, resultados, errores, fecha_consulta, desdeCache } = ultimaBusqueda;
     const erroresHtml = errores.length
-      ? `<div class="alert-box warn mt-8">⚠️ No se pudo consultar: ${errores.map((e) => `${esc(TIENDA_LABELS[e.tienda] || e.tienda)} (${esc(e.error)})`).join(', ')}</div>`
+      ? `<div class="alert-box warn mt-8">${icon('warning', 14)} No se pudo consultar: ${errores.map((e) => `${esc(TIENDA_LABELS[e.tienda] || e.tienda)} (${esc(e.error)})`).join(', ')}</div>`
       : '';
     if (!resultados.length) {
       cont.innerHTML = `${erroresHtml}<div class="empty-state">Sin resultados para "${esc(query)}".</div>`;
@@ -13670,7 +13670,7 @@ async function renderCotizador(view) {
       const msg = err.name === 'AbortError'
         ? 'La búsqueda tardó demasiado y se canceló. Intenta de nuevo.'
         : err.message;
-      cont.innerHTML = `<div class="alert-box danger">⚠️ ${esc(msg)}</div>`;
+      cont.innerHTML = `<div class="alert-box danger">${icon('warning', 14)} ${esc(msg)}</div>`;
     } finally {
       clearTimeout(timeoutId);
       if (miToken === searchToken) btnBuscar.disabled = false;
@@ -14442,7 +14442,7 @@ async function cargarResponsablesMaq(equipoId, body) {
       </div>
     `;
   } catch (err) {
-    body.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+    body.innerHTML = `<div class="alert-box danger">${icon('warning', 14)} ${esc(err.message)}</div>`;
   }
 }
 
@@ -14504,7 +14504,7 @@ async function toggleHistorialMaq(btn) {
       </div>
     `;
   } catch (err) {
-    body.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+    body.innerHTML = `<div class="alert-box danger">${icon('warning', 14)} ${esc(err.message)}</div>`;
   }
 }
 
@@ -14954,7 +14954,7 @@ function paintEstadoUnidadMaq(list, { puedeSupervisarEstadoUnidad, esOperador })
   if (puedeSupervisarEstadoUnidad) {
     const criticos = list.filter((u) => u.tiene_critico).length;
     html += `
-      ${criticos ? `<p class="maq-section-alerta">⚠️ ${criticos} unidad(es) con punto crítico</p>` : ''}
+      ${criticos ? `<p class="maq-section-alerta">${icon('warning', 14)} ${criticos} unidad(es) con punto crítico</p>` : ''}
       ${!list.length ? '<p class="muted">No hay equipos registrados.</p>' : `
       <div class="table-scroll">
         <table>
@@ -15704,7 +15704,7 @@ async function toggleCorteObraDetalle(btn, fechaCorte) {
     if (!document.body.contains(body)) return;
     body.innerHTML = corteObraDetalleTablaHtml(detalle);
   } catch (err) {
-    body.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+    body.innerHTML = `<div class="alert-box danger">${icon('warning', 14)} ${esc(err.message)}</div>`;
   }
 }
 
@@ -16166,7 +16166,7 @@ function erDesgloseEgresosHtml(egresos) {
     <div class="card-row"><span class="k">Jornal — nómina aprobada</span><span class="v">${fmtMoney(d.jornal_aprobado)}</span></div>
     <div class="card-row"><span class="k">Total pagado</span><span class="v text-verde">${fmtMoney(egresos.pagado)}</span></div>
     <div class="card-row"><span class="k">Total comprometido (no pagado)</span><span class="v text-amarillo">${fmtMoney(egresos.comprometido_no_pagado)}</span></div>
-    ${d.destajo_huerfano > 0 ? `<p class="muted finanzas-destajo-huerfano-note">⚠️ De lo anterior, ${fmtMoney(d.destajo_huerfano)} de Destajo corresponden a destajistas sin trabajador vinculado — pagado fuera del sistema de nómina, ya incluido en el total pero no reconciliable contra ninguna nómina real.</p>` : ''}
+    ${d.destajo_huerfano > 0 ? `<p class="muted finanzas-destajo-huerfano-note">${icon('warning', 14)} De lo anterior, ${fmtMoney(d.destajo_huerfano)} de Destajo corresponden a destajistas sin trabajador vinculado — pagado fuera del sistema de nómina, ya incluido en el total pero no reconciliable contra ninguna nómina real.</p>` : ''}
   `;
 }
 
@@ -16787,7 +16787,7 @@ async function renderTrabajadoresGlobal(view) {
         <div class="card-row"><span class="k">${label}</span><span class="v">${cuenta ? `${esc(cuenta)}${banco ? ` · ${esc(banco)}` : ''}` : 'Sin cuenta capturada'}</span></div>`;
       $('#trabCuentaPopoverBody').innerHTML = linea('Nómina', det.cuenta_nomina_hsbc, det.banco_nomina) + linea('Alterna', det.cuenta_alterna, det.banco_alterna);
     } catch (err) {
-      $('#trabCuentaPopoverBody').innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+      $('#trabCuentaPopoverBody').innerHTML = `<div class="alert-box danger">${icon('warning', 14)} ${esc(err.message)}</div>`;
     }
   }
 
@@ -17184,7 +17184,7 @@ async function openDetalleCuentaCCModal(cuentaId) {
       </div>`}
     `;
   } catch (err) {
-    $('#ccDetalleBody').innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+    $('#ccDetalleBody').innerHTML = `<div class="alert-box danger">${icon('warning', 14)} ${esc(err.message)}</div>`;
   }
 }
 
@@ -17278,7 +17278,7 @@ async function renderControlFinanciero(view) {
         row.addEventListener('click', () => openDetalleFacturaCfModal(Number(row.dataset.facturaId), cargarIngresos));
       });
     } catch (err) {
-      list.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+      list.innerHTML = `<div class="alert-box danger">${icon('warning', 14)} ${esc(err.message)}</div>`;
     }
   }
 
@@ -17332,7 +17332,7 @@ async function renderControlFinanciero(view) {
         row.addEventListener('click', () => openEditarGastoIndirectoCfModal(gastos.find((g) => g.id === Number(row.dataset.gastoId)), cargarGastosIndirectos));
       });
     } catch (err) {
-      list.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+      list.innerHTML = `<div class="alert-box danger">${icon('warning', 14)} ${esc(err.message)}</div>`;
     }
   }
 
@@ -17402,7 +17402,7 @@ async function openDetalleFacturaCfModal(facturaId, onChange) {
     `;
     $('#btnNuevoCobroCf').addEventListener('click', () => openNuevoCobroCfModal(facturaId, () => openDetalleFacturaCfModal(facturaId, onChange)));
   } catch (err) {
-    $('#cfFacDetalleBody').innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+    $('#cfFacDetalleBody').innerHTML = `<div class="alert-box danger">${icon('warning', 14)} ${esc(err.message)}</div>`;
   }
 }
 
@@ -17594,7 +17594,7 @@ async function renderContabilidadCuentas(view) {
         row.addEventListener('click', () => openEditarCuentaContModal(cuentas.find((c) => c.id === Number(row.dataset.cuentaId)), cargarCuentas));
       });
     } catch (err) {
-      list.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+      list.innerHTML = `<div class="alert-box danger">${icon('warning', 14)} ${esc(err.message)}</div>`;
     }
   }
   $('#contCuentasTipoFiltro').addEventListener('change', cargarCuentas);
@@ -17677,7 +17677,7 @@ async function renderContabilidadPolizas(view) {
         row.addEventListener('click', () => openDetallePolizaContModal(polizas.find((p) => p.id === Number(row.dataset.polizaId)), cargarPolizas));
       });
     } catch (err) {
-      list.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+      list.innerHTML = `<div class="alert-box danger">${icon('warning', 14)} ${esc(err.message)}</div>`;
     }
   }
   $('#contPolizasTipoFiltro').addEventListener('change', cargarPolizas);
@@ -17761,7 +17761,7 @@ async function renderContabilidadCfdi(view) {
         row.addEventListener('click', () => openDetalleCfdiContModal(cfdis.find((c) => c.id === Number(row.dataset.cfdiId)), cargarCfdi));
       });
     } catch (err) {
-      list.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+      list.innerHTML = `<div class="alert-box danger">${icon('warning', 14)} ${esc(err.message)}</div>`;
     }
   }
   $('#contCfdiRfcEmisorFiltro').addEventListener('change', cargarCfdi);
@@ -17867,7 +17867,7 @@ async function renderContabilidadPagos(view) {
         });
       });
     } catch (err) {
-      list.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+      list.innerHTML = `<div class="alert-box danger">${icon('warning', 14)} ${esc(err.message)}</div>`;
     }
   }
   $('#contPagosMesInput').addEventListener('change', cargarPagos);
@@ -17884,7 +17884,7 @@ function openVincularFacturaModal(pago, onSaved) {
   openModal(`
     <h3>Vincular factura</h3>
     <p class="muted">${esc(pago.oc_folio || `OC #${pago.oc_id}`)} · ${esc(pago.proveedor_nombre)} · ${fmtMoney(pago.monto)} · ${fmtDate(pago.fecha)}</p>
-    ${pago.proveedor_rfc ? '' : '<div class="alert-box danger">⚠️ Este proveedor no tiene RFC capturado — no se pueden sugerir candidatos automáticamente, solo subir uno nuevo.</div>'}
+    ${pago.proveedor_rfc ? '' : '<div class="alert-box danger">' + icon('warning', 14) + ' Este proveedor no tiene RFC capturado — no se pueden sugerir candidatos automáticamente, solo subir uno nuevo.</div>'}
     <div id="vincularCfdiCandidatos" class="mt-8"><div class="spinner"></div></div>
     <div class="modal-actions">
       <button class="btn" id="btnCerrarVincularCfdi">Cerrar</button>
@@ -17934,7 +17934,7 @@ function openVincularFacturaModal(pago, onSaved) {
         });
       });
     } catch (err) {
-      cont.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+      cont.innerHTML = `<div class="alert-box danger">${icon('warning', 14)} ${esc(err.message)}</div>`;
     }
   })();
 }
@@ -18012,7 +18012,7 @@ async function renderContabilidadConciliacion(view) {
         row.addEventListener('click', () => openDetalleMovimientoModal(movimientos.find((m) => m.id === Number(row.dataset.movId)), cargarMovimientos));
       });
     } catch (err) {
-      list.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+      list.innerHTML = `<div class="alert-box danger">${icon('warning', 14)} ${esc(err.message)}</div>`;
     }
   }
   $('#contConcCuentaSelect').addEventListener('change', (e) => {
@@ -18081,7 +18081,7 @@ async function renderContabilidadDepreciacion(view) {
         row.addEventListener('click', () => openDetalleDepreciacionModal(filas.find((f) => f.id === Number(row.dataset.deprecId)), contMesDeprecSeleccionado || filas[0].mes, cargarDepreciacion));
       });
     } catch (err) {
-      list.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+      list.innerHTML = `<div class="alert-box danger">${icon('warning', 14)} ${esc(err.message)}</div>`;
     }
   }
   $('#contDeprecMesInput').addEventListener('change', (e) => {
@@ -18362,7 +18362,7 @@ function openCfdiConfirmModal(preview, onSaved, pagoId = null) {
   openModal(`
     <h3>Confirmar CFDI</h3>
     ${preview.origen === 'pdf_representacion'
-      ? '<div class="alert-box danger">⚠️ Datos extraídos con IA desde el PDF de representación (no se subió XML) — revisa que sean correctos antes de guardar.</div>'
+      ? '<div class="alert-box danger">' + icon('warning', 14) + ' Datos extraídos con IA desde el PDF de representación (no se subió XML) — revisa que sean correctos antes de guardar.</div>'
       : '<p class="muted">Datos extraídos directo del XML.</p>'}
     <div class="field"><label>UUID (folio fiscal) *</label><input id="cfdiConfUuid" value="${esc(c.uuid || '')}" /></div>
     <div class="field"><label>RFC emisor *</label><input id="cfdiConfRfcEmisor" value="${esc(c.rfc_emisor || '')}" /></div>
@@ -18507,7 +18507,7 @@ async function cargarListaCuentasBancariasModal(onChange) {
       row.addEventListener('click', () => openEditarCuentaBancariaModal(cuentas.find((c) => c.id === Number(row.dataset.cbId)), onChange));
     });
   } catch (err) {
-    list.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+    list.innerHTML = `<div class="alert-box danger">${icon('warning', 14)} ${esc(err.message)}</div>`;
   }
 }
 
@@ -18942,7 +18942,7 @@ async function renderCostosDashboard(view) {
   try {
     data = await api(esGlobal ? '/costos/dashboard-global' : '/costos/dashboard');
   } catch (err) {
-    view.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+    view.innerHTML = `<div class="alert-box danger">${icon('warning', 14)} ${esc(err.message)}</div>`;
     return;
   }
 
@@ -19170,7 +19170,7 @@ async function renderCatalogoBasicos(view) {
   try {
     data = await api('/costos/catalogo-basicos');
   } catch (err) {
-    view.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+    view.innerHTML = `<div class="alert-box danger">${icon('warning', 14)} ${esc(err.message)}</div>`;
     return;
   }
 
@@ -19264,7 +19264,7 @@ async function renderCostos(view) {
         result.innerHTML = `<p class="muted fs-08">${data.catalogo.length} insumo${data.catalogo.length === 1 ? '' : 's'} con código.</p>${costosTablaHtml(data.catalogo)}`;
         actions.style.display = data.catalogo.length ? 'flex' : 'none';
       } catch (err) {
-        result.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+        result.innerHTML = `<div class="alert-box danger">${icon('warning', 14)} ${esc(err.message)}</div>`;
       }
     }
     select.addEventListener('change', (e) => {
@@ -19301,7 +19301,7 @@ async function renderCostos(view) {
       catalogoGlobalCache = data.catalogo;
       $('#costosGlobalResult').innerHTML = `<p class="muted fs-08">${data.catalogo.length} insumo${data.catalogo.length === 1 ? '' : 's'} con código, de todos los clientes.</p>${costosTablaHtml(data.catalogo)}`;
     } catch (err) {
-      $('#costosGlobalResult').innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+      $('#costosGlobalResult').innerHTML = `<div class="alert-box danger">${icon('warning', 14)} ${esc(err.message)}</div>`;
     }
     $('#btnCostosGenerarPresupuesto').addEventListener('click', () => {
       if (!catalogoGlobalCache?.length) { toast('No hay insumos con código para armar un presupuesto todavía', ''); return; }
@@ -19390,7 +19390,7 @@ async function renderCostos(view) {
         poblarObras();
         aplicarFiltros();
       } catch (err) {
-        result.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+        result.innerHTML = `<div class="alert-box danger">${icon('warning', 14)} ${esc(err.message)}</div>`;
       }
     }
     $('#conceptosClienteSelect').addEventListener('change', (e) => {
@@ -19475,7 +19475,7 @@ async function renderCostos(view) {
       if (it.tiene_destajo && it.tiene_matriz) return '';
       const titulo = !it.tiene_destajo && !it.tiene_matriz
         ? 'Sin destajo ni matriz en el catálogo' : !it.tiene_destajo ? 'Sin destajo en el catálogo' : 'Sin matriz en el catálogo';
-      return `<span class="cp-warn-badge" title="${esc(titulo)}">⚠️</span>`;
+      return `<span class="cp-warn-badge" title="${esc(titulo)}">${icon('warning', 14)} </span>`;
     }
 
     async function cargarArchivos() {
@@ -19496,7 +19496,7 @@ async function renderCostos(view) {
           });
         });
       } catch (err) {
-        result.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+        result.innerHTML = `<div class="alert-box danger">${icon('warning', 14)} ${esc(err.message)}</div>`;
       }
     }
 
@@ -19701,7 +19701,7 @@ async function renderCostos(view) {
         resultados = data.conceptos;
         renderResultados();
       } catch (err) {
-        $('#cmBusquedaResult').innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+        $('#cmBusquedaResult').innerHTML = `<div class="alert-box danger">${icon('warning', 14)} ${esc(err.message)}</div>`;
       }
     }, 300));
   }
@@ -19981,7 +19981,7 @@ function openCrearPresupuestoModal(catalogoOriginal) {
     const titulo = faltaDestajo && faltaMatriz
       ? 'Sin destajo ni matriz cargados en la obra de origen'
       : faltaDestajo ? 'Sin destajo cargado en la obra de origen' : 'Sin matriz cargada en la obra de origen';
-    return `<span class="cp-warn-badge" title="${esc(titulo)}">⚠️</span>`;
+    return `<span class="cp-warn-badge" title="${esc(titulo)}">${icon('warning', 14)} </span>`;
   }
 
   function renderRows(idxVisibles) {
@@ -20071,7 +20071,7 @@ function openCrearPresupuestoModal(catalogoOriginal) {
   openModal(`
     <div class="modal-header-row">
       <h3 class="modal-title">Crear presupuesto desde catálogo</h3>
-      <button class="icon-btn modal-close-btn" id="btnCloseCrearPresupuesto" aria-label="Cerrar">✕</button>
+      <button class="icon-btn modal-close-btn" id="btnCloseCrearPresupuesto" aria-label="Cerrar">${icon('x', 14)} </button>
     </div>
     <div class="field"><label>Nombre de la obra</label><input type="text" id="cpNombre" placeholder="Ej. Residencial Fase 2" /></div>
     <div class="field"><label>Cliente</label>
@@ -20766,7 +20766,7 @@ function openVincularInsumosGeneradorModal(generadorId, concepto) {
   openModal(`
     <div class="modal-header-row">
       <h3 class="modal-title">Vincular insumos — ${esc(concepto.concepto)}</h3>
-      <button class="icon-btn modal-close-btn" id="btnCerrarVincularGeneradorTop" aria-label="Cerrar">✕</button>
+      <button class="icon-btn modal-close-btn" id="btnCerrarVincularGeneradorTop" aria-label="Cerrar">${icon('x', 14)} </button>
     </div>
     <p class="muted fs-08">${esc(concepto.unidad || '')} · Cantidad presupuestada: ${fmtNum(concepto.cantidad, 3)}. El rendimiento es la cantidad de insumo POR UNIDAD de este concepto.</p>
     <div class="search-bar"><input type="search" id="genVincularBuscar" placeholder="Buscar insumo por código o nombre…" /></div>
@@ -20905,7 +20905,7 @@ function openVincularInsumosGeneradorModal(generadorId, concepto) {
       pintarChips();
       pintarLista();
     } catch (err) {
-      $('#genVincularLista').innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+      $('#genVincularLista').innerHTML = `<div class="alert-box danger">${icon('warning', 14)} ${esc(err.message)}</div>`;
     }
   })();
 }
@@ -21159,7 +21159,7 @@ async function paintMatrizDetalle(view) {
   let data;
   try {
     data = await api(`/projects/${state.projectId}/matrices/${matricesSelectedConceptoId}`);
-  } catch (err) { box.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`; return; }
+  } catch (err) { box.innerHTML = `<div class="alert-box danger">${icon('warning', 14)} ${esc(err.message)}</div>`; return; }
 
   const { concepto, matriz } = data;
   const existeMatriz = !!matriz;
@@ -21191,7 +21191,7 @@ async function paintMatrizDetalle(view) {
             <tbody>${filas.map((r) => `
               <tr>
                 <td>${esc(r.codigo || '—')}</td>
-                <td>${esc(r.descripcion || '—')}${r.tipo === 'factor_pct' ? `<div class="muted fs-07">Factor % sobre subtotal de ${esc(r.factor_referencia)}</div>` : ''}${r.tipo === 'basico_ref' ? `<div class="muted fs-07">Básico reutilizable — costo directo × Volumen</div>` : ''}${r.sin_desglosar ? `<div class="muted fs-07">⚠️ Mano de obra sin desglosar por oficio — capturada como cuadrilla completa desde el Excel</div>` : ''}</td>
+                <td>${esc(r.descripcion || '—')}${r.tipo === 'factor_pct' ? `<div class="muted fs-07">Factor % sobre subtotal de ${esc(r.factor_referencia)}</div>` : ''}${r.tipo === 'basico_ref' ? `<div class="muted fs-07">Básico reutilizable — costo directo × Volumen</div>` : ''}${r.sin_desglosar ? `<div class="muted fs-07">${icon('warning', 14)} Mano de obra sin desglosar por oficio — capturada como cuadrilla completa desde el Excel</div>` : ''}</td>
                 <td class="num">
                   <input type="number" step="0.0001" min="0.0001" class="matriz-input-num matRenglonCantidad" data-idx="${r._idx}"
                     value="${r.tipo === 'factor_pct' ? Number((Number(r.cantidad) * 100).toFixed(4)) : r.cantidad}" />${r.tipo === 'factor_pct' ? ' %' : ''}
@@ -21202,7 +21202,7 @@ async function paintMatrizDetalle(view) {
                   : (r.tipo === 'basico_ref' && r.precio_basico != null ? fmtMoney(Number(r.cantidad) * Number(r.precio_basico))
                   : '<span class="muted fs-07">se calcula al guardar</span>')
                 }</td>
-                <td><button class="icon-btn-inline" data-remove="${r._idx}" type="button" title="Quitar" aria-label="Quitar">✕</button></td>
+                <td><button class="icon-btn-inline" data-remove="${r._idx}" type="button" title="Quitar" aria-label="Quitar">${icon('x', 14)} </button></td>
               </tr>
             `).join('')}</tbody>
           </table>
@@ -21552,7 +21552,7 @@ async function openBasicoEditorModal(view, basicoId) {
             <tbody>${filas.map((r) => `
               <tr>
                 <td>${esc(r.codigo || '—')}</td>
-                <td>${esc(r.descripcion || '—')}${r.tipo === 'factor_pct' ? `<div class="muted fs-07">Factor % sobre subtotal de ${esc(r.factor_referencia)}</div>` : ''}${r.tipo === 'basico_ref' ? '<div class="muted fs-07">Básico anidado</div>' : ''}${r.sin_desglosar ? `<div class="muted fs-07">⚠️ Mano de obra sin desglosar por oficio — capturada como cuadrilla completa desde el Excel</div>` : ''}</td>
+                <td>${esc(r.descripcion || '—')}${r.tipo === 'factor_pct' ? `<div class="muted fs-07">Factor % sobre subtotal de ${esc(r.factor_referencia)}</div>` : ''}${r.tipo === 'basico_ref' ? '<div class="muted fs-07">Básico anidado</div>' : ''}${r.sin_desglosar ? `<div class="muted fs-07">${icon('warning', 14)} Mano de obra sin desglosar por oficio — capturada como cuadrilla completa desde el Excel</div>` : ''}</td>
                 ${cat === 'MANO DE OBRA' ? `
                   <td>${r.tipo === 'insumo' ? `
                     <select class="matBasicoOperador" data-idx="${r._idx}">
@@ -21564,7 +21564,7 @@ async function openBasicoEditorModal(view, basicoId) {
                   <input type="number" step="0.0001" min="0.0001" class="matriz-input-num matBasicoRenglonCantidad" data-idx="${r._idx}"
                     value="${r.tipo === 'factor_pct' ? Number((Number(r.cantidad) * 100).toFixed(4)) : r.cantidad}" />${r.tipo === 'factor_pct' ? ' %' : ''}
                 </td>
-                <td><button class="icon-btn-inline" data-remove="${r._idx}" type="button" title="Quitar" aria-label="Quitar">✕</button></td>
+                <td><button class="icon-btn-inline" data-remove="${r._idx}" type="button" title="Quitar" aria-label="Quitar">${icon('x', 14)} </button></td>
               </tr>
             `).join('')}</tbody>
           </table>
@@ -21591,7 +21591,7 @@ async function openBasicoEditorModal(view, basicoId) {
     <p class="muted">Un básico es un mini-análisis reutilizable (materiales, mano de obra, equipo) sin cascada de CI/CF/CU propia — su costo directo es lo que se multiplica por el "Volumen" al usarlo dentro de otro análisis.</p>
     ${!esNuevo && basico.costo_directo != null ? `<p class="card-row"><span class="k"><strong>Costo directo actual</strong></span><span class="v"><strong>${fmtMoney(basico.costo_directo)}</strong></span></p>` : ''}
     ${usadoEn.length ? `
-      <div class="alert-box mb-8">⚠️ Este básico se usa en ${usadoEn.length} análisis — editarlo afecta a todos:
+      <div class="alert-box mb-8">${icon('warning', 14)} Este básico se usa en ${usadoEn.length} análisis — editarlo afecta a todos:
         <ul>${usadoEn.map((u) => `<li>${u.concepto_codigo ? `${esc(u.concepto_codigo)} — ${esc(u.concepto_nombre)}` : `Básico ${esc(u.basico_codigo)}`}</li>`).join('')}</ul>
       </div>
     ` : ''}
@@ -21767,7 +21767,7 @@ async function renderTrabajadores(view) {
   const misPermisosContrato = todosMisPermisos.trabajadores_contrato;
   const misPermisosBancarios = todosMisPermisos.trabajadores_bancarios;
   if (!misPermisos.puede_ver) {
-    view.innerHTML = `<div class="alert-box danger">⚠️ No tienes permiso para ver esta sección.</div>`;
+    view.innerHTML = `<div class="alert-box danger">${icon('warning', 14)} No tienes permiso para ver esta sección.</div>`;
     return;
   }
   // Nuevo trabajador / Editar / Dar de baja / Reactivar / EPP / Catálogo EPP
@@ -22263,7 +22263,7 @@ async function openGestionarObrasModal(t, repaint) {
   async function cargarYRenderizar() {
     let obras = [];
     try { obras = await api(`/projects/${t.project_id}/trabajadores/${t.id}/obras`); }
-    catch (err) { $('#gestObrasBody').innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`; return; }
+    catch (err) { $('#gestObrasBody').innerHTML = `<div class="alert-box danger">${icon('warning', 14)} ${esc(err.message)}</div>`; return; }
     const activas = obras.filter((o) => o.activo);
     const historicas = obras.filter((o) => !o.activo);
     $('#gestObrasBody').innerHTML = `
@@ -22433,7 +22433,7 @@ async function openContratosModal(trabajadorId, nombreTrab, puedeCrear) {
   openModal(`
     <div class="modal-header-row">
       <h3 class="modal-title">Contratos — ${esc(nombreTrab)}</h3>
-      <button class="icon-btn modal-close-btn" id="btnCerrarContratos">✕</button>
+      <button class="icon-btn modal-close-btn" id="btnCerrarContratos">${icon('x', 14)} </button>
     </div>
     <div id="contratosListEl"><div class="empty-state">Cargando…</div></div>
     ${puedeCrear ? `
@@ -22535,7 +22535,7 @@ async function openEppModal(trabajadorId, nombreTrab, puedeCrear) {
   openModal(`
     <div class="modal-header-row">
       <h3 class="modal-title">EPP — ${esc(nombreTrab)}</h3>
-      <button class="icon-btn modal-close-btn" id="btnCerrarEpp">✕</button>
+      <button class="icon-btn modal-close-btn" id="btnCerrarEpp">${icon('x', 14)} </button>
     </div>
     <div id="eppListEl"><div class="empty-state">Cargando…</div></div>
     ${puedeCrear ? `
@@ -22591,7 +22591,7 @@ async function openEppModal(trabajadorId, nombreTrab, puedeCrear) {
         openModal(`
           <div class="modal-header-row">
             <h3 class="modal-title">Firma digital</h3>
-            <button class="icon-btn modal-close-btn" id="btnCerrarFirmaGrande">✕</button>
+            <button class="icon-btn modal-close-btn" id="btnCerrarFirmaGrande">${icon('x', 14)} </button>
           </div>
           <img src="${img.src}" alt="firma" class="firma-full-img" />
         `);
@@ -22679,7 +22679,7 @@ async function openCatalogoEppModal(puedeCrear, puedeEditar) {
   openModal(`
     <div class="modal-header-row">
       <h3 class="modal-title">Catálogo EPP — esta obra</h3>
-      <button class="icon-btn modal-close-btn" id="btnCerrarCatEpp">✕</button>
+      <button class="icon-btn modal-close-btn" id="btnCerrarCatEpp">${icon('x', 14)} </button>
     </div>
     <div id="catEppListEl"><div class="empty-state">Cargando…</div></div>
     ${puedeCrear ? `
@@ -22912,7 +22912,7 @@ async function renderNominasGlobal(view) {
         btn.addEventListener('click', () => { state.nominasVista = 'obra'; selectProject(Number(btn.dataset.irObra), 'nominas'); });
       });
     } catch (err) {
-      body.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+      body.innerHTML = `<div class="alert-box danger">${icon('warning', 14)} ${esc(err.message)}</div>`;
     }
   }
 
@@ -22954,7 +22954,7 @@ async function renderNominasGlobal(view) {
         const reporte = await api(`/clientes/${clienteId}/nominas-reporte-semanal?fecha=${fecha}`);
         pintarReporte(body, reporte, clienteId, fecha);
       } catch (err) {
-        body.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+        body.innerHTML = `<div class="alert-box danger">${icon('warning', 14)} ${esc(err.message)}</div>`;
       }
     });
   }
@@ -22992,7 +22992,7 @@ async function renderNominasGlobal(view) {
                     <td>${esc(it.trabajador_puesto || '—')}</td>
                     <td class="num">${it.dias_trabajados ?? '—'}</td>
                     <td class="num">${fmtMoney(it.monto_jornal)}</td>
-                    <td class="num">${fmtMoney(it.monto_destajo)}${it.alerta_destajo ? ` <span title="${esc(it.alerta_destajo)}">⚠️</span>` : ''}</td>
+                    <td class="num">${fmtMoney(it.monto_destajo)}${it.alerta_destajo ? ` <span title="${esc(it.alerta_destajo)}">${icon('warning', 14)} </span>` : ''}</td>
                     <td class="num">${fmtMoney(it.monto_total)}</td>
                   </tr>`).join('')}
                 </tbody>
@@ -23071,7 +23071,7 @@ async function renderNominasGlobal(view) {
         const reporte = await api(`/reporte-dias-trabajados?${qs}`);
         pintarReporteSiroc(body, reporte, qs, vista);
       } catch (err) {
-        body.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+        body.innerHTML = `<div class="alert-box danger">${icon('warning', 14)} ${esc(err.message)}</div>`;
       }
     }
     function actualizarBotonesVista() {
@@ -23348,7 +23348,7 @@ async function renderNominas(view) {
   // les devuelve todo en true).
   const misPermisos = await api(`/projects/${state.projectId}/mis-permisos/nominas`);
   if (!misPermisos.puede_ver) {
-    view.innerHTML = `<div class="alert-box danger">⚠️ No tienes permiso para ver esta sección.</div>`;
+    view.innerHTML = `<div class="alert-box danger">${icon('warning', 14)} No tienes permiso para ver esta sección.</div>`;
     return;
   }
   // Capturar/editar asistencia, calcular y enviar a revisión comparten el
@@ -23705,7 +23705,7 @@ async function renderNominas(view) {
         await cargarDatos();
         renderPanel();
       } catch (err) {
-        panel.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+        panel.innerHTML = `<div class="alert-box danger">${icon('warning', 14)} ${esc(err.message)}</div>`;
       }
     }
 
@@ -24133,7 +24133,7 @@ async function renderNominas(view) {
       try {
         data = await api(`/projects/${state.projectId}/asistencia-jornada?fecha=${asist.jFecha}`);
       } catch (err) {
-        if (asist.vistaJornada) panel.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+        if (asist.vistaJornada) panel.innerHTML = `<div class="alert-box danger">${icon('warning', 14)} ${esc(err.message)}</div>`;
         return;
       }
       // Respuesta tardía: si el usuario ya salió de esta pantalla o cambió de
@@ -24504,7 +24504,7 @@ async function renderNominas(view) {
         });
       });
     } catch (err) {
-      el.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+      el.innerHTML = `<div class="alert-box danger">${icon('warning', 14)} ${esc(err.message)}</div>`;
     }
   }
 
@@ -24583,9 +24583,9 @@ async function openVerNominaModal(nominaId) {
     const alertasDestajo = [...new Set(items.map((i) => i.alerta_destajo).filter(Boolean))];
     el.innerHTML = `
       <div class="muted nomina-detalle-fecha">${esc(data.fecha_inicio)} al ${esc(data.fecha_fin)}</div>
-      ${sinAsistencia ? `<div class="alert-box nomina-detalle-alert">⚠️ Todos los trabajadores tienen 0 días — guarda la asistencia del periodo antes de calcular.</div>` : ''}
-      ${sinTarifa ? `<div class="alert-box nomina-detalle-alert">⚠️ Algún trabajador tiene tarifa $0/día. Edita el trabajador y asigna una tarifa jornal.</div>` : ''}
-      ${alertasDestajo.map((a) => `<div class="alert-box nomina-detalle-alert">⚠️ ${esc(a)}</div>`).join('')}
+      ${sinAsistencia ? `<div class="alert-box nomina-detalle-alert">${icon('warning', 14)} Todos los trabajadores tienen 0 días — guarda la asistencia del periodo antes de calcular.</div>` : ''}
+      ${sinTarifa ? `<div class="alert-box nomina-detalle-alert">${icon('warning', 14)} Algún trabajador tiene tarifa $0/día. Edita el trabajador y asigna una tarifa jornal.</div>` : ''}
+      ${alertasDestajo.map((a) => `<div class="alert-box nomina-detalle-alert">${icon('warning', 14)} ${esc(a)}</div>`).join('')}
       <div class="nomina-table-wrap">
       <table class="nomina-table">
         <thead><tr>
@@ -24629,7 +24629,7 @@ async function openVerNominaModal(nominaId) {
     `;
   } catch (err) {
     const el = $('#verNominaBody');
-    if (el) el.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+    if (el) el.innerHTML = `<div class="alert-box danger">${icon('warning', 14)} ${esc(err.message)}</div>`;
   }
 }
 
@@ -24973,13 +24973,13 @@ async function renderPresupuestoVsEstimaciones(view) {
     pintar();
     wireExportButton('#btnExportPresupuestoEstimaciones', `/projects/${state.projectId}/presupuesto-vs-estimaciones/export`);
   } catch (err) {
-    body.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+    body.innerHTML = `<div class="alert-box danger">${icon('warning', 14)} ${esc(err.message)}</div>`;
   }
 }
 
 async function renderEstimaciones(view) {
   if (!puedeVerEstimaciones()) {
-    view.innerHTML = `<div class="alert-box danger">⚠️ No tienes permiso para ver esta sección.</div>`;
+    view.innerHTML = `<div class="alert-box danger">${icon('warning', 14)} No tienes permiso para ver esta sección.</div>`;
     return;
   }
   estimacionesFilter = { q: '', estados: new Set(), orden: 'fecha_desc' };
@@ -25043,7 +25043,7 @@ async function loadEstimaciones() {
     estimacionesRaw = await api(`/projects/${state.projectId}/estimaciones`);
     paintEstimacionesList();
   } catch (err) {
-    el.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+    el.innerHTML = `<div class="alert-box danger">${icon('warning', 14)} ${esc(err.message)}</div>`;
   }
 }
 
@@ -25425,7 +25425,7 @@ async function pintarVerEstimacion(estimacionId) {
     });
   } catch (err) {
     const el = $('#verEstimacionBody');
-    if (el) el.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+    if (el) el.innerHTML = `<div class="alert-box danger">${icon('warning', 14)} ${esc(err.message)}</div>`;
   }
 }
 
@@ -25523,7 +25523,7 @@ let filtroEstadoGenObra = '';
 
 async function renderGeneradoresObra(view) {
   if (!puedeVerGeneradoresObra()) {
-    view.innerHTML = `<div class="alert-box danger">⚠️ No tienes permiso para ver esta sección.</div>`;
+    view.innerHTML = `<div class="alert-box danger">${icon('warning', 14)} No tienes permiso para ver esta sección.</div>`;
     return;
   }
   filtroTextoGenObra = '';
@@ -25570,7 +25570,7 @@ async function loadGeneradoresObra() {
     misPermisosGenObra = misPermisos.generadores_obra || { puede_eliminar: false };
     paintGeneradoresObraList();
   } catch (err) {
-    el.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+    el.innerHTML = `<div class="alert-box danger">${icon('warning', 14)} ${esc(err.message)}</div>`;
   }
 }
 
@@ -26080,7 +26080,7 @@ async function pintarVerGeneradorObra(generadorId) {
       });
     });
   } catch (err) {
-    el.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+    el.innerHTML = `<div class="alert-box danger">${icon('warning', 14)} ${esc(err.message)}</div>`;
   }
 }
 
@@ -26205,7 +26205,7 @@ async function pintarPreviewGeneradorObra(generadorId) {
       } catch { img.alt = 'No se pudo cargar la imagen'; }
     });
   } catch (err) {
-    el.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+    el.innerHTML = `<div class="alert-box danger">${icon('warning', 14)} ${esc(err.message)}</div>`;
   }
 }
 
@@ -26255,7 +26255,7 @@ let ordenesCambioRaw = [];
 
 async function renderOrdenesCambio(view) {
   if (!puedeVerOrdenesCambio()) {
-    view.innerHTML = `<div class="alert-box danger">⚠️ No tienes permiso para ver esta sección.</div>`;
+    view.innerHTML = `<div class="alert-box danger">${icon('warning', 14)} No tienes permiso para ver esta sección.</div>`;
     return;
   }
   view.innerHTML = `
@@ -26277,7 +26277,7 @@ async function loadOrdenesCambio() {
     ordenesCambioRaw = await api(`/projects/${state.projectId}/ordenes-cambio`);
     paintOrdenesCambioList();
   } catch (err) {
-    el.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+    el.innerHTML = `<div class="alert-box danger">${icon('warning', 14)} ${esc(err.message)}</div>`;
   }
 }
 
@@ -26426,7 +26426,7 @@ async function openOrdenCambioFormModal(onSave) {
             <option value="existente" ${!l.es_concepto_nuevo ? 'selected' : ''}>Ajuste a concepto existente</option>
             <option value="nuevo" ${l.es_concepto_nuevo ? 'selected' : ''}>Concepto nuevo</option>
           </select>
-          ${lineasDraft.length > 1 ? `<button type="button" class="icon-btn oc-linea-quitar" data-idx="${idx}" title="Quitar línea" aria-label="Quitar línea">✕</button>` : ''}
+          ${lineasDraft.length > 1 ? `<button type="button" class="icon-btn oc-linea-quitar" data-idx="${idx}" title="Quitar línea" aria-label="Quitar línea">${icon('x', 14)} </button>` : ''}
         </div>
         ${l.es_concepto_nuevo ? `
           <div class="field"><label>Código (opcional)</label><input class="oc-linea-codigo" data-idx="${idx}" value="${esc(l.codigo)}" /></div>
@@ -26591,7 +26591,7 @@ let lotesFiltro = { estatus: '', manzana: '' };
 
 async function renderLotes(view) {
   if (!puedeVerLotes()) {
-    view.innerHTML = `<div class="alert-box danger">⚠️ No tienes permiso para ver esta sección.</div>`;
+    view.innerHTML = `<div class="alert-box danger">${icon('warning', 14)} No tienes permiso para ver esta sección.</div>`;
     return;
   }
   lotesFiltro = { estatus: '', manzana: '' };
@@ -26634,7 +26634,7 @@ async function loadLotes() {
     lotesRaw = await api(`/projects/${state.projectId}/lotes${query}`);
     paintLotesList();
   } catch (err) {
-    el.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+    el.innerHTML = `<div class="alert-box danger">${icon('warning', 14)} ${esc(err.message)}</div>`;
   }
 }
 
@@ -26756,7 +26756,7 @@ async function openLoteFormModal(lote, onSave) {
     ${esEdicion && isAdmin() ? `
       <hr class="mt-16">
       <div class="mt-12">
-        <button type="button" class="btn small btn-danger" id="btnAccionesAvanzadasLote">⚠️ Acciones avanzadas (emergencia)</button>
+        <button type="button" class="btn small btn-danger" id="btnAccionesAvanzadasLote">${icon('warning', 14)} Acciones avanzadas (emergencia)</button>
         <p class="muted fs-07 mt-4">Override de estatus_venta fuera del flujo normal — solo para casos excepcionales, queda auditado.</p>
       </div>
     ` : ''}
@@ -26817,7 +26817,7 @@ async function openLoteForzarEstatusModal(lote, onSave) {
   }
 
   openModal(`
-    <h3>⚠️ Forzar estatus de venta (emergencia)</h3>
+    <h3>${icon('warning', 14)} Forzar estatus de venta (emergencia)</h3>
     <p class="muted">Lote ${esc(lote.manzana || '—')} / ${esc(lote.numero_lote)} — estatus actual:
       <span class="badge ${ESTATUS_VENTA_BADGE[lote.estatus_venta] || 'muted'}">${esc(ESTATUS_VENTA_LABELS[lote.estatus_venta] || lote.estatus_venta)}</span>
     </p>
@@ -26970,7 +26970,7 @@ let modelosViviendaRaw = [];
 
 async function renderModelosVivienda(view) {
   if (!puedeVerModelosVivienda()) {
-    view.innerHTML = `<div class="alert-box danger">⚠️ No tienes permiso para ver esta sección.</div>`;
+    view.innerHTML = `<div class="alert-box danger">${icon('warning', 14)} No tienes permiso para ver esta sección.</div>`;
     return;
   }
   view.innerHTML = `
@@ -26996,7 +26996,7 @@ async function loadModelosVivienda() {
     modelosViviendaRaw = await api(`/projects/${state.projectId}/modelos-vivienda`);
     paintModelosViviendaList();
   } catch (err) {
-    el.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+    el.innerHTML = `<div class="alert-box danger">${icon('warning', 14)} ${esc(err.message)}</div>`;
   }
 }
 
@@ -27119,7 +27119,7 @@ let compradoresRaw = [];
 
 async function renderCompradores(view) {
   if (!puedeVerVentas()) {
-    view.innerHTML = `<div class="alert-box danger">⚠️ No tienes permiso para ver esta sección.</div>`;
+    view.innerHTML = `<div class="alert-box danger">${icon('warning', 14)} No tienes permiso para ver esta sección.</div>`;
     return;
   }
   view.innerHTML = `
@@ -27141,7 +27141,7 @@ async function loadCompradores() {
     compradoresRaw = await api(`/projects/${state.projectId}/compradores`);
     paintCompradoresList();
   } catch (err) {
-    el.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+    el.innerHTML = `<div class="alert-box danger">${icon('warning', 14)} ${esc(err.message)}</div>`;
   }
 }
 
@@ -27252,7 +27252,7 @@ let apartadosRaw = [];
 
 async function renderApartados(view) {
   if (!puedeVerVentas()) {
-    view.innerHTML = `<div class="alert-box danger">⚠️ No tienes permiso para ver esta sección.</div>`;
+    view.innerHTML = `<div class="alert-box danger">${icon('warning', 14)} No tienes permiso para ver esta sección.</div>`;
     return;
   }
   view.innerHTML = `
@@ -27274,7 +27274,7 @@ async function loadApartados() {
     apartadosRaw = await api(`/projects/${state.projectId}/apartados`);
     paintApartadosList();
   } catch (err) {
-    el.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+    el.innerHTML = `<div class="alert-box danger">${icon('warning', 14)} ${esc(err.message)}</div>`;
   }
 }
 
@@ -27409,7 +27409,7 @@ let contratosVentaRaw = [];
 
 async function renderContratosVenta(view) {
   if (!puedeVerVentas()) {
-    view.innerHTML = `<div class="alert-box danger">⚠️ No tienes permiso para ver esta sección.</div>`;
+    view.innerHTML = `<div class="alert-box danger">${icon('warning', 14)} No tienes permiso para ver esta sección.</div>`;
     return;
   }
   view.innerHTML = `
@@ -27431,7 +27431,7 @@ async function loadContratosVenta() {
     contratosVentaRaw = await api(`/projects/${state.projectId}/contratos-venta`);
     paintContratosVentaList();
   } catch (err) {
-    el.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+    el.innerHTML = `<div class="alert-box danger">${icon('warning', 14)} ${esc(err.message)}</div>`;
   }
 }
 
@@ -27679,7 +27679,7 @@ let cobranzaContratosRaw = [];
 
 async function renderCobranza(view) {
   if (!puedeVerVentas()) {
-    view.innerHTML = `<div class="alert-box danger">⚠️ No tienes permiso para ver esta sección.</div>`;
+    view.innerHTML = `<div class="alert-box danger">${icon('warning', 14)} No tienes permiso para ver esta sección.</div>`;
     return;
   }
   view.innerHTML = `
@@ -27697,7 +27697,7 @@ async function loadCobranzaList() {
     cobranzaContratosRaw = await api(`/projects/${state.projectId}/contratos-venta`);
     paintCobranzaList();
   } catch (err) {
-    el.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+    el.innerHTML = `<div class="alert-box danger">${icon('warning', 14)} ${esc(err.message)}</div>`;
   }
 }
 
@@ -27820,7 +27820,7 @@ function planPagoRowHtml(it, idx) {
       <div class="field"><label>Concepto</label><input class="ppConcepto" value="${esc(it?.concepto || '')}" placeholder="Ej. Enganche" /></div>
       <div class="field"><label>Fecha programada</label><input class="ppFecha" type="date" value="${it?.fecha_programada ? String(it.fecha_programada).slice(0, 10) : ''}" /></div>
       <div class="field"><label>Monto</label><input class="ppMonto" type="number" step="any" value="${it?.monto_programado != null ? it.monto_programado : ''}" /></div>
-      <button type="button" class="btn small btn-danger" data-quitar-renglon title="Quitar concepto">✕</button>
+      <button type="button" class="btn small btn-danger" data-quitar-renglon title="Quitar concepto">${icon('x', 14)} </button>
     </div>
   `;
 }
@@ -27991,7 +27991,7 @@ let entregasVentaRaw = [];
 
 async function renderEntregas(view) {
   if (!puedeVerVentas()) {
-    view.innerHTML = `<div class="alert-box danger">⚠️ No tienes permiso para ver esta sección.</div>`;
+    view.innerHTML = `<div class="alert-box danger">${icon('warning', 14)} No tienes permiso para ver esta sección.</div>`;
     return;
   }
   view.innerHTML = `
@@ -28009,7 +28009,7 @@ async function loadEntregasList() {
     entregasVentaRaw = await api(`/projects/${state.projectId}/lotes-entregas`);
     paintEntregasList();
   } catch (err) {
-    el.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+    el.innerHTML = `<div class="alert-box danger">${icon('warning', 14)} ${esc(err.message)}</div>`;
   }
 }
 
@@ -28063,7 +28063,7 @@ function openVerEntregaModal(row) {
   openModal(`
     <div class="modal-header-row">
       <h3 class="modal-title">Entrega — ${esc(row.manzana || '—')} / ${esc(row.numero_lote)}</h3>
-      <button class="icon-btn modal-close-btn" id="btnCerrarVerEntrega">✕</button>
+      <button class="icon-btn modal-close-btn" id="btnCerrarVerEntrega">${icon('x', 14)} </button>
     </div>
     <p class="muted">Comprador: ${esc(row.comprador_nombre)}</p>
     <div class="kpi-grid mt-12">
@@ -28086,7 +28086,7 @@ function openVerEntregaModal(row) {
     openModal(`
       <div class="modal-header-row">
         <h3 class="modal-title">Firma digital</h3>
-        <button class="icon-btn modal-close-btn" id="btnCerrarFirmaGrandeEntrega">✕</button>
+        <button class="icon-btn modal-close-btn" id="btnCerrarFirmaGrandeEntrega">${icon('x', 14)} </button>
       </div>
       <img src="${src}" alt="firma" class="firma-full-img" />
     `);
@@ -28104,10 +28104,10 @@ function openRegistrarEntregaModal(row) {
   openModal(`
     <div class="modal-header-row">
       <h3 class="modal-title">Registrar entrega — ${esc(row.manzana || '—')} / ${esc(row.numero_lote)}</h3>
-      <button class="icon-btn modal-close-btn" id="btnCerrarRegEntrega">✕</button>
+      <button class="icon-btn modal-close-btn" id="btnCerrarRegEntrega">${icon('x', 14)} </button>
     </div>
     <p class="muted">Comprador: ${esc(row.comprador_nombre)}</p>
-    ${tieneSaldo ? `<div class="alert-box warning mt-8">⚠️ Este lote todavía tiene un saldo pendiente de ${fmtMoney(row.saldo_pendiente)} en su contrato de venta. Puedes registrar la entrega de todas formas — no se bloquea — pero da seguimiento en "Cobranza".</div>` : ''}
+    ${tieneSaldo ? `<div class="alert-box warning mt-8">${icon('warning', 14)} Este lote todavía tiene un saldo pendiente de ${fmtMoney(row.saldo_pendiente)} en su contrato de venta. Puedes registrar la entrega de todas formas — no se bloquea — pero da seguimiento en "Cobranza".</div>` : ''}
     <div class="row mt-8">
       <div class="field"><label>Fecha de entrega</label><input id="entFecha" type="date" value="${new Date().toISOString().slice(0,10)}" /></div>
       <div class="field"><label>Recibido por *</label><input id="entRecibidoPor" placeholder="Nombre de quien recibe" /></div>
@@ -28232,7 +28232,7 @@ async function renderInfraViviendaKpis(body) {
   try {
     data = await api(`/projects/${state.projectId}/avance-por-categoria`);
   } catch (err) {
-    body.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+    body.innerHTML = `<div class="alert-box danger">${icon('warning', 14)} ${esc(err.message)}</div>`;
     return;
   }
 
@@ -28345,7 +28345,7 @@ async function renderInfraViviendaClasificar(body) {
   try {
     data = await api(`/projects/${state.projectId}/grupos-categoria`);
   } catch (err) {
-    body.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+    body.innerHTML = `<div class="alert-box danger">${icon('warning', 14)} ${esc(err.message)}</div>`;
     return;
   }
 
@@ -28475,7 +28475,7 @@ function bindAlmacenSubNav() {
 
 async function renderAlmacen(view) {
   if (!puedeVerAlmacen()) {
-    view.innerHTML = `<div class="alert-box danger">⚠️ No tienes permiso para ver esta sección.</div>`;
+    view.innerHTML = `<div class="alert-box danger">${icon('warning', 14)} No tienes permiso para ver esta sección.</div>`;
     return;
   }
   almacenView = view;
@@ -28529,7 +28529,7 @@ async function loadAlmacenExistencias() {
     almacenExistenciasRaw = await api(`/projects/${state.projectId}/almacen/existencias`);
     paintAlmacenExistencias();
   } catch (err) {
-    body.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+    body.innerHTML = `<div class="alert-box danger">${icon('warning', 14)} ${esc(err.message)}</div>`;
   }
 }
 
@@ -28588,7 +28588,7 @@ function paintAlmacenExistencias() {
                 <td class="num">${fmtNum(i.total_salidas)}</td>
                 <td class="num">
                   ${fmtNum(i.existencia_actual)}
-                  ${i.inconsistente ? ' <span class="badge red" title="Salidas superan a Entradas — revisar captura">⚠️ negativa</span>' : ''}
+                  ${i.inconsistente ? ' <span class="badge red" title="Salidas superan a Entradas — revisar captura">' + icon('warning', 14) + ' negativa</span>' : ''}
                 </td>
                 ${verCosto ? `<td class="num">${fmtMoney(i.valor_estimado)}</td>` : ''}
               </tr>
@@ -28624,7 +28624,7 @@ async function loadAlmacenEntradas() {
     almacenEntradasRaw = await api(`/projects/${state.projectId}/almacen/entradas`);
     paintAlmacenEntradas();
   } catch (err) {
-    el.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+    el.innerHTML = `<div class="alert-box danger">${icon('warning', 14)} ${esc(err.message)}</div>`;
   }
 }
 
@@ -28669,7 +28669,7 @@ async function loadAlmacenSalidas() {
     almacenSalidasRaw = await api(`/projects/${state.projectId}/almacen/salidas`);
     paintAlmacenSalidas();
   } catch (err) {
-    el.innerHTML = `<div class="alert-box danger">⚠️ ${esc(err.message)}</div>`;
+    el.innerHTML = `<div class="alert-box danger">${icon('warning', 14)} ${esc(err.message)}</div>`;
   }
 }
 

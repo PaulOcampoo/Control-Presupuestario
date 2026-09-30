@@ -5158,3 +5158,19 @@ button.rs-ai:hover { border-color: var(--border-color); }
 .oc-pane.hidden-initial { display: none; }
 .modal-panel .panel-body .card:first-child { margin-top: 0; }
 .rq-row:focus-visible { outline: 2px solid var(--accent-gold); outline-offset: -2px; }
+
+/* ==========================================================================
+   Rediseño UI v2 — Fase 7: pulido móvil.
+   ========================================================================== */
+@media (max-width: 860px) {
+  /* Chips de filtro de las listas nuevas: área táctil de 44px */
+  .chip-row-v2 .chip { min-height: 44px; display: inline-flex; align-items: center; }
+}
+@media (max-width: 768px) {
+  /* iOS hace zoom al enfocar campos < 16px: el campo de Nyra tenía font-size propio menor */
+  .asistente-input-row textarea, .asistente-input-row input { font-size: max(16px, 1em); }
+}
+/* Rebote de scroll: el modal/panel y sus listas no deben arrastrar el fondo */
+.modal, .modal-panel .panel-body, .cmdk-list, .sheet2-panel { overscroll-behavior: contain; }
+/* Sin tap highlight gris de WebKit sobre los controles nuevos */
+.chip, .rq-row, .panel-tab, .sheet2-cell, .cmdk-item { -webkit-tap-highlight-color: transparent; }

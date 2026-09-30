@@ -5324,3 +5324,94 @@ button.rs-ai > .icon-svg:last-child { margin-left: auto; color: var(--text-terti
 #galleryDrawer .btn.full .icon-svg { flex: none; }
 #galleryDrawer #btnLogoutGalleryDrawer { color: var(--red); }
 #galleryDrawer .ajustes-divider { margin: var(--space-12) 0; }
+
+/* ==========================================================================
+   Galería de clientes / bienvenida — banner premium + resumen global + tarjetas (réplica del prototipo).
+   Conserva la idea del banner dorado; sin estilos inline (CSP), anchos por data-* + JS.
+   ========================================================================== */
+.gallery-hero {
+  position: relative; overflow: hidden; min-height: 0;
+  padding: calc(var(--space-16) + env(safe-area-inset-top, 0px)) var(--space-24) var(--space-24);
+  gap: var(--space-4);
+  background:
+    radial-gradient(90% 130% at 0% 0%, rgba(255, 255, 255, 0.30), transparent 55%),
+    linear-gradient(160deg, color-mix(in srgb, var(--accent-gold) 32%, white) 0%, var(--accent-gold) 52%, color-mix(in srgb, var(--accent-gold) 58%, black) 100%);
+  box-shadow: 0 18px 44px color-mix(in srgb, var(--accent-gold) 26%, transparent), inset 0 -1px 0 rgba(255, 255, 255, 0.22);
+}
+.gallery-hero::after {
+  content: ""; position: absolute; right: -90px; top: -110px; width: 340px; height: 340px; border-radius: 50%;
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.26), transparent 66%); pointer-events: none;
+}
+.gallery-hero > * { position: relative; z-index: 1; }
+.gallery-hero-top { margin-bottom: var(--space-14); }
+.gallery-hero-top .topbar-brand strong { font-size: clamp(1.05rem, 2.6vw, 1.35rem); letter-spacing: 0.02em; }
+.gallery-hero-top .topbar-logo { height: 34px; }
+.gallery-hero-top #btnGalleryMenu, .gallery-hero-top .btn.small {
+  background: rgba(20, 15, 5, 0.16); border: 1px solid rgba(20, 15, 5, 0.26); color: var(--on-accent); backdrop-filter: blur(6px);
+}
+.gallery-hero-top #btnGalleryMenu { width: 40px; height: 40px; border-radius: 12px; }
+.gallery-greeting { display: flex; align-items: flex-end; justify-content: space-between; gap: var(--space-16); flex-wrap: wrap; }
+.gh-greet h2 { font-size: clamp(1.7rem, 4.4vw, 2.5rem); font-weight: 800; letter-spacing: -0.02em; line-height: 1.08; margin: 0 0 var(--space-6); color: var(--on-accent); }
+.gh-greet .muted { font-size: var(--fs-base); color: color-mix(in srgb, var(--on-accent) 68%, transparent); margin: 0; }
+.gh-actions { display: flex; gap: var(--space-8); flex-wrap: wrap; }
+.gh-btn { background: rgba(20, 15, 5, 0.14); border: 1px solid rgba(20, 15, 5, 0.28); color: var(--on-accent); font-weight: 700; backdrop-filter: blur(6px); }
+.gh-btn:hover:not([disabled]) { background: rgba(20, 15, 5, 0.24); }
+.gh-btn-pri { background: #1A1405; border-color: #1A1405; color: #F0CE7C; }
+.gh-btn-pri:hover:not([disabled]) { background: #2A200A; }
+
+.gh-strip {
+  display: grid; grid-template-columns: 1.6fr 1fr 1fr 1fr; margin-top: var(--space-20); padding: 20px 24px;
+  background: rgba(14, 11, 6, 0.64); color: #F4EEDF; border: 1px solid rgba(255, 255, 255, 0.14); border-radius: 20px;
+  backdrop-filter: blur(16px) saturate(140%); -webkit-backdrop-filter: blur(16px) saturate(140%);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.30);
+}
+.gh-strip.hidden-initial { display: none; }
+.gh-cell { padding-left: 24px; border-left: 1px solid rgba(255, 255, 255, 0.12); display: flex; flex-direction: column; gap: 6px; justify-content: center; min-width: 0; }
+.gh-cell:first-child { padding-left: 0; border-left: 0; }
+.gh-lbl { font-size: 11px; letter-spacing: 0.09em; text-transform: uppercase; color: rgba(244, 238, 223, 0.6); font-weight: 600; }
+.gh-big { font-family: var(--font-heading); font-weight: 800; letter-spacing: -0.03em; line-height: 1; font-size: 34px; }
+.gh-big2 { font-family: var(--font-heading); font-weight: 800; letter-spacing: -0.03em; line-height: 1; font-size: 26px; overflow-wrap: anywhere; }
+.gh-sub { color: rgba(244, 238, 223, 0.65); font-size: var(--fs-sm); }
+.gh-neg { color: #FF8A80; }
+.gh-bar { height: 8px; border-radius: 99px; background: rgba(255, 255, 255, 0.16); overflow: hidden; margin-top: 4px; }
+.gh-bar-f { display: block; height: 100%; border-radius: 99px; background: linear-gradient(90deg, #3cc08a, #7be0b3); }
+.gh-legend { display: flex; gap: 14px; color: rgba(244, 238, 223, 0.65); font-size: 12px; }
+.gh-legend span { display: inline-flex; gap: 6px; align-items: center; }
+.gh-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+.gh-dot-ok { background: #3cc08a; } .gh-dot-rest { background: rgba(255, 255, 255, 0.3); }
+.gh-link { background: none; border: 0; padding: 0; text-align: left; color: #F0CE7C; font: inherit; font-weight: 600; cursor: pointer; }
+@media (max-width: 860px) {
+  .gh-strip { grid-template-columns: 1fr 1fr; gap: var(--space-16) 0; padding: 18px; }
+  .gh-cell-main { grid-column: 1 / -1; padding-left: 0; border-left: 0; }
+  .gh-cell:nth-child(2), .gh-cell:nth-child(4) { padding-left: 0; border-left: 0; }
+  .gh-link { display: none; }
+}
+@media (max-width: 480px) { .gallery-greeting { margin-top: var(--space-8); } .gh-actions { width: 100%; } .gh-actions .btn { flex: 1; justify-content: center; } }
+
+/* Contenido: más ancho útil y encabezado de sección */
+@media (min-width: 1100px) { .gallery-body-main { max-width: none; } }
+.gallery-clientes-header h1 { font-size: 20px; font-weight: 800; letter-spacing: -0.01em; }
+#clienteFiltros { margin: var(--space-4) 0 var(--space-12); }
+#clienteFiltros.hidden-initial { display: none; }
+@media (min-width: 861px) {
+  .cliente-grid { grid-template-columns: repeat(auto-fill, minmax(max(var(--cliente-card-min, 130px), 230px), 1fr)); }
+}
+
+/* Tarjeta de cliente: monograma a la izquierda, nombre y detalle a la derecha, avance al pie */
+.cliente-card {
+  display: grid; grid-template-columns: 44px minmax(0, 1fr); grid-template-areas: "mono nombre" "mono count" "badge badge" "prog prog";
+  column-gap: 12px; row-gap: 2px; align-items: center; text-align: left; padding: 16px;
+}
+.cliente-card .cliente-icon { grid-area: mono; }
+.cliente-card .cliente-nombre { grid-area: nombre; align-self: end; font-size: var(--fs-base); text-transform: none; letter-spacing: -0.01em; padding-right: 52px; }
+.cliente-card .cliente-count { grid-area: count; align-self: start; }
+.cliente-card .cliente-badge-completado { grid-area: badge; justify-self: start; margin-top: var(--space-8); }
+.cliente-card .cliente-prog { grid-area: prog; margin-top: var(--space-14); }
+.cliente-card .cliente-prog-pct { font-size: 28px; }
+.cliente-card .cliente-fav-btn { left: auto; right: 36px; top: 12px; }
+.cliente-card-orphan, .cliente-card-new { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: var(--space-8); }
+.cliente-card-new { border-style: dashed; }
+
+/* Riel derecho: tarjetas como el prototipo */
+.galeria-actividad-section { background: var(--bg-surface); border: 1px solid var(--line); border-radius: 16px; padding: 16px; }
+.galeria-actividad-section h4 { font-size: 14px; text-transform: none; letter-spacing: 0; color: var(--text-primary); font-weight: 700; margin: 0 0 var(--space-10); }

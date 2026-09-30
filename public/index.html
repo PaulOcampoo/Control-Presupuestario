@@ -47,6 +47,7 @@
         <button id="btnGalleryLogout" class="btn small">Salir</button>
       </div>
       <div id="galleryGreeting" class="gallery-greeting"></div>
+      <div id="galleryHeroStrip" class="gh-strip hidden-initial"></div>
 
       <!-- Duplicado de #novedadesBanner (prompt-16-novedades-changelog.md,
            CP6/CP7): #novedadesBanner real vive dentro de #app, que queda
@@ -86,6 +87,7 @@
               <button type="button" class="icon-size-btn" id="btnIconSizeUp" aria-label="Tarjetas más grandes" title="Tarjetas más grandes">+</button>
             </div>
           </div>
+          <div id="clienteFiltros" class="chip-row chip-row-v2 hidden-initial" role="group" aria-label="Filtrar clientes"></div>
           <div id="clienteGrid" class="cliente-grid cliente-grid-carousel"></div>
           <!-- Resumen Global + Avance por cliente (prompt-dashboard-
                favoritos-layout.md) lado a lado en desktop ancho, apilados
@@ -113,7 +115,7 @@
              del topbar, vía renderNotifList() reusada tal cual). -->
         <aside id="galeriaActividadPanel" class="galeria-actividad-panel">
           <div class="galeria-actividad-section">
-            <h4>Últimos presupuestos</h4>
+            <h4>Continúa donde lo dejaste</h4>
             <div id="galeriaRecientesList" class="galeria-actividad-list"></div>
           </div>
           <div class="galeria-actividad-section">

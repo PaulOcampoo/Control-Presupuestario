@@ -3080,6 +3080,7 @@ async function bootApp() {
     renderBienvenidaSummary(bienvenida);
     renderGlobalChart().catch(() => {});
     renderAvancePorCliente().catch(() => {});
+    loadClienteStats().catch(() => {});
     renderErogadoRealGlobal().catch(() => {});
     loadGaleriaActividad();
   }
@@ -4125,6 +4126,7 @@ async function goToClientGallery() {
     renderBienvenidaSummary(bienvenida);
     renderGlobalChart().catch(() => {});
     renderAvancePorCliente().catch(() => {});
+    loadClienteStats().catch(() => {});
     renderErogadoRealGlobal().catch(() => {});
     loadGaleriaActividad();
   } catch (err) {
@@ -4366,7 +4368,7 @@ function clienteCardHtml(c) {
       <span class="cliente-icon cliente-mono">${clienteMonograma(c.nombre)}</span>
       <span class="cliente-nombre">${esc(c.nombre)}</span>
       ${c.completado ? `<span class="cliente-badge-completado" title="Avance financiero ponderado al 100%">${icon('check', 12)} Completado</span>` : ''}
-      <span class="cliente-count">${c.num_proyectos} presupuesto${c.num_proyectos !== 1 ? 's' : ''}</span>
+      <span class="cliente-count">${c.num_proyectos} presupuesto${c.num_proyectos !== 1 ? 's' : ''}${state.clienteStats && state.clienteStats[c.id] ? ` · ${fmMillones(state.clienteStats[c.id].total)}` : ''}</span>
       ${clienteProgHtml(c.id)}
       ${isAdmin() ? `
         <button class="cliente-menu-btn" data-cliente-menu-btn="${c.id}" title="Opciones">⋮</button>
@@ -4419,13 +4421,39 @@ function wireClienteCards(grid) {
   });
 }
 
+// Filtros de la galería: solo con datos que ya existen en memoria (favoritos, completado).
+function clientesFiltrados() {
+  const f = state.clienteFiltro || 'todos';
+  return (state.clientes || []).filter((c) => (f === 'favoritos' ? state.favoritos.has(c.id) : f === 'completados' ? !!c.completado : f === 'encurso' ? !c.completado : true));
+}
+function renderClienteFiltros() {
+  const box = $('#clienteFiltros');
+  if (!box) return;
+  const cs = state.clientes || [];
+  if (cs.length < 2) { box.classList.add('hidden-initial'); box.innerHTML = ''; return; }
+  box.classList.remove('hidden-initial');
+  box.innerHTML = chipsFiltroHtml([
+    { id: 'todos', label: 'Todos', n: cs.length },
+    { id: 'encurso', label: 'En curso', n: cs.filter((c) => !c.completado).length },
+    { id: 'favoritos', label: 'Favoritos', n: cs.filter((c) => state.favoritos.has(c.id)).length },
+    { id: 'completados', label: 'Completados', n: cs.filter((c) => c.completado).length },
+  ], state.clienteFiltro || 'todos');
+}
+document.addEventListener('click', (e) => {
+  const chip = e.target.closest('#clienteFiltros [data-chip]');
+  if (!chip) return;
+  state.clienteFiltro = chip.dataset.chip;
+  renderClienteFiltros();
+  renderClientGallery();
+});
 function renderClientGallery() {
+  renderClienteFiltros();
   const grid = $('#clienteGrid');
   // Proyectos sin cliente_id: solo pueden existir de cargas hechas antes de que
   // cliente_id fuera obligatorio (ver PUT /projects/:id/cliente). Solo admin
   // los ve, como una tarjeta especial, para poder reasignarlos.
   const huerfanos = state.projects.filter((p) => p.cliente_id == null);
-  let html = state.clientes.map((c) => clienteCardHtml(c)).join('');
+  let html = clientesFiltrados().map((c) => clienteCardHtml(c)).join('');
   if (isAdmin() && huerfanos.length) {
     html += `
       <div class="cliente-card cliente-card-orphan" data-cliente="sin-cliente">
@@ -4727,10 +4755,61 @@ async function revertirCompletado(id, nombre) {
 function renderGalleryGreeting() {
   const el = $('#galleryGreeting');
   if (!el || !state.user) return;
-  const nombre = state.user.nombre || state.user.usuario || '';
+  const nombre = (state.user.nombre || state.user.usuario || '').split(' ')[0];
   const now = new Date();
-  const fecha = `${DIAS_ES[now.getDay()]}, ${now.getDate()} de ${MESES_ES[now.getMonth()]} de ${now.getFullYear()}`;
-  el.innerHTML = `<h2>Bienvenido/a, ${esc(nombre)}</h2><p class="muted">${fecha}</p>`;
+  const h = now.getHours();
+  const saludo = h < 12 ? 'Buenos días' : (h < 19 ? 'Buenas tardes' : 'Buenas noches');
+  const fecha = `${DIAS_ES[now.getDay()]} ${now.getDate()} de ${MESES_ES[now.getMonth()]}`;
+  const obras = (state.projects || []).length;
+  const clientes = (state.clientes || []).length;
+  const resumen = obras ? ` · ${obras} obra${obras === 1 ? '' : 's'} en ${clientes} cliente${clientes === 1 ? '' : 's'}` : '';
+  el.innerHTML = `
+    <div class="gh-greet">
+      <h2>${saludo}, ${esc(nombre)}</h2>
+      <p class="muted">${fecha.charAt(0).toUpperCase() + fecha.slice(1)}${resumen}</p>
+    </div>
+    ${isAdmin() ? `<div class="gh-actions">
+      <button type="button" class="btn btn-icon-inline gh-btn" id="ghCargarPpto">${icon('upload', 16)} Cargar presupuesto</button>
+      <button type="button" class="btn btn-icon-inline gh-btn gh-btn-pri" id="ghNuevoCliente">${icon('plus', 16)} Nuevo cliente</button>
+    </div>` : ''}`;
+  $('#ghCargarPpto')?.addEventListener('click', () => promptUpload());
+  $('#ghNuevoCliente')?.addEventListener('click', () => openNuevoClienteModal());
+}
+
+// Franja de resumen global dentro del banner (solo admin: usa /avance-por-cliente/completo, ya existente).
+const fmMillones = (n) => (Math.abs(n) >= 1e6 ? `$${(n / 1e6).toFixed(1)} M` : fmtMoney(n));
+async function loadClienteStats() {
+  if (!isAdmin()) { state.clienteStats = null; state.avancePorCliente = null; renderGalleryHero(); return; }
+  const data = await api('/avance-por-cliente/completo').catch(() => null);
+  if (!Array.isArray(data)) return;
+  state.clienteStats = Object.fromEntries(data.map((c) => [c.cliente_id, { pct: Number(c.avance_ponderado_pct) || 0, total: Number(c.presupuesto_total) || 0, obras: (c.obras || []).length }]));
+  state.avancePorCliente = Object.fromEntries(data.map((c) => [c.cliente_id, Math.min(100, Math.max(0, Number(c.avance_ponderado_pct) || 0))]));
+  renderGalleryHero();
+  renderFavoritosSection();
+  renderClientGallery();
+}
+function renderGalleryHero() {
+  const box = $('#galleryHeroStrip');
+  if (!box) return;
+  const stats = state.clienteStats ? Object.values(state.clienteStats) : [];
+  if (!isAdmin() || !stats.length) { box.classList.add('hidden-initial'); box.innerHTML = ''; return; }
+  const total = stats.reduce((a, c) => a + c.total, 0);
+  const ejec = stats.reduce((a, c) => a + c.total * c.pct / 100, 0);
+  const pct = total > 0 ? (ejec / total) * 100 : 0;
+  const alertas = state.notifNoLeidas || 0;
+  box.classList.remove('hidden-initial');
+  box.innerHTML = `
+    <div class="gh-cell gh-cell-main">
+      <span class="gh-lbl">Presupuesto total</span>
+      <span class="gh-big num" title="${esc(fmtMoney(total))}">${fmMillones(total)}</span>
+      <div class="gh-bar"><span class="gh-bar-f" data-pct="${pct.toFixed(1)}"></span></div>
+      <div class="gh-legend"><span><i class="gh-dot gh-dot-ok"></i>Ejecutado</span><span><i class="gh-dot gh-dot-rest"></i>Resto</span></div>
+    </div>
+    <div class="gh-cell"><span class="gh-lbl">Ejecutado</span><span class="gh-big2 num">${pct.toFixed(1)}%</span><span class="gh-sub num">${fmMillones(ejec)}</span></div>
+    <div class="gh-cell"><span class="gh-lbl">Por ejecutar</span><span class="gh-big2 num">${fmMillones(Math.max(0, total - ejec))}</span><span class="gh-sub num">${(100 - pct).toFixed(1)}% del total</span></div>
+    <div class="gh-cell"><span class="gh-lbl">Avisos sin leer</span><span class="gh-big2 num ${alertas ? 'gh-neg' : ''}">${alertas}</span><button type="button" class="gh-link" id="ghVerAvisos">Ver todos →</button></div>`;
+  $$('.gh-bar-f', box).forEach((f) => { f.style.width = Math.min(100, Math.max(0, Number(f.dataset.pct) || 0)) + '%'; });
+  $('#ghVerAvisos')?.addEventListener('click', () => { const r = $('#galeriaActividadPanel'); if (r && r.scrollIntoView) r.scrollIntoView({ behavior: 'smooth', block: 'start' }); });
 }
 
 function renderBienvenidaSummary(proyectos) {
@@ -4955,10 +5034,6 @@ async function renderAvancePorCliente() {
 
   const data = await api('/avance-por-cliente').catch(() => []);
   if (!data.length) { el.innerHTML = ''; return; }
-  // Rediseño v2: las tarjetas de cliente reutilizan este mismo dato (sin endpoint nuevo).
-  state.avancePorCliente = Object.fromEntries(data.map((c) => [c.cliente_id, Math.min(100, Math.max(0, Number(c.avance_ponderado_pct) || 0))]));
-  renderFavoritosSection();
-  renderClientGallery();
 
   el.innerHTML = `
     <div class="apc-section">

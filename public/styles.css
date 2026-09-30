@@ -5174,3 +5174,16 @@ button.rs-ai:hover { border-color: var(--border-color); }
 .modal, .modal-panel .panel-body, .cmdk-list, .sheet2-panel { overscroll-behavior: contain; }
 /* Sin tap highlight gris de WebKit sobre los controles nuevos */
 .chip, .rq-row, .panel-tab, .sheet2-cell, .cmdk-item { -webkit-tap-highlight-color: transparent; }
+
+/* ==========================================================================
+   Celular / PWA instalada: alto de la página y posición de la barra inferior.
+   La cadena html → body → #app usaba height:100%, que en la app instalada del iPhone puede quedar unos
+   47 pt más corta que la pantalla (queda un hueco bajo la barra). dvh sigue el alto real del viewport
+   (con viewport-fit=cover llega hasta el borde físico). La isla se acerca al indicador de inicio: el
+   margen inferior es el safe-area menos 14px (nunca menos que el margen de diseño), en vez del safe-area completo.
+   ========================================================================== */
+@media (max-width: 860px) {
+  html, body { height: 100dvh; }
+  #app { height: 100dvh; }
+  :root { --mobile-nav-clear: max(var(--mobile-nav-gap), calc(var(--safe-bottom) - 14px)); }
+}

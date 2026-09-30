@@ -28974,6 +28974,8 @@ function _dbgRender(targetEl, label, swLine, version) {
     `── nav inferior ──\n` +
     `navH=${navH} navBot=${navBot}\n` +
     `innerH=${wh} gap↓=${gapBelow}px\n` +
+    `screen=${screen.width}x${screen.height} vv=${Math.round((window.visualViewport || {}).height || 0)} htmlH=${document.documentElement.clientHeight} standalone=${navigator.standalone === true}
+` +
     `safe-bot css=${sbCss} px=${sbPx}\n` +
     `#app h=${appH} bot=${appBot}\n` +
     `gapEl: ${gapElDesc}\n` +

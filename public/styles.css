@@ -4198,7 +4198,13 @@ html[data-palette="dorada"]:not([data-theme="light"]) .welcome-card {
 .devpanel-metrics-card { padding: var(--space-14) var(--space-16); min-height: 60px; }
 
 /* ── Barrido estáticas 6/6 — Resto (cierre del barrido) ──────────────────── */
-.icon-svg { display: inline-block; vertical-align: middle; flex-shrink: 0; }
+.icon-svg { display: inline-block; vertical-align: middle; flex-shrink: 0; stroke-width: 1.75; }
+/* Rediseño UI v2, Fase 2: íconos de línea en tiles, tabs, acciones y vacíos. */
+.section-card .section-icon { color: var(--accent-gold); display: flex; align-items: center; justify-content: center; }
+.tab-icon, .quick-action-icon { display: inline-flex; align-items: center; }
+.quick-action-icon { color: var(--accent-gold); }
+.empty-state .big { color: var(--text-tertiary); }
+.search-bar-fancy .search-icon { display: flex; align-items: center; justify-content: center; }
 
 /* installApp */
 .install-header-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-16); }

@@ -1,0 +1,242 @@
+# Emojis pendientes (Fase 2, 2026-09-29)
+
+Líneas de `public/app.js` que aún contienen emojis (fuera de comentarios). Barrido posterior (Fase 7).
+Las pantallas de fondo (Clientes, Resumen, Requisiciones, OC) ya tienen sus emojis de navegación/controles sustituidos.
+
+- L736: `? 'Instala esta app: toca Compartir ⬆️ en Safari y elige "Agregar a pantalla de inicio".'`
+- L853: `'Toca el botón <strong>Compartir ⬆️</strong> en la barra inferior',`
+- L882: `<h3 class="modal-title">📲 Instalar app</h3>`
+- L883: `<button class="icon-btn modal-close-btn" id="btnCloseInstallGuide">✕</button>`
+- L1852: `html += <button class="tab tab-soon" data-soon="${esc(nombre)}"><span class="tab-icon">🔒</span><span class="t`
+- L2115: `<span class="sbar-icon">🔒</span>`
+- L2135: `<span class="sbar-icon">💡</span>`
+- L2144: `<span class="sbar-icon">🛠️</span>`
+- L2408: `<button class="icon-btn modal-close-btn" id="btnCloseProfile" aria-label="Cerrar">✕</button>`
+- L2515: `${!isStandalone() ? <div class="ajustes-item"><button class="btn full ajustes-btn-mb" id="btnInstallModal">📲 `
+- L2516: `<div class="ajustes-item"><button class="btn full ajustes-btn-mb" id="btnClearCache">🧹 Borrar caché y actualiz`
+- L2952: `$('#view').innerHTML = <div class="alert-box danger">⚠️ El servidor está iniciando. Espera unos segundos y re`
+- L3199: `<div class="alert-box warning mb-12">⚠️ Estos códigos NO se van a volver a mostrar. Guárdalos en un lugar segu`
+- L3887: `<button class="icon-btn modal-close-btn" id="btnCloseAyuda" aria-label="Cerrar">✕</button>`
+- L4009: `${finEstado ? <span class="badge ${finEstado.vencido ? 'red' : 'yellow'}" title="${finEstado.vencido ? Contr`
+- L4198: `aria-label="${isFav ? 'Quitar de favoritos' : 'Marcar como favorito'}">${isFav ? '⭐' : '☆'}</button>`
+- L4199: `<span class="cliente-icon">🏢</span>`
+- L4201: `${c.completado ? '<span class="cliente-badge-completado" title="Avance financiero ponderado al 100%">✅ Complet`
+- L4206: `<button class="cliente-menu-item" data-cliente-archivar="${c.id}" data-cliente-archivar-nombre="${esc(c.nombre`
+- L4264: `<span class="cliente-icon">⚠️</span>`
+- L4274: `<span class="cliente-icon">➕</span>`
+- L4481: `<h2 class="section-title">📦 Clientes archivados</h2>`
+- L4510: `<h2 class="section-title">✅ Clientes completados</h2>`
+- L5196: `${slow ? <div class="alert-box danger upload-slow-warning">⚠️ Esto está tardando más de lo normal (posiblemen`
+- L5304: `} catch (err) { view.innerHTML = <div class="alert-box danger">⚠️ ${esc(err.message)}</div>; }`
+- L5309: `try { await renderSugerencias(view); } catch (err) { view.innerHTML = <div class="alert-box danger">⚠️ ${esc(`
+- L5314: `try { await renderNovedades(view, state.novedadesSubView); state.novedadesSubView = null; } catch (err) { view`
+- L5319: `if (!isDesarrollador()) { view.innerHTML = <div class="alert-box danger">⚠️ Acceso restringido al rol Desarro`
+- L5320: `try { await renderDevPanel(view); } catch (err) { view.innerHTML = <div class="alert-box danger">⚠️ ${esc(err`
+- L5325: `try { await renderSeccionGaleria(view, state.view.replace('_gallery', '')); } catch (err) { view.innerHTML = `
+- L5413: `view.innerHTML = <div class="alert-box danger">⚠️ ${esc(err.message)}</div>;`
+- L5503: `<div class="muted fs-08 mt-4">${fmtPct(resumen.pct_gastado)} del presupuesto${resumen.alerta ?  — ⚠️ superó e`
+- L5749: `? ⚠️ El contrato de esta obra venció hace ${Math.abs(finEstado.dias)} día(s) (fin de obra: ${fmtDate(m.fin_ob`
+- L5750: `: ⏳ El contrato de esta obra vence en ${finEstado.dias} día(s) (fin de obra: ${fmtDate(m.fin_obra)}).;`
+- L5778: `: <div class="card-row"><span class="k">Total con IVA</span><span class="v"><span class="badge red" title="El`
+- L6016: `view.innerHTML = <div class="alert-box danger">⚠️ ${esc(err.message)}</div>;`
+- L6186: `return  <span class="badge yellow" title="Este mismo importe coincide exactamente con el de otro proyecto, mi`
+- L6301: `? <div class="alert-box danger">⚠️ Este PDF parece ser una imagen escaneada sin texto extraíble. Captura los `
+- L6597: `${effectivePuesto() === 'residente' || isAdmin() ? '<button class="btn btn-primary" id="btnMaterialesDisponibl`
+- L6663: `${over ? <span class="badge red">⚠ excede</span> : ''}`
+- L6779: `$('#matDispResult').innerHTML = <div class="alert-box danger">⚠️ ${esc(err.message)}</div>;`
+- L6824: `view.innerHTML = <div class="alert-box danger">⚠️ No tienes permiso para ver esta sección.</div>;`
+- L6861: `${conceptosReales.map((c) => <option value="${c.id}" ${c.id === mapeoSelectedConceptoId ? 'selected' : ''}>${`
+- L7013: `<strong>⚠️ ${preview.conflictos.length} conflicto(s) de emparejamiento sin resolver.</strong>`
+- L7022: `<strong>⚠️ ${ambiguos.length} concepto(s) con cambio de precio Y cantidad al mismo tiempo.</strong>`
+- L7211: `${alertCount ? <div class="alert-box warn">⚠️${alertCount} alerta${alertCount === 1 ? '' : 's'}: ${r.alertas_`
+- L7290: `$('#programaBody').innerHTML = <div class="alert-box danger">⚠️ ${esc(err.message)}</div>;`
+- L7305: `${totalRiesgo ? <div class="alert-box danger">⚠️ ${totalRiesgo} renglón${totalRiesgo === 1 ? '' : 'es'} en ri`
+- L7323: `<td>${it.en_riesgo ? '<span class="badge red">⚠️ En riesgo</span>' : ''}</td>`
+- L7418: `$('#seguimientoBody').innerHTML = <div class="alert-box danger">⚠️ ${esc(err.message)}</div>;`
+- L7598: `<button class="btn small btn-ghost" data-remove="${idx}">✕</button>`
+- L7644: `alerts.push(<div class="alert-box danger">⚠️<strong>${esc(it.insumo.codigo)}</strong>: la cantidad acumulada `
+- L7647: `alerts.push(<div class="alert-box warn">⚠️<strong>${esc(it.insumo.codigo)}</strong>: el precio solicitado (${`
+- L7650: `box.innerHTML = alerts.join('') || <div class="alert-box info">✓ Sin alertas: las cantidades y precios están `
+- L7756: `${it.alerta_cantidad ? <div class="alert-box danger">⚠️ Cantidad acumulada sobrepasa lo presupuestado</div> `
+- L7757: `${it.alerta_precio ? <div class="alert-box warn">⚠️ Precio solicitado sobrepasa el precio presupuestado</div>`
+- L7759: `${ajuste ? <div class="muted fs-078">✎ Corregido por ${esc(ajuste.actor_nombre)} el ${fmtDate(ajuste.creado_e`
+- L7935: `<button class="btn small btn-ghost" data-remove="${idx}">✕</button>`
+- L8008: `alerts.push(<div class="alert-box danger">⚠️<strong>${esc(it.insumo.codigo)}</strong>: la cantidad acumulada `
+- L8011: `alerts.push(<div class="alert-box warn">⚠️<strong>${esc(it.insumo.codigo)}</strong>: el precio solicitado (${`
+- L8014: `box.innerHTML = alerts.join('') || <div class="alert-box info">✓ Sin alertas: las cantidades y precios están `
+- L8181: `<h3>⚠️ Vas a ordenar más de lo pendiente</h3>`
+- L8486: `box.innerHTML = <div class="alert-box danger">⚠️${esc(err.message)}</div>;`
+- L8538: `box.innerHTML = <div class="alert-box danger">⚠️${esc(err.message)}</div>;`
+- L8650: `out.textContent = faltante > 0 ? faltarían: ${fmtNum(faltante, 3)} : '✓ completo';`
+- L8768: `${puedeEditar ? <div class="alert-box info">⚠️ Los % que edites y guardes aquí directamente se sobrescriben l`
+- L9132: `$('#avcList').innerHTML = <div class="alert-box danger">⚠️${esc(err.message)}</div>;`
+- L9383: `📎 Sugerido por Generador de Obra${(c.sugerido_folios || []).length ?  — Folio${c.sugerido_folios.length > 1 ?`
+- L9391: `${bloqueado ? <div class="muted solo-lectura-note">🔒 Falta entrega de: ${esc(pendientes.map((p) => p.insumo_n`
+- L9552: `if (excedido) msgEl.textContent = ⚠️ ${mensajeExcesoAvc(inp, acumActual, presup)};`
+- L9953: `📎 Sugerido por Generador de Obra${(c.sugerido_folios || []).length ?  — Folio${c.sugerido_folios.length > 1 ?`
+- L9961: `${bloqueado ? <div class="muted solo-lectura-note">🔒 Falta entrega de: ${esc(pendientes.map((p) => p.insumo_n`
+- L10108: `if (excedido) msgEl.textContent = ⚠️ ${mensajeExcesoAvc(inp, acumActual, presup)};`
+- L10225: `<button class="gantt-dates" data-edit-fechas="${p.id}" title="Editar fechas">${fmtDate(p.fecha_inicio)}<br>${f`
+- L10390: `${d.telefono ? <div class="muted fs-08">📞 ${esc(d.telefono)}</div> : ''}`
+- L10394: `<button class="btn small" data-edit-dest="${d.id}" title="Editar destajista">✏️ Editar</button>`
+- L10411: `<span>📅 Avance semanal (periodos del programa de obra)</span>`
+- L10463: `body.innerHTML = <div class="alert-box danger">⚠️${esc(err.message)}</div>;`
+- L10576: `$('#destAvcList').innerHTML = <div class="alert-box danger">⚠️${esc(err.message)}</div>;`
+- L10608: `${soloLecturaParaMi(it) ? <div class="muted solo-lectura-note">🔒 Ya capturado — solo residente/admin puede ed`
+- L10689: `<div class="badge muted dest-item-partida">📋 Partida: ${esc(it.partida_grupo || 'Sin grupo')}</div>`
+- L10844: `<span class="pmeta">📋 Partida: ${esc(c.grupo || 'Sin grupo')}</span>`
+- L10908: `<h3>✓ Presupuesto cargado</h3>`
+- L10988: `${mustChange ? <div class="alert-box warning mb-12">⚠️ Debes cambiar tu contraseña antes de continuar.</div>`
+- L10995: `? '<span class="badge green" title="2FA activo">✓ Activado</span>'`
+- L11142: `<h2 class="section-title">🛠️ Panel de desarrollador</h2>`
+- L11273: `${s.prompt_generado ? 'Regenerar prompt IA' : '✨ Generar prompt IA'}`
+- L11275: `${puedeResponderSugerencias() ? <button class="btn sug-responder-btn" data-sug-id="${s.id}">💬 Responder</butt`
+- L11280: `<h2 class="section-title">💡 Sugerencias</h2>`
+- L11291: `📎`
+- L11317: `<button data-rm="${i}" class="sug-thumb-remove">✕</button>`
+- L11392: `btn.textContent = '✨ Generar prompt IA';`
+- L11893: `<button class="icon-btn-inline" data-remove-item="${idx}" type="button" title="Quitar" aria-label="Quitar">✕</`
+- L12017: `view.innerHTML = <div class="alert-box danger">⚠️ No tienes permiso para ver esta sección.</div>;`
+- L12113: `wrap.innerHTML = <div class="alert-box danger">⚠️ ${esc(err.message)}</div>;`
+- L12171: `<div class="alert-box info">🔵 Los toggles en azul son permisos informativos: el backend todavía no los exige, `
+- L12315: `${u.must_change_password ? '<span class="badge yellow" title="Debe cambiar contraseña en el próximo login">🔑 C`
+- L12316: `${u.totp_enabled ? '<span class="badge green" title="2FA configurado">🔒 2FA</span>' : '<span class="badge yell`
+- L12697: `${p.telefono ? <div class="muted fs-08">📞 ${esc(p.telefono)}</div> : ''}`
+- L12923: `const texto = vencido ? '⚠️ Vencido' : ⏳ ${alerta.dias_restantes}d;`
+- L12940: `<span title="Comprometido no pagado">📌 ${fmtMoney(o.compromisos.monto_pendiente)}</span>`
+- L12941: `<span title="Fondo de garantía acumulado">🔒 ${fmtMoney(o.fondo_garantia.acumulado)}</span>`
+- L12998: `<button class="icon-btn modal-close-btn" id="btnCerrarCumplDocs">✕</button>`
+- L13127: `<button class="btn small" id="btnCotizadorUbicacion">📍 Configurar ubicación</button>`
+- L13197: `? <div class="alert-box warn mt-8">⚠️ No se pudo consultar: ${errores.map((e) => ${esc(TIENDA_LABELS[e.tiend`
+- L13208: `<button class="btn small" id="btnCotizadorActualizar">🔄 Actualizar precio</button>`
+- L13281: `cont.innerHTML = <div class="alert-box danger">⚠️ ${esc(msg)}</div>;`
+- L13410: `<h2 class="section-title">🛠️ Catálogo de equipos</h2>`
+- L13442: `<h2 class="section-title">⏱️ Horas / Pendientes de autorizar</h2>`
+- L13477: `<h2 class="section-title">🔧 Bitácora de taller</h2>`
+- L13504: `<h2 class="section-title">🚦 Estado de las unidades</h2>`
+- L13540: `<h2 class="section-title">⛽ Consumibles</h2>`
+- L13570: `<h2 class="section-title">📊 Reportes por cliente</h2>`
+- L13930: `<span>🧑‍🔧 Historial de responsables</span>`
+- L13942: ` : (e.operador_asignado_nombre ? <div class="muted fs-08">👷 ${esc(e.operador_asignado_nombre)}</div> : ''))`
+- L13949: `${e.obra_nombre ? <div class="muted fs-08">🏗️ ${esc(e.obra_nombre)}</div> : '<div class="muted fs-08">Sin ob`
+- L13950: `${e.cliente_asignado_nombre ? <div class="muted fs-08">🏢 ${esc(e.cliente_asignado_nombre)}</div> : ''}`
+- L13961: `<span>📋 Historial (combustible, mantenimiento, horas)</span>`
+- L14053: `body.innerHTML = <div class="alert-box danger">⚠️ ${esc(err.message)}</div>;`
+- L14115: `body.innerHTML = <div class="alert-box danger">⚠️ ${esc(err.message)}</div>;`
+- L14565: `${criticos ? <p class="maq-section-alerta">⚠️ ${criticos} unidad(es) con punto crítico</p> : ''}`
+- L14765: `${puedeEditar ? <button class="btn small" data-editar-cm="${r.registro_id}" title="Editar">✏️</button> : ''}`
+- L15315: `body.innerHTML = <div class="alert-box danger">⚠️ ${esc(err.message)}</div>;`
+- L15777: `${d.destajo_huerfano > 0 ? <p class="muted finanzas-destajo-huerfano-note">⚠️ De lo anterior, ${fmtMoney(d.de`
+- L16071: `if (state.view === 'requisiciones' || state.view === 'insumos') fab.textContent = '🧾';`
+- L16072: `else if (state.view === 'destajo') fab.textContent = '👷';`
+- L16096: `dot.textContent = '🧾';`
+- L16398: `$('#trabCuentaPopoverBody').innerHTML = <div class="alert-box danger">⚠️ ${esc(err.message)}</div>;`
+- L16488: `${puedeEditar ? <button class="icon-btn-inline" data-editar="${t.id}" title="Editar">✎</button> : ''}`
+- L16489: `${puedeEditar && t.activo ? <button class="icon-btn-inline" data-obras="${t.id}" title="Gestionar obras">🏗️</`
+- L16490: `${puedeEditar && t.activo ? <button class="icon-btn-inline" data-baja="${t.id}" title="Dar de baja">🚫</button`
+- L16795: `$('#ccDetalleBody').innerHTML = <div class="alert-box danger">⚠️ ${esc(err.message)}</div>;`
+- L16889: `list.innerHTML = <div class="alert-box danger">⚠️ ${esc(err.message)}</div>;`
+- L16943: `list.innerHTML = <div class="alert-box danger">⚠️ ${esc(err.message)}</div>;`
+- L17013: `$('#cfFacDetalleBody').innerHTML = <div class="alert-box danger">⚠️ ${esc(err.message)}</div>;`
+- L17205: `list.innerHTML = <div class="alert-box danger">⚠️ ${esc(err.message)}</div>;`
+- L17288: `list.innerHTML = <div class="alert-box danger">⚠️ ${esc(err.message)}</div>;`
+- L17372: `list.innerHTML = <div class="alert-box danger">⚠️ ${esc(err.message)}</div>;`
+- L17462: `? <span class="badge green">✓ ${esc(p.cfdi_uuid.slice(0, 8))}…</span>`
+- L17478: `list.innerHTML = <div class="alert-box danger">⚠️ ${esc(err.message)}</div>;`
+- L17495: `${pago.proveedor_rfc ? '' : '<div class="alert-box danger">⚠️ Este proveedor no tiene RFC capturado — no se pu`
+- L17545: `cont.innerHTML = <div class="alert-box danger">⚠️ ${esc(err.message)}</div>;`
+- L17611: `: (m.sugerencia_poliza_id ? 💡 ${esc(m.sugerencia_concepto)} : '<span class="muted">Sin sugerencia</span>')}`
+- L17623: `list.innerHTML = <div class="alert-box danger">⚠️ ${esc(err.message)}</div>;`
+- L17692: `list.innerHTML = <div class="alert-box danger">⚠️ ${esc(err.message)}</div>;`
+- L17973: `? '<div class="alert-box danger">⚠️ Datos extraídos con IA desde el PDF de representación (no se subió XML) — `
+- L18118: `list.innerHTML = <div class="alert-box danger">⚠️ ${esc(err.message)}</div>;`
+- L18302: `💡 <strong>Sugerencia:</strong> ${esc(movimiento.sugerencia_concepto)} — ${fmtDate(movimiento.sugerencia_fecha)`
+- L18553: `view.innerHTML = <div class="alert-box danger">⚠️ ${esc(err.message)}</div>;`
+- L18781: `view.innerHTML = <div class="alert-box danger">⚠️ ${esc(err.message)}</div>;`
+- L18875: `result.innerHTML = <div class="alert-box danger">⚠️ ${esc(err.message)}</div>;`
+- L18912: `$('#costosGlobalResult').innerHTML = <div class="alert-box danger">⚠️ ${esc(err.message)}</div>;`
+- L19001: `result.innerHTML = <div class="alert-box danger">⚠️ ${esc(err.message)}</div>;`
+- L19086: `return <span class="cp-warn-badge" title="${esc(titulo)}">⚠️</span>;`
+- L19107: `result.innerHTML = <div class="alert-box danger">⚠️ ${esc(err.message)}</div>;`
+- L19312: `$('#cmBusquedaResult').innerHTML = <div class="alert-box danger">⚠️ ${esc(err.message)}</div>;`
+- L19592: `return <span class="cp-warn-badge" title="${esc(titulo)}">⚠️</span>;`
+- L19627: `return ⚠️ ${conAdvertencia.length} de ${idxsSel.length} concepto${idxsSel.length === 1 ? '' : 's'} selecciona`
+- L19682: `<button class="icon-btn modal-close-btn" id="btnCloseCrearPresupuesto" aria-label="Cerrar">✕</button>`
+- L19963: `<button class="btn" id="btnMatricesBasicos">🧱 Básicos</button>`
+- L19965: `<button class="btn" id="btnReprocesarDestajoMatrices" ${matrices.length ? '' : 'disabled'} title="${matrices.l`
+- L20138: `<button class="btn" id="btnGeneradorCatalogoImportar">📥 Cargar catálogo</button>`
+- L20377: `<button class="icon-btn modal-close-btn" id="btnCerrarVincularGeneradorTop" aria-label="Cerrar">✕</button>`
+- L20431: `${r ? '<span class="badge green">✓ Vinculado</span>' : ''}`
+- L20516: `$('#genVincularLista').innerHTML = <div class="alert-box danger">⚠️ ${esc(err.message)}</div>;`
+- L20770: `} catch (err) { box.innerHTML = <div class="alert-box danger">⚠️ ${esc(err.message)}</div>; return; }`
+- L20802: `<td>${esc(r.descripcion || '—')}${r.tipo === 'factor_pct' ? <div class="muted fs-07">Factor % sobre subtotal `
+- L20813: `<td><button class="icon-btn-inline" data-remove="${r._idx}" type="button" title="Quitar" aria-label="Quitar">✕`
+- L21034: `if (!basicos.length) { toast('No hay básicos creados en esta obra todavía. Créalos desde "🧱 Básicos" en la vis`
+- L21163: `<td>${esc(r.descripcion || '—')}${r.tipo === 'factor_pct' ? <div class="muted fs-07">Factor % sobre subtotal `
+- L21175: `<td><button class="icon-btn-inline" data-remove="${r._idx}" type="button" title="Quitar" aria-label="Quitar">✕`
+- L21202: `<div class="alert-box mb-8">⚠️ Este básico se usa en ${usadoEn.length} análisis — editarlo afecta a todos:`
+- L21378: `view.innerHTML = <div class="alert-box danger">⚠️ No tienes permiso para ver esta sección.</div>;`
+- L21698: `<div class="banco-detectado-badge hidden-initial" id="tBancoNominaBadge">✓ Detectado automáticamente por CLABE`
+- L21712: `<div class="banco-detectado-badge hidden-initial" id="tBancoAlternaBadge">✓ Detectado automáticamente por CLAB`
+- L21874: `catch (err) { $('#gestObrasBody').innerHTML = <div class="alert-box danger">⚠️ ${esc(err.message)}</div>; re`
+- L22044: `<button class="icon-btn modal-close-btn" id="btnCerrarContratos">✕</button>`
+- L22146: `<button class="icon-btn modal-close-btn" id="btnCerrarEpp">✕</button>`
+- L22202: `<button class="icon-btn modal-close-btn" id="btnCerrarFirmaGrande">✕</button>`
+- L22290: `<button class="icon-btn modal-close-btn" id="btnCerrarCatEpp">✕</button>`
+- L22523: `body.innerHTML = <div class="alert-box danger">⚠️ ${esc(err.message)}</div>;`
+- L22565: `body.innerHTML = <div class="alert-box danger">⚠️ ${esc(err.message)}</div>;`
+- L22603: `<td class="num">${fmtMoney(it.monto_destajo)}${it.alerta_destajo ?  <span title="${esc(it.alerta_destajo)}">⚠`
+- L22682: `body.innerHTML = <div class="alert-box danger">⚠️ ${esc(err.message)}</div>;`
+- L22959: `view.innerHTML = <div class="alert-box danger">⚠️ No tienes permiso para ver esta sección.</div>;`
+- L23316: `panel.innerHTML = <div class="alert-box danger">⚠️ ${esc(err.message)}</div>;`
+- L23462: `<div class="asist-resumen-aviso">👁️ Vista de resumen — solo lectura</div>`
+- L23744: `if (asist.vistaJornada) panel.innerHTML = <div class="alert-box danger">⚠️ ${esc(err.message)}</div>;`
+- L24115: `el.innerHTML = <div class="alert-box danger">⚠️ ${esc(err.message)}</div>;`
+- L24194: `${sinAsistencia ? <div class="alert-box nomina-detalle-alert">⚠️ Todos los trabajadores tienen 0 días — guard`
+- L24195: `${sinTarifa ? <div class="alert-box nomina-detalle-alert">⚠️ Algún trabajador tiene tarifa $0/día. Edita el t`
+- L24196: `${alertasDestajo.map((a) => <div class="alert-box nomina-detalle-alert">⚠️ ${esc(a)}</div>).join('')}`
+- L24222: `${hasDest ? <td class="nomina-td-right">$${montoDest.toLocaleString('es-MX', { minimumFractionDigits: 2 })}${`
+- L24240: `if (el) el.innerHTML = <div class="alert-box danger">⚠️ ${esc(err.message)}</div>;`
+- L24584: `body.innerHTML = <div class="alert-box danger">⚠️ ${esc(err.message)}</div>;`
+- L24590: `view.innerHTML = <div class="alert-box danger">⚠️ No tienes permiso para ver esta sección.</div>;`
+- L24654: `el.innerHTML = <div class="alert-box danger">⚠️ ${esc(err.message)}</div>;`
+- L24699: `<button class="icon-btn-inline" data-renombrar-estimacion="${e.id}" data-nombre-actual="${esc(e.nombre || '')}`
+- L24916: `? <span class="muted fs-088">📎 Generador de Obra vinculado: <strong>#${generadorVinculado.folio}${generadorVi`
+- L25036: `if (el) el.innerHTML = <div class="alert-box danger">⚠️ ${esc(err.message)}</div>;`
+- L25134: `view.innerHTML = <div class="alert-box danger">⚠️ No tienes permiso para ver esta sección.</div>;`
+- L25181: `el.innerHTML = <div class="alert-box danger">⚠️ ${esc(err.message)}</div>;`
+- L25454: `<button class="icon-btn-inline" data-editar-renglon="${r.id}" title="Editar" aria-label="Editar">✎</button>`
+- L25691: `el.innerHTML = <div class="alert-box danger">⚠️ ${esc(err.message)}</div>;`
+- L25816: `el.innerHTML = <div class="alert-box danger">⚠️ ${esc(err.message)}</div>;`
+- L25866: `view.innerHTML = <div class="alert-box danger">⚠️ No tienes permiso para ver esta sección.</div>;`
+- L25888: `el.innerHTML = <div class="alert-box danger">⚠️ ${esc(err.message)}</div>;`
+- L26037: `${lineasDraft.length > 1 ? <button type="button" class="icon-btn oc-linea-quitar" data-idx="${idx}" title="Qu`
+- L26202: `view.innerHTML = <div class="alert-box danger">⚠️ No tienes permiso para ver esta sección.</div>;`
+- L26245: `el.innerHTML = <div class="alert-box danger">⚠️ ${esc(err.message)}</div>;`
+- L26367: `<button type="button" class="btn small btn-danger" id="btnAccionesAvanzadasLote">⚠️ Acciones avanzadas (emerge`
+- L26428: `<h3>⚠️ Forzar estatus de venta (emergencia)</h3>`
+- L26581: `view.innerHTML = <div class="alert-box danger">⚠️ No tienes permiso para ver esta sección.</div>;`
+- L26607: `el.innerHTML = <div class="alert-box danger">⚠️ ${esc(err.message)}</div>;`
+- L26730: `view.innerHTML = <div class="alert-box danger">⚠️ No tienes permiso para ver esta sección.</div>;`
+- L26752: `el.innerHTML = <div class="alert-box danger">⚠️ ${esc(err.message)}</div>;`
+- L26863: `view.innerHTML = <div class="alert-box danger">⚠️ No tienes permiso para ver esta sección.</div>;`
+- L26885: `el.innerHTML = <div class="alert-box danger">⚠️ ${esc(err.message)}</div>;`
+- L27020: `view.innerHTML = <div class="alert-box danger">⚠️ No tienes permiso para ver esta sección.</div>;`
+- L27042: `el.innerHTML = <div class="alert-box danger">⚠️ ${esc(err.message)}</div>;`
+- L27290: `view.innerHTML = <div class="alert-box danger">⚠️ No tienes permiso para ver esta sección.</div>;`
+- L27308: `el.innerHTML = <div class="alert-box danger">⚠️ ${esc(err.message)}</div>;`
+- L27431: `<button type="button" class="btn small btn-danger" data-quitar-renglon title="Quitar concepto">✕</button>`
+- L27602: `view.innerHTML = <div class="alert-box danger">⚠️ No tienes permiso para ver esta sección.</div>;`
+- L27620: `el.innerHTML = <div class="alert-box danger">⚠️ ${esc(err.message)}</div>;`
+- L27674: `<button class="icon-btn modal-close-btn" id="btnCerrarVerEntrega">✕</button>`
+- L27697: `<button class="icon-btn modal-close-btn" id="btnCerrarFirmaGrandeEntrega">✕</button>`
+- L27715: `<button class="icon-btn modal-close-btn" id="btnCerrarRegEntrega">✕</button>`
+- L27718: `${tieneSaldo ? <div class="alert-box warning mt-8">⚠️ Este lote todavía tiene un saldo pendiente de ${fmtMone`
+- L27843: `body.innerHTML = <div class="alert-box danger">⚠️ ${esc(err.message)}</div>;`
+- L27860: `⚠️ ${grupos_sin_clasificar.length} grupo${grupos_sin_clasificar.length === 1 ? '' : 's'} sin clasificar`
+- L27956: `body.innerHTML = <div class="alert-box danger">⚠️ ${esc(err.message)}</div>;`
+- L28086: `view.innerHTML = <div class="alert-box danger">⚠️ No tienes permiso para ver esta sección.</div>;`
+- L28140: `body.innerHTML = <div class="alert-box danger">⚠️ ${esc(err.message)}</div>;`
+- L28199: `${i.inconsistente ? ' <span class="badge red" title="Salidas superan a Entradas — revisar captura">⚠️ negativa`
+- L28235: `el.innerHTML = <div class="alert-box danger">⚠️ ${esc(err.message)}</div>;`
+- L28280: `el.innerHTML = <div class="alert-box danger">⚠️ ${esc(err.message)}</div>;`

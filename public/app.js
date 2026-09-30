@@ -236,6 +236,28 @@ const ICON_SVG = {
   home:          '<path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>',
   settings:      '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>',
   'upload-cloud': '<path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/><polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/>',
+  // Rediseño UI v2, Fase 2 (docs/rediseno/): íconos nuevos, viewBox 24, trazo currentColor.
+  plus:     '<path d="M12 5v14M5 12h14"/>',
+  star:     '<path d="m12 3 2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z"/>',
+  calc:     '<rect x="5" y="3" width="14" height="18" rx="2"/><path d="M8.5 7.5h7M8.5 12h.01M12 12h.01M15.5 12h.01M8.5 16h.01M12 16h.01M15.5 16h.01"/>',
+  book:     '<path d="M5 4a1 1 0 0 1 1-1h13v16H6a1 1 0 0 0-1 1z"/><path d="M5 20a1 1 0 0 0 1 1h13"/>',
+  key:      '<circle cx="8" cy="15" r="4"/><path d="m11 12 9-9M16 7l3 3"/>',
+  spark:    '<path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/><path d="M19 16v4M17 18h4"/>',
+  clock:    '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  more:     '<circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/>',
+  filter:   '<path d="M3 5h18l-7 8v6l-4-2v-4z"/>',
+  users:    '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16 4.6a3.5 3.5 0 0 1 0 6.8M18 14.2A6.5 6.5 0 0 1 21.5 20"/>',
+  file:     '<path d="M6 3h8l5 5v13H6z"/><path d="M14 3v5h5"/>',
+  dash:     '<rect x="3" y="3" width="8" height="10" rx="1.5"/><rect x="13" y="3" width="8" height="6" rx="1.5"/><rect x="13" y="11" width="8" height="10" rx="1.5"/><rect x="3" y="15" width="8" height="6" rx="1.5"/>',
+  chart:    '<path d="M3 3v18h18"/><path d="m7 15 4-5 3 3 5-6"/>',
+  refresh:  '<path d="M20 11a8 8 0 0 0-14-4L4 9M4 4v5h5M4 13a8 8 0 0 0 14 4l2-2M20 20v-5h-5"/>',
+  upload:   '<path d="M12 16V4M7 9l5-5 5 5M4 20h16"/>',
+  download: '<path d="M12 4v12M7 11l5 5 5-5M4 20h16"/>',
+  archive:  '<rect x="3" y="4" width="18" height="5" rx="1"/><path d="M5 9v10h14V9M10 13h4"/>',
+  tag:      '<path d="M3 12V4h8l10 10-8 8z"/><circle cx="7.5" cy="8.5" r="1"/>',
+  shield:   '<path d="M12 3 4 6v6c0 5 3.5 8 8 9 4.5-1 8-4 8-9V6z"/><path d="m9 12 2 2 4-4"/>',
+  gift:     '<rect x="3" y="8" width="18" height="4" rx="1"/><path d="M5 12v8h14v-8M12 8v12M12 8c-2-4-6-3-5 0M12 8c2-4 6-3 5 0"/>',
+  handshake:'<path d="M3 12l4-4 4 2 4-3 6 5-5 6-3-2-3 2-4-2z"/>',
 };
 
 function icon(name, size = 18) {
@@ -1473,7 +1495,7 @@ const SECTION_DEFS = {
   // así lo pidió el negocio. Ver 'costos' más abajo — sección de destino —
   // y EXCEPCIONES_TILE_SECCION (justo después de VIEW_TO_SECTION) para el
   // manejo especial que este movimiento requirió para el rol 'cabo'.
-  obra:          { label: 'Obra',           icon: 'obra',           emoji: '🏗️',  tabs: ['estadoActivo', 'programa', 'avance', 'destajo', 'estimaciones', 'generadoresObra', 'presupuestoEstimaciones', 'lotes', 'modelosVivienda', 'infraVivienda'], proximamente: [] },
+  obra:          { label: 'Obra',           icon: 'obra',           tabs: ['estadoActivo', 'programa', 'avance', 'destajo', 'estimaciones', 'generadoresObra', 'presupuestoEstimaciones', 'lotes', 'modelosVivienda', 'infraVivienda'], proximamente: [] },
   // Fase 4 del roadmap "Desarrollador de Vivienda", PR A (prompt-
   // implementacion-pr-a-compradores-apartado.md, diagnóstico previo en
   // prompt-diagnostico-compradores-venta.md) — sección de nivel superior
@@ -1491,17 +1513,17 @@ const SECTION_DEFS = {
   // (prompt-implementacion-pr-d-entregas.md) — sale de 'proximamente', ya
   // tiene tab real. Con esto se cierra el roadmap completo de Fase 4
   // "Desarrollador de Vivienda" — 'proximamente' queda vacío.
-  ventas:        { label: 'Ventas',         icon: 'home',           emoji: '🏠',   tabs: ['compradores', 'apartados', 'contratosVenta', 'cobranza', 'entregas'], proximamente: [] },
-  compras:       { label: 'Compras',        icon: 'compras',        emoji: '🛒',   tabs: ['requisiciones', 'insumos', 'proveedores', 'cumplimiento', 'ordenes', 'cotizador', 'almacen'], proximamente: ['Subcontratos'] },
-  tesoreria:     { label: 'Tesorería',      icon: 'tesoreria',      emoji: '💰',   tabs: ['finanzas', 'compromisos', 'fondoGarantia', 'estadoResultados', 'estadoResultadosGlobal', 'impuestos', 'controlFinanciero'], proximamente: [] },
+  ventas:        { label: 'Ventas',         icon: 'home',           tabs: ['compradores', 'apartados', 'contratosVenta', 'cobranza', 'entregas'], proximamente: [] },
+  compras:       { label: 'Compras',        icon: 'compras',        tabs: ['requisiciones', 'insumos', 'proveedores', 'cumplimiento', 'ordenes', 'cotizador', 'almacen'], proximamente: ['Subcontratos'] },
+  tesoreria:     { label: 'Tesorería',      icon: 'tesoreria',      tabs: ['finanzas', 'compromisos', 'fondoGarantia', 'estadoResultados', 'estadoResultadosGlobal', 'impuestos', 'controlFinanciero'], proximamente: [] },
   // 'mapeo' vivió un tiempo aquí, luego en Presupuestos, ahora en la nueva
   // sección 'costos' (prompt-seccion-costos-implementacion.md) —
   // administracion conserva el resto de sus tabs sin cambios.
   // 'trabajadores_global'/'nominas_global' retirados de esta lista (prompt-
   // fase1-fusionar-trabajadores-nominas.md): dejaron de ser tiles propios —
   // absorbidos por el selector interno de 'trabajadores'/'nominas'.
-  administracion:{ label: 'Administración', icon: 'administracion', emoji: '📂',  tabs: ['contrato', 'trabajadores', 'nominas', 'avance_clientes', 'usuarios', 'cuentas'], proximamente: ['Almacenes'] },
-  maquinaria:    { label: 'Maquinaria',     icon: 'maquinaria',     emoji: '🚜',   tabs: MAQUINARIA_TABS_ADMIN,                                 proximamente: [] },
+  administracion:{ label: 'Administración', icon: 'administracion', tabs: ['contrato', 'trabajadores', 'nominas', 'avance_clientes', 'usuarios', 'cuentas'], proximamente: ['Almacenes'] },
+  maquinaria:    { label: 'Maquinaria',     icon: 'maquinaria',     tabs: MAQUINARIA_TABS_ADMIN,                                 proximamente: [] },
   // prompt-seccion-costos-implementacion.md: sección "Costos" nueva,
   // reemplaza a "Presupuestos" (disuelta — su único tab restante,
   // ordenesCambio, regresó a Obra arriba en ese momento; ver más abajo,
@@ -1543,29 +1565,42 @@ const SECTION_DEFS = {
   // puede ver/editar Órdenes de Cambio — solo dónde vive en el menú. El
   // único efecto colateral fue el rol 'cabo' (tenía ordenesCambio pero
   // ningún otro tab de 'costos'): ver EXCEPCIONES_TILE_SECCION más abajo.
-  costos:        { label: 'Costos',         icon: 'costos',         emoji: '📑',   tabs: ['costosDashboard', 'matrices', 'generadorPresupuestos', 'ordenesCambio', 'costos', 'composicion_costos', 'mapeo', 'catalogoBasicos'], proximamente: [] },
+  costos:        { label: 'Costos',         icon: 'costos',         tabs: ['costosDashboard', 'matrices', 'generadorPresupuestos', 'ordenesCambio', 'costos', 'composicion_costos', 'mapeo', 'catalogoBasicos'], proximamente: [] },
   // prompt-contabilidad-fase1/2/3/4 + prompt-contabilidad-galeria-tiles.md:
   // 5 subsecciones reales (antes: un solo tab 'contabilidad' con subnav
   // interno propio, mismo patrón que 'controlFinanciero' — reemplazado por
   // galería de tiles real, ver SECTIONS_WITH_GALLERY más abajo). Visibles
   // solo para la whitelist USUARIOS_CONTABILIDAD + admin/desarrollador
   // (server/auth.js, tabsParaUsuario) — el resto ni ve el tile de sección.
-  contabilidad:  { label: 'Contabilidad',   icon: 'contabilidad',   emoji: '📘',   tabs: CONTABILIDAD_TABS, proximamente: [] },
+  contabilidad:  { label: 'Contabilidad',   icon: 'contabilidad',   tabs: CONTABILIDAD_TABS, proximamente: [] },
 };
 
-const TAB_ICONS = {
-  resumen: '📊', contrato: '📄', impuestos: '🧾', insumos: '📦', requisiciones: '🧾',
-  proveedores: '🏭', cumplimiento: '✅', ordenes: '🛒', programa: '🗓️', avance: '📈', destajo: '👷', estadoActivo: '🩺', presupuestoEstimaciones: '📐',
-  finanzas: '💰', compromisos: '📌', fondoGarantia: '🔒', mapeo: '🔗', usuarios: '👤', trabajadores: '👷', nominas: '💵', estimaciones: '🧮', generadoresObra: '📐', ordenesCambio: '📝', lotes: '🏘️', modelosVivienda: '🏡', compradores: '🧑‍🤝‍🧑', apartados: '🔖', contratosVenta: '📜', cobranza: '💵', entregas: '📦', infraVivienda: '🏙️',
-  maquinaria_catalogo: '🛠️', maquinaria_horas: '⏱️', maquinaria_bitacora: '🔧', maquinaria_estado_unidad: '🚦',
-  maquinaria_consumibles: '⛽', maquinaria_reportes_cliente: '📊',
-  nominas_global: '💵', trabajadores_global: '👷', cotizador: '🔍',
-  estadoResultados: '📈', estadoResultadosGlobal: '📈', costos: '💲', avance_clientes: '📈', composicion_costos: '🧮',
-  cuentas: '🏦', matrices: '🧱', generadorPresupuestos: '⚙️', controlFinanciero: '💹', dashboardEjecutivo: '📊', costosDashboard: '📊', catalogoBasicos: '📚',
-  contabilidadCuentas: '📒', contabilidadPolizas: '🧾', contabilidadCfdi: '📑', contabilidadPagos: '💳',
-  contabilidadConciliacion: '🏦', contabilidadDepreciacion: '📉', contabilidadExport: '📤',
-  almacen: '🏬',
+// Mapa tabId -> nombre de ícono de ICON_SVG (Rediseño UI v2, Fase 2). Reemplaza
+// a los emojis de TAB_ICONS en navegación.
+const TAB_ICON_NAMES = {
+  resumen: 'resumen', contrato: 'contrato', impuestos: 'impuestos', insumos: 'insumos', requisiciones: 'requisiciones',
+  proveedores: 'handshake', cumplimiento: 'shield', ordenes: 'ordenes', programa: 'programa', avance: 'avance', destajo: 'destajo',
+  estadoActivo: 'chart', presupuestoEstimaciones: 'calc', finanzas: 'finanzas', compromisos: 'clock', fondoGarantia: 'lock',
+  mapeo: 'mapeo', usuarios: 'usuarios', trabajadores: 'users', nominas: 'tesoreria', estimaciones: 'calc', generadoresObra: 'file',
+  ordenesCambio: 'pencil', lotes: 'layout-grid', modelosVivienda: 'home', compradores: 'users', apartados: 'tag',
+  contratosVenta: 'contrato', cobranza: 'finanzas', entregas: 'insumos', infraVivienda: 'building',
+  maquinaria_catalogo: 'maquinaria', maquinaria_horas: 'clock', maquinaria_bitacora: 'destajo', maquinaria_estado_unidad: 'shield',
+  maquinaria_consumibles: 'archive', maquinaria_reportes_cliente: 'chart', nominas_global: 'tesoreria', trabajadores_global: 'users',
+  cotizador: 'search', estadoResultados: 'estadoResultados', estadoResultadosGlobal: 'estadoResultados', costos: 'calc',
+  avance_clientes: 'avance', composicion_costos: 'matrices', cuentas: 'tesoreria', matrices: 'matrices', generadorPresupuestos: 'settings',
+  controlFinanciero: 'finanzas', dashboardEjecutivo: 'dash', costosDashboard: 'dash', catalogoBasicos: 'book',
+  contabilidadCuentas: 'book', contabilidadPolizas: 'file', contabilidadCfdi: 'file', contabilidadPagos: 'tesoreria',
+  contabilidadConciliacion: 'check', contabilidadDepreciacion: 'avance', contabilidadExport: 'download', almacen: 'archive',
+  novedades: 'gift', sugerencias: 'pencil', developer: 'settings',
 };
+const SECTION_ICON_NAMES = {
+  obra: 'obra', ventas: 'home', compras: 'compras', tesoreria: 'tesoreria', administracion: 'administracion',
+  maquinaria: 'maquinaria', costos: 'calc', contabilidad: 'book',
+};
+function tabIcon(tabId, size = 18) { return icon(TAB_ICON_NAMES[tabId] || 'list', size); }
+function sectionIcon(sectionId, size = 18) { return icon(SECTION_ICON_NAMES[sectionId] || 'folder', size); }
+// Compat: los emojis de navegación se retiraron; queda vacío hasta que un grep confirme 0 usos.
+const TAB_ICONS = {};
 const TAB_LABELS = {
   resumen: 'Resumen', contrato: 'Contrato', impuestos: 'Impuestos', insumos: 'Insumos', requisiciones: 'Requisiciones',
   proveedores: 'Proveedores', cumplimiento: 'Cumplimiento', ordenes: 'Órdenes de Compra', programa: 'Programa', avance: 'Avance', destajo: 'Destajo', estadoActivo: 'Estado del Activo', presupuestoEstimaciones: 'Presupuesto vs Estimaciones',
@@ -1811,7 +1846,7 @@ function renderTabsBar() {
     const tabsBar = [...def.tabs, ...tabsExtra.filter((t) => !def.tabs.includes(t))];
     html += `<button class="tab tab-back" data-goto="inicio">←</button>`;
     tabsBar.filter((t) => state.allowedTabs.includes(t)).forEach((t) => {
-      html += `<button class="tab ${state.view === t ? 'active' : ''}" data-goto="${t}"><span class="tab-icon">${TAB_ICONS[t]}</span><span class="tab-label">${TAB_LABELS[t]}</span></button>`;
+      html += `<button class="tab ${state.view === t ? 'active' : ''}" data-goto="${t}"><span class="tab-icon">${tabIcon(t, 16)}</span><span class="tab-label">${TAB_LABELS[t]}</span></button>`;
     });
     def.proximamente.forEach((nombre) => {
       html += `<button class="tab tab-soon" data-soon="${esc(nombre)}"><span class="tab-icon">🔒</span><span class="tab-label">${esc(nombre)}</span></button>`;
@@ -1896,7 +1931,24 @@ function closeGalleryDrawer() {
 // tendría acceso real al hacer click. Llamado desde renderSidebar(), el
 // único choke point de re-render cada vez que allowedTabs puede cambiar
 // (login, simulación de rol, logout).
+// Ícono de línea por botón del drawer (antes emoji en el HTML). Idempotente.
+const GALLERY_DRAWER_ICONS = {
+  btnGalleryGoUsuarios: 'usuarios', btnGalleryGoDashboardEjecutivo: 'dash', btnGalleryGoDashboardCostos: 'dash',
+  btnGalleryGoTrabajadoresGlobal: 'users', btnGalleryGoNominasGlobal: 'tesoreria', btnGalleryGoPermisos: 'key',
+  btnGalleryGoMaquinaria: 'maquinaria', btnGalleryGoClientesArchivados: 'archive', btnGalleryGoClientesCompletados: 'check',
+  btnGalleryGoNovedades: 'gift',
+};
+function decorateGalleryDrawerIcons() {
+  Object.entries(GALLERY_DRAWER_ICONS).forEach(([id, name]) => {
+    const btn = $('#' + id);
+    if (!btn || btn.dataset.iconed) return;
+    btn.dataset.iconed = '1';
+    btn.classList.add('btn-icon-inline');
+    btn.insertAdjacentHTML('afterbegin', icon(name, 16));
+  });
+}
 function updateGalleryDrawerGlobalLinks() {
+  decorateGalleryDrawerIcons();
   const puedeVer = (tab) => !!state.user && state.allowedTabs.includes(tab);
   const links = [
     ['btnGalleryGoUsuarios', puedeVer('usuarios')],
@@ -1981,7 +2033,7 @@ function renderSidebar() {
     const pr = $('#popoverRole');        if (pr) pr.textContent = PUESTO_LABELS[ep] || ep;
   }
   // Ícono del proyecto en sidebar
-  const pi = $('#sidebarProjectIcon'); if (pi) pi.textContent = '🏗️';
+  const pi = $('#sidebarProjectIcon'); if (pi) pi.innerHTML = icon('obra', 16);
   const pc = $('#sidebarProjectChevron'); if (pc) pc.innerHTML = icon('chevron-down', 13);
   const pch = $('#sidebarProfileChevron'); if (pch) pch.innerHTML = icon('chevron-down', 13);
 
@@ -2004,7 +2056,7 @@ function renderSidebar() {
   if (renderableTabs.includes('resumen')) {
     const active = state.view === 'resumen' ? 'active' : '';
     html += `<button class="sbar-item ${active}" data-sbar-goto="resumen" title="Resumen">
-      <span class="sbar-icon">${TAB_ICONS.resumen}</span>
+      <span class="sbar-icon">${tabIcon('resumen', 18)}</span>
       <span class="sbar-label">Resumen</span>
     </button>`;
   }
@@ -2019,7 +2071,7 @@ function renderSidebar() {
     if (!renderableTabs.includes(t)) return;
     const active = state.view === t ? 'active' : '';
     html += `<button class="sbar-item ${active}" data-sbar-goto="${t}" title="${esc(TAB_LABELS[t])}">
-      <span class="sbar-icon">${TAB_ICONS[t] || ''}</span>
+      <span class="sbar-icon">${tabIcon(t, 18)}</span>
       <span class="sbar-label">${esc(TAB_LABELS[t])}</span>
     </button>`;
   });
@@ -2029,7 +2081,7 @@ function renderSidebar() {
     if (def.tabs.length === 0) {
       // Sección futura (Maquinaria)
       html += `<button class="sbar-item sbar-disabled" disabled title="${esc(def.label)} — Próximamente">
-        <span class="sbar-icon">${def.emoji}</span>
+        <span class="sbar-icon">${sectionIcon(sectionId, 18)}</span>
         <span class="sbar-label">${esc(def.label)}</span>
         <span class="sbar-badge-soon">Pronto</span>
       </button>`;
@@ -2046,7 +2098,7 @@ function renderSidebar() {
     const isOpen = sbarGroupIsOpen(sectionId, isActive);
     html += `<div class="sbar-group ${isOpen ? 'open' : ''}">
       <button class="sbar-group-header ${isActive ? 'active' : ''}" data-sbar-group="${sectionId}" title="${esc(def.label)}">
-        <span class="sbar-icon">${def.emoji}</span>
+        <span class="sbar-icon">${sectionIcon(sectionId, 18)}</span>
         <span class="sbar-label">${esc(def.label)}</span>
         <span class="sbar-chevron">${icon('chevron-down', 13)}</span>
       </button>
@@ -2054,7 +2106,7 @@ function renderSidebar() {
     sectionRenderableTabs.forEach((t) => {
       const a = state.view === t ? 'active' : '';
       html += `<button class="sbar-item sbar-subitem ${a}" data-sbar-goto="${t}" title="${esc(TAB_LABELS[t])}">
-        <span class="sbar-icon">${TAB_ICONS[t] || ''}</span>
+        <span class="sbar-icon">${tabIcon(t, 18)}</span>
         <span class="sbar-label">${esc(TAB_LABELS[t])}</span>
       </button>`;
     });
@@ -2263,8 +2315,8 @@ function openQuickActionMenu() {
   // handler, mismo permiso (isAdmin()), solo un atajo adicional. No requieren
   // presupuesto seleccionado (igual que en su ubicación original).
   if (isAdmin()) {
-    actions.push({ label: 'Cargar presupuesto (.xlsx)', icon: '➕', fn: promptUpload });
-    actions.push({ label: 'Cargar Contrato PDF',        icon: '📄', fn: promptUploadContrato });
+    actions.push({ label: 'Cargar presupuesto (.xlsx)', icon: 'plus', fn: promptUpload });
+    actions.push({ label: 'Cargar Contrato PDF',        icon: 'file', fn: promptUploadContrato });
   }
 
   // Sin presupuesto seleccionado y sin ninguna acción disponible (rol no admin):
@@ -2274,7 +2326,7 @@ function openQuickActionMenu() {
   list.innerHTML = actions.length
     ? actions.map((a, i) => `
       <button class="quick-action-item" data-idx="${i}">
-        <span class="quick-action-icon">${TAB_ICONS[a.icon] || a.icon || ''}</span><span>${esc(a.label)}</span>
+        <span class="quick-action-icon">${TAB_ICON_NAMES[a.icon] ? tabIcon(a.icon, 20) : icon(a.icon, 20)}</span><span>${esc(a.label)}</span>
       </button>`).join('')
     : '<p class="muted py-8">No tienes permiso para esta función.</p>';
 
@@ -3944,7 +3996,7 @@ function renderProjectList() {
   const list = $('#projectList');
   const projects = visibleProjects();
   if (!projects.length) {
-    list.innerHTML = `<div class="empty-state"><div class="big">📂</div>Aún no hay presupuestos cargados.<br>Toca el botón de abajo para subir tu primer archivo Excel.</div>`;
+    list.innerHTML = `<div class="empty-state"><div class="big">${icon('folder', 40)}</div>Aún no hay presupuestos cargados.<br>Toca el botón de abajo para subir tu primer archivo Excel.</div>`;
     return;
   }
   list.innerHTML = projects.map((p) => {
@@ -3958,7 +4010,7 @@ function renderProjectList() {
       </span>
       ${isAdmin() ? `
       <div class="pactions">
-        <button class="btn small" data-renombrar="${p.id}" title="Renombrar presupuesto">✏️</button>
+        <button class="btn small" data-renombrar="${p.id}" title="Renombrar presupuesto" aria-label="Renombrar presupuesto">${icon('pencil', 14)}</button>
         <button class="btn small" data-cambiar-cliente="${p.id}">Cambiar cliente</button>
         <button class="btn small btn-danger" data-del="${p.id}">Eliminar</button>
       </div>` : ''}
@@ -4223,7 +4275,7 @@ function renderClientGallery() {
         <span class="cliente-nombre">Nuevo cliente</span>
       </div>`;
   }
-  grid.innerHTML = html || `<div class="empty-state"><div class="big">🏢</div>Aún no hay clientes registrados.</div>`;
+  grid.innerHTML = html || `<div class="empty-state"><div class="big">${icon('building', 40)}</div>Aún no hay clientes registrados.</div>`;
   wireClienteCards(grid);
   initClienteSortable(grid);
 }
@@ -5308,7 +5360,7 @@ async function renderView() {
     } else {
       view.innerHTML = `
         <div class="empty-state">
-          <div class="big">🏗️</div>
+          <div class="big">${icon('obra', 40)}</div>
           <p>No hay un presupuesto seleccionado.</p>
           <p>Carga un archivo Excel de presupuesto (.xlsx) y la app generará automáticamente su catálogo de insumos, alertas de requisición, avances y programa de ejecución — con su propia base de datos independiente.</p>
           ${isAdmin() ? '<button class="btn btn-primary" id="emptyUploadBtn">+ Cargar presupuesto</button>' : ''}
@@ -5399,14 +5451,14 @@ async function renderSeccionGaleria(view, sectionId) {
   const { extraHtml, badges } = sectionId === 'maquinaria' ? await buildMaquinariaGaleriaExtras() : { extraHtml: '', badges: {} };
   view.innerHTML = `
     <button class="btn seccion-galeria-back" data-goto="inicio">← Secciones</button>
-    <h2 class="section-title">${def.emoji} ${esc(def.label)}</h2>
+    <h2 class="section-title">${esc(def.label)}</h2>
     <p class="muted">Selecciona una subsección para continuar.</p>
     ${extraHtml}
     <div class="subseccion-galeria">
     <div class="section-grid">
       ${tabsPermitidos.map((t) => `
         <div class="section-card" data-goto="${t}">
-          <span class="section-icon section-icon-lg">${TAB_ICONS[t] || ''}</span>
+          <span class="section-icon section-icon-lg">${tabIcon(t, 28)}</span>
           <span class="section-nombre">${esc(TAB_LABELS[t])}</span>
           ${badges[t] ? `<span class="section-card-badge">${badges[t]}</span>` : ''}
         </div>`).join('')}
@@ -5485,7 +5537,7 @@ function seccionesGridHtml() {
         if (!tieneAcceso) return '';
         return `
         <div class="section-card ${esFutura ? 'disabled' : ''}" data-section="${id}">
-          <span class="section-icon section-icon-lg">${def.emoji}</span>
+          <span class="section-icon section-icon-lg">${sectionIcon(id, 28)}</span>
           <span class="section-nombre">${esc(def.label)}</span>
           ${esFutura ? '<span class="section-soon-badge">Próximamente</span>' : ''}
         </div>`;
@@ -5926,7 +5978,7 @@ function openQuickFinObraModal(meta) {
 function renderObrasClientePicker(view, pedirObra) {
   const projects = visibleProjects();
   if (!projects.length) {
-    view.innerHTML = `<div class="empty-state"><div class="big">📂</div>Este cliente no tiene presupuestos cargados todavía.</div>`;
+    view.innerHTML = `<div class="empty-state"><div class="big">${icon('folder', 40)}</div>Este cliente no tiene presupuestos cargados todavía.</div>`;
     return;
   }
   view.innerHTML = `
@@ -5999,7 +6051,7 @@ async function renderResumenCliente(view) {
           <div class="card-row"><span class="k">Por ejecutar</span><span class="v">${fmtMoney(p.importe_por_ejecutar)}</span></div>
         </div>
       `).join('')}
-      ${proyectos.length === 0 ? '<div class="empty-state"><div class="big">📊</div>Sin presupuestos en este cliente.</div>' : ''}
+      ${proyectos.length === 0 ? `<div class="empty-state"><div class="big">${icon('chart', 40)}</div>Sin presupuestos en este cliente.</div>` : ''}
     </div>
   `;
 
@@ -6340,7 +6392,7 @@ async function renderContrato(view) {
     view.innerHTML = `
       <h2 class="section-title">Contrato</h2>
       <div class="empty-state">
-        <div class="big">📄</div>
+        <div class="big">${icon('file', 40)}</div>
         <p>Esta obra aún no tiene un contrato cargado.</p>
         ${isAdmin() ? '<button class="btn btn-primary" id="btnCargarContratoTab">Cargar PDF de contrato</button>' : ''}
       </div>
@@ -6436,7 +6488,7 @@ async function renderImpuestos(view) {
     </div>
 
     <h3 class="section-title">Periodos</h3>
-    ${!periodos.length ? `<div class="empty-state"><div class="big">🧾</div>Aún no hay periodos de impuestos para esta obra.<br>Se crean automáticamente el día 17 de cada mes.</div>` : `
+    ${!periodos.length ? `<div class="empty-state"><div class="big">${icon('requisiciones', 40)}</div>Aún no hay periodos de impuestos para esta obra.<br>Se crean automáticamente el día 17 de cada mes.</div>` : `
     <div class="card">
       <div class="table-scroll">
         <table>
@@ -7119,13 +7171,13 @@ async function renderRequisiciones(view, initialSubView) {
         </div>` : ''}
       <div class="section-actions">
         <button class="btn" id="btnGoCatalogo">+ Agregar insumos desde el catálogo</button>
-        <button class="btn" id="btnExportRequisiciones">⭳ Exportar a Excel</button>
-        ${puedeGestionarUsuarios() ? `<button class="btn" id="btnReqHistorial">🕘 Historial</button>` : ''}
+        <button class="btn btn-icon-inline" id="btnExportRequisiciones">${icon('download', 15)} Exportar a Excel</button>
+        ${puedeGestionarUsuarios() ? `<button class="btn btn-icon-inline" id="btnReqHistorial">${icon('clock', 15)} Historial</button>` : ''}
       </div>
       <div class="search-bar-fancy" id="reqSearchWrap">
-        <span class="search-icon">🔍</span>
+        <span class="search-icon">${icon('search', 16)}</span>
         <input id="reqSearchInput" placeholder="Buscar por folio o concepto/insumo…" autocomplete="off" />
-        <button type="button" class="search-clear" id="btnClearReqSearch" title="Limpiar búsqueda">✕</button>
+        <button type="button" class="search-clear" id="btnClearReqSearch" title="Limpiar búsqueda">${icon('x', 14)}</button>
       </div>
       <div id="reqList"></div>
     `;
@@ -7138,7 +7190,7 @@ async function renderRequisiciones(view, initialSubView) {
     const list = $('#reqList');
     if (!reqs.length) {
       $('#reqSearchWrap').classList.add('hidden-initial');
-      list.innerHTML = `<div class="empty-state"><div class="big">🧾</div>Aún no hay requisiciones.<br>Agrega insumos desde el catálogo y crea tu primera requisición.</div>`;
+      list.innerHTML = `<div class="empty-state"><div class="big">${icon('requisiciones', 40)}</div>Aún no hay requisiciones.<br>Agrega insumos desde el catálogo y crea tu primera requisición.</div>`;
       return;
     }
 
@@ -7246,7 +7298,7 @@ async function renderProgramaSuministros(view, renderSubNav, bindSubNav) {
 
     const body = $('#programaBody');
     if (!totalItems) {
-      body.innerHTML = `<div class="empty-state"><div class="big">📦</div>Ninguna requisición con fecha de suministro en este periodo.<br>Recuerda: las requisiciones sin fecha de suministro no aparecen aquí — revisa la pestaña "Lista".</div>`;
+      body.innerHTML = `<div class="empty-state"><div class="big">${icon('insumos', 40)}</div>Ninguna requisición con fecha de suministro en este periodo.<br>Recuerda: las requisiciones sin fecha de suministro no aparecen aquí — revisa la pestaña "Lista".</div>`;
       return;
     }
     body.innerHTML = `
@@ -7297,7 +7349,7 @@ async function renderProgramaSuministros(view, renderSubNav, bindSubNav) {
         <select id="programaClienteSelect"><option value="">Todos</option>${(state.clientes || []).map((c) => `<option value="${c.id}">${esc(c.nombre)}</option>`).join('')}</select>
       </div>` : ''}
       <button class="btn" id="btnProgramaFiltrar">Filtrar</button>
-      <button class="btn" id="btnExportPrograma">⭳ Exportar a Excel</button>
+      <button class="btn btn-icon-inline" id="btnExportPrograma">${icon('download', 15)} Exportar a Excel</button>
     </div>
     <div id="programaBody"><div class="spinner"></div></div>
   `;
@@ -7373,7 +7425,7 @@ async function renderSeguimientoMateriales(view, renderSubNav, bindSubNav) {
     const body = $('#seguimientoBody');
     const visibles = filtroEstatus.size ? items.filter((it) => filtroEstatus.has(it.estatus)) : items;
     if (!items.length) {
-      body.innerHTML = `<div class="empty-state"><div class="big">📦</div>Sin requisiciones para mostrar en este filtro.</div>`;
+      body.innerHTML = `<div class="empty-state"><div class="big">${icon('insumos', 40)}</div>Sin requisiciones para mostrar en este filtro.</div>`;
       return;
     }
     if (!visibles.length) {
@@ -7428,7 +7480,7 @@ async function renderSeguimientoMateriales(view, renderSubNav, bindSubNav) {
         </div>
       </div>
       <button class="btn" id="btnSeguimientoFiltrar">Filtrar</button>
-      <button class="btn" id="btnExportSeguimiento">⭳ Exportar a Excel</button>
+      <button class="btn btn-icon-inline" id="btnExportSeguimiento">${icon('download', 15)} Exportar a Excel</button>
     </div>
     <div id="seguimientoBody"><div class="spinner"></div></div>
   `;
@@ -8198,12 +8250,12 @@ async function renderOrdenes(view) {
     <h2 class="section-title">Órdenes de Compra ${renderHelpBtn('ordenesCompra')}</h2>
     <p class="muted">Generadas a partir de requisiciones ya autorizadas. Una requisición puede tener varias órdenes (compra dividida entre proveedores o en distintos momentos).</p>
     <div class="section-actions">
-      <button class="btn" id="btnExportOrdenes">⭳ Exportar a Excel</button>
+      <button class="btn btn-icon-inline" id="btnExportOrdenes">${icon('download', 15)} Exportar a Excel</button>
     </div>
     <div class="search-bar-fancy" id="ocSearchWrap">
-      <span class="search-icon">🔍</span>
+      <span class="search-icon">${icon('search', 16)}</span>
       <input id="ocSearchInput" placeholder="Buscar por folio, proveedor o concepto/insumo…" autocomplete="off" />
-      <button type="button" class="search-clear" id="btnClearOcSearch" title="Limpiar búsqueda">✕</button>
+      <button type="button" class="search-clear" id="btnClearOcSearch" title="Limpiar búsqueda">${icon('x', 14)}</button>
     </div>
     <div id="ordenesList"></div>
   `;
@@ -8212,7 +8264,7 @@ async function renderOrdenes(view) {
   const list = $('#ordenesList');
   if (!ordenes.length) {
     $('#ocSearchWrap').classList.add('hidden-initial');
-    list.innerHTML = `<div class="empty-state"><div class="big">🧾</div>Aún no hay órdenes de compra.<br>Genera una desde el detalle de una requisición autorizada.</div>`;
+    list.innerHTML = `<div class="empty-state"><div class="big">${icon('requisiciones', 40)}</div>Aún no hay órdenes de compra.<br>Genera una desde el detalle de una requisición autorizada.</div>`;
     return;
   }
   const estadoBadge = { borrador: 'muted', enviada: 'yellow', confirmada: 'green', rechazada: 'red', recibida_parcial: 'yellow', recibida_completa: 'green', cancelada: 'red' };
@@ -8279,7 +8331,7 @@ async function openOrdenDetalle(ocId) {
       <h3>${esc(o.folio || `Orden de Compra #${o.id}`)}</h3>
       <div class="card-row">
         <span class="k">Proveedor</span>
-        <span class="v">${esc(o.proveedor_nombre)}${isAdmin() ? ' <button type="button" class="btn small" id="btnReasignarProveedor" title="Reasignar proveedor">✏️ Reasignar</button>' : ''}</span>
+        <span class="v">${esc(o.proveedor_nombre)}${isAdmin() ? ` <button type="button" class="btn small btn-icon-inline" id="btnReasignarProveedor" title="Reasignar proveedor">${icon('pencil', 13)} Reasignar</button>` : ''}</span>
       </div>
       ${o.proveedor_contacto ? `<div class="card-row"><span class="k">Contacto</span><span class="v">${esc(o.proveedor_contacto)}</span></div>` : ''}
       ${o.proveedor_telefono ? `<div class="card-row"><span class="k">Teléfono</span><span class="v">${esc(o.proveedor_telefono)}</span></div>` : ''}
@@ -8454,7 +8506,7 @@ async function paintOcPagos(ocId) {
         <span class="row gap-6">
           <span${p.activo === false ? ' style="text-decoration: line-through;"' : ''}>${fmtMoney(p.monto)}</span>
           ${puedeGestionar && p.activo !== false ? `
-            <button class="btn small" data-editar-pago="${p.id}" title="Editar">✏️</button>
+            <button class="btn small" data-editar-pago="${p.id}" title="Editar" aria-label="Editar">${icon('pencil', 14)}</button>
             <button class="btn small btn-danger" data-cancelar-pago="${p.id}" title="Cancelar">${iconoEliminar()}</button>
           ` : ''}
         </span>
@@ -8699,7 +8751,7 @@ async function renderAvance(view) {
   ]);
   const puedeEditar = !!misPermisosAvance.puede_crear;
   if (!avances.length) {
-    view.innerHTML = `<div class="empty-state"><div class="big">📅</div>No fue posible generar la curva de avance: el presupuesto no contiene fechas de inicio y fin de obra.</div>`;
+    view.innerHTML = `<div class="empty-state"><div class="big">${icon('programa', 40)}</div>No fue posible generar la curva de avance: el presupuesto no contiene fechas de inicio y fin de obra.</div>`;
     return;
   }
   const presupuestoTotal = resumen?.presupuesto_total || 0;
@@ -10129,7 +10181,7 @@ async function renderPrograma(view) {
     puedeVerResumen ? cached('resumen', () => api(`/projects/${state.projectId}/resumen`)) : Promise.resolve(null),
   ]);
   if (!programa.length) {
-    view.innerHTML = `<div class="empty-state"><div class="big">🗓️</div>No fue posible generar el programa de ejecución: el presupuesto no contiene fechas de inicio y fin de obra, o no tiene conceptos con cantidades.</div>`;
+    view.innerHTML = `<div class="empty-state"><div class="big">${icon('programa', 40)}</div>No fue posible generar el programa de ejecución: el presupuesto no contiene fechas de inicio y fin de obra, o no tiene conceptos con cantidades.</div>`;
     return;
   }
   const obraInicio = resumen?.meta?.inicio_obra || null;
@@ -10253,7 +10305,7 @@ async function renderDestajo(view) {
     </div>` : ''}
     ${destajistas.length === 0 ? `
       <div class="empty-state">
-        <div class="big">👷</div>
+        <div class="big">${icon('destajo', 40)}</div>
         <p>No hay destajistas registrados.</p>
         <p>${canManageDestajo()
           ? 'Agrega trabajadores y asígnales los conceptos que ejecutarán a destajo.<br>Si tu Excel tenía una hoja llamada "Destajo" o "Destajistas", se importó automáticamente al cargar el presupuesto.'
@@ -10750,9 +10802,9 @@ async function openAgregarItemModal(destId, destajistas, puedeEditarPrecios) {
     <div class="field">
       <label>Buscar en catálogo de conceptos</label>
       <div class="search-bar-fancy" id="conceptoSearchWrap">
-        <span class="search-icon">🔍</span>
+        <span class="search-icon">${icon('search', 16)}</span>
         <input id="buscarConcepto" placeholder="Escribe código o descripción…" autocomplete="off" />
-        <button type="button" class="search-clear" id="btnClearConceptoSearch" title="Limpiar búsqueda">✕</button>
+        <button type="button" class="search-clear" id="btnClearConceptoSearch" title="Limpiar búsqueda">${icon('x', 14)}</button>
       </div>
       <div id="resultadosConcepto" class="project-list search-results-fancy search-results-box"></div>
     </div>
@@ -11992,9 +12044,9 @@ async function renderUsuarios(view, initialSubView) {
         <button class="btn btn-primary" id="btnNuevoUsuario">+ Nuevo usuario</button>
       </div>
       <div class="search-bar-fancy" id="usuariosSearchWrap">
-        <span class="search-icon">🔍</span>
+        <span class="search-icon">${icon('search', 16)}</span>
         <input id="usuariosSearchInput" placeholder="Buscar por nombre o usuario…" autocomplete="off" />
-        <button type="button" class="search-clear" id="btnClearUsuariosSearch" title="Limpiar búsqueda">✕</button>
+        <button type="button" class="search-clear" id="btnClearUsuariosSearch" title="Limpiar búsqueda">${icon('x', 14)}</button>
       </div>
       <div id="usuariosList"></div>
     `;
@@ -15486,7 +15538,7 @@ async function renderCompromisosAbiertos(view) {
 
   const body = $('#compromisosBody');
   if (!data.filas.length) {
-    body.innerHTML = `<div class="empty-state"><div class="big">📌</div>No hay compromisos abiertos.<br>Aparecerán aquí las Órdenes de Compra confirmadas (o con material recibido) que todavía tengan saldo pendiente de pago.</div>`;
+    body.innerHTML = `<div class="empty-state"><div class="big">${icon('clock', 40)}</div>No hay compromisos abiertos.<br>Aparecerán aquí las Órdenes de Compra confirmadas (o con material recibido) que todavía tengan saldo pendiente de pago.</div>`;
     return;
   }
 
@@ -15606,7 +15658,7 @@ async function renderFondoGarantia(view) {
       </div>
       <div class="kpi green"><div class="label">Acumulado a la fecha</div><div class="value">${fmtMoney(data.acumulado)}</div></div>
     </div>
-    ${!data.historico.length ? `<div class="empty-state"><div class="big">🔒</div>Aún no hay estimaciones aprobadas en esta obra.<br>El fondo de garantía retenido aparecerá aquí conforme se aprueben.</div>` : `
+    ${!data.historico.length ? `<div class="empty-state"><div class="big">${icon('lock', 40)}</div>Aún no hay estimaciones aprobadas en esta obra.<br>El fondo de garantía retenido aparecerá aquí conforme se aprueben.</div>` : `
     <div class="table-scroll">
       <table>
         <thead>
@@ -28109,9 +28161,9 @@ function paintAlmacenExistencias() {
       ${verCosto ? `<div class="kpi"><div class="label">Valor estimado en existencia</div><div class="value">${fmtMoney(valorTotal)}</div></div>` : ''}
     </div>
     <div class="search-bar-fancy" id="existSearchWrap">
-      <span class="search-icon">🔍</span>
+      <span class="search-icon">${icon('search', 16)}</span>
       <input id="existSearchInput" placeholder="Buscar por insumo o código…" autocomplete="off" />
-      <button type="button" class="search-clear" id="btnClearExistSearch" title="Limpiar búsqueda">✕</button>
+      <button type="button" class="search-clear" id="btnClearExistSearch" title="Limpiar búsqueda">${icon('x', 14)}</button>
     </div>
     <div id="existTableWrap"></div>
   `;

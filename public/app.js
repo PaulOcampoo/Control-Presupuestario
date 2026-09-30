@@ -1617,8 +1617,9 @@ const SECTION_EMOJIS = {
 
 // Preferencia de estilo de ícono: 'lines' (SVG de línea, por defecto) | 'emoji'. Solo dispositivo (localStorage).
 const ICON_STYLE_KEY = 'cp_icon_style';
-function getIconStyle() { try { return localStorage.getItem(ICON_STYLE_KEY) === 'emoji' ? 'emoji' : 'lines'; } catch (_) { return 'lines'; } }
-function setIconStyle(val) { try { localStorage.setItem(ICON_STYLE_KEY, val === 'emoji' ? 'emoji' : 'lines'); } catch (_) { /* sin storage */ } }
+// 'lines' = íconos de línea a color (por defecto) | 'emoji' | 'mono' = minimalista (línea de un solo tono).
+function getIconStyle() { try { const v = localStorage.getItem(ICON_STYLE_KEY); return v === 'emoji' || v === 'mono' ? v : 'lines'; } catch (_) { return 'lines'; } }
+function setIconStyle(val) { try { localStorage.setItem(ICON_STYLE_KEY, val === 'emoji' || val === 'mono' ? val : 'lines'); } catch (_) { /* sin storage */ } }
 
 // Tono de color por ícono (clases .ico-t1..t8 en styles.css, sin estilos inline por la CSP).
 // Cada sección tiene el suyo; dentro de una sección, los tabs rotan en orden para que vecinos difieran.
@@ -1639,10 +1640,12 @@ function emojiIcon(emoji, size) {
 }
 function tabIcon(tabId, size = 18) {
   if (getIconStyle() === 'emoji' && TAB_EMOJIS[tabId]) return emojiIcon(TAB_EMOJIS[tabId], size);
+  if (getIconStyle() === 'mono') return icon(TAB_ICON_NAMES[tabId] || 'list', size);
   return toneIcon(TAB_ICON_NAMES[tabId] || 'list', size, TAB_TONES[tabId]);
 }
 function sectionIcon(sectionId, size = 18) {
   if (getIconStyle() === 'emoji' && SECTION_EMOJIS[sectionId]) return emojiIcon(SECTION_EMOJIS[sectionId], size);
+  if (getIconStyle() === 'mono') return icon(SECTION_ICON_NAMES[sectionId] || 'folder', size);
   return toneIcon(SECTION_ICON_NAMES[sectionId] || 'folder', size, SECTION_TONES[sectionId]);
 }
 // Vuelve a pintar lo que muestra íconos de navegación tras cambiar la preferencia.
@@ -2591,14 +2594,13 @@ function openMobileAjustes() {
         <div class="muted fs-08">Compacta muestra más contenido por pantalla, reduciendo espaciados.</div>
       </div>
       <div class="ajustes-item">
-        <div class="a11y-switch">
-          <span class="a11y-switch-label">Íconos con emojis</span>
-          <label class="a11y-switch-toggle">
-            <input type="checkbox" id="chkIconEmoji" ${getIconStyle() === 'emoji' ? 'checked' : ''} />
-            <span class="a11y-switch-track"><span class="a11y-switch-thumb"></span></span>
-          </label>
+        <label class="ajustes-tema-label">Íconos</label>
+        <div class="theme-selector ajustes-theme-selector" id="iconStyleSelector">
+          <button class="theme-opt ${getIconStyle()==='lines'?'active':''}" data-iconstyle-set="lines">Color</button>
+          <button class="theme-opt ${getIconStyle()==='mono'?'active':''}" data-iconstyle-set="mono">Minimalista</button>
+          <button class="theme-opt ${getIconStyle()==='emoji'?'active':''}" data-iconstyle-set="emoji">Emojis</button>
         </div>
-        <div class="muted fs-08">Cambia los íconos de línea de menús y secciones por emojis.</div>
+        <div class="muted fs-08">Minimalista usa íconos de línea de un solo tono; Emojis los reemplaza por emojis en menús y secciones.</div>
       </div>
     </div>
 
@@ -2689,7 +2691,13 @@ function openMobileAjustes() {
     });
   });
   $('#chkReduceMotion').addEventListener('change', (e) => setReduceMotion(e.target.checked));
-  $('#chkIconEmoji').addEventListener('change', (e) => { setIconStyle(e.target.checked ? 'emoji' : 'lines'); refreshNavIcons(); });
+  $$('.theme-opt[data-iconstyle-set]', $('#modal')).forEach((btn) => {
+    btn.addEventListener('click', () => {
+      setIconStyle(btn.dataset.iconstyleSet);
+      $$('.theme-opt[data-iconstyle-set]', $('#modal')).forEach((b) => b.classList.toggle('active', b === btn));
+      refreshNavIcons();
+    });
+  });
   $('#chkHighContrast').addEventListener('change', (e) => setHighContrast(e.target.checked));
   $('#ajustesSearchInput').addEventListener('input', (e) => {
     const q = e.target.value.trim().toLowerCase();

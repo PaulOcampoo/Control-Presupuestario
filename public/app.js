@@ -1651,6 +1651,7 @@ function sectionIcon(sectionId, size = 18) {
 // Vuelve a pintar lo que muestra íconos de navegación tras cambiar la preferencia.
 function refreshNavIcons() {
   try {
+    decorateGalleryDrawerIcons();
     renderSidebar();
     if (typeof renderTabsBar === 'function') renderTabsBar();
     if (state.view === 'inicio' || String(state.view).endsWith('_gallery')) renderView();
@@ -2025,18 +2026,21 @@ function closeGalleryDrawer() {
 // (login, simulación de rol, logout).
 // Ícono de línea por botón del drawer (antes emoji en el HTML). Idempotente.
 const GALLERY_DRAWER_ICONS = {
-  btnGalleryGoUsuarios: 'usuarios', btnGalleryGoDashboardEjecutivo: 'dash', btnGalleryGoDashboardCostos: 'dash',
-  btnGalleryGoTrabajadoresGlobal: 'users', btnGalleryGoNominasGlobal: 'tesoreria', btnGalleryGoPermisos: 'key',
-  btnGalleryGoMaquinaria: 'maquinaria', btnGalleryGoClientesArchivados: 'archive', btnGalleryGoClientesCompletados: 'check',
-  btnGalleryGoNovedades: 'gift',
+  // [ícono, tono de color 1-8]
+  btnGalleryGoUsuarios: ['usuarios', 2], btnGalleryGoDashboardEjecutivo: ['dash', 1], btnGalleryGoDashboardCostos: ['dash', 7],
+  btnGalleryGoTrabajadoresGlobal: ['users', 5], btnGalleryGoNominasGlobal: ['tesoreria', 4], btnGalleryGoPermisos: ['key', 3],
+  btnGalleryGoMaquinaria: ['maquinaria', 6], btnGalleryGoClientesArchivados: ['archive', 7], btnGalleryGoClientesCompletados: ['check', 4],
+  btnGalleryGoNovedades: ['gift', 2], btnMiCuentaGalleryDrawer: ['usuarios', 6], btnLogoutGalleryDrawer: ['log-out', 5],
 };
+// Se repinta al cambiar la preferencia de íconos (Color / Minimalista): quita el SVG anterior y pone el nuevo.
 function decorateGalleryDrawerIcons() {
-  Object.entries(GALLERY_DRAWER_ICONS).forEach(([id, name]) => {
+  Object.entries(GALLERY_DRAWER_ICONS).forEach(([id, [name, tone]]) => {
     const btn = $('#' + id);
-    if (!btn || btn.dataset.iconed) return;
-    btn.dataset.iconed = '1';
-    btn.classList.add('btn-icon-inline');
-    btn.insertAdjacentHTML('afterbegin', icon(name, 16));
+    if (!btn) return;
+    btn.classList.add('btn-icon-inline', 'drawer-link');
+    const old = btn.querySelector(':scope > .icon-svg');
+    if (old) old.remove();
+    btn.insertAdjacentHTML('afterbegin', getIconStyle() === 'mono' ? icon(name, 18) : toneIcon(name, 18, tone));
   });
 }
 // [idBotonDrawer, visible] de los accesos globales (sin obra). Fuente única para el drawer de la galería

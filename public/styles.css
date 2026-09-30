@@ -5308,3 +5308,19 @@ button.rs-ai > .icon-svg:last-child { margin-left: auto; color: var(--text-terti
 .ui-v2 .section-card.disabled { opacity: 0.55; border-style: solid; }
 .ui-v2 .subseccion-galeria, .ui-v2 .subseccion-galeria .section-grid { max-width: none; width: 100%; margin-left: 0; margin-right: 0; }
 @media (min-width: 1100px) { .ui-v2 .section-grid, .ui-v2 .subseccion-galeria .section-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+
+/* ── Menú lateral de la pantalla de bienvenida/galería (☰): Administración y cuenta como lista de navegación ── */
+#galleryDrawer .ajustes-tema-label {
+  font-size: 11px; letter-spacing: 0.09em; text-transform: uppercase; color: var(--text-tertiary); font-weight: 600; margin: 4px 4px 8px;
+}
+#galleryDrawer .btn.full {
+  display: flex; align-items: center; justify-content: flex-start; text-align: left; gap: 12px;
+  min-height: 46px; padding: 8px 12px; margin: 0 0 4px; background: transparent; border: 1px solid transparent;
+  border-radius: 12px; font-weight: 600; font-size: var(--fs-base); line-height: 1.25; color: var(--text-primary);
+}
+#galleryDrawer .btn.full.hidden-initial { display: none; }
+#galleryDrawer .btn.full:hover { background: var(--bg-surface-2); }
+#galleryDrawer .btn.full:active { background: var(--bg-surface-3); }
+#galleryDrawer .btn.full .icon-svg { flex: none; }
+#galleryDrawer #btnLogoutGalleryDrawer { color: var(--red); }
+#galleryDrawer .ajustes-divider { margin: var(--space-12) 0; }

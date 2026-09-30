@@ -1863,19 +1863,21 @@ function seccionesVisiblesParaRol() {
 }
 
 // ---------------------------------------------------------------------------
-// Shell v2 (Rediseño UI v2, Fase 4) — detrás de localStorage.ui_v2 === '1', solo admin/desarrollador
-// REAL (no el rol simulado). Todo el CSS del shell nuevo cuelga de html.ui-v2.
+// Shell v2 (Rediseño UI v2, Fases 4 y 8) — activo por defecto para todos los roles con sesión. Opt-out
+// durante una versión como red de seguridad: localStorage.ui_v2 = '0' (botón "Volver a la interfaz anterior"
+// en el menú de perfil). Todo el CSS del shell nuevo cuelga de html.ui-v2. La visibilidad de secciones,
+// Ctrl K, "Nuevo" y "Más" sale siempre de state.allowedTabs (rol real o simulado); el backend manda.
 // ---------------------------------------------------------------------------
 function isUiV2() {
-  try { return localStorage.getItem('ui_v2') === '1' && !!state.user && ['admin', 'desarrollador'].includes(state.user.puesto); }
-  catch (_) { return false; }
+  try { return localStorage.getItem('ui_v2') !== '0' && !!state.user; }
+  catch (_) { return !!state.user; }
 }
-function puedeProbarUiV2() { return !!state.user && ['admin', 'desarrollador'].includes(state.user.puesto); }
+function puedeProbarUiV2() { return !!state.user; } // el interruptor (opt-out / volver a v2) lo ve cualquier rol
 function applyUiV2Class() {
   document.documentElement.classList.toggle('ui-v2', isUiV2());
 }
 function setUiV2(on) {
-  try { if (on) localStorage.setItem('ui_v2', '1'); else localStorage.removeItem('ui_v2'); } catch (_) { /* sin storage */ }
+  try { if (on) localStorage.removeItem('ui_v2'); else localStorage.setItem('ui_v2', '0'); } catch (_) { /* sin storage */ }
   applyUiV2Class();
   renderSidebar(); renderTabsBar(); renderMobileNav();
 }
@@ -2381,7 +2383,7 @@ function openUserPopover() {
   const v2Btn = $('#btnUiV2Popover');
   if (v2Btn) {
     v2Btn.classList.toggle('hidden-initial', !puedeProbarUiV2());
-    v2Btn.textContent = isUiV2() ? 'Volver a la interfaz actual' : 'Probar nueva interfaz';
+    v2Btn.textContent = isUiV2() ? 'Volver a la interfaz anterior' : 'Usar la nueva interfaz';
   }
 }
 

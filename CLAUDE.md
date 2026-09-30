@@ -289,3 +289,42 @@ difieren en la ponderación — divergencia intencional y documentada
 La divergencia es la señal útil: indica, por ejemplo, que se está
 avanzando mucho en conceptos pequeños/numerosos mientras los conceptos de
 mayor peso económico van rezagados (o viceversa).
+
+## Rediseño UI v2 (desde septiembre 2026)
+
+Blueprint y referencias: `docs/rediseno/` (prototipo en `docs/rediseno/prototipo.html`, solo referencia visual;
+avance por fases en `fase-0.md`, `emojis-pendientes.md`, `matriz-permisos-fase8.md`).
+Se rediseñó la interfaz EN SITIO: mismas funciones, mismos permisos, mismo backend.
+
+### Reglas de este trabajo
+- **Sin estilos inline.** CSP `style-src 'self'` (server/app.js y CADA bloque de vercel.json). Nada de `style="..."`
+  en HTML ni en templates. Valores dinámicos: `data-*` + `el.style.prop`/`setProperty` desde JS tras insertar el HTML.
+- **Tokens:** se conservan los nombres de variables de `:root`; se cambian valores. Nuevos: `--bg-sidebar`,
+  `--bg-surface-3`, `--line`, `--text-tertiary`, `--accent-soft`, `--accent-line`, `--on-accent`. `--text-tertiary` no
+  cumple 4.5:1 como texto de cuerpo: solo rótulos secundarios. Texto sobre acento: `var(--on-accent)`, nunca un hex fijo.
+- **Íconos:** `icon(name,size)` + `tabIcon(tabId,size)` / `sectionIcon(sectionId,size)` (mapas `TAB_ICON_NAMES`,
+  `SECTION_ICON_NAMES`; tono de color por clase `.ico-t1..t8`). La preferencia `cp_icon_style` ("Íconos con emojis" en
+  Ajustes) cambia a `TAB_EMOJIS`/`SECTION_EMOJIS`. No agregar emojis de navegación.
+- **Permisos:** sidebar, Ctrl K, "Nuevo", hoja "Más" y Centro de avisos salen de `seccionesVisiblesParaRol()`,
+  `enlacesGlobalesVisibles()` y `accionesRapidasParaRol()`, que usan `state.allowedTabs`/`effectivePuesto()`.
+  Nunca codificar visibilidad por rol en el shell nuevo. El backend sigue siendo la fuente de verdad.
+- **Shell v2** (`public/shell-v2.js`, CSS bajo `html.ui-v2`): activo por defecto para todos los roles con sesión
+  (Fase 8). Opt-out durante una versión: `localStorage.ui_v2 = '0'` (botón "Volver a la interfaz anterior" en el menú
+  de perfil). El retiro del código v1 es una fase aparte.
+- **Scroll y sticky (iOS):** la app scrollea el documento. `.main-area` sin `overflow`. Prohibido `position: sticky`
+  dentro de flex + `overflow-y`. Sticky de `thead` solo dentro de `.table-scroll.table-scroll-sticky` (scroll propio).
+  Los pies de panel NO son sticky: el cuerpo scrollea y el pie es hijo flex fijo.
+- **Modales:** `openModal(html)` no cambia. Detalles usan `openModal(html, { variant: 'panel' })`
+  (`.modal-panel`, `.panel-head/.panel-body/.panel-foot`); cada `openModal` resetea la variante, así los modales
+  derivados son normales. Solo Requisición y Orden de Compra usan panel.
+- **Service worker:** la versión es la constante `CACHE` en `public/sw.js` (en este archivo se la nombra "SW_VERSION"
+  por costumbre). Subirla en TODO commit con código a un número mayor que todo
+  `git log --all -p -- public/sw.js | grep -oE "ctrl-ppto-v[0-9]+" | sort -Vu | tail -1`. Archivos nuevos del shell
+  (`/shell-v2.js`, fuentes) van en `SHELL`.
+- **Regresión obligatoria en cada cambio de UI:** Asistencia/Jornada (columna TRABAJADOR, selector de hora, checkbox),
+  Avance, Destajo, firma EPP (canvas con Pointer Events). No tocar `.asist-*`, `.avc-*`, `.genobra-*` sin necesidad.
+- **Despliegue:** sin PR ni push de ramas (Neon casi al límite). `git push origin HEAD:main` solo con autorización
+  literal por fase, citada en el prompt. Antes de empujar, `git log origin/main..HEAD` debe contener solo los commits
+  de la fase. `git add` con rutas explícitas: hay archivos tracked borrados en el árbol de trabajo que NO son de este trabajo.
+- Sin endpoints, tablas ni cambios de cálculo. Si algo requiere backend, anotarlo en
+  `docs/rediseno/pendientes-backend.md` y no implementarlo.

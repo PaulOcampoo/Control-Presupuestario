@@ -1,8 +1,8 @@
 'use strict';
 
 // ---------------------------------------------------------------------------
-// Shell v2 (Rediseño UI v2, Fase 4) — solo se activa con localStorage.ui_v2 === '1' y un usuario
-// admin/desarrollador REAL (ver isUiV2() en app.js). Script clásico: comparte el alcance léxico global
+// Shell v2 (Rediseño UI v2, Fases 4 y 8) — activo por defecto con sesión iniciada; opt-out con
+// localStorage.ui_v2 = '0' (ver isUiV2() en app.js). Script clásico: comparte el alcance léxico global
 // con app.js (state, $, icon, tabIcon, switchToView, goToSection, etc.), por eso se carga DESPUÉS.
 //
 // Reglas (docs/rediseno/):

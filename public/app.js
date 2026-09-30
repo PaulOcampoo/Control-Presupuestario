@@ -16627,6 +16627,8 @@ $$('[data-theme-set]').forEach((btn) => {
 $('#chkReduceMotionPopover')?.addEventListener('change', (e) => setReduceMotion(e.target.checked));
 $('#chkHighContrastPopover')?.addEventListener('change', (e) => setHighContrast(e.target.checked));
 $('#btnLogoutPopover').addEventListener('click', () => { closeUserPopover(); logout(); });
+// Ajustes completos (apariencia, densidad, íconos, accesibilidad, notificaciones): en escritorio solo se llegaba por la barra móvil.
+$('#btnAjustesPopover').addEventListener('click', () => { closeUserPopover(); openMobileAjustes(); });
 $('#btnMiCuentaPopover').addEventListener('click', () => { closeUserPopover(); openMiCuentaModal(false); });
 $('#btnInstallAppPopover').addEventListener('click', () => { closeUserPopover(); installApp(); });
 if (isStandalone()) $('#btnInstallAppPopover').style.display = 'none';

@@ -94,6 +94,7 @@
       if (!visible || !btn) return;
       items.push({ g: 'Ir a', label: btn.textContent.trim(), hint: 'Global', ic: icon('folder', 16), run: () => btn.click() });
     });
+    items.push({ g: 'Acciones', label: 'Ajustes', hint: 'Apariencia, íconos, accesibilidad', ic: icon('settings', 16), run: () => openMobileAjustes() });
     // Obras ya cargadas en memoria
     (state.projects || []).forEach((p) => {
       items.push({ g: 'Obras', label: p.nombre, ic: icon('building', 16), run: () => selectProject(p.id) });

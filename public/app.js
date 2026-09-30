@@ -3304,15 +3304,23 @@ function unlockBodyScroll(owner) {
 // ---------------------------------------------------------------------------
 // Modal helpers
 // ---------------------------------------------------------------------------
-function openModal(html) {
+// openModal(html, { variant: 'panel' }): panel lateral (>=861px) u hoja inferior
+// (celular). Sin opciones, comportamiento idéntico al de siempre.
+let modalTrigger = null;
+function openModal(html, opts) {
   const modal = $('#modal');
+  modalTrigger = document.activeElement instanceof HTMLElement ? document.activeElement : null;
   modal.innerHTML = html;
+  modal.setAttribute('role', 'dialog');
+  modal.setAttribute('aria-modal', 'true');
+  if (opts && opts.variant === 'panel') modal.classList.add('modal-panel');
   modal.classList.add('show');
   $('#modalOverlay').classList.add('show');
   lockBodyScroll('modal');
 }
 function closeModal() {
   $('#modal').classList.remove('show');
+  $('#modal').classList.remove('modal-panel'); // ver openModal(html, { variant: 'panel' })
   $('#modal').classList.remove('modal-wide'); // ver openVerEstimacionModal — no debe pegarse a otros modales
   $('#modal').classList.remove('eu-historico-modal'); // ver openHistoricoEstadoUnidadMaqModal — mismo criterio
   $('#modal').classList.remove('gencat-preview-modal'); // ver pintarPreviewCatalogoGenerador — mismo criterio
@@ -3323,6 +3331,8 @@ function closeModal() {
   $('#modal').innerHTML = '';
   unlockBodyScroll('modal');
   blockOverlayDismiss = false;
+  if (modalTrigger && document.contains(modalTrigger)) { try { modalTrigger.focus({ preventScroll: true }); } catch (_) { /* foco no crítico */ } }
+  modalTrigger = null;
 }
 // Los códigos de respaldo de 2FA solo se muestran una vez — mientras ese modal
 // está abierto, un click fuera no debe poder cerrarlo (perdería la única vista).

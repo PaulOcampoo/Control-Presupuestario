@@ -4857,3 +4857,104 @@ tr.eu-row-critico td { background: color-mix(in srgb, var(--red) 9%, transparent
   border-radius: var(--radius); border: 1px solid var(--border-color); background: var(--bg-surface-2);
   color: var(--text-primary); font-family: inherit; font-size: var(--fs-sm);
 }
+
+/* ==========================================================================
+   Rediseño UI v2 — Fase 3: componentes base heredables (docs/rediseno/).
+   Solo apariencia; no cambia dimensiones de layout ni marcado. Va al final
+   para ganar por cascada a las reglas base de arriba. NO toca .asist-*,
+   .avc-*, .genobra-* ni la firma EPP: los selectores de abajo son genéricos
+   y las tablas de Asistencia quedan excluidas explícitamente.
+   Sin `position: sticky` nuevo salvo el opt-in .table-scroll-sticky (con
+   scroll propio); regla iOS Safari en CLAUDE.md.
+   ========================================================================== */
+:root { --radius-card: 16px; }
+
+/* Botones */
+.btn { font-weight: 600; transition: background 0.15s var(--ease-out), border-color 0.15s var(--ease-out), transform 0.1s var(--ease-out); }
+.btn:hover:not([disabled]):not(.btn-primary):not(.btn-danger) { background: var(--bg-surface-3); }
+.btn-ghost:hover:not([disabled]) { background: var(--accent-soft); border-color: var(--accent-line); }
+.btn-primary:hover:not([disabled]) { background: var(--accent-gold-hover); border-color: var(--accent-gold-hover); }
+.btn:focus-visible, .icon-btn:focus-visible, .chip:focus-visible, .tab:focus-visible {
+  outline: none; box-shadow: var(--shadow-ring-accent-focus); border-color: var(--accent-gold);
+}
+.icon-btn:hover { background: var(--bg-surface-3); color: var(--text-primary); }
+
+/* Píldoras de estado: punto de color + texto, color-mix (mismos matices) */
+.badge { gap: var(--space-6); min-height: 22px; }
+.badge::before { content: ""; width: 6px; height: 6px; border-radius: var(--radius-circle); background: currentColor; flex: none; }
+.badge.green  { background: color-mix(in srgb, var(--green) 15%, transparent); }
+.badge.yellow { background: color-mix(in srgb, var(--yellow) 18%, transparent); }
+.badge.red    { background: color-mix(in srgb, var(--red) 18%, transparent); }
+.badge.muted  { background: color-mix(in srgb, var(--text-secondary) 15%, transparent); }
+.badge.purple { background: color-mix(in srgb, #a855f7 15%, transparent); }
+.badge.info   { background: color-mix(in srgb, var(--accent-blue) 15%, transparent); color: var(--accent-blue); }
+.badge.acc    { background: var(--accent-soft); color: var(--accent-gold); }
+
+/* Tarjetas y KPIs */
+.card { border: 1px solid var(--border-color); border-radius: var(--radius-card); }
+.kpi { border-radius: var(--radius-card); }
+.card[data-goto]:hover, .kpi[data-goto]:hover, .section-card:not(.disabled):hover { border-color: var(--accent-line); }
+
+/* Chips de filtro (aria-pressed) */
+.chip { transition: background 0.15s, border-color 0.15s, color 0.15s; }
+.chip[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent-line); color: var(--text-primary); font-weight: 600; }
+
+/* Avisos y toast: fondos/bordes con color-mix (texto sin cambios) */
+.alert-box { border-radius: var(--radius-control); }
+.alert-box.warn, .alert-box.warning { background: color-mix(in srgb, var(--yellow) 12%, transparent); border-color: color-mix(in srgb, var(--yellow) 40%, transparent); }
+.alert-box.danger { background: color-mix(in srgb, var(--red) 12%, transparent); border-color: color-mix(in srgb, var(--red) 40%, transparent); }
+.alert-box.info { background: color-mix(in srgb, var(--accent-blue) 10%, transparent); border-color: color-mix(in srgb, var(--accent-blue) 35%, transparent); }
+.toast { border-radius: 12px; }
+
+/* Formularios: foco visible con el acento */
+input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):focus-visible, select:focus-visible, textarea:focus-visible {
+  outline: none; border-color: var(--accent-gold); box-shadow: var(--shadow-ring-accent-focus);
+}
+
+/* Subnavegación (.nominas-subnav) como segmented control */
+.nominas-subnav {
+  padding: var(--space-4); gap: var(--space-2); border-radius: 12px; background: var(--bg-surface);
+  border: 1px solid var(--line); width: max-content; max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch;
+}
+.nominas-subnav .btn { border: none; background: transparent; color: var(--text-secondary); border-radius: 9px; white-space: nowrap; box-shadow: none; }
+.nominas-subnav .btn:hover:not([disabled]) { background: var(--bg-surface-2); color: var(--text-primary); }
+.nominas-subnav .btn.btn-primary { background: var(--bg-surface-3); color: var(--text-primary); box-shadow: none; }
+
+/* Tablas: hover de fila (excluye la grilla de Asistencia) */
+.table-scroll table:not(.asist-grid-table) tbody tr:hover td { background: var(--bg-surface-2); }
+/* Encabezado sticky SOLO dentro de un contenedor con scroll propio y alto
+   acotado (opt-in con .table-scroll-sticky). Nunca dentro de flex + overflow. */
+.table-scroll.table-scroll-sticky { overflow: auto; max-height: 70dvh; }
+.table-scroll.table-scroll-sticky thead th { position: sticky; top: 0; background: var(--bg-surface); z-index: 1; }
+
+/* Estado de carga */
+.skeleton { background: linear-gradient(90deg, var(--bg-surface-2), var(--bg-surface-3), var(--bg-surface-2)); background-size: 200% 100%; border-radius: var(--radius-control); min-height: 1em; animation: skeleton-shimmer 1.4s linear infinite; }
+@keyframes skeleton-shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+@media (prefers-reduced-motion: reduce) { .skeleton { animation: none; } }
+body.a11y-reduce-motion .skeleton { animation: none; }
+
+/* Modal: superficie y sombra; variante panel lateral / hoja inferior */
+.modal { border-color: var(--line); box-shadow: var(--shadow-xl); }
+.modal.modal-panel {
+  left: auto; right: 0; top: 0; bottom: 0; width: min(520px, 100vw); height: 100dvh; max-height: none;
+  padding: 0; display: flex; flex-direction: column; overflow: hidden;
+  border-radius: var(--radius-lg) 0 0 var(--radius-lg); transform: translateX(24px);
+}
+.modal.modal-panel.show { transform: none; }
+/* El pie NO es sticky: el cuerpo scrollea y head/foot son hijos flex fijos. */
+.modal-panel .panel-head { flex: none; padding: var(--space-16) var(--space-20); border-bottom: 1px solid var(--line); display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-12); }
+.modal-panel .panel-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: var(--space-16) var(--space-20); }
+.modal-panel .panel-foot { flex: none; padding: var(--space-12) var(--space-20) calc(var(--space-12) + var(--safe-bottom)); border-top: 1px solid var(--line); display: flex; gap: var(--space-10); justify-content: flex-end; }
+@media (max-width: 860px) {
+  .modal.modal-panel {
+    left: 0; right: 0; top: auto; bottom: 0; width: 100%; height: auto; max-height: 88dvh;
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0; transform: translateY(24px);
+  }
+  .modal.modal-panel.show { transform: none; }
+}
+
+/* Áreas táctiles de 44px en celular (fuera de tablas y de Asistencia) */
+@media (max-width: 860px) {
+  .icon-btn { width: 44px; height: 44px; }
+  .btn.small:not(table .btn):not([class*="asist-"] .btn) { min-height: 44px; }
+}

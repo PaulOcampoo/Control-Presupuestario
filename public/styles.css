@@ -5067,3 +5067,62 @@ body.a11y-reduce-motion .skeleton { animation: none; }
 @media (min-width: 861px) { .sheet2 { display: none !important; } }
 
 .cmdk-input-row input:focus-visible { border-color: transparent; box-shadow: none; }
+
+/* ==========================================================================
+   Rediseño UI v2 — Fase 5: Clientes, Resumen y galerías de sección.
+   Sin estilos inline (CSP): anchos de barra por data-* + JS. Sin sticky nuevo.
+   ========================================================================== */
+/* La grilla "Secciones" de Inicio se oculta solo con el shell v2 (la navegación ya está en el sidebar) */
+.ui-v2 .inicio-secciones { display: none; }
+
+/* Tiles de sección: descripción de una línea y contador de módulos (dato ya en memoria) */
+.section-card .section-desc { color: var(--text-secondary); font-size: var(--fs-xs); line-height: 1.35; }
+.section-card .section-meta { margin-top: auto; color: var(--text-tertiary); font-size: var(--fs-2xs); font-weight: 600; }
+.section-card.disabled .section-icon { color: var(--text-secondary); }
+.section-card { border-radius: var(--radius-card); background: var(--bg-surface); }
+
+/* Tarjetas de cliente: monograma, favorito con estrella, avance ponderado */
+.cliente-card { border-radius: var(--radius-card); background: var(--bg-surface); }
+.cliente-card:hover { border-color: var(--accent-line); }
+.cliente-mono {
+  width: 44px; height: 44px; border-radius: 12px; display: grid; place-items: center;
+  font-family: var(--font-heading); font-weight: 800; font-size: var(--fs-base);
+  background: var(--accent-soft); color: var(--accent-gold); border: 1px solid var(--accent-line);
+}
+.cliente-card .cliente-icon .icon-svg { width: 28px; height: 28px; }
+.cliente-fav-btn.active .icon-svg { fill: currentColor; }
+.cliente-prog { width: 100%; display: flex; flex-direction: column; gap: var(--space-4); align-items: stretch; margin-top: var(--space-4); }
+.cliente-prog-pct { font-family: var(--font-heading); font-weight: 800; font-size: var(--fs-md); }
+.cliente-prog-bar { display: block; height: 6px; border-radius: 99px; background: var(--bg-surface-3); overflow: hidden; }
+.cliente-prog-fill { display: block; height: 100%; border-radius: 99px; background: var(--green); }
+
+/* Resumen de obra */
+.rs-head { display: flex; justify-content: space-between; align-items: flex-start; gap: var(--space-16); flex-wrap: wrap; margin-bottom: var(--space-16); }
+.rs-head-t { min-width: 0; flex: 1 1 280px; }
+.rs-title { margin: 0; font-size: var(--fs-xl); font-weight: 800; line-height: 1.15; text-wrap: balance; }
+.rs-sub { margin: var(--space-4) 0 var(--space-8); }
+.rs-pills { display: flex; gap: var(--space-8); flex-wrap: wrap; }
+.rs-grid { display: grid; grid-template-columns: 1fr; gap: var(--space-12); margin-bottom: var(--space-12); align-items: stretch; }
+@media (min-width: 1000px) { .rs-grid { grid-template-columns: minmax(0, 1fr) 340px; } .rs-grid-solo { grid-template-columns: minmax(0, 1fr) 260px; } }
+.rs-hero, .rs-att { margin-bottom: 0; }
+.rs-hero .avance-title-row { margin-top: 0; }
+.rs-figs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-12); border-top: 1px solid var(--line); margin-top: var(--space-16); padding-top: var(--space-14); }
+@media (min-width: 640px) { .rs-figs { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+.rs-figs > div { display: flex; flex-direction: column; gap: var(--space-4); min-width: 0; }
+.rs-figs .k { color: var(--text-secondary); font-size: var(--fs-xs); }
+.rs-figs b { font-family: var(--font-heading); font-size: var(--fs-md); letter-spacing: -0.01em; overflow-wrap: anywhere; }
+.rs-att .section-title { margin-top: 0; }
+.rs-att-list { display: flex; flex-direction: column; gap: var(--space-8); }
+.rs-ai { display: flex; align-items: center; gap: var(--space-12); width: 100%; padding: var(--space-10); border-radius: var(--radius-control); background: var(--bg-surface-2); border: 1px solid transparent; color: var(--text-primary); font: inherit; text-align: left; }
+button.rs-ai { cursor: pointer; }
+button.rs-ai:hover { border-color: var(--border-color); }
+.rs-ai-ic { width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; flex: none; }
+.rs-ai-ic.red { background: color-mix(in srgb, var(--red) 16%, transparent); color: var(--red); }
+.rs-ai-ic.yellow { background: color-mix(in srgb, var(--yellow) 16%, transparent); color: var(--yellow); }
+.rs-ai-ic.info { background: color-mix(in srgb, var(--accent-blue) 16%, transparent); color: var(--accent-blue); }
+.rs-ai-ic.green { background: color-mix(in srgb, var(--green) 16%, transparent); color: var(--green); }
+.rs-ai-txt { display: flex; flex-direction: column; flex: 1; min-width: 0; font-size: var(--fs-sm); }
+.rs-ai-txt small { color: var(--text-secondary); font-size: var(--fs-xs); }
+.rs-curve .chart-wrap { height: 260px; }
+.kpi[data-goto] { cursor: pointer; }
+.kpi[data-goto]:hover { border-color: var(--accent-line); }

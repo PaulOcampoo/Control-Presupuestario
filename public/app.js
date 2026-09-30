@@ -4327,21 +4327,36 @@ async function refreshClientList() {
 // Markup de una tarjeta de cliente real — extraído de renderClientGallery()
 // (Prompt B) para reutilizarlo también en la franja de Favoritos, sin
 // duplicar la plantilla a mano en dos sitios.
+// Monograma de 2 letras para la tarjeta de cliente (Rediseño UI v2, Fase 5).
+function clienteMonograma(nombre) {
+  const w = String(nombre || '').trim().split(/\s+/).filter(Boolean);
+  return esc(((w[0] || '?')[0] + (w.length > 1 ? w[1][0] : (w[0] || '')[1] || '')).toUpperCase());
+}
+// Avance ponderado por cliente (mismo dato que "Avance por cliente"; solo admin, ver renderAvancePorCliente).
+function clienteProgHtml(id) {
+  const pct = state.avancePorCliente && state.avancePorCliente[id];
+  if (pct == null) return '';
+  return `<span class="cliente-prog"><span class="cliente-prog-pct num">${pct.toFixed(1)}%</span><span class="cliente-prog-bar"><span class="cliente-prog-fill" data-pct="${pct}"></span></span></span>`;
+}
+function applyClienteProgWidths(root) {
+  $$('.cliente-prog-fill', root || document).forEach((f) => { f.style.width = Math.min(100, Math.max(0, Number(f.dataset.pct) || 0)) + '%'; });
+}
 function clienteCardHtml(c) {
   const isFav = state.favoritos.has(c.id);
   return `
     <div class="cliente-card" data-cliente="${c.id}">
       <button class="cliente-fav-btn ${isFav ? 'active' : ''}" data-cliente-fav="${c.id}"
         title="${isFav ? 'Quitar de favoritos' : 'Marcar como favorito'}"
-        aria-label="${isFav ? 'Quitar de favoritos' : 'Marcar como favorito'}">${isFav ? '⭐' : '☆'}</button>
-      <span class="cliente-icon">🏢</span>
+        aria-label="${isFav ? 'Quitar de favoritos' : 'Marcar como favorito'}">${icon('star', 16)}</button>
+      <span class="cliente-icon cliente-mono">${clienteMonograma(c.nombre)}</span>
       <span class="cliente-nombre">${esc(c.nombre)}</span>
-      ${c.completado ? '<span class="cliente-badge-completado" title="Avance financiero ponderado al 100%">✅ Completado</span>' : ''}
+      ${c.completado ? `<span class="cliente-badge-completado" title="Avance financiero ponderado al 100%">${icon('check', 12)} Completado</span>` : ''}
       <span class="cliente-count">${c.num_proyectos} presupuesto${c.num_proyectos !== 1 ? 's' : ''}</span>
+      ${clienteProgHtml(c.id)}
       ${isAdmin() ? `
         <button class="cliente-menu-btn" data-cliente-menu-btn="${c.id}" title="Opciones">⋮</button>
         <div class="cliente-menu-dropdown hidden-initial" data-cliente-menu-dropdown="${c.id}">
-          <button class="cliente-menu-item" data-cliente-archivar="${c.id}" data-cliente-archivar-nombre="${esc(c.nombre)}">📦 Archivar cliente</button>
+          <button class="cliente-menu-item" data-cliente-archivar="${c.id}" data-cliente-archivar-nombre="${esc(c.nombre)}">${icon('archive', 14)} Archivar cliente</button>
           <button class="cliente-menu-item cliente-menu-item-danger" data-cliente-eliminar="${c.id}" data-cliente-eliminar-nombre="${esc(c.nombre)}">${iconoEliminar()} Eliminar cliente</button>
         </div>` : ''}
     </div>
@@ -4399,7 +4414,7 @@ function renderClientGallery() {
   if (isAdmin() && huerfanos.length) {
     html += `
       <div class="cliente-card cliente-card-orphan" data-cliente="sin-cliente">
-        <span class="cliente-icon">⚠️</span>
+        <span class="cliente-icon">${icon('warning', 28)}</span>
         <span class="cliente-nombre">Sin cliente asignado</span>
         <span class="cliente-count">${huerfanos.length} presupuesto${huerfanos.length !== 1 ? 's' : ''}</span>
       </div>`;
@@ -4409,12 +4424,13 @@ function renderClientGallery() {
   if (isAdmin()) {
     html += `
       <div class="cliente-card cliente-card-new" data-cliente="__nuevo__">
-        <span class="cliente-icon">➕</span>
+        <span class="cliente-icon">${icon('plus', 28)}</span>
         <span class="cliente-nombre">Nuevo cliente</span>
       </div>`;
   }
   grid.innerHTML = html || `<div class="empty-state"><div class="big">${icon('building', 40)}</div>Aún no hay clientes registrados.</div>`;
   wireClienteCards(grid);
+  applyClienteProgWidths(grid);
   initClienteSortable(grid);
 }
 
@@ -4435,6 +4451,7 @@ function renderFavoritosSection() {
   section.classList.remove('hidden-initial');
   grid.innerHTML = favClientes.map((c) => clienteCardHtml(c)).join('');
   wireClienteCards(grid);
+  applyClienteProgWidths(grid);
   initFavoritosSortable(grid);
 }
 
@@ -4923,6 +4940,10 @@ async function renderAvancePorCliente() {
 
   const data = await api('/avance-por-cliente').catch(() => []);
   if (!data.length) { el.innerHTML = ''; return; }
+  // Rediseño v2: las tarjetas de cliente reutilizan este mismo dato (sin endpoint nuevo).
+  state.avancePorCliente = Object.fromEntries(data.map((c) => [c.cliente_id, Math.min(100, Math.max(0, Number(c.avance_ponderado_pct) || 0))]));
+  renderFavoritosSection();
+  renderClientGallery();
 
   el.innerHTML = `
     <div class="apc-section">
@@ -5662,6 +5683,16 @@ function bindMaquinariaGaleriaExtras() {
 // un cliente" — ver .section-card/.section-grid en styles.css). Siempre se
 // muestran las 5 para cualquier rol que llegue a 'inicio'; goToSection()
 // decide si navega, avisa "sin módulos para tu rol" o "próximamente".
+const SECTION_DESCS = {
+  obra: 'Programa, avance, destajo y estimaciones',
+  ventas: 'Compradores, apartados, cobranza y entregas',
+  compras: 'Requisiciones, insumos, órdenes y almacén',
+  tesoreria: 'Finanzas, compromisos y fondo de garantía',
+  administracion: 'Contrato, trabajadores, nóminas y cuentas',
+  maquinaria: 'Equipos, horas, bitácora y consumibles',
+  costos: 'Matrices, composición y catálogo de básicos',
+  contabilidad: 'Pólizas, CFDI, pagos y conciliación',
+};
 function seccionesGridHtml() {
   return `
     <div class="section-grid">
@@ -5675,9 +5706,10 @@ function seccionesGridHtml() {
         if (!tieneAcceso) return '';
         return `
         <div class="section-card ${esFutura ? 'disabled' : ''}" data-section="${id}">
-          <span class="section-icon section-icon-lg">${sectionIcon(id, 28)}</span>
+          <span class="section-icon section-icon-lg">${esFutura ? icon('lock', 28) : sectionIcon(id, 28)}</span>
           <span class="section-nombre">${esc(def.label)}</span>
-          ${esFutura ? '<span class="section-soon-badge">Próximamente</span>' : ''}
+          ${SECTION_DESCS[id] ? `<span class="section-desc">${esc(SECTION_DESCS[id])}</span>` : ''}
+          ${esFutura ? '<span class="section-soon-badge">Próximamente</span>' : `<span class="section-meta">${tabsVisiblesDeSeccion(def).length} módulo${tabsVisiblesDeSeccion(def).length !== 1 ? 's' : ''}</span>`}
         </div>`;
       }).join('')}
     </div>
@@ -5852,55 +5884,93 @@ async function renderInicio(view) {
           </div>
         </div>`;
     };
+    // Rediseño UI v2, Fase 5: encabezado + héroe de avance + "Requiere atención" + curva + datos + KPIs.
+    // Mismos datos y fórmulas de siempre (ejec/prog/fisico/desviacion/restoPorEjecutar); solo cambia el layout.
+    const finEstado = finObraEstado(m.fin_obra);
+    const proyActual = state.projects.find((pr) => pr.id === state.projectId);
+    const clienteActual = proyActual && state.clientes.find((c) => c.id === proyActual.cliente_id);
+    const puedeIr = (tab) => state.allowedTabs.includes(tab);
+    const estadoLbl = desvKind === 'green' ? 'Al día' : (desvKind === 'yellow' ? 'Atraso leve' : 'Atraso crítico');
+    const gotoAttr = (tab) => (puedeIr(tab) ? ` data-goto="${tab}"` : '');
+    // "Requiere atención": solo datos ya cargados en /resumen, sin endpoints nuevos.
+    const atenciones = [];
+    if (resumen.requisiciones.alertas_cantidad) atenciones.push({ kind: 'red', ic: 'warning', t: `${resumen.requisiciones.alertas_cantidad} alerta(s) de cantidad`, s: 'Insumos solicitados por encima del presupuesto', go: 'requisiciones' });
+    if (resumen.requisiciones.alertas_precio) atenciones.push({ kind: 'yellow', ic: 'tag', t: `${resumen.requisiciones.alertas_precio} alerta(s) de precio`, s: 'Precio solicitado mayor al del presupuesto', go: 'requisiciones' });
+    if (mostrarAvanceFinanciero && desviacion < -10) atenciones.push({ kind: 'red', ic: 'chart', t: `Atraso crítico: ${fmtNum(Math.abs(desviacion), 1)} pp vs. programa`, s: 'El avance ejecutado está muy por debajo de lo programado', go: 'avance' });
+    if (finEstado) atenciones.push({ kind: finEstado.vencido ? 'red' : 'info', ic: 'clock', t: finEstado.vencido ? `Contrato vencido hace ${Math.abs(finEstado.dias)} día(s)` : `Contrato vence en ${finEstado.dias} día(s)`, s: `Fin de obra: ${fmtDate(m.fin_obra)}`, go: null });
+    const atencionHtml = atenciones.length
+      ? atenciones.map((at) => {
+        const inner = `<span class="rs-ai-ic ${at.kind}">${icon(at.ic, 16)}</span><span class="rs-ai-txt"><b>${esc(at.t)}</b><small>${esc(at.s)}</small></span>${at.go && puedeIr(at.go) ? icon('chevron-right', 14) : ''}`;
+        return at.go && puedeIr(at.go)
+          ? `<button type="button" class="rs-ai" data-goto="${at.go}">${inner}</button>`
+          : `<div class="rs-ai">${inner}</div>`;
+      }).join('')
+      : `<div class="rs-ai rs-ai-ok"><span class="rs-ai-ic green">${icon('check', 16)}</span><span class="rs-ai-txt"><b>Todo en orden</b><small>Sin alertas ni vencimientos pendientes</small></span></div>`;
+
     dashboardHtml = `
-      <h2 class="section-title">Resumen del presupuesto</h2>
-      <div class="kpi-grid">
-        <div class="kpi accent"><div class="label">Presupuesto total (sin IVA)</div><div class="value">${fmtMoney(resumen.presupuesto_total)}</div></div>
-        ${mostrarAvanceFinanciero ? `
-        <div class="kpi"><div class="label">Avance programado</div><div class="value">${fmtPct(prog)}</div></div>
-        <div class="kpi green"><div class="label">Avance ejecutado</div><div class="value">${fmtPct(ejec)}</div></div>
-        <!-- Avance físico (prompt-fase1-avance-fisico-implementacion.md): %
-             SIMPLE de conceptos completados (no ponderado por $), independiente
-             de "Avance ejecutado" (financiero, ponderado por $) — deliberadamente
-             pueden divergir, esa es la señal útil (ver diseño Fase 0). -->
-        <div class="kpi"><div class="label">Avance físico</div><div class="value">${fmtPct(fisico)}</div></div>
-        <div class="kpi ${desvKind}"><div class="label">Desviación vs. programa</div><div class="value">${desviacion >= 0 ? '+' : ''}${fmtNum(desviacion, 1)} pp</div></div>` : ''}
+      <div class="rs-head">
+        <div class="rs-head-t">
+          <h2 class="rs-title">${esc(m.obra || (proyActual && proyActual.nombre) || 'Resumen del presupuesto')}</h2>
+          <p class="muted rs-sub">${esc([clienteActual && clienteActual.nombre, m.lugar].filter(Boolean).join(' · ') || '—')}</p>
+          <div class="rs-pills">
+            ${mostrarAvanceFinanciero ? `<span class="badge ${desvKind}">${estadoLbl}</span>` : ''}
+            ${finEstado ? `<span class="badge ${finEstado.vencido ? 'red' : 'info'}">${finEstado.vencido ? `Vencido hace ${Math.abs(finEstado.dias)} d` : `Vence en ${finEstado.dias} d`}</span>` : ''}
+          </div>
+        </div>
+        <div class="rs-actions"><button class="btn small btn-icon-inline" id="btnEditFechasObra">${icon('pencil', 14)} Editar fechas</button></div>
       </div>
 
       ${mostrarAvanceFinanciero ? `
-      <h3 class="section-title row between avance-title-row">
-        <span>Avance físico-financiero: presupuestado vs ejecutado vs por ejecutar</span>
-        <span class="avance-view-toggle" id="avanceViewToggle" role="group" aria-label="Cambiar vista del widget">
-          <button type="button" class="avance-view-btn ${vistaAvance === 'bullet' ? 'active' : ''}" data-vista="bullet">Barra</button>
-          <button type="button" class="avance-view-btn ${vistaAvance === 'dona' ? 'active' : ''}" data-vista="dona">Dona</button>
-        </span>
-      </h3>
-      <div class="card">
-        <div id="avanceWidgetBody">${avanceWidgetHtml(vistaAvance)}</div>
-      </div>` : ''}
+      <div class="rs-grid">
+        <div class="card rs-hero">
+          <h3 class="section-title row between avance-title-row">
+            <span>Avance físico-financiero</span>
+            <span class="avance-view-toggle" id="avanceViewToggle" role="group" aria-label="Cambiar vista del widget">
+              <button type="button" class="avance-view-btn ${vistaAvance === 'bullet' ? 'active' : ''}" data-vista="bullet">Barra</button>
+              <button type="button" class="avance-view-btn ${vistaAvance === 'dona' ? 'active' : ''}" data-vista="dona">Dona</button>
+            </span>
+          </h3>
+          <div id="avanceWidgetBody">${avanceWidgetHtml(vistaAvance)}</div>
+          <!-- Avance físico: % SIMPLE de conceptos (no ponderado por $), independiente de "ejecutado"
+               (financiero); pueden divergir a propósito, esa es la señal útil. -->
+          <div class="rs-figs">
+            <div><span class="k">Programado a hoy</span><b class="num">${fmtPct(prog)}</b></div>
+            <div><span class="k">Avance físico</span><b class="num">${fmtPct(fisico)}</b></div>
+            <div><span class="k">Resto por ejecutar</span><b class="num">${fmtMoney(restoPorEjecutar)}</b></div>
+            <div><span class="k">Presupuesto sin IVA</span><b class="num">${fmtMoney(resumen.presupuesto_total)}</b></div>
+          </div>
+        </div>
+        <div class="card rs-att">
+          <h3 class="section-title">Requiere atención</h3>
+          <div class="rs-att-list">${atencionHtml}</div>
+        </div>
+      </div>
+      <div class="card rs-curve hidden-initial" id="rsCurveCard">
+        <h3 class="section-title">Curva de avance</h3>
+        <div class="chart-wrap"><canvas id="chartResumenCurva"></canvas></div>
+      </div>` : `
+      <div class="rs-grid rs-grid-solo">
+        <div class="card rs-att"><h3 class="section-title">Requiere atención</h3><div class="rs-att-list">${atencionHtml}</div></div>
+        <div class="kpi accent"><div class="label">Presupuesto total (sin IVA)</div><div class="value num">${fmtMoney(resumen.presupuesto_total)}</div></div>
+      </div>`}
 
       <h3 class="section-title">Datos de la obra</h3>
-      ${(() => {
-        const finEstado = finObraEstado(m.fin_obra);
-        if (!finEstado) return '';
-        const msg = finEstado.vencido
-          ? `⚠️ El contrato de esta obra venció hace ${Math.abs(finEstado.dias)} día(s) (fin de obra: ${fmtDate(m.fin_obra)}).`
-          : `⏳ El contrato de esta obra vence en ${finEstado.dias} día(s) (fin de obra: ${fmtDate(m.fin_obra)}).`;
-        return `
+      ${finEstado ? `
         <div class="alert-box ${finEstado.vencido ? 'danger' : 'warn'} mb-12">
           <div class="row between">
-            <span>${msg}</span>
+            <span>${finEstado.vencido
+              ? `El contrato de esta obra venció hace ${Math.abs(finEstado.dias)} día(s) (fin de obra: ${fmtDate(m.fin_obra)}).`
+              : `El contrato de esta obra vence en ${finEstado.dias} día(s) (fin de obra: ${fmtDate(m.fin_obra)}).`}</span>
             ${isAdmin() ? '<button class="btn small" id="btnActualizarFinObra">Actualizar fecha</button>' : ''}
           </div>
-        </div>`;
-      })()}
+        </div>` : ''}
       <div class="card">
         <div class="card-row"><span class="k">Obra</span><span class="v">${esc(m.obra || '—')}</span></div>
         <div class="card-row"><span class="k">Lugar</span><span class="v">${esc(m.lugar || '—')}</span></div>
         <div class="card-row"><span class="k">Inicio de obra</span><span class="v">${fmtDate(m.inicio_obra)}</span></div>
         <div class="card-row"><span class="k">Fin de obra</span><span class="v">${fmtDate(m.fin_obra)}</span></div>
         ${m.fin_obra_actualizado_por ? `<div class="card-row"><span class="k muted fs-078">Última actualización</span><span class="v muted fs-078">${esc(m.fin_obra_actualizado_por)} · ${fmtDateShort(m.fin_obra_actualizado_en)}</span></div>` : ''}
-        <div class="card-row"><span class="k">Total sin IVA</span><span class="v">${fmtMoney(resumen.presupuesto_total)}</span></div>
+        <div class="card-row"><span class="k">Total sin IVA</span><span class="v num">${fmtMoney(resumen.presupuesto_total)}</span></div>
         ${m.total_con_iva ? (
           resumen.total_con_iva_valido
             ? `<div class="card-row"><span class="k">Total con IVA</span><span class="v">${fmtMoney(m.total_con_iva)}</span></div>`
@@ -5915,24 +5985,25 @@ async function renderInicio(view) {
             // no tocar el valor guardado en este PR.
             : `<div class="card-row"><span class="k">Total con IVA</span><span class="v"><span class="badge red" title="El valor guardado ($${fmtMoney(m.total_con_iva)}) es menor que el Total sin IVA — dato capturado incorrectamente al subir el presupuesto, revisar con el equipo antes de confiar en esta cifra.">⚠️ Dato inconsistente</span></span></div>`
         ) : ''}
-        <div class="row end mt-10"><button class="btn small" id="btnEditFechasObra">Corregir inicio/fin de obra</button></div>
-        <p class="muted inicio-fechas-note">Úsalo si el archivo traía esas fechas vacías o incorrectas — al guardar se regenera todo el Programa y la curva de Avance con las fechas correctas.</p>
+        <p class="muted inicio-fechas-note">Si el archivo traía las fechas de inicio/fin vacías o incorrectas, usa "Editar fechas" arriba — al guardar se regenera todo el Programa y la curva de Avance.</p>
       </div>
 
       <h3 class="section-title">Requisiciones de compra</h3>
       <div class="kpi-grid">
-        <div class="kpi"><div class="label">Requisiciones activas</div><div class="value">${resumen.requisiciones.num_requisiciones}</div></div>
-        <div class="kpi"><div class="label">Importe requisitado</div><div class="value">${fmtMoney(resumen.requisiciones.importe_requisitado)}</div></div>
-        <div class="kpi ${resumen.requisiciones.alertas_cantidad ? 'red' : 'green'}"><div class="label">Alertas de cantidad</div><div class="value">${resumen.requisiciones.alertas_cantidad}</div></div>
-        <div class="kpi ${resumen.requisiciones.alertas_precio ? 'red' : 'green'}"><div class="label">Alertas de precio</div><div class="value">${resumen.requisiciones.alertas_precio}</div></div>
+        <div class="kpi"${gotoAttr('requisiciones')}><div class="label">Requisiciones activas</div><div class="value num">${resumen.requisiciones.num_requisiciones}</div></div>
+        <div class="kpi"${gotoAttr('requisiciones')}><div class="label">Importe requisitado</div><div class="value num">${fmtMoney(resumen.requisiciones.importe_requisitado)}</div></div>
+        <div class="kpi ${resumen.requisiciones.alertas_cantidad ? 'red' : 'green'}"${gotoAttr('requisiciones')}><div class="label">Alertas de cantidad</div><div class="value num">${resumen.requisiciones.alertas_cantidad}</div></div>
+        <div class="kpi ${resumen.requisiciones.alertas_precio ? 'red' : 'green'}"${gotoAttr('requisiciones')}><div class="label">Alertas de precio</div><div class="value num">${resumen.requisiciones.alertas_precio}</div></div>
       </div>
     `;
   }
 
   view.innerHTML = `
     ${puedeVerResumen ? '' : '<h2 class="section-title">Inicio</h2>'}
-    <h3 class="section-title">Secciones</h3>
-    ${seccionesGridHtml()}
+    <div class="inicio-secciones">
+      <h3 class="section-title">Secciones</h3>
+      ${seccionesGridHtml()}
+    </div>
     ${puedeVerResumen ? dashboardHtml : ''}
   `;
 
@@ -6018,6 +6089,37 @@ async function renderInicio(view) {
       initAvanceChart(nuevaVista);
       applyAvanceBulletStyles();
     });
+  }
+  if (puedeVerResumen && mostrarAvanceFinanciero) {
+    (async () => {
+      const card = $('#rsCurveCard');
+      try {
+        const avances = await cached('resumenCurva', () => api(`/projects/${state.projectId}/avances`));
+        if (!card || !document.body.contains(card) || !Array.isArray(avances) || !avances.length) return;
+        card.classList.remove('hidden-initial');
+        if (state.charts.resumenCurva) { state.charts.resumenCurva.destroy(); state.charts.resumenCurva = null; }
+        const cc = chartColors();
+        state.charts.resumenCurva = new Chart($('#chartResumenCurva').getContext('2d'), {
+          type: 'line',
+          data: {
+            labels: avances.map((a) => `S${a.semana}`),
+            datasets: [
+              { label: 'Programado %', data: avances.map((a) => a.avance_financiero_programado), borderColor: cc.atraso, backgroundColor: 'transparent', tension: 0.25, pointRadius: 0 },
+              { label: 'Ejecutado %', data: avances.map((a) => a.avance_financiero_real), borderColor: '#22c55e', backgroundColor: 'rgba(34,197,94,0.12)', tension: 0.25, spanGaps: true, fill: true, pointRadius: 0 },
+            ],
+          },
+          options: {
+            responsive: true, maintainAspectRatio: false,
+            animation: animationForChart(`resumenCurva:${state.projectId}`),
+            scales: {
+              x: { ticks: { color: cc.tick, maxRotation: 0, autoSkip: true, font: { size: 10 } }, grid: { color: cc.grid } },
+              y: { min: 0, max: 100, ticks: { color: cc.tick, callback: (v) => `${v}%` }, grid: { color: cc.grid } },
+            },
+            plugins: { legend: { position: 'bottom', labels: { color: cc.text, boxWidth: 14, font: { size: 11 } } } },
+          },
+        });
+      } catch (_) { /* sin permiso o sin fechas de obra: la tarjeta queda oculta, sin error visible */ }
+    })();
   }
   // Botones de "Datos de la obra": SIEMPRE que puedeVerResumen, sin depender
   // de mostrarAvanceFinanciero — ese bloque se oculta para costos, pero

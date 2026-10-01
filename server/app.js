@@ -1213,6 +1213,18 @@ Object.entries(auth.TAB_A_SECCION)
 // completo (mismo bypass hardcodeado que checkPermiso/allow en todo el
 // resto del sistema) — siguen viendo PERMISSIONS.<rol>.tabs, sin cambio de
 // comportamiento ni consulta a la tabla.
+// Lectura de navegación: reutiliza tienePermiso, la misma comprobación invocada por checkPermiso.
+// Los endpoints globales consultan el permiso sin contexto de obra.
+async function tabTieneLectura(req, tab) {
+  const globales = { proveedores: ['proveedores'], cumplimiento: ['proveedores'], maquinaria_catalogo: ['maquinaria'], maquinaria_horas: ['maquinaria'],
+    maquinaria_bitacora: ['maquinaria', 'maquinaria_mantenimiento'], maquinaria_estado_unidad: ['maquinaria', 'estado_unidad'],
+    maquinaria_consumibles: ['maquinaria', 'maquinaria_consumibles'], maquinaria_reportes_cliente: ['maquinaria'] };
+  const contexto = globales[tab] ? { ...req, project: null } : req;
+  if (tab === 'almacen') return (await auth.tienePermiso(req, 'almacen_entradas', 'puede_ver')) || (await auth.tienePermiso(req, 'almacen_salidas', 'puede_ver'));
+  const secciones = globales[tab] || [auth.TAB_A_SECCION[tab]].filter(Boolean);
+  for (const seccion of secciones) if (!(await auth.tienePermiso(contexto, seccion, 'puede_ver'))) return false;
+  return true;
+}
 app.get('/api/projects/:id/nav-tabs', h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
   if (req.user.puesto === 'admin' || req.user.puesto === 'desarrollador') {
     return res.json({ tabs: auth.tabsParaUsuario(req.user) });
@@ -1258,7 +1270,9 @@ app.get('/api/projects/:id/nav-tabs', h(requireProject), h(auth.verificarAccesoO
     }
     if (tabsBaseRol.has(tab)) tabs.push(tab);
   }
-  res.json({ tabs });
+  const permitidos = [];
+  for (const tab of tabs) if (await tabTieneLectura(req, tab)) permitidos.push(tab);
+  res.json({ tabs: permitidos });
 }));
 
 app.get('/api/permisos/:usuario_id', h(auth.allow()), h(async (req, res) => {

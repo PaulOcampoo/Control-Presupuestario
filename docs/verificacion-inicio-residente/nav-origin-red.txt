@@ -1,0 +1,70 @@
+
+ RUN  v4.1.10 C:/Users/ricar/Desktop/ARCHIVOS/Claude/Proyectos/Claude-Proyectos/App-CP/.claude/worktrees/fix-inicio-residente-accesos
+
+(node:42208) Warning: SECURITY WARNING: The SSL modes 'prefer', 'require', and 'verify-ca' are treated as aliases for 'verify-full'.
+In the next major version (pg-connection-string v3.0.0 and pg v9.0.0), these modes will adopt standard libpq semantics, which have weaker security guarantees.
+
+To prepare for this change:
+- If you want the current behavior, explicitly use 'sslmode=verify-full'
+- If you want libpq compatibility now, use 'uselibpqcompat=true&sslmode=require'
+
+See https://www.postgresql.org/docs/current/libpq-ssl.html for libpq SSL mode definitions.
+(Use `node --trace-warnings ...` to show where the warning was created)
+stdout | tests/nav-tabs-restrictivo.test.js > residente sin permisos → ninguna tab
+NAV ninguno: ["ordenes"]
+
+ × tests/nav-tabs-restrictivo.test.js > residente sin permisos → ninguna tab 346ms
+   → expected [ 'ordenes' ] to deeply equal []
+stdout | tests/nav-tabs-restrictivo.test.js > residente solo avance → únicamente avance
+NAV solo: ["avance","ordenes"]
+
+ × tests/nav-tabs-restrictivo.test.js > residente solo avance → únicamente avance 329ms
+   → expected [ 'avance', 'ordenes' ] to deeply equal [ 'avance' ]
+ ↓ tests/nav-tabs-restrictivo.test.js > admin conserva nav-tabs idéntico a origin/main
+ ↓ tests/nav-tabs-restrictivo.test.js > dev conserva nav-tabs idéntico a origin/main
+ ↓ tests/nav-tabs-restrictivo.test.js > todos los módulos del residente típico tienen lectura HTTP200
+ ↓ tests/nav-tabs-restrictivo.test.js > permisos globales de Proveedores/Cumplimiento prevalecen sobre un grant por obra
+stdout | tests/nav-tabs-restrictivo.test.js
+LIMPIEZA MARCADOR VERIFICADO: QA_RESACCESOS_1790815030525 {"usuarios":0,"proyectos":0,"clientes":0}
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/nav-tabs-restrictivo.test.js > residente sin permisos → ninguna tab
+AssertionError: expected [ 'ordenes' ] to deeply equal []
+
+- Expected
++ Received
+
+- []
++ [
++   "ordenes",
++ ]
+
+ ❯ ../../../../../../../../../OneDrive/Escritorio/ARCHIVOS/Claude/Proyectos/Claude-Proyectos/App-CP/.claude/worktrees/fix-inicio-residente-accesos/tests/nav-tabs-restrictivo.test.js:5:82
+
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  tests/nav-tabs-restrictivo.test.js > residente solo avance → únicamente avance
+AssertionError: expected [ 'avance', 'ordenes' ] to deeply equal [ 'avance' ]
+
+- Expected
++ Received
+
+  [
+    "avance",
++   "ordenes",
+  ]
+
+ ❯ ../../../../../../../../../OneDrive/Escritorio/ARCHIVOS/Claude/Proyectos/Claude-Proyectos/App-CP/.claude/worktrees/fix-inicio-residente-accesos/tests/nav-tabs-restrictivo.test.js:6:84
+
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 4 skipped (6)
+   Start at  18:37:07
+   Duration  43.82s (transform 489ms, setup 26ms, import 2.71s, tests 40.87s, environment 0ms)
+

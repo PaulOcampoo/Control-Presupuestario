@@ -1,0 +1,134 @@
+
+ RUN  v4.1.10 C:/Users/ricar/Desktop/ARCHIVOS/Claude/Proyectos/Claude-Proyectos/App-CP/.claude/worktrees/fix-inicio-residente-accesos
+
+ ✓ tests/inicio-accesos.test.js > un solo módulo genera solo su sección y un botón accesible 4ms
+ ✓ tests/inicio-accesos.test.js > sin módulos muestra el mensaje explícito y ningún botón muerto 1ms
+ ✓ tests/inicio-accesos.test.js > incluye la excepción suelta del sidebar solo cuando está permitida 2ms
+ ✓ tests/inicio-accesos.test.js > no muta el modelo de navegación al incorporar excepciones 1ms
+ ✓ tests/inicio-accesos.test.js > la alineación visual no amplía el preset del editor de permisos 50ms
+(node:39296) Warning: SECURITY WARNING: The SSL modes 'prefer', 'require', and 'verify-ca' are treated as aliases for 'verify-full'.
+In the next major version (pg-connection-string v3.0.0 and pg v9.0.0), these modes will adopt standard libpq semantics, which have weaker security guarantees.
+
+To prepare for this change:
+- If you want the current behavior, explicitly use 'sslmode=verify-full'
+- If you want libpq compatibility now, use 'uselibpqcompat=true&sslmode=require'
+
+See https://www.postgresql.org/docs/current/libpq-ssl.html for libpq SSL mode definitions.
+(Use `node --trace-warnings ...` to show where the warning was created)
+stdout | tests/nav-tabs-restrictivo.test.js > residente sin permisos → ninguna tab
+NAV ninguno: []
+
+stdout | tests/nav-tabs-restrictivo.test.js > residente sin permisos → ninguna tab
+ABRIR NINGUNO ordenes: 403
+
+ ✓ tests/nav-tabs-restrictivo.test.js > residente sin permisos → ninguna tab 762ms
+stdout | tests/nav-tabs-restrictivo.test.js > residente solo avance → únicamente avance
+NAV solo: ["avance"]
+
+ ✓ tests/nav-tabs-restrictivo.test.js > residente solo avance → únicamente avance 1757ms
+stdout | tests/nav-tabs-restrictivo.test.js > admin conserva nav-tabs idéntico a origin/main
+NAV admin: ["resumen","contrato","impuestos","insumos","requisiciones","ordenes","avance","programa","destajo","estadoActivo","presupuestoEstimaciones","usuarios","proveedores","cumplimiento","finanzas","compromisos","fondoGarantia","mapeo","trabajadores","nominas","estimaciones","generadoresObra","ordenesCambio","lotes","modelosVivienda","compradores","apartados","contratosVenta","cobranza","entregas","maquinaria_catalogo","maquinaria_horas","maquinaria_bitacora","maquinaria_estado_unidad","maquinaria_consumibles","maquinaria_reportes_cliente","cotizador","costos","costosDashboard","matrices","generadorPresupuestos","avance_clientes","composicion_costos","dashboardEjecutivo","catalogoBasicos","almacen","contabilidadCuentas","contabilidadPolizas","contabilidadCfdi","contabilidadPagos","contabilidadConciliacion","contabilidadDepreciacion","contabilidadExport"]
+
+stdout | tests/nav-tabs-restrictivo.test.js > admin conserva nav-tabs idéntico a origin/main
+NAV admin: ["resumen","contrato","impuestos","insumos","requisiciones","ordenes","avance","programa","destajo","estadoActivo","presupuestoEstimaciones","usuarios","proveedores","cumplimiento","finanzas","compromisos","fondoGarantia","mapeo","trabajadores","nominas","estimaciones","generadoresObra","ordenesCambio","lotes","modelosVivienda","compradores","apartados","contratosVenta","cobranza","entregas","maquinaria_catalogo","maquinaria_horas","maquinaria_bitacora","maquinaria_estado_unidad","maquinaria_consumibles","maquinaria_reportes_cliente","cotizador","costos","costosDashboard","matrices","generadorPresupuestos","avance_clientes","composicion_costos","dashboardEjecutivo","catalogoBasicos","almacen","contabilidadCuentas","contabilidadPolizas","contabilidadCfdi","contabilidadPagos","contabilidadConciliacion","contabilidadDepreciacion","contabilidadExport"]
+
+stdout | tests/nav-tabs-restrictivo.test.js > admin conserva nav-tabs idéntico a origin/main
+DIFF admin: {"eliminadas":[],"agregadas":[]}
+
+ ✓ tests/nav-tabs-restrictivo.test.js > admin conserva nav-tabs idéntico a origin/main 360ms
+stdout | tests/nav-tabs-restrictivo.test.js > dev conserva nav-tabs idéntico a origin/main
+NAV dev: ["resumen","contrato","impuestos","insumos","requisiciones","ordenes","avance","programa","destajo","estadoActivo","presupuestoEstimaciones","usuarios","proveedores","cumplimiento","finanzas","compromisos","fondoGarantia","mapeo","trabajadores","nominas","estimaciones","generadoresObra","ordenesCambio","lotes","modelosVivienda","compradores","apartados","contratosVenta","cobranza","entregas","maquinaria_catalogo","maquinaria_horas","maquinaria_bitacora","maquinaria_estado_unidad","maquinaria_consumibles","maquinaria_reportes_cliente","cotizador","costos","costosDashboard","matrices","generadorPresupuestos","avance_clientes","composicion_costos","dashboardEjecutivo","catalogoBasicos","almacen","contabilidadCuentas","contabilidadPolizas","contabilidadCfdi","contabilidadPagos","contabilidadConciliacion","contabilidadDepreciacion","contabilidadExport"]
+
+stdout | tests/nav-tabs-restrictivo.test.js > dev conserva nav-tabs idéntico a origin/main
+NAV dev: ["resumen","contrato","impuestos","insumos","requisiciones","ordenes","avance","programa","destajo","estadoActivo","presupuestoEstimaciones","usuarios","proveedores","cumplimiento","finanzas","compromisos","fondoGarantia","mapeo","trabajadores","nominas","estimaciones","generadoresObra","ordenesCambio","lotes","modelosVivienda","compradores","apartados","contratosVenta","cobranza","entregas","maquinaria_catalogo","maquinaria_horas","maquinaria_bitacora","maquinaria_estado_unidad","maquinaria_consumibles","maquinaria_reportes_cliente","cotizador","costos","costosDashboard","matrices","generadorPresupuestos","avance_clientes","composicion_costos","dashboardEjecutivo","catalogoBasicos","almacen","contabilidadCuentas","contabilidadPolizas","contabilidadCfdi","contabilidadPagos","contabilidadConciliacion","contabilidadDepreciacion","contabilidadExport"]
+
+stdout | tests/nav-tabs-restrictivo.test.js > dev conserva nav-tabs idéntico a origin/main
+DIFF dev: {"eliminadas":[],"agregadas":[]}
+
+ ✓ tests/nav-tabs-restrictivo.test.js > dev conserva nav-tabs idéntico a origin/main 694ms
+stdout | tests/nav-tabs-restrictivo.test.js > todos los módulos del residente típico tienen lectura HTTP200
+NAV tipico: ["programa","avance","destajo","requisiciones","insumos","nominas","trabajadores","estimaciones","generadoresObra","ordenesCambio","lotes","modelosVivienda","maquinaria_catalogo","maquinaria_horas","maquinaria_reportes_cliente","matrices","generadorPresupuestos","ordenes","almacen"]
+
+stdout | tests/nav-tabs-restrictivo.test.js > todos los módulos del residente típico tienen lectura HTTP200
+ABRIR TIPICO: programa /api/projects/1397/programa 200
+
+stdout | tests/nav-tabs-restrictivo.test.js > todos los módulos del residente típico tienen lectura HTTP200
+ABRIR TIPICO: avance /api/projects/1397/avances 200
+
+stdout | tests/nav-tabs-restrictivo.test.js > todos los módulos del residente típico tienen lectura HTTP200
+ABRIR TIPICO: destajo /api/projects/1397/destajistas 200
+
+stdout | tests/nav-tabs-restrictivo.test.js > todos los módulos del residente típico tienen lectura HTTP200
+ABRIR TIPICO: requisiciones /api/projects/1397/requisiciones 200
+
+stdout | tests/nav-tabs-restrictivo.test.js > todos los módulos del residente típico tienen lectura HTTP200
+ABRIR TIPICO: insumos /api/projects/1397/insumos 200
+
+stdout | tests/nav-tabs-restrictivo.test.js > todos los módulos del residente típico tienen lectura HTTP200
+ABRIR TIPICO: nominas /api/projects/1397/nominas 200
+
+stdout | tests/nav-tabs-restrictivo.test.js > todos los módulos del residente típico tienen lectura HTTP200
+ABRIR TIPICO: trabajadores /api/projects/1397/trabajadores 200
+
+stdout | tests/nav-tabs-restrictivo.test.js > todos los módulos del residente típico tienen lectura HTTP200
+ABRIR TIPICO: estimaciones /api/projects/1397/estimaciones 200
+
+stdout | tests/nav-tabs-restrictivo.test.js > todos los módulos del residente típico tienen lectura HTTP200
+ABRIR TIPICO: generadoresObra /api/projects/1397/generadores-obra 200
+
+stdout | tests/nav-tabs-restrictivo.test.js > todos los módulos del residente típico tienen lectura HTTP200
+ABRIR TIPICO: ordenesCambio /api/projects/1397/ordenes-cambio 200
+
+stdout | tests/nav-tabs-restrictivo.test.js > todos los módulos del residente típico tienen lectura HTTP200
+ABRIR TIPICO: lotes /api/projects/1397/lotes 200
+
+stdout | tests/nav-tabs-restrictivo.test.js > todos los módulos del residente típico tienen lectura HTTP200
+ABRIR TIPICO: modelosVivienda /api/projects/1397/modelos-vivienda 200
+
+stdout | tests/nav-tabs-restrictivo.test.js > todos los módulos del residente típico tienen lectura HTTP200
+ABRIR TIPICO: maquinaria_catalogo /api/maquinaria/equipos 200
+
+stdout | tests/nav-tabs-restrictivo.test.js > todos los módulos del residente típico tienen lectura HTTP200
+ABRIR TIPICO: maquinaria_horas /api/maquinaria/horas 200
+
+stdout | tests/nav-tabs-restrictivo.test.js > todos los módulos del residente típico tienen lectura HTTP200
+ABRIR TIPICO: maquinaria_reportes_cliente /api/maquinaria/reporte-clientes 200
+
+stdout | tests/nav-tabs-restrictivo.test.js > todos los módulos del residente típico tienen lectura HTTP200
+ABRIR TIPICO: matrices /api/projects/1397/matrices 200
+
+stdout | tests/nav-tabs-restrictivo.test.js > todos los módulos del residente típico tienen lectura HTTP200
+ABRIR TIPICO: generadorPresupuestos /api/projects/1397/matrices 200
+
+stdout | tests/nav-tabs-restrictivo.test.js > todos los módulos del residente típico tienen lectura HTTP200
+ABRIR TIPICO: ordenes /api/projects/1397/ordenes 200
+
+stdout | tests/nav-tabs-restrictivo.test.js > todos los módulos del residente típico tienen lectura HTTP200
+ABRIR TIPICO: almacen /api/projects/1397/almacen/salidas 200
+
+ ✓ tests/nav-tabs-restrictivo.test.js > todos los módulos del residente típico tienen lectura HTTP200 9742ms
+stdout | tests/nav-tabs-restrictivo.test.js > permisos globales de Proveedores/Cumplimiento prevalecen sobre un grant por obra
+NAV compras: ["programa","requisiciones","insumos","cotizador","proveedores","cumplimiento","ordenes","almacen"]
+
+stdout | tests/nav-tabs-restrictivo.test.js > permisos globales de Proveedores/Cumplimiento prevalecen sobre un grant por obra
+NAV compras: ["programa","requisiciones","insumos","cotizador","ordenes","almacen"]
+
+stdout | tests/nav-tabs-restrictivo.test.js > permisos globales de Proveedores/Cumplimiento prevalecen sobre un grant por obra
+GLOBAL vs OBRA: {"origin":["programa","requisiciones","insumos","cotizador","proveedores","cumplimiento","ordenes","almacen"],"actual":["programa","requisiciones","insumos","cotizador","ordenes","almacen"]}
+
+stdout | tests/nav-tabs-restrictivo.test.js > permisos globales de Proveedores/Cumplimiento prevalecen sobre un grant por obra
+ABRIR GLOBAL sin permiso: proveedores 403
+
+stdout | tests/nav-tabs-restrictivo.test.js > permisos globales de Proveedores/Cumplimiento prevalecen sobre un grant por obra
+ABRIR GLOBAL sin permiso: cumplimiento 403
+
+ ✓ tests/nav-tabs-restrictivo.test.js > permisos globales de Proveedores/Cumplimiento prevalecen sobre un grant por obra 2802ms
+stdout | tests/nav-tabs-restrictivo.test.js
+LIMPIEZA MARCADOR VERIFICADO: QA_RESACCESOS_1790815211917 {"usuarios":0,"proyectos":0,"clientes":0}
+
+
+ Test Files  2 passed (2)
+      Tests  11 passed (11)
+   Start at  18:40:09
+   Duration  57.13s (transform 455ms, setup 33ms, import 2.61s, tests 54.39s, environment 0ms)
+

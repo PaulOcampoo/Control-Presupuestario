@@ -1,0 +1,168 @@
+ORIGIN/MAIN public/app.js
+1858: 
+1859: // Fuente única de visibilidad de secciones (Rediseño UI v2, Fase 4): mismo filtro que ya usaba
+1860: // renderSidebar() — state.allowedTabs + excepciones de tile por rol. v1, galerías y shell v2 lo consumen.
+1861: function tabsVisiblesDeSeccion(def) {
+1862:   return def.tabs.filter((t) => state.allowedTabs.includes(t) && tabCuentaParaTileDeSeccion(t));
+1863: }
+1864: function seccionesVisiblesParaRol() {
+1865:   return Object.entries(SECTION_DEFS)
+1866:     .map(([id, def]) => ({ id, def, tabs: tabsVisiblesDeSeccion(def) }))
+1867:     .filter((sec) => sec.tabs.length > 0);
+1868: }
+1869: 
+1870: // ---------------------------------------------------------------------------
+ORIGIN/MAIN public/app.js
+2235:     }
+2236:     // tabCuentaParaTileDeSeccion(): mismo filtro adicional que
+2237:     // seccionesGridHtml() — un tab en EXCEPCIONES_TILE_SECCION para el rol
+2238:     // activo no cuenta para decidir si este grupo se pinta (ya se listó
+2239:     // arriba como ítem suelto en su lugar).
+2240:     const sectionRenderableTabs = tabsVisiblesDeSeccion(def);
+2241:     if (!sectionRenderableTabs.length) return;
+2242: 
+2243:     const isActive = state.section === sectionId;
+2244:     const isOpen = sbarGroupIsOpen(sectionId, isActive);
+2245:     html += `<div class="sbar-group ${isOpen ? 'open' : ''}">
+2246:       <button class="sbar-group-header ${isActive ? 'active' : ''}" data-sbar-group="${sectionId}" title="${esc(def.label)}">
+2247:         <span class="sbar-icon">${sectionIcon(sectionId, 18)}</span>
+2248:         <span class="sbar-label">${esc(def.label)}</span>
+2249:         <span class="sbar-chevron">${icon('chevron-down', 13)}</span>
+2250:       </button>
+2251:       <div class="sbar-group-body"><div>`;
+2252:     sectionRenderableTabs.forEach((t) => {
+2253:       const a = state.view === t ? 'active' : '';
+2254:       html += `<button class="sbar-item sbar-subitem ${a}" data-sbar-goto="${t}" title="${esc(TAB_LABELS[t])}">
+2255:         <span class="sbar-icon">${tabIcon(t, 18)}</span>
+ORIGIN/MAIN public/app.js
+5933: async function renderInicio(view) {
+5934:   const puedeVerResumen = state.allowedTabs.includes('resumen');
+5935:   let dashboardHtml = '<h2 class="section-title">Inicio</h2>';
+5936:   let resumen = null;
+5937:   let m = {};
+5938:   // Ambas se asignan dentro del `if (puedeVerResumen)` de abajo, pero deben
+5939:   // vivir en el scope de la función (no del bloque `if`) porque también las
+5940:   // usa el listener de #avanceViewToggle más abajo, en OTRO bloque `if`
+5941:   // hermano (prompt-rediseno-avance-fisico-financiero.md).
+5942:   let vistaAvance = 'bullet';
+5943:   let avanceWidgetHtml = () => '';
+5944:   // CSP bloquea style="width:...%"/"left:...%" inline en el HTML (server/
+5945:   // app.js, style-src 'self', sin unsafe-inline) — mismo caso ya resuelto
+5946:   // para .wpc-progress-fill: el % viaja en data-width/data-left y se aplica
+5947:   // por JS (element.style.foo = ...) DESPUÉS de insertar el HTML, que sí
+5948:   // está permitido (no pasa por el parser de HTML/CSS que CSP intercepta).
+5949:   const applyAvanceBulletStyles = () => {
+5950:     $$('#avanceWidgetBody [data-width]').forEach((el) => { el.style.width = el.dataset.width + '%'; });
+5951:     $$('#avanceWidgetBody [data-left]').forEach((el) => { el.style.left = el.dataset.left + '%'; });
+5952:   };
+5953: 
+5954:   // prompt-seccion-costos-implementacion.md: costos gana el tab 'resumen'
+5955:   // completo, pero el bloque de avance físico-financiero (los 3 KPIs de
+5956:   // avance + la dona) no es su función — se oculta específicamente para
+5957:   // este rol, sin afectar a nadie más. "Presupuesto total", "Datos de la
+5958:   // obra" y los KPIs de Requisiciones SÍ se quedan (son justo lo que costos
+5959:   // necesita para validar que el presupuesto cargó bien).
+5960:   const mostrarAvanceFinanciero = effectivePuesto() !== 'costos';
+5961:   if (puedeVerResumen) {
+5962:     resumen = await cached('resumen', () => api(`/projects/${state.projectId}/resumen`));
+5963:     m = resumen.meta || {};
+ORIGIN/MAIN public/app.js
+6131:   view.innerHTML = `
+6132:     ${puedeVerResumen ? '' : '<h2 class="section-title">Inicio</h2>'}
+6133:     <div class="inicio-secciones">
+6134:       <h3 class="section-title">Secciones</h3>
+6135:       ${seccionesGridHtml()}
+6136:     </div>
+6137:     ${puedeVerResumen ? dashboardHtml : ''}
+6138:   `;
+6139: 
+ORIGIN/MAIN public/styles.css
+5073:    Sin estilos inline (CSP): anchos de barra por data-* + JS. Sin sticky nuevo.
+5074:    ========================================================================== */
+5075: /* La grilla "Secciones" de Inicio se oculta solo con el shell v2 (la navegación ya está en el sidebar) */
+5076: .ui-v2 .inicio-secciones { display: none; }
+5077: 
+ORIGIN/MAIN server/app.js
+1216: app.get('/api/projects/:id/nav-tabs', h(requireProject), h(auth.verificarAccesoObra), h(async (req, res) => {
+1217:   if (req.user.puesto === 'admin' || req.user.puesto === 'desarrollador') {
+1218:     return res.json({ tabs: auth.tabsParaUsuario(req.user) });
+1219:   }
+1220:   const { rows } = await db.pool.query(
+1221:     `SELECT seccion, puede_ver FROM permisos_usuario
+1222:      WHERE usuario_id = $1 AND (proyecto_id = $2 OR proyecto_id IS NULL)
+1223:      ORDER BY proyecto_id NULLS FIRST`,
+1224:     [req.user.id, req.project.id]
+1225:   );
+1226:   // NULLS FIRST: la fila general se procesa primero y la específica de la
+1227:   // obra (si existe) la sobreescribe — mismo patrón que GET /api/permisos/me.
+1228:   const puedeVer = {};
+1229:   for (const row of rows) puedeVer[row.seccion] = row.puede_ver;
+1230:   const tabsResueltos = Object.entries(puedeVer)
+1231:     .filter(([, ok]) => ok)
+1232:     .flatMap(([seccion]) => SECCION_A_TAB[seccion] || []);
+1233:   // Intersección con PERMISSIONS.<rol>.tabs (línea base del rol): necesaria
+1234:   // desde que 'maquinaria' pasó a resolver en varios tabs (arriba) — sin
+1235:   // esto, cualquier rol con puede_ver=true en la sección 'maquinaria' (ej.
+1236:   // residente, cabo) ganaría las 6 subpestañas por esta vía aunque su rol
+1237:   // solo deba ver un subconjunto (residente nunca ve Bitácora de taller,
+1238:   // cabo tampoco, etc. — ver MAQUINARIA_TABS_* en public/app.js). Para el
+1239:   // resto de secciones (siempre 1 tab) esta intersección es un no-op: el
+1240:   // tab ya estaba en la lista base del rol.
+1241:   const tabsBaseRol = new Set(auth.PERMISSIONS[req.user.puesto]?.tabs || []);
+1242:   const tabs = [...new Set(tabsResueltos)].filter((t) => tabsBaseRol.has(t));
+1243:   // 'resumen'/'ordenes' quedan fuera de SECCION_A_TAB (ver comentario arriba)
+1244:   // — se resuelven aparte, tal cual como hoy (PERMISSIONS.<rol>.tabs), para
+1245:   // no regalarlos vía una sección de alcance más amplio (presupuestos/
+1246:   // ordenes_compra) ni perderlos para los roles que sí los tienen hoy
+1247:   // (tesorería/administración para resumen; residente/compras/tesorería/
+1248:   // administración/logística para ordenes) por no tener una sección
+1249:   // granular propia y exclusiva todavía.
+1250:   for (const tab of TABS_RESUELTOS_APARTE) {
+1251:     if (tab === 'almacen') {
+1252:       // Visible si tiene puede_ver=true en CUALQUIERA de las dos secciones
+1253:       // (ver comentario en TABS_RESUELTOS_APARTE) — a diferencia de
+1254:       // 'resumen'/'ordenes' abajo, que solo dependen de estar en la lista
+1255:       // base del rol.
+1256:       if (tabsBaseRol.has('almacen') && (puedeVer.almacen_entradas || puedeVer.almacen_salidas)) tabs.push('almacen');
+1257:       continue;
+1258:     }
+1259:     if (tabsBaseRol.has(tab)) tabs.push(tab);
+1260:   }
+1261:   res.json({ tabs });
+1262: }));
+ORIGIN/MAIN server/app.js
+9353: app.get('/api/projects/:id/ordenes', h(auth.allow('residente', 'cabo', 'compras', 'tesoreria', 'administracion', 'logistica')), h(requireProject), h(auth.verificarAccesoObra), h(auth.checkPermiso('ordenes_compra', 'puede_ver')), h(async (req, res) => {
+9354:   res.json(await getOrdenesData(req.project.id));
+9355: }));
+ORIGIN/MAIN public/app.js
+1349: function startSimulation(puesto) {
+1350:   if (!isDesarrollador()) return; // solo el rol real puede iniciar
+1351:   state.simulatedPuesto = puesto;
+1352:   state.allowedTabs = ROLE_TABS[puesto] || [];
+1353:   sessionStorage.setItem('sim_puesto', puesto);
+1354:   const isAdminSim = ['admin', 'desarrollador'].includes(puesto);
+1355:   $('#btnUpload').style.display = isAdminSim ? '' : 'none';
+1356:   $('#btnUploadDrawer').style.display = puesto === 'operador' ? 'none' : '';
+1357:   if (!state.allowedTabs.includes(state.view)) {
+1358:     state.view = state.allowedTabs[0] || 'inicio';
+1359:     state.section = VIEW_TO_SECTION[state.view] || null;
+1360:   }
+1361:   updateSimBanner();
+1362:   renderSidebar();
+1363:   renderMobileNav();
+1364:   renderView();
+ORIGIN/MAIN public/app.js
+4327: async function actualizarNavPorObra(id) {
+4328:   if (state.simulatedPuesto || isAdminRealSinSimular()) return;
+4329:   let tabs = state.cache[id].navTabs;
+4330:   if (!tabs) {
+4331:     try {
+4332:       tabs = (await api(`/projects/${id}/nav-tabs`)).tabs;
+4333:       state.cache[id].navTabs = tabs;
+4334:     } catch (_) {
+4335:       return; // sin red: conserva el nav ya cargado en vez de vaciarlo
+4336:     }
+4337:   }
+4338:   state.allowedTabs = tabs;
+4339:   state._realAllowedTabs = tabs;
+4340: }

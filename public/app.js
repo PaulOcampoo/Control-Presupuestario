@@ -67,7 +67,7 @@ const ROLE_TABS = {
   // trabajadores-nominas.md) — ver mismo comentario en server/auth.js.
   admin:          ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'cumplimiento', 'finanzas', 'compromisos', 'fondoGarantia', 'mapeo', 'trabajadores', 'nominas', 'estimaciones', 'generadoresObra', 'ordenesCambio', 'lotes', 'modelosVivienda', 'compradores', 'apartados', 'contratosVenta', 'infraVivienda', ...MAQUINARIA_TABS_ADMIN, 'cotizador', 'costos', 'costosDashboard', 'matrices', 'generadorPresupuestos', 'avance_clientes', 'composicion_costos', 'dashboardEjecutivo', 'catalogoBasicos', ...CONTABILIDAD_TABS],
   desarrollador:  ['resumen', 'contrato', 'impuestos', 'insumos', 'requisiciones', 'ordenes', 'avance', 'programa', 'destajo', 'usuarios', 'proveedores', 'cumplimiento', 'finanzas', 'compromisos', 'fondoGarantia', 'mapeo', 'trabajadores', 'nominas', 'estimaciones', 'generadoresObra', 'ordenesCambio', 'lotes', 'modelosVivienda', 'compradores', 'apartados', 'contratosVenta', 'infraVivienda', ...MAQUINARIA_TABS_ADMIN, 'cotizador', 'costos', 'costosDashboard', 'matrices', 'generadorPresupuestos', 'avance_clientes', 'composicion_costos', 'dashboardEjecutivo', 'catalogoBasicos', ...CONTABILIDAD_TABS],
-  residente:      ['programa', 'avance', 'destajo', 'requisiciones', 'insumos', 'ordenes', 'nominas', 'trabajadores', 'estimaciones', 'generadoresObra', 'ordenesCambio', 'lotes', 'modelosVivienda', 'infraVivienda', 'matrices', 'generadorPresupuestos'],
+  residente:      ['programa', 'avance', 'destajo', 'requisiciones', 'insumos', 'nominas', 'trabajadores', 'estimaciones', 'generadoresObra', 'ordenesCambio', 'lotes', 'modelosVivienda', 'maquinaria_catalogo', 'maquinaria_horas', 'maquinaria_reportes_cliente', 'matrices', 'generadorPresupuestos', 'ordenes', 'almacen'],
   cabo:           ['destajo', 'insumos', 'avance', 'requisiciones', ...MAQUINARIA_TABS_CABO, 'trabajadores', 'nominas', 'ordenesCambio'],
   compras:        ['programa', 'requisiciones', 'insumos', 'ordenes', 'proveedores', 'cumplimiento', 'cotizador'],
   tesoreria:      ['resumen', 'finanzas', 'compromisos', 'fondoGarantia', 'ordenes', 'contrato', 'impuestos', 'proveedores', 'cumplimiento', 'dashboardEjecutivo'],
@@ -5930,10 +5930,36 @@ async function renderEstadoActivo(view) {
 // Pantalla de entrada al proyecto: dashboard de Resumen (solo si el rol
 // tiene permiso 'resumen' — hoy admin-only, ver server/auth.js) + accesos
 // rápidos + las 5 tarjetas de sección. Reemplaza a la barra de tabs plana.
+const INICIO_ACCESOS_TITULO = '¿Qué quieres hacer hoy?';
+const INICIO_SIN_MODULOS = 'Todavía no tienes módulos asignados en esta obra. Pide acceso al administrador.';
+function accesosInicioHtml() {
+  const secciones = seccionesVisiblesParaRol().map((sec) => ({ ...sec, tabs: [...sec.tabs] }));
+  // Ítems sueltos del sidebar: conservar su sección de origen y el mismo filtro.
+  excepcionesDelRol().forEach(({ tab, seccionOrigen }) => {
+    if (!state.allowedTabs.includes(tab)) return;
+    let sec = secciones.find((s) => s.id === seccionOrigen);
+    if (!sec) { sec = { id: seccionOrigen, def: SECTION_DEFS[seccionOrigen], tabs: [] }; secciones.push(sec); }
+    sec.tabs.push(tab);
+  });
+  if (!secciones.length) return `<section class="inicio-accesos inicio-accesos-vacio"><p>${INICIO_SIN_MODULOS}</p></section>`;
+  return `<section class="inicio-accesos" aria-labelledby="inicioAccesosTitulo">
+    <h3 id="inicioAccesosTitulo">${INICIO_ACCESOS_TITULO}</h3>
+    ${secciones.map(({ id, def, tabs }) => `<section class="inicio-accesos-seccion" aria-labelledby="inicioAccesos-${esc(id)}">
+      <h4 id="inicioAccesos-${esc(id)}">${esc(def.label)}</h4>
+      <div class="inicio-accesos-grid">${tabs.map((tab) => `<button type="button" class="inicio-acceso" data-inicio-tab="${esc(tab)}"><span aria-hidden="true">${tabIcon(tab, 24)}</span><span>${esc(TAB_LABELS[tab] || tab)}</span></button>`).join('')}</div>
+    </section>`).join('')}
+  </section>`;
+}
+
 async function renderInicio(view) {
   const puedeVerResumen = state.allowedTabs.includes('resumen');
   let dashboardHtml = '<h2 class="section-title">Inicio</h2>';
   let resumen = null;
+  let widgetsVisibles = false;
+  const renderWidget = (render) => {
+    try { const html = render(); widgetsVisibles = true; return html; }
+    catch (_) { return ''; } // Un widget fallido no descarta los demás.
+  };
   let m = {};
   // Ambas se asignan dentro del `if (puedeVerResumen)` de abajo, pero deben
   // vivir en el scope de la función (no del bloque `if`) porque también las
@@ -5959,6 +5985,7 @@ async function renderInicio(view) {
   // necesita para validar que el presupuesto cargó bien).
   const mostrarAvanceFinanciero = effectivePuesto() !== 'costos';
   if (puedeVerResumen) {
+    try {
     resumen = await cached('resumen', () => api(`/projects/${state.projectId}/resumen`));
     m = resumen.meta || {};
     const ejec = resumen.avance_financiero_ejecutado_actual || 0;
@@ -6022,8 +6049,8 @@ async function renderInicio(view) {
     const gotoAttr = (tab) => (puedeIr(tab) ? ` data-goto="${tab}"` : '');
     // "Requiere atención": solo datos ya cargados en /resumen, sin endpoints nuevos.
     const atenciones = [];
-    if (resumen.requisiciones.alertas_cantidad) atenciones.push({ kind: 'red', ic: 'warning', t: `${resumen.requisiciones.alertas_cantidad} alerta(s) de cantidad`, s: 'Insumos solicitados por encima del presupuesto', go: 'requisiciones' });
-    if (resumen.requisiciones.alertas_precio) atenciones.push({ kind: 'yellow', ic: 'tag', t: `${resumen.requisiciones.alertas_precio} alerta(s) de precio`, s: 'Precio solicitado mayor al del presupuesto', go: 'requisiciones' });
+    if (resumen.requisiciones?.alertas_cantidad) atenciones.push({ kind: 'red', ic: 'warning', t: `${resumen.requisiciones.alertas_cantidad} alerta(s) de cantidad`, s: 'Insumos solicitados por encima del presupuesto', go: 'requisiciones' });
+    if (resumen.requisiciones?.alertas_precio) atenciones.push({ kind: 'yellow', ic: 'tag', t: `${resumen.requisiciones.alertas_precio} alerta(s) de precio`, s: 'Precio solicitado mayor al del presupuesto', go: 'requisiciones' });
     if (mostrarAvanceFinanciero && desviacion < -10) atenciones.push({ kind: 'red', ic: 'chart', t: `Atraso crítico: ${fmtNum(Math.abs(desviacion), 1)} pp vs. programa`, s: 'El avance ejecutado está muy por debajo de lo programado', go: 'avance' });
     if (finEstado) atenciones.push({ kind: finEstado.vencido ? 'red' : 'info', ic: 'clock', t: finEstado.vencido ? `Contrato vencido hace ${Math.abs(finEstado.dias)} día(s)` : `Contrato vence en ${finEstado.dias} día(s)`, s: `Fin de obra: ${fmtDate(m.fin_obra)}`, go: null });
     const atencionHtml = atenciones.length
@@ -6049,7 +6076,7 @@ async function renderInicio(view) {
 
       ${mostrarAvanceFinanciero ? `
       <div class="rs-grid">
-        <section class="card rs-hero">
+        ${renderWidget(() => `<section class="card rs-hero">
           <div class="rs-hero-top">
             <div>
               <span class="rs-lbl">Avance ejecutado</span>
@@ -6073,15 +6100,15 @@ async function renderInicio(view) {
             <div><span class="rs-lbl">Resto por ejecutar</span><b class="num" title="${esc(fmtMoney(restoPorEjecutar))}">${fmM(restoPorEjecutar)}</b></div>
             <div><span class="rs-lbl">Presupuesto sin IVA</span><b class="num" title="${esc(fmtMoney(resumen.presupuesto_total))}">${fmM(resumen.presupuesto_total)}</b></div>
           </div>
-        </section>
-        <aside class="card rs-att">
+        </section>`)}
+        ${renderWidget(() => `<aside class="card rs-att">
           <h3>Requiere atención ${atenciones.length ? `<span class="badge red">${atenciones.length}</span>` : ''}</h3>
           <div class="rs-att-list">${atencionHtml}</div>
-        </aside>
+        </aside>`)}
       </div>` : `
       <div class="rs-grid rs-grid-solo">
-        <aside class="card rs-att"><h3>Requiere atención ${atenciones.length ? `<span class="badge red">${atenciones.length}</span>` : ''}</h3><div class="rs-att-list">${atencionHtml}</div></aside>
-        <div class="kpi accent"><div class="label">Presupuesto total (sin IVA)</div><div class="value num">${fmtMoney(resumen.presupuesto_total)}</div></div>
+        ${renderWidget(() => `<aside class="card rs-att"><h3>Requiere atención ${atenciones.length ? `<span class="badge red">${atenciones.length}</span>` : ''}</h3><div class="rs-att-list">${atencionHtml}</div></aside>`)}
+        ${renderWidget(() => `<div class="kpi accent"><div class="label">Presupuesto total (sin IVA)</div><div class="value num">${fmtMoney(resumen.presupuesto_total)}</div></div>`)}
       </div>`}
 
       <div class="rs-grid ${mostrarAvanceFinanciero ? '' : 'rs-grid-solo'}" id="rsGridCurva">
@@ -6091,7 +6118,7 @@ async function renderInicio(view) {
             <div class="rs-legend"><span><i class="rs-dot rs-dot-acc"></i>Programado</span><span><i class="rs-dot rs-dot-ok"></i>Ejecutado</span></div></div>
           <div class="chart-wrap"><canvas id="chartResumenCurva"></canvas></div>
         </section>` : ''}
-        <section class="card rs-cardp">
+        ${renderWidget(() => `<section class="card rs-cardp">
           <div class="rs-hd"><h3>Datos de la obra</h3></div>
           <dl class="rs-dl">
             <div><dt>Inicio de obra</dt><dd>${fmtDate(m.inicio_obra)}</dd></div>
@@ -6113,31 +6140,32 @@ async function renderInicio(view) {
         ) : ''}
             ${m.fin_obra_actualizado_por ? `<div><dt>Última actualización</dt><dd>${esc(m.fin_obra_actualizado_por)} · ${fmtDateShort(m.fin_obra_actualizado_en)}</dd></div>` : ''}
           </dl>
-        </section>
+        </section>`)}
       </div>
 
       <div>
         <div class="rs-tools"><h3>Requisiciones de compra</h3>${puedeIr('requisiciones') ? '<button type="button" class="rs-link" data-goto="requisiciones">Ver todas →</button>' : ''}</div>
         <div class="rs-kp4">
-          <div class="card rs-kp"${gotoAttr('requisiciones')}><span class="rs-lbl">Activas</span><span class="rs-big2 num">${resumen.requisiciones.num_requisiciones}</span></div>
-          <div class="card rs-kp"${gotoAttr('requisiciones')}><span class="rs-lbl">Importe requisitado</span><span class="rs-big2 num" title="${esc(fmtMoney(resumen.requisiciones.importe_requisitado))}">${fmM(resumen.requisiciones.importe_requisitado)}</span></div>
-          <div class="card rs-kp"${gotoAttr('requisiciones')}><span class="rs-lbl">Alertas de cantidad</span><span class="rs-big2 num ${resumen.requisiciones.alertas_cantidad ? 'rs-neg' : ''}">${resumen.requisiciones.alertas_cantidad}</span></div>
-          <div class="card rs-kp"${gotoAttr('requisiciones')}><span class="rs-lbl">Alertas de precio</span><span class="rs-big2 num ${resumen.requisiciones.alertas_precio ? 'rs-neg' : ''}">${resumen.requisiciones.alertas_precio}</span></div>
+          ${renderWidget(() => `<div class="card rs-kp"${gotoAttr('requisiciones')}><span class="rs-lbl">Activas</span><span class="rs-big2 num">${resumen.requisiciones.num_requisiciones}</span></div>`)}
+          ${renderWidget(() => `<div class="card rs-kp"${gotoAttr('requisiciones')}><span class="rs-lbl">Importe requisitado</span><span class="rs-big2 num" title="${esc(fmtMoney(resumen.requisiciones.importe_requisitado))}">${fmM(resumen.requisiciones.importe_requisitado)}</span></div>`)}
+          ${renderWidget(() => `<div class="card rs-kp"${gotoAttr('requisiciones')}><span class="rs-lbl">Alertas de cantidad</span><span class="rs-big2 num ${resumen.requisiciones.alertas_cantidad ? 'rs-neg' : ''}">${resumen.requisiciones.alertas_cantidad}</span></div>`)}
+          ${renderWidget(() => `<div class="card rs-kp"${gotoAttr('requisiciones')}><span class="rs-lbl">Alertas de precio</span><span class="rs-big2 num ${resumen.requisiciones.alertas_precio ? 'rs-neg' : ''}">${resumen.requisiciones.alertas_precio}</span></div>`)}
         </div>
       </div>
     `;
+    } catch (_) { widgetsVisibles = false; /* El resumen comparte endpoint; su fallo no impide navegar. */ }
   }
 
-  view.innerHTML = `
+  view.innerHTML = widgetsVisibles ? `
     ${puedeVerResumen ? '' : '<h2 class="section-title">Inicio</h2>'}
     <div class="inicio-secciones">
       <h3 class="section-title">Secciones</h3>
       ${seccionesGridHtml()}
     </div>
-    ${puedeVerResumen ? dashboardHtml : ''}
-  `;
+    ${dashboardHtml}
+  ` : `<h2 class="section-title">Inicio</h2>${accesosInicioHtml()}`;
 
-  if (puedeVerResumen && mostrarAvanceFinanciero) {
+  if (widgetsVisibles && mostrarAvanceFinanciero) {
     // Instancia (o destruye) el Chart.js de la vista "Dona" — la vista
     // "Barra" (default, prompt-rediseno-avance-fisico-financiero.md) es CSS
     // puro, sin canvas. Extraído a función para poder recrearse al togglear
@@ -6203,8 +6231,7 @@ async function renderInicio(view) {
       state.charts.resumenDona._cpGridBgIndexes = [2]; // 'Resto por ejecutar' (índice 2 en backgroundColor)
       state.charts.resumenDona._cpAtrasoBgIndex = 1; // 'Programado por ejecutar' (índice 1) — re-derivar de cc.atraso en hot-swap de tema, mismo criterio que _cpGridBgIndexes
     };
-    initAvanceChart(vistaAvance);
-    applyAvanceBulletStyles();
+    try { initAvanceChart(vistaAvance); applyAvanceBulletStyles(); } catch (_) { /* Los demás widgets ya están pintados. */ }
 
     $('#avanceViewToggle')?.addEventListener('click', (e) => {
       const btn = e.target.closest('.avance-view-btn');
@@ -6216,11 +6243,10 @@ async function renderInicio(view) {
         b.classList.toggle('active', b.dataset.vista === nuevaVista);
       });
       $('#avanceWidgetBody').innerHTML = avanceWidgetHtml(nuevaVista);
-      initAvanceChart(nuevaVista);
-      applyAvanceBulletStyles();
+      try { initAvanceChart(nuevaVista); applyAvanceBulletStyles(); } catch (_) { /* Fallo aislado del gráfico. */ }
     });
   }
-  if (puedeVerResumen && mostrarAvanceFinanciero) {
+  if (widgetsVisibles && mostrarAvanceFinanciero) {
     (async () => {
       const card = $('#rsCurveCard');
       const grid = $('#rsGridCurva');
@@ -6283,13 +6309,14 @@ async function renderInicio(view) {
   // Botones de "Datos de la obra": SIEMPRE que puedeVerResumen, sin depender
   // de mostrarAvanceFinanciero — ese bloque se oculta para costos, pero
   // "Datos de la obra" (donde viven estos 2 botones) se queda visible.
-  if (puedeVerResumen) {
+  if (widgetsVisibles) {
     $('#btnEditFechasObra').addEventListener('click', () => openEditFechasObraModal(m));
     $('#btnActualizarFinObra')?.addEventListener('click', () => openQuickFinObraModal(m));
   }
 
   if (window.CPShellV2 && isUiV2()) window.CPShellV2.onNav(); // refresca contadores del sidebar con el resumen ya cargado
   $$('.section-card', view).forEach((el) => el.addEventListener('click', () => goToSection(el.dataset.section)));
+  $$('[data-inicio-tab]', view).forEach((btn) => btn.addEventListener('click', () => switchToView(btn.dataset.inicioTab)));
   $$('[data-goto]', view).forEach((btn) => btn.addEventListener('click', () => switchToView(btn.dataset.goto)));
 }
 
@@ -12297,7 +12324,8 @@ const TAB_A_SECCION = {
   infraVivienda: 'avance',
 };
 function defaultPermisosParaRolFrontend(puesto) {
-  const tabs = ROLE_TABS[puesto] || [];
+  // La corrección visual de la simulación no amplía el preset del editor de permisos.
+  const tabs = (ROLE_TABS[puesto] || []).filter((tab) => puesto !== 'residente' || (!tab.startsWith('maquinaria_') && tab !== 'almacen'));
   const secciones = new Set(tabs.map((t) => TAB_A_SECCION[t]).filter(Boolean));
   secciones.add('sugerencias');
   const porSeccion = {};
